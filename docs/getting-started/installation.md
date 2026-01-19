@@ -4,39 +4,40 @@
 
 - Go 1.24 or later (for building from source)
 - An MCP-compatible client (Claude Desktop, Claude Code, etc.)
+- PostgreSQL (optional, for audit logging)
 
 ## Installation Methods
 
 ### Go Install (Recommended)
 
 ```bash
-go install github.com/{{github-org}}/{{project-name}}/cmd/{{project-name}}@latest
+go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
 
 ### Homebrew (macOS)
 
 ```bash
-brew install {{github-org}}/tap/{{project-name}}
+brew install txn2/tap/mcp-data-platform
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/{{github-org}}/{{project-name}}.git
-cd {{project-name}}
-make build
+git clone https://github.com/txn2/mcp-data-platform.git
+cd mcp-data-platform
+go build -o mcp-data-platform ./cmd/mcp-data-platform
 ```
 
 ### Docker
 
 ```bash
-docker pull ghcr.io/{{github-org}}/{{project-name}}:latest
+docker pull ghcr.io/txn2/mcp-data-platform:latest
 ```
 
 ## Verify Installation
 
 ```bash
-{{project-name}} --version
+mcp-data-platform --version
 ```
 
 ## Next Steps
