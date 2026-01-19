@@ -1,13 +1,13 @@
 # Default owners for everything in the repo
-* @{{maintainer-github}}
+* @cjimti
 
 # Client and tools packages
-/pkg/ @{{maintainer-github}}
+/pkg/ @cjimti
 
 # Documentation
-/docs/ @{{maintainer-github}}
-*.md @{{maintainer-github}}
+/docs/ @cjimti
+*.md @cjimti
 
 # CI/CD and release configuration
-/.github/ @{{maintainer-github}}
-.goreleaser.yml @{{maintainer-github}}
+/.github/ @cjimti
+.goreleaser.yml @cjimti
