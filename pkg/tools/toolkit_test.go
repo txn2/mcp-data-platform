@@ -10,23 +10,28 @@ import (
 func TestToolkit_handleExampleTool(t *testing.T) {
 	tests := []struct {
 		name      string
-		args      map[string]interface{}
+		args      any
 		wantText  string
 		wantError bool
 	}{
 		{
 			name:     "valid message",
-			args:     map[string]interface{}{"message": "hello"},
+			args:     map[string]any{"message": "hello"},
 			wantText: "Echo: hello",
 		},
 		{
 			name:      "missing message",
-			args:      map[string]interface{}{},
+			args:      map[string]any{},
 			wantError: true,
 		},
 		{
 			name:      "invalid message type",
-			args:      map[string]interface{}{"message": 123},
+			args:      map[string]any{"message": 123},
+			wantError: true,
+		},
+		{
+			name:      "nil args",
+			args:      nil,
 			wantError: true,
 		},
 	}

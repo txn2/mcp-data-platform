@@ -1,4 +1,4 @@
-// Package tools provides MCP tool definitions for {{project-name}}.
+// Package tools provides MCP tool definitions for mcp-data-platform.
 package tools
 
 import (
@@ -35,7 +35,12 @@ func (t *Toolkit) RegisterTools(s *server.MCPServer) {
 
 // handleExampleTool handles the example_tool MCP call.
 func (t *Toolkit) handleExampleTool(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	message, ok := request.Params.Arguments["message"].(string)
+	args, ok := request.Params.Arguments.(map[string]any)
+	if !ok {
+		return mcp.NewToolResultError("invalid arguments"), nil
+	}
+
+	message, ok := args["message"].(string)
 	if !ok {
 		return mcp.NewToolResultError("message must be a string"), nil
 	}
