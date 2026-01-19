@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.{{github-org}}/{{project-name}}",
+  "description": "{{project-description}}",
+  "repository": {
+    "url": "https://github.com/{{github-org}}/{{project-name}}",
+    "source": "github"
+  },
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_darwin_arm64.mcpb",
+      "fileSha256": "PLACEHOLDER_SHA256",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_darwin_amd64.mcpb",
+      "fileSha256": "PLACEHOLDER_SHA256",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_windows_amd64.mcpb",
+      "fileSha256": "PLACEHOLDER_SHA256",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "tags": [
+    "mcp"
+  ]
+}

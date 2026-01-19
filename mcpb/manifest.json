@@ -1,0 +1,49 @@
+{
+  "manifest_version": "0.3",
+  "name": "{{project-name}}",
+  "display_name": "{{project-name}} MCP Server",
+  "icon": "icon.png",
+  "version": "0.0.0",
+  "description": "{{project-description}}",
+  "long_description": "{{project-description}}",
+  "author": {
+    "name": "Craig Johnston",
+    "email": "{{maintainer-email}}",
+    "url": "https://imti.co"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/{{github-org}}/{{project-name}}"
+  },
+  "homepage": "https://github.com/{{github-org}}/{{project-name}}",
+  "documentation": "https://github.com/{{github-org}}/{{project-name}}#readme",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "{{project-name}}",
+    "mcp_config": {
+      "command": "${__dirname}/{{project-name}}",
+      "args": [],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/{{project-name}}.exe"
+        }
+      }
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32"]
+  },
+  "tools": [
+    {
+      "name": "example_tool",
+      "description": "An example tool that echoes a message"
+    }
+  ],
+  "user_config": {}
+}

@@ -1,0 +1,52 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  enable:
+    - misspell
+    - unconvert
+    - nakedret
+    - prealloc
+    - bodyclose
+    - gocyclo
+  disable:
+    - gosec
+    - gocritic
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 30
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
+    gocyclo:
+      min-complexity: 10
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/{{github-org}}/{{project-name}}
+  exclusions:
+    generated: lax

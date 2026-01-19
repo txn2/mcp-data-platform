@@ -1,0 +1,7 @@
+/* Custom styles for {{project-name}} documentation */
+
+:root {
+  --md-primary-fg-color: #1976d2;
+  --md-primary-fg-color--light: #42a5f5;
+  --md-primary-fg-color--dark: #0d47a1;
+}
