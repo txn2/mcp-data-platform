@@ -1,43 +1,47 @@
 {
   "manifest_version": "0.3",
-  "name": "{{project-name}}",
-  "display_name": "{{project-name}} MCP Server",
+  "name": "mcp-data-platform",
+  "display_name": "MCP Data Platform Server",
   "icon": "icon.png",
   "version": "0.0.0",
-  "description": "{{project-description}}",
-  "long_description": "{{project-description}}",
+  "description": "Semantic data platform MCP server with bidirectional cross-injection",
+  "long_description": "A semantic data platform MCP server that composes multiple data tools (Trino, DataHub, S3) with bidirectional cross-injection - tool responses automatically include critical context from other services.",
   "author": {
     "name": "Craig Johnston",
-    "email": "{{maintainer-email}}",
+    "email": "cj@imti.co",
     "url": "https://imti.co"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/{{github-org}}/{{project-name}}"
+    "url": "https://github.com/txn2/mcp-data-platform"
   },
-  "homepage": "https://github.com/{{github-org}}/{{project-name}}",
-  "documentation": "https://github.com/{{github-org}}/{{project-name}}#readme",
+  "homepage": "https://github.com/txn2/mcp-data-platform",
+  "documentation": "https://github.com/txn2/mcp-data-platform#readme",
   "license": "Apache-2.0",
   "keywords": [
-    "mcp"
+    "mcp",
+    "data-platform",
+    "semantic",
+    "trino",
+    "datahub"
   ],
   "server": {
     "type": "binary",
-    "entry_point": "{{project-name}}",
+    "entry_point": "mcp-data-platform",
     "mcp_config": {
-      "command": "${__dirname}/{{project-name}}",
+      "command": "${__dirname}/mcp-data-platform",
       "args": [],
       "env": {},
       "platform_overrides": {
         "win32": {
-          "command": "${__dirname}/{{project-name}}.exe"
+          "command": "${__dirname}/mcp-data-platform.exe"
         }
       }
     }
   },
   "compatibility": {
     "claude_desktop": ">=1.0.0",
-    "platforms": ["darwin", "win32"]
+    "platforms": ["darwin", "win32", "linux"]
   },
   "tools": [
     {
