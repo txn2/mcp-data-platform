@@ -20,7 +20,7 @@ Treat everyone with respect. We're here to write good software.
 
 ## Enforcement
 
-Unacceptable behavior can be reported to {{maintainer-email}}. Reports will be reviewed and addressed appropriately. Maintainers may remove comments, commits, or contributions that violate this code, and may ban repeat offenders.
+Unacceptable behavior can be reported to cj@imti.co. Reports will be reviewed and addressed appropriately. Maintainers may remove comments, commits, or contributions that violate this code, and may ban repeat offenders.
 
 ## Scope
 
