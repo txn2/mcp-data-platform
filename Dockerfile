@@ -7,10 +7,10 @@ RUN apk add --no-cache ca-certificates
 
 # Copy the binary from goreleaser (multi-arch build context)
 ARG TARGETARCH
-COPY linux/${TARGETARCH}/{{project-name}} /usr/local/bin/{{project-name}}
+COPY linux/${TARGETARCH}/mcp-data-platform /usr/local/bin/mcp-data-platform
 
 # Run as non-root user
 RUN adduser -D -u 1000 mcp
 USER mcp
 
-ENTRYPOINT ["/usr/local/bin/{{project-name}}"]
+ENTRYPOINT ["/usr/local/bin/mcp-data-platform"]
