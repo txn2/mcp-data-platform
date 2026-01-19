@@ -1,14 +1,14 @@
-# {{project-name}} Makefile
+# mcp-data-platform Makefile
 
 # Variables
-BINARY_NAME := {{project-name}}
+BINARY_NAME := mcp-data-platform
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GO_VERSION := $(shell go version | cut -d ' ' -f 3)
-LDFLAGS := -ldflags "-X github.com/{{github-org}}/{{project-name}}/internal/server.Version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=$(VERSION)"
 
 # Directories
-CMD_DIR := ./cmd/{{project-name}}
+CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
 
@@ -108,8 +108,8 @@ security:
 ## docker-build: Build Docker image
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t {{github-org}}/{{project-name}}:$(VERSION) .
-	docker tag {{github-org}}/{{project-name}}:$(VERSION) {{github-org}}/{{project-name}}:latest
+	docker build -t txn2/mcp-data-platform:$(VERSION) .
+	docker tag txn2/mcp-data-platform:$(VERSION) txn2/mcp-data-platform:latest
 
 ## run: Run the server
 run: build
@@ -138,7 +138,7 @@ docs-build:
 
 ## help: Show this help message
 help:
-	@echo "{{project-name}} Makefile"
+	@echo "mcp-data-platform Makefile"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
