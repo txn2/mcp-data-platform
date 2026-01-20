@@ -4,8 +4,7 @@ package tools
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Toolkit provides MCP tools.
@@ -18,34 +17,27 @@ func NewToolkit() *Toolkit {
 	return &Toolkit{}
 }
 
+// ExampleToolArgs defines the arguments for the example tool.
+type ExampleToolArgs struct {
+	Message string `json:"message" jsonschema:"required" jsonschema_description:"The message to echo"`
+}
+
 // RegisterTools registers all tools with the MCP server.
-func (t *Toolkit) RegisterTools(s *server.MCPServer) {
-	// Register example tool
-	s.AddTool(
-		mcp.NewTool("example_tool",
-			mcp.WithDescription("An example tool that echoes a message"),
-			mcp.WithString("message",
-				mcp.Required(),
-				mcp.Description("The message to echo"),
-			),
-		),
-		t.handleExampleTool,
-	)
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+	// Register example tool using the generic AddTool function
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "example_tool",
+		Description: "An example tool that echoes a message",
+	}, t.handleExampleTool)
 }
 
 // handleExampleTool handles the example_tool MCP call.
-func (t *Toolkit) handleExampleTool(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return mcp.NewToolResultError("invalid arguments"), nil
-	}
-
-	message, ok := args["message"].(string)
-	if !ok {
-		return mcp.NewToolResultError("message must be a string"), nil
-	}
-
-	return mcp.NewToolResultText("Echo: " + message), nil
+func (t *Toolkit) handleExampleTool(_ context.Context, _ *mcp.CallToolRequest, args ExampleToolArgs) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "Echo: " + args.Message},
+		},
+	}, nil, nil
 }
 
 // Close cleans up any resources used by the toolkit.
