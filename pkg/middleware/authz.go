@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Authorizer checks if a user is authorized for a tool.
@@ -26,7 +26,7 @@ func AuthzMiddleware(authorizer Authorizer) Middleware {
 			pc.Authorized = authorized
 			if !authorized {
 				pc.AuthzError = reason
-				return mcp.NewToolResultError("not authorized: " + reason), nil
+				return NewToolResultError("not authorized: " + reason), nil
 			}
 
 			return next(ctx, request)
