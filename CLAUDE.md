@@ -163,7 +163,10 @@ mcp-data-platform/
 
 ## Key Dependencies
 
-- `github.com/mark3labs/mcp-go` - MCP SDK for Go
+- `github.com/modelcontextprotocol/go-sdk` - Official MCP SDK for Go (same as txn2 MCP ecosystem)
+- `github.com/txn2/mcp-trino` - Trino MCP toolkit
+- `github.com/txn2/mcp-datahub` - DataHub MCP toolkit
+- `github.com/txn2/mcp-s3` - S3 MCP toolkit
 - `golang.org/x/crypto` - Cryptographic utilities (bcrypt for OAuth)
 - `gopkg.in/yaml.v3` - YAML configuration parsing
 
