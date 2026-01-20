@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Authenticator validates authentication credentials.
@@ -33,7 +33,7 @@ func AuthMiddleware(authenticator Authenticator) Middleware {
 			// Authenticate
 			userInfo, err := authenticator.Authenticate(ctx)
 			if err != nil {
-				return mcp.NewToolResultError("authentication failed: " + err.Error()), nil
+				return NewToolResultError("authentication failed: " + err.Error()), nil
 			}
 
 			if userInfo != nil {
@@ -45,6 +45,25 @@ func AuthMiddleware(authenticator Authenticator) Middleware {
 
 			return next(ctx, request)
 		}
+	}
+}
+
+// NewToolResultError creates an error result.
+func NewToolResultError(errMsg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: errMsg},
+		},
+	}
+}
+
+// NewToolResultText creates a text result.
+func NewToolResultText(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: text},
+		},
 	}
 }
 
