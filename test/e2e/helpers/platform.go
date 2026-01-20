@@ -129,6 +129,9 @@ func (tp *TestPlatform) StorageProvider() storage.Provider {
 
 // MiddlewareChain returns the middleware chain for direct testing.
 func (tp *TestPlatform) MiddlewareChain() *middleware.Chain {
+	if tp.Platform == nil {
+		return nil
+	}
 	return tp.Platform.MiddlewareChain()
 }
 
