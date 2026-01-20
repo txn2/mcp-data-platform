@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Handler is the type for tool handlers.
