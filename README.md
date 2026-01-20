@@ -1,101 +1,230 @@
-# {{github-org}}/{{project-name}}
+# txn2/mcp-data-platform
 
-[![GitHub license](https://img.shields.io/github/license/{{github-org}}/{{project-name}}.svg)](https://github.com/{{github-org}}/{{project-name}}/blob/main/LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/{{github-org}}/{{project-name}}.svg)](https://pkg.go.dev/github.com/{{github-org}}/{{project-name}})
-[![Go Report Card](https://goreportcard.com/badge/github.com/{{github-org}}/{{project-name}})](https://goreportcard.com/report/github.com/{{github-org}}/{{project-name}})
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/{{github-org}}/{{project-name}}/badge)](https://scorecard.dev/viewer/?uri=github.com/{{github-org}}/{{project-name}})
-[![codecov](https://codecov.io/gh/{{github-org}}/{{project-name}}/branch/main/graph/badge.svg)](https://codecov.io/gh/{{github-org}}/{{project-name}})
-[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
+[![CI](https://github.com/txn2/mcp-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/txn2/mcp-data-platform/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/txn2/mcp-data-platform/graph/badge.svg)](https://codecov.io/gh/txn2/mcp-data-platform)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
+[![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-data-platform)](https://goreportcard.com/report/github.com/txn2/mcp-data-platform)
+[![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
+[![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 
-**Full documentation at [{{docs-url}}](https://{{docs-url}})**
+A semantic data platform MCP server that composes multiple data tools with **bidirectional cross-injection** - tool responses automatically include critical context from other services.
 
-{{project-description}}
+## Features
+
+- **Semantic-First Data Access**: All data queries include business context from DataHub
+- **Bidirectional Cross-Injection**:
+  - Trino results enriched with DataHub metadata (owners, tags, quality scores)
+  - DataHub searches include query availability from Trino
+- **OAuth 2.1 Authentication**: OIDC, API keys, PKCE, Dynamic Client Registration
+- **Role-Based Personas**: Tool filtering with wildcard patterns (allow/deny rules)
+- **Comprehensive Audit Logging**: PostgreSQL-backed audit trail
+- **Middleware Architecture**: Extensible request/response processing
+ 
+## Architecture
+
+```mermaid
+graph LR
+    subgraph "MCP Data Platform"
+        DataHub[DataHub<br/>Semantic Metadata]
+        Platform[Platform<br/>Bridge]
+        Trino[Trino<br/>Query Engine]
+
+        DataHub <-->|"enrichment"| Platform
+        Platform <-->|"enrichment"| Trino
+    end
+
+    Client([MCP Client]) --> Platform
+    Platform --> Client
+```
+
+**Cross-Injection Flow:**
+- **Trino → DataHub**: Query results include owners, tags, glossary terms, quality scores
+- **DataHub → Trino**: Search results include query availability and sample SQL
 
 ## Installation
 
 ### Go Install
 
 ```bash
-go install github.com/{{github-org}}/{{project-name}}/cmd/{{project-name}}@latest
+go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/{{github-org}}/{{project-name}}.git
-cd {{project-name}}
-make build
-```
-
-### Docker
-
-```bash
-docker run ghcr.io/{{github-org}}/{{project-name}}
+git clone https://github.com/txn2/mcp-data-platform.git
+cd mcp-data-platform
+go build -o mcp-data-platform ./cmd/mcp-data-platform
 ```
 
 ## Quick Start
 
+### Standalone Server
+
+```bash
+# Run with stdio transport (default)
+./mcp-data-platform
+
+# Run with configuration file
+./mcp-data-platform --config configs/platform.yaml
+
+# Run with SSE transport
+./mcp-data-platform --transport sse --address :8080
+```
+
 ### Claude Code CLI
 
 ```bash
-claude mcp add {{project-name}} -- {{project-name}}
+claude mcp add mcp-data-platform -- mcp-data-platform
 ```
 
 ### Claude Desktop
 
-Add to your `claude_desktop_config.json` (find via Claude Desktop → Settings → Developer):
+Add to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "{{project-name}}": {
-      "command": "{{project-name}}",
-      "env": {}
+    "mcp-data-platform": {
+      "command": "mcp-data-platform",
+      "args": ["--config", "/path/to/platform.yaml"]
     }
   }
 }
 ```
 
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `example_tool` | Example tool description |
-
 ## Configuration
+
+Create a `platform.yaml` configuration file:
+
+```yaml
+server:
+  name: mcp-data-platform
+  transport: stdio
+
+auth:
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+  api_keys:
+    enabled: true
+    keys:
+      - key: "${API_KEY_ADMIN}"
+        name: "admin"
+        roles: ["admin"]
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_*", "datahub_*"]
+        deny: ["*_delete_*"]
+    admin:
+      display_name: "Administrator"
+      roles: ["admin"]
+      tools:
+        allow: ["*"]
+  default_persona: analyst
+
+semantic:
+  provider: datahub
+  cache:
+    enabled: true
+    ttl: 5m
+
+injection:
+  trino_semantic_enrichment: true
+  datahub_query_enrichment: true
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  retention_days: 90
+
+database:
+  dsn: "${DATABASE_URL}"
+```
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EXAMPLE_VAR` | Example variable | `default` |
+| `DATABASE_URL` | PostgreSQL connection string for audit logs | - |
+| `API_KEY_ADMIN` | Admin API key (if using API key auth) | - |
+
+## Core Packages
+
+| Package | Description |
+|---------|-------------|
+| `pkg/platform` | Main platform facade and configuration |
+| `pkg/auth` | OIDC and API key authentication |
+| `pkg/oauth` | OAuth 2.1 server with DCR and PKCE |
+| `pkg/persona` | Role-based personas and tool filtering |
+| `pkg/semantic` | Semantic metadata provider abstraction |
+| `pkg/query` | Query execution provider abstraction |
+| `pkg/middleware` | Request/response middleware chain |
+| `pkg/registry` | Toolkit registration and management |
+| `pkg/audit` | Audit logging with PostgreSQL storage |
+| `pkg/tuning` | Prompts, hints, and operational rules |
 
 ## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/{{github-org}}/{{project-name}}.git
-cd {{project-name}}
-
-# Build
-make build
-
-# Run tests
-make test
+# Run tests with race detection
+go test -race ./...
 
 # Run linter
-make lint
+golangci-lint run ./...
 
-# Run all checks
-make verify
+# Run security scan
+gosec ./...
 
-# Serve documentation locally
-make docs-serve
+# Build
+go build -o mcp-data-platform ./cmd/mcp-data-platform
+```
+
+## Library Usage
+
+The platform can be imported and used as a library:
+
+```go
+import (
+    "github.com/txn2/mcp-data-platform/pkg/platform"
+)
+
+// Load configuration
+cfg, err := platform.LoadConfig("platform.yaml")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create platform
+p, err := platform.New(platform.WithConfig(cfg))
+if err != nil {
+    log.Fatal(err)
+}
+defer p.Close()
+
+// Start the platform
+if err := p.Start(ctx); err != nil {
+    log.Fatal(err)
+}
+
+// Access the MCP server
+mcpServer := p.MCPServer()
 ```
 
 ## Contributing
 
-We welcome contributions for bug fixes, tests, and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions for bug fixes, tests, and documentation. Please ensure:
+
+1. All tests pass (`go test -race ./...`)
+2. Code is formatted (`gofmt`)
+3. Linter passes (`golangci-lint run ./...`)
+4. Security scan passes (`gosec ./...`)
 
 ## License
 
