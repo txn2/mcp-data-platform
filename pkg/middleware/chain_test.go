@@ -4,15 +4,34 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// newTextResult creates a simple text result for testing.
+func newTextResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: text},
+		},
+	}
+}
+
+// newErrorResult creates an error result for testing.
+func newErrorResult(errMsg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: errMsg},
+		},
+	}
+}
 
 func TestChain(t *testing.T) {
 	t.Run("empty chain", func(t *testing.T) {
 		chain := NewChain()
 
 		handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText("success"), nil
+			return newTextResult("success"), nil
 		}
 
 		wrapped := chain.Wrap(handler)
@@ -47,7 +66,7 @@ func TestChain(t *testing.T) {
 
 		handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			callOrder = append(callOrder, "handler")
-			return mcp.NewToolResultText("success"), nil
+			return newTextResult("success"), nil
 		}
 
 		wrapped := chain.Wrap(handler)
@@ -88,7 +107,7 @@ func TestChain(t *testing.T) {
 
 		handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			callOrder = append(callOrder, "handler")
-			return mcp.NewToolResultText("success"), nil
+			return newTextResult("success"), nil
 		}
 
 		wrapped := chain.Wrap(handler)
@@ -112,9 +131,9 @@ func TestChain(t *testing.T) {
 		handler := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
-				return mcp.NewToolResultError("no platform context"), nil
+				return newErrorResult("no platform context"), nil
 			}
-			return mcp.NewToolResultText(pc.ToolName), nil
+			return newTextResult(pc.ToolName), nil
 		}
 
 		wrapped := chain.WrapWithContext(handler, "test_tool", "test_kind", "test_name")
@@ -124,7 +143,7 @@ func TestChain(t *testing.T) {
 			t.Fatalf("handler error = %v", err)
 		}
 
-		textContent, ok := result.Content[0].(mcp.TextContent)
+		textContent, ok := result.Content[0].(*mcp.TextContent)
 		if !ok {
 			t.Fatal("expected TextContent")
 		}
