@@ -2,7 +2,7 @@
 package registry
 
 import (
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -18,7 +18,7 @@ type Toolkit interface {
 	Name() string
 
 	// RegisterTools registers all tools with the MCP server.
-	RegisterTools(s *server.MCPServer)
+	RegisterTools(s *mcp.Server)
 
 	// Tools returns a list of tool names provided by this toolkit.
 	Tools() []string
