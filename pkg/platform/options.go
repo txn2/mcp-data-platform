@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -24,6 +25,9 @@ type Options struct {
 
 	// QueryProvider (optional, will be created from config if not provided).
 	QueryProvider query.Provider
+
+	// StorageProvider (optional, will be created from config if not provided).
+	StorageProvider storage.Provider
 
 	// Authenticator (optional, will be created from config if not provided).
 	Authenticator middleware.Authenticator
@@ -72,6 +76,13 @@ func WithSemanticProvider(provider semantic.Provider) Option {
 func WithQueryProvider(provider query.Provider) Option {
 	return func(o *Options) {
 		o.QueryProvider = provider
+	}
+}
+
+// WithStorageProvider sets the storage provider.
+func WithStorageProvider(provider storage.Provider) Option {
+	return func(o *Options) {
+		o.StorageProvider = provider
 	}
 }
 
