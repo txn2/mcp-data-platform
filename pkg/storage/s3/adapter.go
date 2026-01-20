@@ -28,11 +28,32 @@ type Adapter struct {
 	client *s3client.Client
 }
 
-// New creates a new S3 adapter.
+// New creates a new S3 adapter with an existing client.
 func New(cfg Config, client *s3client.Client) (*Adapter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("s3 client is required")
 	}
+	return &Adapter{
+		cfg:    cfg,
+		client: client,
+	}, nil
+}
+
+// NewFromConfig creates a new S3 adapter with a new client from config.
+func NewFromConfig(cfg Config) (*Adapter, error) {
+	clientCfg := &s3client.Config{
+		Region:          cfg.Region,
+		Endpoint:        cfg.Endpoint,
+		AccessKeyID:     cfg.AccessKeyID,
+		SecretAccessKey: cfg.SecretKey,
+		Name:            cfg.ConnectionName,
+	}
+
+	client, err := s3client.New(context.Background(), clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating s3 client: %w", err)
+	}
+
 	return &Adapter{
 		cfg:    cfg,
 		client: client,
