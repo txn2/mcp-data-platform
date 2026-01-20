@@ -5,7 +5,7 @@ go 1.24.7
 require (
 	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.2.0
-	github.com/txn2/mcp-datahub v0.2.2
+	github.com/txn2/mcp-datahub v0.3.0
 	github.com/txn2/mcp-s3 v0.1.4
 	github.com/txn2/mcp-trino v0.2.1
 	golang.org/x/crypto v0.47.0
