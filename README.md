@@ -13,8 +13,10 @@ A semantic data platform MCP server that composes multiple data tools with **bid
 
 - **Semantic-First Data Access**: All data queries include business context from DataHub
 - **Bidirectional Cross-Injection**:
-  - Trino results enriched with DataHub metadata (owners, tags, quality scores)
+  - Trino results enriched with DataHub metadata (owners, tags, deprecation)
   - DataHub searches include query availability from Trino
+  - S3 listings enriched with matching DataHub datasets
+  - DataHub S3 searches include storage availability
 - **OAuth 2.1 Authentication**: OIDC, API keys, PKCE, Dynamic Client Registration
 - **Role-Based Personas**: Tool filtering with wildcard patterns (allow/deny rules)
 - **Comprehensive Audit Logging**: PostgreSQL-backed audit trail
@@ -28,9 +30,11 @@ graph LR
         DataHub[DataHub<br/>Semantic Metadata]
         Platform[Platform<br/>Bridge]
         Trino[Trino<br/>Query Engine]
+        S3[S3<br/>Object Storage]
 
         DataHub <-->|"enrichment"| Platform
         Platform <-->|"enrichment"| Trino
+        Platform <-->|"enrichment"| S3
     end
 
     Client([MCP Client]) --> Platform
@@ -38,8 +42,10 @@ graph LR
 ```
 
 **Cross-Injection Flow:**
-- **Trino → DataHub**: Query results include owners, tags, glossary terms, quality scores
+- **Trino → DataHub**: Query results include owners, tags, glossary terms, deprecation warnings
 - **DataHub → Trino**: Search results include query availability and sample SQL
+- **S3 → DataHub**: Object listings include matching dataset metadata from DataHub
+- **DataHub → S3**: Search results for S3 datasets include storage availability
 
 ## Installation
 
@@ -169,6 +175,9 @@ database:
 | `pkg/registry` | Toolkit registration and management |
 | `pkg/audit` | Audit logging with PostgreSQL storage |
 | `pkg/tuning` | Prompts, hints, and operational rules |
+| `pkg/storage` | S3-compatible storage provider abstraction |
+| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3) |
+| `pkg/client` | Platform client utilities |
 
 ## Development
 
