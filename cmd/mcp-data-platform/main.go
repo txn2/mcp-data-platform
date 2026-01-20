@@ -5,11 +5,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -51,7 +53,7 @@ func setupSignalHandler() context.Context {
 }
 
 type serverResult struct {
-	mcpServer *server.MCPServer
+	mcpServer *mcp.Server
 	platform  *platform.Platform
 	toolkit   interface{ Close() error }
 }
@@ -111,13 +113,20 @@ func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
 	}
 }
 
-func startServer(mcpServer *server.MCPServer, opts serverOptions) error {
+func startServer(mcpServer *mcp.Server, opts serverOptions) error {
 	switch opts.transport {
 	case "stdio":
-		return server.ServeStdio(mcpServer)
+		return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
 	case "sse":
-		sseServer := server.NewSSEServer(mcpServer, server.WithBaseURL(opts.address))
-		return sseServer.Start(opts.address)
+		handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
+			return mcpServer
+		}, nil)
+		server := &http.Server{
+			Addr:              opts.address,
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		return server.ListenAndServe()
 	default:
 		return fmt.Errorf("unknown transport: %s", opts.transport)
 	}
