@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/tools"
@@ -15,7 +15,7 @@ import (
 var Version = "dev"
 
 // New creates a new MCP server with the given configuration.
-func New(cfg *platform.Config) (*server.MCPServer, *platform.Platform, error) {
+func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 	// Create platform
 	p, err := platform.New(platform.WithConfig(cfg))
 	if err != nil {
@@ -35,8 +35,12 @@ func New(cfg *platform.Config) (*server.MCPServer, *platform.Platform, error) {
 }
 
 // NewWithDefaults creates a new MCP server with default configuration.
-func NewWithDefaults() (*server.MCPServer, *tools.Toolkit, error) {
-	mcpServer := server.NewMCPServer("mcp-data-platform", Version, server.WithLogging())
+func NewWithDefaults() (*mcp.Server, *tools.Toolkit, error) {
+	impl := &mcp.Implementation{
+		Name:    "mcp-data-platform",
+		Version: Version,
+	}
+	mcpServer := mcp.NewServer(impl, nil)
 
 	toolkit := tools.NewToolkit()
 	toolkit.RegisterTools(mcpServer)
@@ -45,7 +49,7 @@ func NewWithDefaults() (*server.MCPServer, *tools.Toolkit, error) {
 }
 
 // NewWithConfig creates a new MCP server with the specified config file.
-func NewWithConfig(configPath string) (*server.MCPServer, *platform.Platform, error) {
+func NewWithConfig(configPath string) (*mcp.Server, *platform.Platform, error) {
 	cfg, err := platform.LoadConfig(configPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading config: %w", err)
