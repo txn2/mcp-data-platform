@@ -21,6 +21,7 @@ type Config struct {
 	Toolkits  map[string]any  `yaml:"toolkits"`
 	Semantic  SemanticConfig  `yaml:"semantic"`
 	Query     QueryConfig     `yaml:"query"`
+	Storage   StorageConfig   `yaml:"storage"`
 	Injection InjectionConfig `yaml:"injection"`
 	Tuning    TuningConfig    `yaml:"tuning"`
 	Audit     AuditConfig     `yaml:"audit"`
@@ -140,10 +141,18 @@ type QueryConfig struct {
 	Instance string `yaml:"instance"`
 }
 
+// StorageConfig configures the storage provider.
+type StorageConfig struct {
+	Provider string `yaml:"provider"` // "s3", "noop"
+	Instance string `yaml:"instance"`
+}
+
 // InjectionConfig configures cross-injection.
 type InjectionConfig struct {
-	TrinoSemanticEnrichment bool `yaml:"trino_semantic_enrichment"`
-	DataHubQueryEnrichment  bool `yaml:"datahub_query_enrichment"`
+	TrinoSemanticEnrichment  bool `yaml:"trino_semantic_enrichment"`
+	DataHubQueryEnrichment   bool `yaml:"datahub_query_enrichment"`
+	S3SemanticEnrichment     bool `yaml:"s3_semantic_enrichment"`
+	DataHubStorageEnrichment bool `yaml:"datahub_storage_enrichment"`
 }
 
 // TuningConfig configures AI tuning.
