@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -167,7 +167,7 @@ func (r *Registry) AllTools() []string {
 }
 
 // RegisterAllTools registers all tools from all toolkits with the MCP server.
-func (r *Registry) RegisterAllTools(s *server.MCPServer) {
+func (r *Registry) RegisterAllTools(s *mcp.Server) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

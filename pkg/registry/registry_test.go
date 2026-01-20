@@ -3,7 +3,7 @@ package registry
 import (
 	"testing"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -20,7 +20,7 @@ type mockToolkit struct {
 
 func (m *mockToolkit) Kind() string                            { return m.kind }
 func (m *mockToolkit) Name() string                            { return m.name }
-func (m *mockToolkit) RegisterTools(_ *server.MCPServer)       {}
+func (m *mockToolkit) RegisterTools(_ *mcp.Server)             {}
 func (m *mockToolkit) Tools() []string                         { return m.tools }
 func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {}
 func (m *mockToolkit) SetQueryProvider(_ query.Provider)       {}
