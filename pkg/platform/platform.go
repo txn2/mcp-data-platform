@@ -15,6 +15,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
+	"github.com/txn2/mcp-data-platform/pkg/storage"
+	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -30,6 +32,7 @@ type Platform struct {
 	// Providers
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+	storageProvider  storage.Provider
 
 	// Registries
 	toolkitRegistry *registry.Registry
@@ -88,7 +91,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	return nil
 }
 
-// initProviders initializes semantic and query providers.
+// initProviders initializes semantic, query, and storage providers.
 func (p *Platform) initProviders(opts *Options) error {
 	var err error
 	if opts.SemanticProvider != nil {
@@ -101,6 +104,12 @@ func (p *Platform) initProviders(opts *Options) error {
 		p.queryProvider = opts.QueryProvider
 	} else if p.queryProvider, err = p.createQueryProvider(); err != nil {
 		return fmt.Errorf("creating query provider: %w", err)
+	}
+
+	if opts.StorageProvider != nil {
+		p.storageProvider = opts.StorageProvider
+	} else if p.storageProvider, err = p.createStorageProvider(); err != nil {
+		return fmt.Errorf("creating storage provider: %w", err)
 	}
 	return nil
 }
@@ -269,6 +278,37 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 	}
 }
 
+// createStorageProvider creates the storage provider based on config.
+func (p *Platform) createStorageProvider() (storage.Provider, error) {
+	switch p.config.Storage.Provider {
+	case "s3":
+		// Get S3 config from toolkits
+		s3Cfg := p.getS3Config(p.config.Storage.Instance)
+		if s3Cfg == nil {
+			return nil, fmt.Errorf("s3 instance %q not found in toolkits config", p.config.Storage.Instance)
+		}
+
+		adapter, err := s3storage.NewFromConfig(s3storage.Config{
+			Region:         s3Cfg.Region,
+			Endpoint:       s3Cfg.Endpoint,
+			AccessKeyID:    s3Cfg.AccessKeyID,
+			SecretKey:      s3Cfg.SecretKey,
+			BucketPrefix:   s3Cfg.BucketPrefix,
+			ConnectionName: s3Cfg.ConnectionName,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating s3 storage provider: %w", err)
+		}
+		return adapter, nil
+
+	case "noop", "":
+		return storage.NewNoopProvider(), nil
+
+	default:
+		return nil, fmt.Errorf("unknown storage provider: %s", p.config.Storage.Provider)
+	}
+}
+
 // loadPersonas loads personas from config.
 func (p *Platform) loadPersonas() error {
 	for name, def := range p.config.Personas.Definitions {
@@ -367,13 +407,21 @@ func (p *Platform) buildMiddlewareChain() {
 	p.middlewareChain.UseBefore(middleware.AuthzMiddleware(p.authorizer))
 
 	// After middleware (response processing)
-	if p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.DataHubQueryEnrichment {
+	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
+		p.config.Injection.DataHubQueryEnrichment ||
+		p.config.Injection.S3SemanticEnrichment ||
+		p.config.Injection.DataHubStorageEnrichment
+
+	if needsEnrichment {
 		p.middlewareChain.UseAfter(middleware.SemanticEnrichmentMiddleware(
 			p.semanticProvider,
 			p.queryProvider,
+			p.storageProvider,
 			middleware.EnrichmentConfig{
-				EnrichTrinoResults:   p.config.Injection.TrinoSemanticEnrichment,
-				EnrichDataHubResults: p.config.Injection.DataHubQueryEnrichment,
+				EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
+				EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
+				EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
+				EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
 			},
 		))
 	}
@@ -422,6 +470,11 @@ func (p *Platform) QueryProvider() query.Provider {
 	return p.queryProvider
 }
 
+// StorageProvider returns the storage provider.
+func (p *Platform) StorageProvider() storage.Provider {
+	return p.storageProvider
+}
+
 // ToolkitRegistry returns the toolkit registry.
 func (p *Platform) ToolkitRegistry() *registry.Registry {
 	return p.toolkitRegistry
@@ -463,6 +516,16 @@ type trinoConfig struct {
 	DefaultLimit   int
 	MaxLimit       int
 	ReadOnly       bool
+	ConnectionName string
+}
+
+// s3Config holds extracted S3 configuration.
+type s3Config struct {
+	Region         string
+	Endpoint       string
+	AccessKeyID    string
+	SecretKey      string
+	BucketPrefix   string
 	ConnectionName string
 }
 
@@ -509,6 +572,29 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 		ReadOnly:       cfgBool(instanceCfg, "read_only"),
 		ConnectionName: cfgString(instanceCfg, "connection_name"),
 	}
+}
+
+// getS3Config extracts S3 configuration from toolkits config.
+func (p *Platform) getS3Config(instanceName string) *s3Config {
+	instanceCfg := p.getInstanceConfig("s3", instanceName)
+	if instanceCfg == nil {
+		return nil
+	}
+
+	cfg := &s3Config{
+		Region:         cfgString(instanceCfg, "region"),
+		Endpoint:       cfgString(instanceCfg, "endpoint"),
+		AccessKeyID:    cfgString(instanceCfg, "access_key_id"),
+		SecretKey:      cfgString(instanceCfg, "secret_access_key"),
+		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
+		ConnectionName: cfgString(instanceCfg, "connection_name"),
+	}
+
+	if cfg.ConnectionName == "" {
+		cfg.ConnectionName = instanceName
+	}
+
+	return cfg
 }
 
 // getInstanceConfig retrieves instance configuration from toolkits config.
@@ -617,6 +703,7 @@ func (p *Platform) Close() error {
 
 	closeResource(&errs, p.semanticProvider)
 	closeResource(&errs, p.queryProvider)
+	closeResource(&errs, p.storageProvider)
 	closeResource(&errs, p.toolkitRegistry)
 
 	if closer, ok := p.auditLogger.(Closer); ok {
