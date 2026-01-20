@@ -20,12 +20,20 @@ type EnrichmentResult struct {
 // SemanticContextEnrichment represents semantic enrichment data.
 type SemanticContextEnrichment struct {
 	Description      string                  `json:"description,omitempty"`
-	Owners           []string                `json:"owners,omitempty"`
+	Owners           []OwnerInfo             `json:"owners,omitempty"`
 	Tags             []string                `json:"tags,omitempty"`
 	Domain           *DomainInfo             `json:"domain,omitempty"`
 	QualityScore     *float64                `json:"quality_score,omitempty"`
 	Deprecation      *DeprecationInfo        `json:"deprecation,omitempty"`
 	MatchingDatasets []MatchingDatasetResult `json:"matching_datasets,omitempty"`
+}
+
+// OwnerInfo represents an owner in the semantic context.
+type OwnerInfo struct {
+	URN   string `json:"urn"`
+	Type  string `json:"type"`
+	Name  string `json:"name,omitempty"`
+	Email string `json:"email,omitempty"`
 }
 
 // DomainInfo represents domain information.
@@ -200,16 +208,21 @@ func AssertNoEnrichment(t *testing.T, result *mcp.CallToolResult) {
 	}
 }
 
-// AssertOwnerPresent asserts that an owner is present in the semantic context.
-func AssertOwnerPresent(t *testing.T, sc *SemanticContextEnrichment, ownerName string) {
+// AssertOwnerPresent asserts that an owner URN is present in the semantic context.
+func AssertOwnerPresent(t *testing.T, sc *SemanticContextEnrichment, ownerURN string) {
 	t.Helper()
 
 	for _, owner := range sc.Owners {
-		if owner == ownerName {
+		if owner.URN == ownerURN {
 			return
 		}
 	}
-	t.Errorf("expected owner %q in semantic context, but not found. owners: %v", ownerName, sc.Owners)
+	// Build a list of owner URNs for the error message
+	ownerURNs := make([]string, len(sc.Owners))
+	for i, o := range sc.Owners {
+		ownerURNs[i] = o.URN
+	}
+	t.Errorf("expected owner %q in semantic context, but not found. owners: %v", ownerURN, ownerURNs)
 }
 
 // AssertTagPresent asserts that a tag is present in the semantic context.
