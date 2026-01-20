@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
@@ -18,24 +21,46 @@ type Config struct {
 	Catalog        string
 	Schema         string
 	SSL            bool
+	SSLVerify      bool
+	Timeout        time.Duration
 	DefaultLimit   int
 	MaxLimit       int
 	ReadOnly       bool
 	ConnectionName string
 }
 
-// Adapter implements query.Provider using Trino.
-type Adapter struct {
-	cfg Config
+// Client defines the interface for Trino operations.
+// This allows for mocking in tests.
+type Client interface {
+	Query(ctx context.Context, sql string, opts trinoclient.QueryOptions) (*trinoclient.QueryResult, error)
+	ListCatalogs(ctx context.Context) ([]string, error)
+	ListSchemas(ctx context.Context, catalog string) ([]string, error)
+	ListTables(ctx context.Context, catalog, schema string) ([]trinoclient.TableInfo, error)
+	DescribeTable(ctx context.Context, catalog, schema, table string) (*trinoclient.TableInfo, error)
+	Ping(ctx context.Context) error
+	Close() error
 }
 
-// New creates a new Trino adapter.
+// Adapter implements query.Provider using Trino.
+type Adapter struct {
+	cfg    Config
+	client Client
+}
+
+// New creates a new Trino adapter with a real client.
 func New(cfg Config) (*Adapter, error) {
 	if cfg.Host == "" {
 		return nil, fmt.Errorf("trino host is required")
 	}
+	if cfg.User == "" {
+		return nil, fmt.Errorf("trino user is required")
+	}
 	if cfg.Port == 0 {
-		cfg.Port = 8080
+		if cfg.SSL {
+			cfg.Port = 443
+		} else {
+			cfg.Port = 8080
+		}
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = 1000
@@ -43,7 +68,49 @@ func New(cfg Config) (*Adapter, error) {
 	if cfg.MaxLimit == 0 {
 		cfg.MaxLimit = 10000
 	}
-	return &Adapter{cfg: cfg}, nil
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 120 * time.Second
+	}
+
+	clientCfg := trinoclient.Config{
+		Host:      cfg.Host,
+		Port:      cfg.Port,
+		User:      cfg.User,
+		Password:  cfg.Password,
+		Catalog:   cfg.Catalog,
+		Schema:    cfg.Schema,
+		SSL:       cfg.SSL,
+		SSLVerify: cfg.SSLVerify,
+		Timeout:   cfg.Timeout,
+		Source:    "mcp-data-platform",
+	}
+
+	client, err := trinoclient.New(clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating trino client: %w", err)
+	}
+
+	return &Adapter{
+		cfg:    cfg,
+		client: client,
+	}, nil
+}
+
+// NewWithClient creates a new Trino adapter with a provided client (for testing).
+func NewWithClient(cfg Config, client Client) (*Adapter, error) {
+	if client == nil {
+		return nil, fmt.Errorf("trino client is required")
+	}
+	if cfg.DefaultLimit == 0 {
+		cfg.DefaultLimit = 1000
+	}
+	if cfg.MaxLimit == 0 {
+		cfg.MaxLimit = 10000
+	}
+	return &Adapter{
+		cfg:    cfg,
+		client: client,
+	}, nil
 }
 
 // Name returns the provider name.
@@ -98,11 +165,43 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 		}, nil
 	}
 
-	// In a real implementation, this would connect to Trino and verify the table exists.
+	// Actually verify the table exists by describing it
+	_, err = a.client.DescribeTable(ctx, table.Catalog, table.Schema, table.Table)
+	if err != nil {
+		return &query.TableAvailability{
+			Available: false,
+			Error:     err.Error(),
+		}, nil
+	}
+
+	// Try to get an estimated row count by running a quick COUNT query
+	var estimatedRows *int64
+	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s.%s",
+		trinoclient.QuoteIdentifier(table.Catalog),
+		trinoclient.QuoteIdentifier(table.Schema),
+		trinoclient.QuoteIdentifier(table.Table),
+	)
+
+	countResult, err := a.client.Query(ctx, countSQL, trinoclient.QueryOptions{Limit: 1})
+	if err == nil && len(countResult.Rows) > 0 {
+		for _, v := range countResult.Rows[0] {
+			if count, ok := v.(int64); ok {
+				estimatedRows = &count
+				break
+			}
+			if count, ok := v.(float64); ok {
+				c := int64(count)
+				estimatedRows = &c
+				break
+			}
+		}
+	}
+
 	return &query.TableAvailability{
-		Available:  true,
-		QueryTable: table.String(),
-		Connection: a.cfg.ConnectionName,
+		Available:     true,
+		QueryTable:    table.String(),
+		Connection:    a.cfg.ConnectionName,
+		EstimatedRows: estimatedRows,
 	}, nil
 }
 
@@ -113,15 +212,24 @@ func (a *Adapter) GetQueryExamples(ctx context.Context, urn string) ([]query.Que
 		return nil, err
 	}
 
-	tableName := table.String()
+	tableName := fmt.Sprintf("%s.%s.%s",
+		trinoclient.QuoteIdentifier(table.Catalog),
+		trinoclient.QuoteIdentifier(table.Schema),
+		trinoclient.QuoteIdentifier(table.Table),
+	)
+
 	return []query.QueryExample{
 		{
-			Description: "Select first 10 rows",
+			Description: "Preview first 10 rows",
 			SQL:         fmt.Sprintf("SELECT * FROM %s LIMIT 10", tableName),
 		},
 		{
 			Description: "Count all rows",
 			SQL:         fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName),
+		},
+		{
+			Description: "Sample 1%% of data",
+			SQL:         fmt.Sprintf("SELECT * FROM %s TABLESAMPLE SYSTEM (1)", tableName),
 		},
 	}, nil
 }
@@ -137,10 +245,14 @@ func (a *Adapter) GetExecutionContext(ctx context.Context, urns []string) (*quer
 			continue
 		}
 
+		// Check availability to get row estimates
+		availability, _ := a.GetTableAvailability(ctx, urn)
+
 		tables = append(tables, query.TableInfo{
-			URN:        urn,
-			QueryTable: table.String(),
-			Connection: table.Connection,
+			URN:           urn,
+			QueryTable:    table.String(),
+			Connection:    table.Connection,
+			EstimatedRows: availability.EstimatedRows,
 		})
 		connections[table.Connection] = true
 	}
@@ -157,16 +269,47 @@ func (a *Adapter) GetExecutionContext(ctx context.Context, urns []string) (*quer
 }
 
 // GetTableSchema returns the schema of a table.
-func (a *Adapter) GetTableSchema(_ context.Context, table query.TableIdentifier) (*query.TableSchema, error) {
-	// In a real implementation, this would execute DESCRIBE against Trino.
+func (a *Adapter) GetTableSchema(ctx context.Context, table query.TableIdentifier) (*query.TableSchema, error) {
+	catalog := table.Catalog
+	if catalog == "" {
+		catalog = a.cfg.Catalog
+	}
+	schema := table.Schema
+	if schema == "" {
+		schema = a.cfg.Schema
+	}
+
+	info, err := a.client.DescribeTable(ctx, catalog, schema, table.Table)
+	if err != nil {
+		return nil, fmt.Errorf("describing table: %w", err)
+	}
+
+	columns := make([]query.Column, len(info.Columns))
+	for i, col := range info.Columns {
+		columns[i] = query.Column{
+			Name:     col.Name,
+			Type:     col.Type,
+			Nullable: col.Nullable != "NOT NULL",
+			Comment:  col.Comment,
+		}
+	}
+
 	return &query.TableSchema{
-		Columns: []query.Column{},
+		Columns: columns,
 	}, nil
 }
 
 // Close releases resources.
 func (a *Adapter) Close() error {
+	if a.client != nil {
+		return a.client.Close()
+	}
 	return nil
+}
+
+// Ping tests the connection to Trino.
+func (a *Adapter) Ping(ctx context.Context) error {
+	return a.client.Ping(ctx)
 }
 
 // Verify interface compliance.
