@@ -3,15 +3,18 @@ package platform
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
+	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -20,7 +23,7 @@ type Platform struct {
 	config *Config
 
 	// Core components
-	mcpServer       *server.MCPServer
+	mcpServer       *mcp.Server
 	lifecycle       *Lifecycle
 	middlewareChain *middleware.Chain
 
@@ -117,9 +120,22 @@ func (p *Platform) initRegistries(opts *Options) error {
 		p.toolkitRegistry = opts.ToolkitRegistry
 	} else {
 		p.toolkitRegistry = registry.NewRegistry()
+		// Register built-in toolkit factories
+		registry.RegisterBuiltinFactories(p.toolkitRegistry)
 	}
+
+	// Inject providers for cross-injection
 	p.toolkitRegistry.SetSemanticProvider(p.semanticProvider)
 	p.toolkitRegistry.SetQueryProvider(p.queryProvider)
+
+	// Load toolkits from configuration
+	if p.config.Toolkits != nil {
+		loader := registry.NewLoader(p.toolkitRegistry)
+		if err := loader.LoadFromMap(p.config.Toolkits); err != nil {
+			return fmt.Errorf("loading toolkits: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -173,32 +189,83 @@ func (p *Platform) initTuning(opts *Options) {
 func (p *Platform) finalizeSetup() {
 	p.buildMiddlewareChain()
 	p.toolkitRegistry.SetMiddleware(p.middlewareChain)
-	p.mcpServer = server.NewMCPServer(
-		p.config.Server.Name,
-		"1.0.0",
-		server.WithLogging(),
-	)
+	p.mcpServer = mcp.NewServer(&mcp.Implementation{
+		Name:    p.config.Server.Name,
+		Version: "1.0.0",
+	}, nil)
 }
 
 // createSemanticProvider creates the semantic provider based on config.
 func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	switch p.config.Semantic.Provider {
+	case "datahub":
+		// Get DataHub config from toolkits
+		datahubCfg := p.getDataHubConfig(p.config.Semantic.Instance)
+		if datahubCfg == nil {
+			return nil, fmt.Errorf("datahub instance %q not found in toolkits config", p.config.Semantic.Instance)
+		}
+
+		adapter, err := datahubsemantic.New(datahubsemantic.Config{
+			URL:      datahubCfg.URL,
+			Token:    datahubCfg.Token,
+			Platform: "trino",
+			Timeout:  datahubCfg.Timeout,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)
+		}
+
+		// Wrap with caching if enabled
+		if p.config.Semantic.Cache.Enabled {
+			return semantic.NewCachedProvider(adapter, semantic.CacheConfig{
+				TTL: p.config.Semantic.Cache.TTL,
+			}), nil
+		}
+		return adapter, nil
+
 	case "noop", "":
 		return semantic.NewNoopProvider(), nil
+
 	default:
-		// For real implementations, you would create the actual provider here
-		return semantic.NewNoopProvider(), nil
+		return nil, fmt.Errorf("unknown semantic provider: %s", p.config.Semantic.Provider)
 	}
 }
 
 // createQueryProvider creates the query provider based on config.
 func (p *Platform) createQueryProvider() (query.Provider, error) {
 	switch p.config.Query.Provider {
+	case "trino":
+		// Get Trino config from toolkits
+		trinoCfg := p.getTrinoConfig(p.config.Query.Instance)
+		if trinoCfg == nil {
+			return nil, fmt.Errorf("trino instance %q not found in toolkits config", p.config.Query.Instance)
+		}
+
+		adapter, err := trinoquery.New(trinoquery.Config{
+			Host:           trinoCfg.Host,
+			Port:           trinoCfg.Port,
+			User:           trinoCfg.User,
+			Password:       trinoCfg.Password,
+			Catalog:        trinoCfg.Catalog,
+			Schema:         trinoCfg.Schema,
+			SSL:            trinoCfg.SSL,
+			SSLVerify:      trinoCfg.SSLVerify,
+			Timeout:        trinoCfg.Timeout,
+			DefaultLimit:   trinoCfg.DefaultLimit,
+			MaxLimit:       trinoCfg.MaxLimit,
+			ReadOnly:       trinoCfg.ReadOnly,
+			ConnectionName: trinoCfg.ConnectionName,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating trino query provider: %w", err)
+		}
+		return adapter, nil
+
 	case "noop", "":
 		return query.NewNoopProvider(), nil
+
 	default:
-		// For real implementations, you would create the actual provider here
-		return query.NewNoopProvider(), nil
+		return nil, fmt.Errorf("unknown query provider: %s", p.config.Query.Provider)
 	}
 }
 
@@ -336,7 +403,7 @@ func (p *Platform) Stop(ctx context.Context) error {
 }
 
 // MCPServer returns the MCP server.
-func (p *Platform) MCPServer() *server.MCPServer {
+func (p *Platform) MCPServer() *mcp.Server {
 	return p.mcpServer
 }
 
@@ -373,6 +440,165 @@ func (p *Platform) RuleEngine() *tuning.RuleEngine {
 // MiddlewareChain returns the middleware chain.
 func (p *Platform) MiddlewareChain() *middleware.Chain {
 	return p.middlewareChain
+}
+
+// datahubConfig holds extracted DataHub configuration.
+type datahubConfig struct {
+	URL     string
+	Token   string
+	Timeout time.Duration
+}
+
+// trinoConfig holds extracted Trino configuration.
+type trinoConfig struct {
+	Host           string
+	Port           int
+	User           string
+	Password       string
+	Catalog        string
+	Schema         string
+	SSL            bool
+	SSLVerify      bool
+	Timeout        time.Duration
+	DefaultLimit   int
+	MaxLimit       int
+	ReadOnly       bool
+	ConnectionName string
+}
+
+// getDataHubConfig extracts DataHub configuration from toolkits config.
+func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
+	instanceCfg := p.getInstanceConfig("datahub", instanceName)
+	if instanceCfg == nil {
+		return nil
+	}
+
+	cfg := &datahubConfig{
+		URL:     cfgString(instanceCfg, "url"),
+		Token:   cfgString(instanceCfg, "token"),
+		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
+	}
+
+	// Support both "url" and "endpoint" keys
+	if cfg.URL == "" {
+		cfg.URL = cfgString(instanceCfg, "endpoint")
+	}
+
+	return cfg
+}
+
+// getTrinoConfig extracts Trino configuration from toolkits config.
+func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
+	instanceCfg := p.getInstanceConfig("trino", instanceName)
+	if instanceCfg == nil {
+		return nil
+	}
+
+	return &trinoConfig{
+		Host:           cfgString(instanceCfg, "host"),
+		Port:           cfgInt(instanceCfg, "port", 8080),
+		User:           cfgString(instanceCfg, "user"),
+		Password:       cfgString(instanceCfg, "password"),
+		Catalog:        cfgString(instanceCfg, "catalog"),
+		Schema:         cfgString(instanceCfg, "schema"),
+		SSL:            cfgBool(instanceCfg, "ssl"),
+		SSLVerify:      cfgBoolDefault(instanceCfg, "ssl_verify", true),
+		Timeout:        cfgDuration(instanceCfg, "timeout", 120*time.Second),
+		DefaultLimit:   cfgInt(instanceCfg, "default_limit", 1000),
+		MaxLimit:       cfgInt(instanceCfg, "max_limit", 10000),
+		ReadOnly:       cfgBool(instanceCfg, "read_only"),
+		ConnectionName: cfgString(instanceCfg, "connection_name"),
+	}
+}
+
+// getInstanceConfig retrieves instance configuration from toolkits config.
+func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[string]any {
+	toolkitsCfg, ok := p.config.Toolkits[toolkitKind]
+	if !ok {
+		return nil
+	}
+
+	kindCfg, ok := toolkitsCfg.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	instances, ok := kindCfg["instances"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	// If no instance name specified, try to get the default
+	if instanceName == "" {
+		instanceName = resolveDefaultInstance(kindCfg, instances)
+	}
+
+	instanceCfg, ok := instances[instanceName].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return instanceCfg
+}
+
+// resolveDefaultInstance determines which instance to use.
+func resolveDefaultInstance(kindCfg map[string]any, instances map[string]any) string {
+	if defaultName, ok := kindCfg["default"].(string); ok {
+		return defaultName
+	}
+	// Use the first instance
+	for name := range instances {
+		return name
+	}
+	return ""
+}
+
+// Configuration extraction helpers.
+
+func cfgString(cfg map[string]any, key string) string {
+	if v, ok := cfg[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func cfgInt(cfg map[string]any, key string, defaultVal int) int {
+	if v, ok := cfg[key].(int); ok {
+		return v
+	}
+	if v, ok := cfg[key].(float64); ok {
+		return int(v)
+	}
+	return defaultVal
+}
+
+func cfgBool(cfg map[string]any, key string) bool {
+	if v, ok := cfg[key].(bool); ok {
+		return v
+	}
+	return false
+}
+
+func cfgBoolDefault(cfg map[string]any, key string, defaultVal bool) bool {
+	if v, ok := cfg[key].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
+func cfgDuration(cfg map[string]any, key string, defaultVal time.Duration) time.Duration {
+	if v, ok := cfg[key].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	if v, ok := cfg[key].(int); ok {
+		return time.Duration(v) * time.Second
+	}
+	if v, ok := cfg[key].(float64); ok {
+		return time.Duration(v) * time.Second
+	}
+	return defaultVal
 }
 
 // closeResource closes a resource and appends any error.
