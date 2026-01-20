@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -130,8 +130,11 @@ func enrichDataHubResult(
 
 // extractTableFromRequest extracts table name from request arguments.
 func extractTableFromRequest(request mcp.CallToolRequest) string {
-	args, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
+	if len(request.Params.Arguments) == 0 {
+		return ""
+	}
+	var args map[string]any
+	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
 		return ""
 	}
 	if table, ok := args["table"].(string); ok {
@@ -189,7 +192,7 @@ func splitTableName(name string) []string {
 func extractURNsFromResult(result *mcp.CallToolResult) []string {
 	var urns []string
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := content.(*mcp.TextContent); ok {
 			// Try to parse as JSON and extract URNs
 			var data map[string]any
 			if err := json.Unmarshal([]byte(textContent.Text), &data); err == nil {
@@ -247,8 +250,7 @@ func appendSemanticContext(result *mcp.CallToolResult, ctx *semantic.TableContex
 	}
 
 	// Append to result
-	result.Content = append(result.Content, mcp.TextContent{
-		Type: "text",
+	result.Content = append(result.Content, &mcp.TextContent{
 		Text: string(enrichmentJSON),
 	})
 
@@ -272,8 +274,7 @@ func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*query.T
 	}
 
 	// Append to result
-	result.Content = append(result.Content, mcp.TextContent{
-		Type: "text",
+	result.Content = append(result.Content, &mcp.TextContent{
 		Text: string(enrichmentJSON),
 	})
 
