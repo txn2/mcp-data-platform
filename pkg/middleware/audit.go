@@ -2,9 +2,10 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // AuditLogger logs tool calls for auditing.
@@ -89,13 +90,14 @@ func AuditMiddleware(logger AuditLogger) Middleware {
 
 // extractParameters extracts parameters from a request.
 func extractParameters(request mcp.CallToolRequest) map[string]any {
-	if request.Params.Arguments == nil {
+	if len(request.Params.Arguments) == 0 {
 		return nil
 	}
-	if params, ok := request.Params.Arguments.(map[string]any); ok {
-		return params
+	var params map[string]any
+	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+		return nil
 	}
-	return nil
+	return params
 }
 
 // extractErrorMessage extracts the error message from a result.
@@ -103,7 +105,7 @@ func extractErrorMessage(result *mcp.CallToolResult) string {
 	if result == nil || len(result.Content) == 0 {
 		return ""
 	}
-	if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+	if textContent, ok := result.Content[0].(*mcp.TextContent); ok {
 		return textContent.Text
 	}
 	return ""
