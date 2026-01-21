@@ -1,3 +1,7 @@
+---
+description: Automatic context enrichment between DataHub, Trino, and S3. Query a table, get business metadata. Search DataHub, see which datasets are queryable.
+---
+
 # Cross-Injection
 
 When you query a Trino table, you get DataHub context in the response. When you search DataHub, you see which datasets are queryable. No extra calls.
