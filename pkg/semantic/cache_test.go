@@ -213,3 +213,77 @@ func TestCacheEntry_IsExpired(t *testing.T) {
 		}
 	})
 }
+
+// errorProvider is a mock provider that always returns errors.
+type errorProvider struct{}
+
+func (e *errorProvider) Name() string { return "error" }
+func (e *errorProvider) GetTableContext(_ context.Context, _ TableIdentifier) (*TableContext, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) GetColumnContext(_ context.Context, _ ColumnIdentifier) (*ColumnContext, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) GetColumnsContext(_ context.Context, _ TableIdentifier) (map[string]*ColumnContext, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) GetLineage(_ context.Context, _ TableIdentifier, _ LineageDirection, _ int) (*LineageInfo, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) GetGlossaryTerm(_ context.Context, _ string) (*GlossaryTerm, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) SearchTables(_ context.Context, _ SearchFilter) ([]TableSearchResult, error) {
+	return nil, &mockError{}
+}
+func (e *errorProvider) Close() error { return nil }
+
+type mockError struct{}
+
+func (m *mockError) Error() string { return "mock error" }
+
+func TestCachedProvider_Errors(t *testing.T) {
+	underlying := &errorProvider{}
+	cfg := CacheConfig{TTL: 100 * time.Millisecond}
+	provider := NewCachedProvider(underlying, cfg)
+
+	ctx := context.Background()
+
+	t.Run("GetTableContext error", func(t *testing.T) {
+		_, err := provider.GetTableContext(ctx, TableIdentifier{Schema: "s", Table: "t"})
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+
+	t.Run("GetColumnContext error", func(t *testing.T) {
+		_, err := provider.GetColumnContext(ctx, ColumnIdentifier{
+			TableIdentifier: TableIdentifier{Schema: "s", Table: "t"},
+			Column:          "c",
+		})
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+
+	t.Run("GetColumnsContext error", func(t *testing.T) {
+		_, err := provider.GetColumnsContext(ctx, TableIdentifier{Schema: "s", Table: "t"})
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+
+	t.Run("GetLineage error", func(t *testing.T) {
+		_, err := provider.GetLineage(ctx, TableIdentifier{Schema: "s", Table: "t"}, LineageUpstream, 3)
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+
+	t.Run("GetGlossaryTerm error", func(t *testing.T) {
+		_, err := provider.GetGlossaryTerm(ctx, "urn:test")
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+}
