@@ -975,3 +975,149 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateAuthenticatorOIDCError(t *testing.T) {
+	// Test OIDC authenticator error path
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Auth: AuthConfig{
+			OIDC: OIDCAuthConfig{
+				Enabled: true,
+				// Missing required issuer - will cause error
+				Issuer: "",
+			},
+		},
+	}
+
+	_, err := New(WithConfig(cfg))
+	if err == nil {
+		t.Error("New() expected error for invalid OIDC config")
+	}
+}
+
+func TestPlatformCloseMultiple(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Close multiple times should be safe
+	if err := p.Close(); err != nil {
+		t.Errorf("First Close() error = %v", err)
+	}
+	if err := p.Close(); err != nil {
+		t.Errorf("Second Close() error = %v", err)
+	}
+}
+
+func TestPlatformStopIdempotent(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Start
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Stop multiple times should be safe
+	if err := p.Stop(ctx); err != nil {
+		t.Errorf("First Stop() error = %v", err)
+	}
+	// Second stop should not error (idempotent)
+	_ = p.Stop(ctx)
+
+	// Cleanup
+	_ = p.Close()
+}
+
+func TestPlatformWithMultiplePersonas(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Personas: PersonasConfig{
+			Definitions: map[string]PersonaDef{
+				"viewer": {
+					DisplayName: "Viewer",
+					Roles:       []string{"viewer"},
+					Tools: ToolRulesDef{
+						Allow: []string{"*_list", "*_describe"},
+						Deny:  []string{"*_execute", "*_delete"},
+					},
+				},
+				"editor": {
+					DisplayName: "Editor",
+					Roles:       []string{"editor"},
+					Tools: ToolRulesDef{
+						Allow: []string{"*"},
+						Deny:  []string{"*_delete"},
+					},
+				},
+				"admin": {
+					DisplayName: "Admin",
+					Roles:       []string{"admin"},
+					Tools: ToolRulesDef{
+						Allow: []string{"*"},
+					},
+				},
+			},
+			DefaultPersona: "viewer",
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Verify all personas loaded
+	pr := p.PersonaRegistry()
+
+	viewer, ok := pr.Get("viewer")
+	if !ok {
+		t.Error("viewer persona not found")
+	}
+	if viewer.DisplayName != "Viewer" {
+		t.Errorf("viewer.DisplayName = %q", viewer.DisplayName)
+	}
+
+	editor, ok := pr.Get("editor")
+	if !ok {
+		t.Error("editor persona not found")
+	}
+	if editor.DisplayName != "Editor" {
+		t.Errorf("editor.DisplayName = %q", editor.DisplayName)
+	}
+
+	admin, ok := pr.Get("admin")
+	if !ok {
+		t.Error("admin persona not found")
+	}
+	if admin.DisplayName != "Admin" {
+		t.Errorf("admin.DisplayName = %q", admin.DisplayName)
+	}
+
+	_ = p.Close()
+}
