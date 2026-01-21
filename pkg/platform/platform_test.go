@@ -533,3 +533,199 @@ type testCloser struct {
 func (m *testCloser) Close() error {
 	return m.closeErr
 }
+
+func TestGetDataHubConfig(t *testing.T) {
+	t.Run("no instance config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: nil,
+			},
+		}
+		result := p.getDataHubConfig("default")
+		if result != nil {
+			t.Error("expected nil for missing config")
+		}
+	})
+
+	t.Run("valid datahub config with url", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"datahub": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"url":     "http://datahub:8080",
+								"token":   "test-token",
+								"timeout": "30s",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getDataHubConfig("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.URL != "http://datahub:8080" {
+			t.Errorf("expected URL 'http://datahub:8080', got %q", result.URL)
+		}
+		if result.Token != "test-token" {
+			t.Errorf("expected Token 'test-token', got %q", result.Token)
+		}
+	})
+
+	t.Run("valid datahub config with endpoint fallback", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"datahub": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"endpoint": "http://datahub:9080",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getDataHubConfig("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.URL != "http://datahub:9080" {
+			t.Errorf("expected URL 'http://datahub:9080', got %q", result.URL)
+		}
+	})
+}
+
+func TestGetTrinoConfig(t *testing.T) {
+	t.Run("no instance config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: nil,
+			},
+		}
+		result := p.getTrinoConfig("default")
+		if result != nil {
+			t.Error("expected nil for missing config")
+		}
+	})
+
+	t.Run("valid trino config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"host":            "trino.example.com",
+								"port":            8443,
+								"user":            "admin",
+								"password":        "secret",
+								"catalog":         "hive",
+								"schema":          "analytics",
+								"ssl":             true,
+								"ssl_verify":      true,
+								"default_limit":   500,
+								"max_limit":       5000,
+								"read_only":       true,
+								"connection_name": "prod",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getTrinoConfig("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.Host != "trino.example.com" {
+			t.Errorf("expected Host 'trino.example.com', got %q", result.Host)
+		}
+		if result.Port != 8443 {
+			t.Errorf("expected Port 8443, got %d", result.Port)
+		}
+		if !result.SSL {
+			t.Error("expected SSL to be true")
+		}
+		if !result.SSLVerify {
+			t.Error("expected SSLVerify to be true")
+		}
+		if result.DefaultLimit != 500 {
+			t.Errorf("expected DefaultLimit 500, got %d", result.DefaultLimit)
+		}
+	})
+}
+
+func TestGetS3Config(t *testing.T) {
+	t.Run("no instance config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: nil,
+			},
+		}
+		result := p.getS3Config("default")
+		if result != nil {
+			t.Error("expected nil for missing config")
+		}
+	})
+
+	t.Run("valid s3 config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"s3": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"region":            "us-west-2",
+								"endpoint":          "http://minio:9000",
+								"access_key_id":     "access-key",
+								"secret_access_key": "secret-key",
+								"bucket_prefix":     "prefix-",
+								"connection_name":   "minio",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getS3Config("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.Region != "us-west-2" {
+			t.Errorf("expected Region 'us-west-2', got %q", result.Region)
+		}
+		if result.Endpoint != "http://minio:9000" {
+			t.Errorf("expected Endpoint 'http://minio:9000', got %q", result.Endpoint)
+		}
+		if result.ConnectionName != "minio" {
+			t.Errorf("expected ConnectionName 'minio', got %q", result.ConnectionName)
+		}
+	})
+
+	t.Run("s3 config with empty connection name uses instance name", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"s3": map[string]any{
+						"instances": map[string]any{
+							"myinstance": map[string]any{
+								"region": "us-east-1",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getS3Config("myinstance")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.ConnectionName != "myinstance" {
+			t.Errorf("expected ConnectionName 'myinstance', got %q", result.ConnectionName)
+		}
+	})
+}
