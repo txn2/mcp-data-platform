@@ -80,9 +80,136 @@ func TestCachedProvider(t *testing.T) {
 		}
 	})
 
+	t.Run("GetColumnContext_Caches", func(t *testing.T) {
+		ctx := context.Background()
+		column := ColumnIdentifier{
+			TableIdentifier: TableIdentifier{Schema: "test", Table: "cache_test"},
+			Column:          "col1",
+		}
+
+		// First call
+		result1, err := provider.GetColumnContext(ctx, column)
+		if err != nil {
+			t.Fatalf("first GetColumnContext() error = %v", err)
+		}
+
+		// Second call should return cached result
+		result2, err := provider.GetColumnContext(ctx, column)
+		if err != nil {
+			t.Fatalf("second GetColumnContext() error = %v", err)
+		}
+
+		if result1 == nil || result2 == nil {
+			t.Error("expected non-nil results")
+		}
+	})
+
+	t.Run("GetColumnsContext_Caches", func(t *testing.T) {
+		ctx := context.Background()
+		table := TableIdentifier{Schema: "test", Table: "columns_cache_test"}
+
+		// First call
+		result1, err := provider.GetColumnsContext(ctx, table)
+		if err != nil {
+			t.Fatalf("first GetColumnsContext() error = %v", err)
+		}
+
+		// Second call should return cached result
+		result2, err := provider.GetColumnsContext(ctx, table)
+		if err != nil {
+			t.Fatalf("second GetColumnsContext() error = %v", err)
+		}
+
+		if result1 == nil || result2 == nil {
+			t.Error("expected non-nil results")
+		}
+	})
+
+	t.Run("GetLineage_Caches", func(t *testing.T) {
+		ctx := context.Background()
+		table := TableIdentifier{Schema: "test", Table: "lineage_cache_test"}
+
+		// First call
+		result1, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
+		if err != nil {
+			t.Fatalf("first GetLineage() error = %v", err)
+		}
+
+		// Second call should return cached result
+		result2, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
+		if err != nil {
+			t.Fatalf("second GetLineage() error = %v", err)
+		}
+
+		if result1 == nil || result2 == nil {
+			t.Error("expected non-nil results")
+		}
+	})
+
+	t.Run("GetGlossaryTerm_Caches", func(t *testing.T) {
+		ctx := context.Background()
+		urn := "urn:li:glossaryTerm:test"
+
+		// First call - noop returns nil, which is still cached
+		_, err := provider.GetGlossaryTerm(ctx, urn)
+		if err != nil {
+			t.Fatalf("first GetGlossaryTerm() error = %v", err)
+		}
+
+		// Second call should return cached result (even if nil)
+		_, err = provider.GetGlossaryTerm(ctx, urn)
+		if err != nil {
+			t.Fatalf("second GetGlossaryTerm() error = %v", err)
+		}
+	})
+
+	t.Run("SearchTables_NotCached", func(t *testing.T) {
+		ctx := context.Background()
+		filter := SearchFilter{Query: "test"}
+
+		// Search should work but not be cached
+		_, err := provider.SearchTables(ctx, filter)
+		if err != nil {
+			t.Fatalf("SearchTables() error = %v", err)
+		}
+	})
+
 	t.Run("Close", func(t *testing.T) {
 		if err := provider.Close(); err != nil {
 			t.Errorf("Close() error = %v", err)
+		}
+	})
+}
+
+func TestCacheConfig_DefaultTTL(t *testing.T) {
+	underlying := NewNoopProvider()
+	cfg := CacheConfig{} // Empty TTL
+	provider := NewCachedProvider(underlying, cfg)
+
+	// Default TTL should be 5 minutes
+	if provider.ttl != 5*time.Minute {
+		t.Errorf("default TTL = %v, want 5m", provider.ttl)
+	}
+}
+
+func TestCacheEntry_IsExpired(t *testing.T) {
+	t.Run("not expired", func(t *testing.T) {
+		entry := &cacheEntry[string]{
+			value:     "test",
+			expiresAt: time.Now().Add(time.Hour),
+		}
+		if entry.isExpired() {
+			t.Error("expected not expired")
+		}
+	})
+
+	t.Run("expired", func(t *testing.T) {
+		entry := &cacheEntry[string]{
+			value:     "test",
+			expiresAt: time.Now().Add(-time.Hour),
+		}
+		if !entry.isExpired() {
+			t.Error("expected expired")
 		}
 	})
 }
