@@ -594,6 +594,194 @@ func TestGetTableContextError(t *testing.T) {
 	}
 }
 
+func TestGetColumnContextError(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getSchemaFunc: func(_ context.Context, _ string) (*types.SchemaMetadata, error) {
+			return nil, errors.New("schema not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.GetColumnContext(ctx, semantic.ColumnIdentifier{
+		TableIdentifier: semantic.TableIdentifier{Schema: "schema", Table: "table"},
+		Column:          "col",
+	})
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetColumnsContextError(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getSchemaFunc: func(_ context.Context, _ string) (*types.SchemaMetadata, error) {
+			return nil, errors.New("schema not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.GetColumnsContext(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"})
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetLineageError(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getLineageFunc: func(_ context.Context, _ string, _ ...dhclient.LineageOption) (*types.LineageResult, error) {
+			return nil, errors.New("lineage not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageUpstream, 3)
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetGlossaryTermNotFound(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getGlossaryTermFunc: func(_ context.Context, _ string) (*types.GlossaryTerm, error) {
+			return nil, nil // returns nil without error (not found case)
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:notfound")
+	if err == nil {
+		t.Error("expected error for nil glossary term")
+	}
+}
+
+func TestGetGlossaryTermError(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getGlossaryTermFunc: func(_ context.Context, _ string) (*types.GlossaryTerm, error) {
+			return nil, errors.New("term not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:notfound")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestSearchTablesError(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		searchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+			return nil, errors.New("search failed")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	_, err := adapter.SearchTables(ctx, semantic.SearchFilter{Query: "test"})
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestSearchTablesWithFilters(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		searchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+			return &types.SearchResult{
+				Entities: []types.SearchEntity{
+					{URN: "urn:1", Name: "table1"},
+				},
+			}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	// Test with domain and tag filters
+	results, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+		Query:  "test",
+		Domain: "finance",
+		Tags:   []string{"pii", "sensitive"},
+		Limit:  50,
+		Offset: 10,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+}
+
+func TestAdapterCloseError(t *testing.T) {
+	mock := &mockDataHubClient{
+		closeFunc: func() error {
+			return errors.New("close failed")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	err := adapter.Close()
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestResolveURNEdgeCases(t *testing.T) {
+	mock := &mockDataHubClient{}
+	adapter, _ := NewWithClient(Config{}, mock)
+	ctx := context.Background()
+
+	t.Run("single part table name is invalid", func(t *testing.T) {
+		_, err := adapter.ResolveURN(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,table,PROD)")
+		if err == nil {
+			t.Error("expected error for single part table name")
+		}
+	})
+
+	t.Run("empty path in URN", func(t *testing.T) {
+		_, err := adapter.ResolveURN(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,,PROD)")
+		if err == nil {
+			t.Error("expected error for empty path")
+		}
+	})
+}
+
+func TestFieldToColumnContextEdgeCases(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &mockDataHubClient{
+		getSchemaFunc: func(_ context.Context, _ string) (*types.SchemaMetadata, error) {
+			return &types.SchemaMetadata{
+				Fields: []types.SchemaField{
+					{
+						FieldPath:   "pii_field",
+						Description: "Sensitive data",
+						Tags:        []types.Tag{{Name: "pii"}},
+						NativeType:  "VARCHAR",
+					},
+				},
+			}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+
+	result, err := adapter.GetColumnContext(ctx, semantic.ColumnIdentifier{
+		TableIdentifier: semantic.TableIdentifier{Schema: "schema", Table: "table"},
+		Column:          "pii_field",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result.IsPII {
+		t.Error("expected IsPII to be true for pii tag")
+	}
+}
+
 // Verify Adapter implements interfaces.
 var (
 	_ semantic.Provider    = (*Adapter)(nil)
