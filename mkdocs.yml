@@ -112,3 +112,9 @@ plugins:
 
 extra_css:
   - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/txn2/mcp-data-platform
+  generator: false

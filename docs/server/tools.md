@@ -1,3 +1,7 @@
+---
+description: All 27 MCP tools from DataHub, Trino, and S3 toolkits. Search metadata, run SQL queries, access S3 objects with automatic semantic enrichment.
+---
+
 # Available Tools
 
 mcp-data-platform provides tools from three integrated toolkits. Each tool can be invoked by name through any MCP client.

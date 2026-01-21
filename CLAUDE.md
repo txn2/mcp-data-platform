@@ -84,6 +84,11 @@ graph TB
 
 6. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
 
+7. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
+   - `docs/llms.txt` - Index of documentation with brief descriptions
+   - `docs/llms-full.txt` - Full documentation content for AI consumption
+   These files follow the [llmstxt.org](https://llmstxt.org/) specification.
+
 ## Project Structure
 
 ```

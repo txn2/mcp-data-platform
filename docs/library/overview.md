@@ -1,3 +1,7 @@
+---
+description: Build custom MCP servers with the Go library. Add tools, swap providers, write middleware. Full control over the data platform.
+---
+
 # Go Library
 
 The platform is designed for customization. Import it as a library and build what you need.
