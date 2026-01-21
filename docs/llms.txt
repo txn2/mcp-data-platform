@@ -1,0 +1,50 @@
+# mcp-data-platform
+
+> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub.
+
+## Documentation
+
+- [Server Overview](server/overview.md): What the platform does, architecture, request flow
+- [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
+- [Configuration](server/configuration.md): YAML configuration with environment variable expansion
+- [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
+- [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
+
+## Cross-Injection
+
+- [Overview](cross-injection/overview.md): How automatic context enrichment works
+- [Trino to DataHub](cross-injection/trino-datahub.md): Trino results include DataHub metadata
+- [DataHub to Trino](cross-injection/datahub-trino.md): DataHub results show query availability
+- [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
+
+## Authentication
+
+- [Auth Overview](auth/overview.md): stdio needs no auth, SSE uses OIDC
+- [OIDC](auth/oidc.md): Keycloak, Auth0, Okta, Azure AD setup
+- [API Keys](auth/api-keys.md): Service account authentication
+- [OAuth Server](auth/oauth-server.md): Built-in OAuth 2.1 (not recommended for most deployments)
+
+## Personas
+
+- [Overview](personas/overview.md): Role-based tool access control
+- [Tool Filtering](personas/tool-filtering.md): Allow/deny patterns with wildcards
+- [Role Mapping](personas/role-mapping.md): Map OIDC roles to personas
+
+## Go Library
+
+- [Library Overview](library/overview.md): Build custom MCP servers
+- [Quick Start](library/quickstart.md): Code examples for common patterns
+- [Architecture](library/architecture.md): Package structure and request flow
+- [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
+
+## Reference
+
+- [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
+- [Configuration](reference/configuration.md): Full YAML schema with all options
+- [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
+- [Middleware](reference/middleware.md): Request processing chain
+
+## Optional
+
+- [Troubleshooting](support/troubleshooting.md): Common issues and solutions
+- [Changelog](support/changelog.md): Version history
