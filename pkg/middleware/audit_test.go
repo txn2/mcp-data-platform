@@ -170,7 +170,9 @@ func TestAuditMiddleware(t *testing.T) {
 
 func TestExtractParameters(t *testing.T) {
 	t.Run("empty arguments", func(t *testing.T) {
-		request := mcp.CallToolRequest{}
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{},
+		}
 		params := extractParameters(request)
 		if params != nil {
 			t.Errorf("expected nil, got %v", params)
