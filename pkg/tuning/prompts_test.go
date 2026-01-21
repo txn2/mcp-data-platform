@@ -45,6 +45,23 @@ func TestPromptManagerLoadPrompts(t *testing.T) {
 		}
 	})
 
+	t.Run("path is file not directory", func(t *testing.T) {
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "not_a_dir")
+		if err := os.WriteFile(filePath, []byte("file content"), 0644); err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+
+		pm := NewPromptManager(PromptConfig{
+			PromptsDir: filePath,
+		})
+
+		err := pm.LoadPrompts()
+		if err == nil {
+			t.Error("LoadPrompts() expected error when path is a file, not directory")
+		}
+	})
+
 	t.Run("load txt files", func(t *testing.T) {
 		dir := t.TempDir()
 
