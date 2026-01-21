@@ -140,4 +140,17 @@ func TestRegistry(t *testing.T) {
 		reg.SetMiddleware(chain)
 		// Just verify it doesn't panic
 	})
+
+	t.Run("RegisterAllTools", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod", tools: []string{"trino_query"}})
+		_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
+
+		server := mcp.NewServer(&mcp.Implementation{
+			Name:    "test",
+			Version: "1.0.0",
+		}, nil)
+		// Should not panic
+		reg.RegisterAllTools(server)
+	})
 }
