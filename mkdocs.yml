@@ -1,9 +1,9 @@
-site_name: {{github-org}}/{{project-name}}
-site_url: https://{{docs-url}}
-site_description: {{project-description}}
+site_name: txn2/mcp-data-platform
+site_url: https://txn2.github.io/mcp-data-platform
+site_description: Semantic data platform MCP server with bidirectional cross-injection
 site_author: Craig Johnston
-repo_url: https://github.com/{{github-org}}/{{project-name}}
-repo_name: {{github-org}}/{{project-name}}
+repo_url: https://github.com/txn2/mcp-data-platform
+repo_name: txn2/mcp-data-platform
 edit_uri: edit/main/docs/
 
 theme:
@@ -74,9 +74,6 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 plugins:
   - search:

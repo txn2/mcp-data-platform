@@ -30,7 +30,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/dist/mcpb"
 MANIFEST_TEMPLATE="$SCRIPT_DIR/manifest.json"
 
-echo "Building MCPB bundles for {{project-name}} v${VERSION}"
+echo "Building MCPB bundles for mcp-data-platform v${VERSION}"
 if [ "$USE_DIST" = true ]; then
     echo "Using pre-built binaries from dist/"
 fi
@@ -51,7 +51,7 @@ for platform in "${PLATFORMS[@]}"; do
     IFS=':' read -r GOOS GOARCH DIST_SUFFIX <<< "$platform"
 
     PLATFORM_NAME="${GOOS}-${GOARCH}"
-    BUNDLE_DIR="$BUILD_DIR/{{project-name}}-${PLATFORM_NAME}"
+    BUNDLE_DIR="$BUILD_DIR/mcp-data-platform-${PLATFORM_NAME}"
 
     echo ""
     echo "=== Building for ${PLATFORM_NAME} ==="
@@ -60,15 +60,15 @@ for platform in "${PLATFORMS[@]}"; do
     mkdir -p "$BUNDLE_DIR"
 
     # Determine binary name
-    BINARY_NAME="{{project-name}}"
+    BINARY_NAME="mcp-data-platform"
     if [ "$GOOS" = "windows" ]; then
-        BINARY_NAME="{{project-name}}.exe"
+        BINARY_NAME="mcp-data-platform.exe"
     fi
 
     if [ "$USE_DIST" = true ]; then
         # Use goreleaser's pre-built binary from archive
-        # GoReleaser creates archives like {{project-name}}_1.0.0_darwin_amd64.tar.gz
-        ARCHIVE_PATTERN="$PROJECT_ROOT/dist/{{project-name}}_${VERSION}_${DIST_SUFFIX}"
+        # GoReleaser creates archives like mcp-data-platform_1.0.0_darwin_amd64.tar.gz
+        ARCHIVE_PATTERN="$PROJECT_ROOT/dist/mcp-data-platform_${VERSION}_${DIST_SUFFIX}"
 
         if [ "$GOOS" = "windows" ]; then
             ARCHIVE="${ARCHIVE_PATTERN}.zip"
@@ -82,7 +82,7 @@ for platform in "${PLATFORMS[@]}"; do
                 echo "Extracting ${BINARY_NAME} from $ARCHIVE..."
                 tar -xzf "$ARCHIVE" -C "$BUNDLE_DIR/" --strip-components=0 "$BINARY_NAME" 2>/dev/null || \
                 tar -xzf "$ARCHIVE" -C "$BUNDLE_DIR/" "$BINARY_NAME" 2>/dev/null || \
-                (cd "$BUNDLE_DIR" && tar -xzf "$ARCHIVE" && mv */{{project-name}} . 2>/dev/null || true)
+                (cd "$BUNDLE_DIR" && tar -xzf "$ARCHIVE" && mv */mcp-data-platform . 2>/dev/null || true)
             fi
         fi
 
@@ -96,9 +96,9 @@ for platform in "${PLATFORMS[@]}"; do
         echo "Compiling ${BINARY_NAME}..."
         CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
             -trimpath \
-            -ldflags="-s -w -X github.com/{{github-org}}/{{project-name}}/internal/server.Version=${VERSION}" \
+            -ldflags="-s -w -X github.com/txn2/mcp-data-platform/internal/server.Version=${VERSION}" \
             -o "$BUNDLE_DIR/$BINARY_NAME" \
-            "$PROJECT_ROOT/cmd/{{project-name}}"
+            "$PROJECT_ROOT/cmd/mcp-data-platform"
     fi
 
     # Copy and update manifest
@@ -113,7 +113,7 @@ for platform in "${PLATFORMS[@]}"; do
     fi
 
     # Create .mcpb bundle (naming matches goreleaser archive pattern)
-    MCPB_FILE="$BUILD_DIR/{{project-name}}_${VERSION}_${GOOS}_${GOARCH}.mcpb"
+    MCPB_FILE="$BUILD_DIR/mcp-data-platform_${VERSION}_${GOOS}_${GOARCH}.mcpb"
 
     echo "Packaging ${MCPB_FILE}..."
     if command -v mcpb &> /dev/null; then

@@ -1,0 +1,173 @@
+# MCP Data Platform Configuration
+# Copy this file and customize for your environment
+
+server:
+  name: mcp-data-platform
+  transport: stdio              # stdio, sse, http
+  address: ":8080"
+  tls:
+    enabled: false
+    cert_file: /etc/ssl/server.crt
+    key_file: /etc/ssl/server.key
+
+# Generic OIDC authentication
+auth:
+  oidc:
+    enabled: false
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+    audience: "mcp-data-platform"
+    role_claim_path: "realm_access.roles"
+    role_prefix: "dp_"
+
+  api_keys:
+    enabled: true
+    keys:
+      - key: "${API_KEY_ADMIN}"
+        name: "admin"
+        roles: ["admin"]
+
+# OAuth 2.1 server (for MCP clients like Claude)
+oauth:
+  enabled: false
+  dcr:
+    enabled: true
+    allowed_redirect_patterns:
+      - "https://.*\\.anthropic\\.com/callback"
+      - "http://localhost:.*/callback"
+
+# PostgreSQL for persistence
+database:
+  dsn: "${DATABASE_URL}"
+  max_open_conns: 25
+
+# Persona definitions
+personas:
+  analyst:
+    display_name: "Data Analyst"
+    roles:
+      - analyst
+      - data_engineer
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+        - "s3_list_*"
+      deny:
+        - "s3_delete_*"
+    prompts:
+      system_prefix: |
+        You are helping a data analyst explore and query data.
+        Always check DataHub for context before writing SQL.
+    hints:
+      datahub_search: "Start here to discover datasets"
+      trino_describe_table: "Get schema with business context"
+
+  executive:
+    display_name: "Executive"
+    roles:
+      - executive
+      - business_analyst
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_list_*"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are providing business insights to an executive.
+        Focus on what data means, not technical details.
+
+  admin:
+    display_name: "Administrator"
+    roles:
+      - admin
+    tools:
+      allow:
+        - "*"
+      deny: []
+
+  default_persona: analyst
+
+  role_mapping:
+    oidc_to_persona:
+      "dp_admin": "admin"
+      "dp_analyst": "analyst"
+      "dp_executive": "executive"
+    user_personas:
+      "admin@example.com": "admin"
+
+# Toolkit instances
+toolkits:
+  trino:
+    enabled: false
+    instances:
+      production:
+        host: "trino.example.com"
+        port: 443
+        user: "${TRINO_USER}"
+        password: "${TRINO_PASSWORD}"
+        catalog: "iceberg"
+        ssl: true
+      staging:
+        host: "trino-staging.example.com"
+        port: 8080
+    default: production
+    config:
+      default_limit: 1000
+      max_limit: 10000
+      read_only: true
+
+  datahub:
+    enabled: false
+    instances:
+      primary:
+        endpoint: "https://datahub.example.com/api/graphql"
+        token: "${DATAHUB_TOKEN}"
+    default: primary
+    config:
+      search_limit: 50
+      lineage_max_depth: 5
+
+  s3:
+    enabled: false
+    instances:
+      data_lake:
+        region: "us-east-1"
+        bucket_prefix: "data-lake-"
+    default: data_lake
+    config:
+      read_only: true
+
+# Semantic layer (REQUIRED)
+semantic:
+  provider: noop              # datahub, noop
+  instance: primary
+  cache:
+    enabled: true
+    ttl: 5m
+
+# Query provider
+query:
+  provider: noop              # trino, noop
+  instance: production
+
+# Cross-injection
+injection:
+  trino_semantic_enrichment: true
+  datahub_query_enrichment: true
+
+# Tuning
+tuning:
+  rules:
+    require_datahub_check: true
+    warn_on_deprecated: true
+    quality_threshold: 0.7
+  prompts_dir: ""
+
+# Audit logging
+audit:
+  enabled: false
+  log_tool_calls: true
+  retention_days: 90

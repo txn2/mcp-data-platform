@@ -3,7 +3,7 @@
 
 version: 2
 
-project_name: {{project-name}}
+project_name: mcp-data-platform
 
 env:
   - GO111MODULE=on
@@ -14,9 +14,9 @@ before:
     - go mod verify
 
 builds:
-  - id: {{project-name}}
-    main: ./cmd/{{project-name}}
-    binary: {{project-name}}
+  - id: mcp-data-platform
+    main: ./cmd/mcp-data-platform
+    binary: mcp-data-platform
     goos:
       - linux
       - darwin
@@ -35,7 +35,7 @@ builds:
       - -a
     ldflags:
       - -s -w
-      - -X github.com/{{github-org}}/{{project-name}}/internal/server.Version={{.Version}}
+      - -X github.com/txn2/mcp-data-platform/internal/server.Version={{.Version}}
 
 archives:
   - id: default
@@ -111,9 +111,9 @@ dockers_v2:
   - id: alpine
     dockerfile: Dockerfile
     ids:
-      - {{project-name}}
+      - mcp-data-platform
     images:
-      - ghcr.io/{{github-org}}/{{project-name}}
+      - ghcr.io/txn2/mcp-data-platform
     tags:
       - latest
       - "{{ .Tag }}"
@@ -127,7 +127,7 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.source: "{{ .GitURL }}"
-      org.opencontainers.image.description: "{{project-description}}"
+      org.opencontainers.image.description: "Semantic data platform MCP server with bidirectional cross-injection"
       org.opencontainers.image.licenses: "Apache-2.0"
 
 # Sign Docker images with Cosign (keyless)
@@ -140,24 +140,24 @@ docker_signs:
     artifacts: all
 
 brews:
-  - name: {{project-name}}
+  - name: mcp-data-platform
     repository:
-      owner: {{github-org}}
+      owner: txn2
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/{{github-org}}/{{project-name}}
-    description: {{project-description}}
+    homepage: https://github.com/txn2/mcp-data-platform
+    description: Semantic data platform MCP server with bidirectional cross-injection
     license: Apache-2.0
     install: |
-      bin.install "{{project-name}}"
+      bin.install "mcp-data-platform"
     test: |
-      system "#{bin}/{{project-name}}", "--version"
+      system "#{bin}/mcp-data-platform", "--version"
 
 release:
   github:
-    owner: {{github-org}}
-    name: {{project-name}}
+    owner: txn2
+    name: mcp-data-platform
   name_template: "{{.ProjectName}}-v{{.Version}}"
   prerelease: auto
   mode: append
@@ -166,23 +166,23 @@ release:
 
     ### Homebrew (macOS)
     ```bash
-    brew install {{github-org}}/tap/{{project-name}}
+    brew install txn2/tap/mcp-data-platform
     ```
 
     ### Claude Code CLI
     ```bash
-    claude mcp add {{project-name}} -- {{project-name}}
+    claude mcp add mcp-data-platform -- mcp-data-platform
     ```
 
     ### Docker
     ```bash
-    docker pull ghcr.io/{{github-org}}/{{project-name}}:{{ .Tag }}
+    docker pull ghcr.io/txn2/mcp-data-platform:{{ .Tag }}
     ```
 
     ## Verification
 
     All release artifacts are signed with Cosign. Verify with:
     ```bash
-    cosign verify-blob --bundle {{project-name}}_{{ .Version }}_linux_amd64.tar.gz.sigstore.json \
-      {{project-name}}_{{ .Version }}_linux_amd64.tar.gz
+    cosign verify-blob --bundle mcp-data-platform_{{ .Version }}_linux_amd64.tar.gz.sigstore.json \
+      mcp-data-platform_{{ .Version }}_linux_amd64.tar.gz
     ```

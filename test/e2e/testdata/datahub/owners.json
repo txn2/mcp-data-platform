@@ -1,0 +1,62 @@
+[
+  {
+    "entityUrn": "urn:li:corpuser:alice",
+    "entityType": "corpuser",
+    "aspectName": "corpUserInfo",
+    "aspect": {
+      "active": true,
+      "displayName": "Alice Johnson",
+      "email": "alice@example.com",
+      "title": "Data Engineer",
+      "departmentName": "Engineering"
+    }
+  },
+  {
+    "entityUrn": "urn:li:corpuser:bob",
+    "entityType": "corpuser",
+    "aspectName": "corpUserInfo",
+    "aspect": {
+      "active": true,
+      "displayName": "Bob Smith",
+      "email": "bob@example.com",
+      "title": "Data Analyst",
+      "departmentName": "Analytics"
+    }
+  },
+  {
+    "entityUrn": "urn:li:corpuser:analytics-team",
+    "entityType": "corpuser",
+    "aspectName": "corpUserInfo",
+    "aspect": {
+      "active": true,
+      "displayName": "Analytics Team",
+      "email": "analytics@example.com",
+      "title": "Team Account",
+      "departmentName": "Analytics"
+    }
+  },
+  {
+    "entityUrn": "urn:li:corpuser:data-engineering",
+    "entityType": "corpuser",
+    "aspectName": "corpUserInfo",
+    "aspect": {
+      "active": true,
+      "displayName": "Data Engineering Team",
+      "email": "data-eng@example.com",
+      "title": "Team Account",
+      "departmentName": "Engineering"
+    }
+  },
+  {
+    "entityUrn": "urn:li:corpuser:admin",
+    "entityType": "corpuser",
+    "aspectName": "corpUserInfo",
+    "aspect": {
+      "active": true,
+      "displayName": "Platform Admin",
+      "email": "admin@example.com",
+      "title": "Platform Administrator",
+      "departmentName": "Platform"
+    }
+  }
+]
