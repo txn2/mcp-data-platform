@@ -450,3 +450,68 @@ func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
 		t.Errorf("expected 2 filtered roles, got %d: %v", len(userInfo.Roles), userInfo.Roles)
 	}
 }
+
+func TestOIDCAuthenticator_FetchJWKS_InvalidJWKSJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
+		case "/jwks":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`invalid-json`))
+		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: server.URL,
+	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for invalid JWKS JSON")
+	}
+}
+
+func TestOIDCAuthenticator_checkAudience_NoAudienceRequired(t *testing.T) {
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: "https://issuer.example.com",
+		// No audience configured - empty string
+	})
+
+	// When audience in config is empty, check only passes if aud in claims is also empty
+	claims := map[string]any{
+		"aud": "",
+	}
+	if !auth.checkAudience(claims) {
+		t.Error("expected audience check to pass when both are empty")
+	}
+
+	// Non-empty aud should fail
+	claimsNonEmpty := map[string]any{
+		"aud": "some-audience",
+	}
+	if auth.checkAudience(claimsNonEmpty) {
+		t.Error("expected audience check to fail when aud is set but config is empty")
+	}
+}
+
+func TestOIDCAuthenticator_FetchJWKS_JWKSURIEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jwks_uri": ""}`))
+		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: server.URL,
+	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for empty jwks_uri")
+	}
+}
