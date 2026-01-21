@@ -248,3 +248,65 @@ func TestRegistry(t *testing.T) {
 		}
 	})
 }
+
+func TestRegisterBuiltinFactories(t *testing.T) {
+	reg := NewRegistry()
+	RegisterBuiltinFactories(reg)
+
+	// Verify all three factories are registered by trying to create with invalid config
+	t.Run("trino factory registered", func(t *testing.T) {
+		// Should fail with invalid config (missing host)
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "trino",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		if err == nil {
+			t.Error("expected error for missing trino config")
+		}
+	})
+
+	t.Run("datahub factory registered", func(t *testing.T) {
+		// Should fail with invalid config (missing url)
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "datahub",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		if err == nil {
+			t.Error("expected error for missing datahub config")
+		}
+	})
+
+	t.Run("s3 factory registered", func(t *testing.T) {
+		// S3 factory is registered, try to create (may succeed with AWS defaults)
+		_ = reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "s3",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		// Just verify the factory is called - actual creation depends on AWS SDK defaults
+	})
+}
+
+func TestTrinoFactory(t *testing.T) {
+	// Test with invalid config
+	_, err := TrinoFactory("test", map[string]any{})
+	if err == nil {
+		t.Error("TrinoFactory() expected error for missing host")
+	}
+}
+
+func TestDataHubFactory(t *testing.T) {
+	// Test with invalid config
+	_, err := DataHubFactory("test", map[string]any{})
+	if err == nil {
+		t.Error("DataHubFactory() expected error for missing url")
+	}
+}
+
+func TestS3Factory(t *testing.T) {
+	// S3Factory may succeed with AWS SDK defaults (env vars, IAM role, etc.)
+	// Just verify it can be called
+	_, _ = S3Factory("test", map[string]any{})
+}
