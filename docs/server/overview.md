@@ -1,3 +1,7 @@
+---
+description: How mcp-data-platform works. DataHub semantic layer, optional Trino and S3, cross-injection architecture, request flow for stdio and SSE transports.
+---
+
 # MCP Server Overview
 
 This MCP server connects AI assistants to your data infrastructure for exploration and analysis. It's not an API wrapper—it's a platform that understands your data's business context.
