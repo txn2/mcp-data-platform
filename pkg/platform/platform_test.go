@@ -729,3 +729,249 @@ func TestGetS3Config(t *testing.T) {
 		}
 	})
 }
+
+func TestProviderInstanceNotFound(t *testing.T) {
+	t.Run("datahub instance not found", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{
+				Provider: "datahub",
+				Instance: "nonexistent",
+			},
+			Toolkits: map[string]any{
+				"datahub": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{
+							"url": "http://datahub:8080",
+						},
+					},
+				},
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() expected error for nonexistent datahub instance")
+		}
+	})
+
+	t.Run("trino instance not found", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query: QueryConfig{
+				Provider: "trino",
+				Instance: "nonexistent",
+			},
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{
+							"host": "trino.example.com",
+							"port": 8080,
+						},
+					},
+				},
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() expected error for nonexistent trino instance")
+		}
+	})
+
+	t.Run("s3 instance not found", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage: StorageConfig{
+				Provider: "s3",
+				Instance: "nonexistent",
+			},
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{
+							"region": "us-west-2",
+						},
+					},
+				},
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() expected error for nonexistent s3 instance")
+		}
+	})
+}
+
+func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Auth: AuthConfig{
+			APIKeys: APIKeyAuthConfig{
+				Enabled: true,
+				Keys: []APIKeyDef{
+					{Key: "test-key", Name: "test", Roles: []string{"admin"}},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if p == nil {
+		t.Fatal("New() returned nil")
+	}
+}
+
+func TestPlatformStartError(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Start successfully
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("First Start() error = %v", err)
+	}
+
+	// Try to start again - should fail
+	if err := p.Start(ctx); err == nil {
+		t.Error("Second Start() expected error when already started")
+	}
+
+	// Clean up
+	_ = p.Stop(ctx)
+}
+
+func TestCfgHelpersEdgeCases(t *testing.T) {
+	cfg := map[string]any{
+		"negative_int":    -42,
+		"zero":            0,
+		"empty_string":    "",
+		"false_bool":      false,
+		"negative_float":  -3.14,
+		"zero_float":      0.0,
+		"invalid_dur_str": "invalid",
+	}
+
+	t.Run("cfgInt negative", func(t *testing.T) {
+		if v := cfgInt(cfg, "negative_int", 0); v != -42 {
+			t.Errorf("cfgInt(negative_int) = %d", v)
+		}
+	})
+
+	t.Run("cfgInt zero", func(t *testing.T) {
+		if v := cfgInt(cfg, "zero", 100); v != 0 {
+			t.Errorf("cfgInt(zero) = %d", v)
+		}
+	})
+
+	t.Run("cfgInt negative float", func(t *testing.T) {
+		if v := cfgInt(cfg, "negative_float", 0); v != -3 {
+			t.Errorf("cfgInt(negative_float) = %d", v)
+		}
+	})
+
+	t.Run("cfgString empty", func(t *testing.T) {
+		if v := cfgString(cfg, "empty_string"); v != "" {
+			t.Errorf("cfgString(empty_string) = %q", v)
+		}
+	})
+
+	t.Run("cfgBool false value", func(t *testing.T) {
+		if v := cfgBool(cfg, "false_bool"); v {
+			t.Error("cfgBool(false_bool) = true")
+		}
+	})
+
+	t.Run("cfgBoolDefault false overrides default", func(t *testing.T) {
+		if v := cfgBoolDefault(cfg, "false_bool", true); v {
+			t.Error("cfgBoolDefault(false_bool, true) = true")
+		}
+	})
+
+	t.Run("cfgDuration invalid string returns default", func(t *testing.T) {
+		if v := cfgDuration(cfg, "invalid_dur_str", 5*time.Second); v != 5*time.Second {
+			t.Errorf("cfgDuration(invalid_dur_str) = %v", v)
+		}
+	})
+
+	t.Run("cfgDuration zero", func(t *testing.T) {
+		if v := cfgDuration(cfg, "zero", 10*time.Second); v != 0 {
+			t.Errorf("cfgDuration(zero) = %v", v)
+		}
+	})
+
+	t.Run("cfgDuration zero float", func(t *testing.T) {
+		if v := cfgDuration(cfg, "zero_float", 10*time.Second); v != 0 {
+			t.Errorf("cfgDuration(zero_float) = %v", v)
+		}
+	})
+}
+
+func TestInstanceConfigMapTypes(t *testing.T) {
+	t.Run("instances as slice (wrong type)", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Name: "test"},
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": []string{"item1", "item2"}, // wrong type
+				},
+			},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		instanceCfg := p.getInstanceConfig("trino", "any")
+		if instanceCfg != nil {
+			t.Error("getInstanceConfig should return nil for wrong instances type")
+		}
+	})
+
+	t.Run("kind config not a map", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Name: "test"},
+			Toolkits: map[string]any{
+				"trino": "not-a-map",
+			},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		instanceCfg := p.getInstanceConfig("trino", "any")
+		if instanceCfg != nil {
+			t.Error("getInstanceConfig should return nil for non-map kind config")
+		}
+	})
+}
