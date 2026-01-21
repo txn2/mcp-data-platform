@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -236,5 +238,14 @@ func TestToolkit_Methods(t *testing.T) {
 	t.Run("RegisterTools nil toolkit", func(t *testing.T) {
 		// Should not panic with nil s3Toolkit
 		toolkit.RegisterTools(nil)
+	})
+
+	t.Run("RegisterTools with server", func(t *testing.T) {
+		server := mcp.NewServer(&mcp.Implementation{
+			Name:    "test",
+			Version: "1.0.0",
+		}, nil)
+		// Should not panic
+		toolkit.RegisterTools(server)
 	})
 }
