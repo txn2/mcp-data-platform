@@ -432,3 +432,69 @@ func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 		t.Errorf("expected 2 string roles, got %d: %v", len(roles), roles)
 	}
 }
+
+func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
+	registry := NewRegistry()
+	user := &Persona{Name: "user", DisplayName: "User", Roles: []string{"user"}}
+	_ = registry.Register(user)
+	registry.SetDefault("user")
+
+	mapper := &OIDCRoleMapper{
+		PersonaMapping: map[string]string{
+			"admin_role": "nonexistent", // persona doesn't exist
+		},
+		Registry: registry,
+	}
+
+	// Should fallback to registry role matching or default when mapping target doesn't exist
+	persona, err := mapper.MapToPersona(context.Background(), []string{"admin_role"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should fall through to role matching or default persona
+	if persona.Name != "user" {
+		t.Errorf("expected fallback to default user persona, got %q", persona.Name)
+	}
+}
+
+func TestOIDCRoleMapper_MapToRoles_StringSliceWithPrefix(t *testing.T) {
+	mapper := &OIDCRoleMapper{
+		ClaimPath:  "roles",
+		RolePrefix: "app_",
+	}
+
+	// Test with []string type (not []any)
+	claims := map[string]any{
+		"roles": []string{"app_admin", "other_role", "app_user"},
+	}
+	roles, err := mapper.MapToRoles(claims)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(roles) != 2 {
+		t.Errorf("expected 2 roles with prefix, got %d: %v", len(roles), roles)
+	}
+}
+
+func TestChainedRoleMapper_MapToPersona_AllMappersFail(t *testing.T) {
+	// Create mappers that return nil personas
+	mapper1 := &OIDCRoleMapper{
+		Registry: NewRegistry(), // Empty registry, no defaults
+	}
+	mapper2 := &StaticRoleMapper{
+		Registry: NewRegistry(), // Empty registry, no defaults
+	}
+
+	chained := &ChainedRoleMapper{
+		Mappers: []RoleMapper{mapper1, mapper2},
+	}
+
+	persona, err := chained.MapToPersona(context.Background(), []string{"unknown"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return DefaultPersona when all mappers fail
+	if persona == nil {
+		t.Error("expected non-nil default persona")
+	}
+}
