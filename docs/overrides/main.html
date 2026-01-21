@@ -1,21 +1,54 @@
 {% extends "base.html" %}
 
 {% block extrahead %}
+  {% if page and page.meta %}
+    {% set description = page.meta.description | default(config.site_description) %}
+    {% set page_title = page.title | default(config.site_name) %}
+    {% set page_url = page.canonical_url | default(config.site_url) %}
+  {% else %}
+    {% set description = config.site_description %}
+    {% set page_title = config.site_name %}
+    {% set page_url = config.site_url %}
+  {% endif %}
+
   <!-- Open Graph -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="{{ page.title }} - mcp-data-platform">
-  <meta property="og:description" content="{{ config.site_description }}">
-  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:title" content="{{ page_title }} - mcp-data-platform">
+  <meta property="og:description" content="{{ description }}">
+  <meta property="og:url" content="{{ page_url }}">
   <meta property="og:site_name" content="{{ config.site_name }}">
   <meta property="og:image" content="{{ config.site_url }}images/logo.png">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="{{ page.title }} - mcp-data-platform">
-  <meta name="twitter:description" content="{{ config.site_description }}">
+  <meta name="twitter:title" content="{{ page_title }} - mcp-data-platform">
+  <meta name="twitter:description" content="{{ description }}">
   <meta name="twitter:image" content="{{ config.site_url }}images/logo.png">
 
-  <!-- Additional meta -->
+  <!-- SEO -->
+  <meta name="description" content="{{ description }}">
   <meta name="author" content="{{ config.site_author }}">
-  <link rel="canonical" href="{{ page.canonical_url }}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{{ page_url }}">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "{{ page_title }}",
+    "description": "{{ description }}",
+    "author": {
+      "@type": "Person",
+      "name": "{{ config.site_author }}"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "txn2",
+      "url": "https://txn2.com"
+    },
+    "url": "{{ page_url }}",
+    "mainEntityOfPage": "{{ page_url }}"
+  }
+  </script>
 {% endblock %}
