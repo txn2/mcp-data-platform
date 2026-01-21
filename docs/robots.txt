@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://mcp-data-platform.txn2.com/sitemap.xml
+
+# AI-friendly content
+# See https://llmstxt.org
+# llms.txt: https://mcp-data-platform.txn2.com/llms.txt
