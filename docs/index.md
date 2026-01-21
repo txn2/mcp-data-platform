@@ -1,3 +1,7 @@
+---
+description: MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context.
+---
+
 # mcp-data-platform
 
 An MCP server for data exploration and analysis. Not an API wrapper—a platform for building AI-assisted data workflows with your semantic layer at the center.
