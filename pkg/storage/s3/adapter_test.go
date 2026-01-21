@@ -208,5 +208,141 @@ func TestDatasetIdentifierUsage(t *testing.T) {
 	}
 }
 
+func TestAdapterName(t *testing.T) {
+	adapter := &Adapter{
+		cfg: Config{
+			ConnectionName: "test-conn",
+		},
+	}
+	if adapter.Name() != "s3" {
+		t.Errorf("expected name 's3', got %q", adapter.Name())
+	}
+}
+
+func TestAdapterCloseNilClient(t *testing.T) {
+	adapter := &Adapter{
+		cfg:    Config{},
+		client: nil,
+	}
+	err := adapter.Close()
+	if err != nil {
+		t.Errorf("Close() with nil client should not error, got: %v", err)
+	}
+}
+
+func TestAdapterResolveDataset(t *testing.T) {
+	adapter := &Adapter{
+		cfg: Config{
+			ConnectionName: "test-conn",
+		},
+	}
+
+	tests := []struct {
+		name           string
+		urn            string
+		wantBucket     string
+		wantPrefix     string
+		wantConnection string
+		wantErr        bool
+	}{
+		{
+			name:           "valid URN with prefix",
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data/raw,PROD)",
+			wantBucket:     "my-bucket",
+			wantPrefix:     "data/raw",
+			wantConnection: "test-conn",
+			wantErr:        false,
+		},
+		{
+			name:           "valid URN bucket only",
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket,PROD)",
+			wantBucket:     "my-bucket",
+			wantPrefix:     "",
+			wantConnection: "test-conn",
+			wantErr:        false,
+		},
+		{
+			name:    "invalid URN - wrong prefix",
+			urn:     "urn:wrong:dataset:(urn:li:dataPlatform:s3,bucket,PROD)",
+			wantErr: true,
+		},
+		{
+			name:    "invalid URN - missing commas",
+			urn:     "urn:li:dataset:invalid",
+			wantErr: true,
+		},
+		{
+			name:    "invalid URN - single comma",
+			urn:     "urn:li:dataset:(urn:li:dataPlatform:s3,bucket)",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := adapter.ResolveDataset(context.Background(), tt.urn)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Bucket != tt.wantBucket {
+				t.Errorf("expected bucket %q, got %q", tt.wantBucket, result.Bucket)
+			}
+			if result.Prefix != tt.wantPrefix {
+				t.Errorf("expected prefix %q, got %q", tt.wantPrefix, result.Prefix)
+			}
+			if result.Connection != tt.wantConnection {
+				t.Errorf("expected connection %q, got %q", tt.wantConnection, result.Connection)
+			}
+		})
+	}
+}
+
+func TestAdapterGetAccessExamples(t *testing.T) {
+	adapter := &Adapter{
+		cfg: Config{
+			ConnectionName: "test-conn",
+		},
+	}
+
+	t.Run("valid URN with prefix", func(t *testing.T) {
+		examples, err := adapter.GetAccessExamples(context.Background(),
+			"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data/raw,PROD)")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(examples) != 3 {
+			t.Errorf("expected 3 examples, got %d", len(examples))
+		}
+		// Check first example contains the expected path
+		if len(examples) > 0 && examples[0].Command == "" {
+			t.Error("expected non-empty command")
+		}
+	})
+
+	t.Run("valid URN bucket only", func(t *testing.T) {
+		examples, err := adapter.GetAccessExamples(context.Background(),
+			"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket,PROD)")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(examples) != 3 {
+			t.Errorf("expected 3 examples, got %d", len(examples))
+		}
+	})
+
+	t.Run("invalid URN", func(t *testing.T) {
+		_, err := adapter.GetAccessExamples(context.Background(), "invalid-urn")
+		if err == nil {
+			t.Error("expected error for invalid URN")
+		}
+	})
+}
+
 // Verify Adapter implements Provider interface.
 var _ storage.Provider = (*Adapter)(nil)
