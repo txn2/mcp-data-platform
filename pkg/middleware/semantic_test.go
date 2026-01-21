@@ -929,6 +929,161 @@ func TestSearchS3Datasets(t *testing.T) {
 	})
 }
 
+func TestEnrichDataHubResultWithAll(t *testing.T) {
+	t.Run("enriches with query context", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:1",
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "schema.table"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults: true,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("enriches with storage context", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:(urn:li:dataPlatform:s3,bucket/key,PROD)",
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			storageProvider: &mockStorageProvider{
+				getDatasetAvailabilityFunc: func(_ context.Context, _ string) (*storage.DatasetAvailability, error) {
+					return &storage.DatasetAvailability{Available: true, Bucket: "bucket"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubStorageResults: true,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("enriches with both query and storage context", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"results": []any{
+				map[string]any{"urn": "urn:li:dataset:1"},
+				map[string]any{"urn": "urn:li:dataset:(urn:li:dataPlatform:s3,bucket/key,PROD)"},
+			},
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "schema.table"}, nil
+				},
+			},
+			storageProvider: &mockStorageProvider{
+				getDatasetAvailabilityFunc: func(_ context.Context, _ string) (*storage.DatasetAvailability, error) {
+					return &storage.DatasetAvailability{Available: true, Bucket: "bucket"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:        true,
+				EnrichDataHubStorageResults: true,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Original + query context + storage context = 3
+		if len(enriched.Content) < 2 {
+			t.Errorf("expected at least 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("no enrichment when disabled", func(t *testing.T) {
+		result := NewToolResultText("original")
+		enricher := &semanticEnricher{
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:        false,
+				EnrichDataHubStorageResults: false,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 1 {
+			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
+		}
+	})
+}
+
+func TestEnricherEnrichDataHubPath(t *testing.T) {
+	t.Run("datahub toolkit triggers enrichDataHubResultWithAll", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:1",
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "schema.table"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults: true,
+			},
+		}
+
+		pc := &PlatformContext{ToolkitKind: "datahub"}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrich(context.Background(), result, request, pc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+}
+
 func TestExtractS3URNsFromMap(t *testing.T) {
 	t.Run("S3 URN extracted", func(t *testing.T) {
 		data := map[string]any{
