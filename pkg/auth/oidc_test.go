@@ -255,3 +255,198 @@ func createTestJWT(claims map[string]any) string {
 	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + payloadB64 + ".signature"
 }
+
+func TestOIDCAuthenticator_validateClaims(t *testing.T) {
+	t.Run("invalid issuer", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer: "https://issuer.example.com",
+			// Note: not skipping issuer verification
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"iss": "https://wrong-issuer.com",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for invalid issuer")
+		}
+	})
+
+	t.Run("invalid audience", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                 "https://issuer.example.com",
+			Audience:               "my-audience",
+			SkipIssuerVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"aud": "wrong-audience",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for invalid audience")
+		}
+	})
+
+	t.Run("expired token", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                 "https://issuer.example.com",
+			SkipIssuerVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"exp": float64(time.Now().Add(-time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for expired token")
+		}
+	})
+
+	t.Run("valid claims", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                 "https://issuer.example.com",
+			SkipIssuerVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing exp is ok", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                 "https://issuer.example.com",
+			SkipIssuerVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+		}
+		err := auth.validateClaims(claims)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestOIDCAuthenticator_parseAndValidateToken(t *testing.T) {
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer:                 "https://issuer.example.com",
+		SkipIssuerVerification: true,
+	})
+
+	t.Run("only two parts", func(t *testing.T) {
+		_, err := auth.parseAndValidateToken("header.payload")
+		if err == nil {
+			t.Error("expected error for JWT with only two parts")
+		}
+	})
+
+	t.Run("invalid base64 payload", func(t *testing.T) {
+		_, err := auth.parseAndValidateToken("header.!!!invalid-base64!!!.sig")
+		if err == nil {
+			t.Error("expected error for invalid base64")
+		}
+	})
+
+	t.Run("invalid JSON payload", func(t *testing.T) {
+		payload := base64.RawURLEncoding.EncodeToString([]byte("not-json"))
+		_, err := auth.parseAndValidateToken("header." + payload + ".sig")
+		if err == nil {
+			t.Error("expected error for invalid JSON")
+		}
+	})
+}
+
+func TestOIDCAuthenticator_FetchJWKS_InvalidDiscovery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`invalid-json`))
+		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: server.URL,
+	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for invalid discovery JSON")
+	}
+}
+
+func TestOIDCAuthenticator_FetchJWKS_MissingJWKSURI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`)) // No jwks_uri
+		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: server.URL,
+	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for missing jwks_uri")
+	}
+}
+
+func TestOIDCAuthenticator_FetchJWKS_JWKSFetchError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
+		case "/jwks":
+			http.Error(w, "Internal Server Error", 500)
+		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: server.URL,
+	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for JWKS fetch failure")
+	}
+}
+
+func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer:                 "https://issuer.example.com",
+		SkipIssuerVerification: true,
+		RoleClaimPath:          "roles",
+		RolePrefix:             "app_",
+	})
+
+	claims := map[string]any{
+		"sub":   "user123",
+		"roles": []any{"app_admin", "other_role", "app_user"},
+		"exp":   float64(time.Now().Add(time.Hour).Unix()),
+	}
+	token := createTestJWT(claims)
+
+	ctx := WithToken(context.Background(), token)
+	userInfo, err := auth.Authenticate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should filter to only app_ prefixed roles
+	if len(userInfo.Roles) != 2 {
+		t.Errorf("expected 2 filtered roles, got %d: %v", len(userInfo.Roles), userInfo.Roles)
+	}
+}
