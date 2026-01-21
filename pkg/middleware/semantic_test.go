@@ -879,6 +879,75 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		}
 	})
 
+	t.Run("s3 toolkit with enrichment enabled", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			semanticProvider: &mockSemanticProvider{
+				searchTablesFunc: func(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+					return []semantic.TableSearchResult{
+						{URN: "urn:li:dataset:1", Name: "dataset1"},
+					}, nil
+				},
+				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+					return &semantic.TableContext{Description: "Test"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{EnrichS3Results: true},
+		}
+
+		args, _ := json.Marshal(map[string]any{"bucket": "my-bucket", "prefix": "data/"})
+		result := NewToolResultText("original")
+		pc := &PlatformContext{ToolkitKind: "s3"}
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enricher.enrich(context.Background(), result, request, pc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("s3 toolkit with enrichment disabled", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			semanticProvider: &mockSemanticProvider{},
+			cfg:              EnrichmentConfig{EnrichS3Results: false},
+		}
+
+		result := NewToolResultText("original")
+		pc := &PlatformContext{ToolkitKind: "s3"}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrich(context.Background(), result, request, pc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 1 {
+			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("trino toolkit with nil provider", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			semanticProvider: nil,
+			cfg:              EnrichmentConfig{EnrichTrinoResults: true},
+		}
+
+		result := NewToolResultText("original")
+		pc := &PlatformContext{ToolkitKind: "trino"}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrich(context.Background(), result, request, pc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 1 {
+			t.Errorf("expected 1 content item (no enrichment without provider), got %d", len(enriched.Content))
+		}
+	})
+
 	t.Run("unknown toolkit", func(t *testing.T) {
 		enricher := &semanticEnricher{}
 
