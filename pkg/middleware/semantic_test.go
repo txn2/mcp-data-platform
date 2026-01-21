@@ -319,7 +319,9 @@ func TestAppendQueryContext(t *testing.T) {
 
 func TestExtractS3PathFromRequest(t *testing.T) {
 	t.Run("empty arguments", func(t *testing.T) {
-		request := mcp.CallToolRequest{}
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{},
+		}
 		bucket, prefix := extractS3PathFromRequest(request)
 		if bucket != "" || prefix != "" {
 			t.Errorf("expected empty strings, got bucket=%q prefix=%q", bucket, prefix)
