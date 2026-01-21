@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,6 +27,15 @@ func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {}
 func (m *mockToolkit) SetQueryProvider(_ query.Provider)       {}
 func (m *mockToolkit) SetMiddleware(_ *middleware.Chain)       {}
 func (m *mockToolkit) Close() error                            { m.closeCalls++; return nil }
+
+// mockToolkitWithCloseError is a toolkit that returns an error on Close.
+type mockToolkitWithCloseError struct {
+	mockToolkit
+}
+
+func (m *mockToolkitWithCloseError) Close() error {
+	return fmt.Errorf("close error")
+}
 
 func TestRegistry(t *testing.T) {
 	t.Run("Register and Get", func(t *testing.T) {
@@ -152,5 +162,89 @@ func TestRegistry(t *testing.T) {
 		}, nil)
 		// Should not panic
 		reg.RegisterAllTools(server)
+	})
+
+	t.Run("Register with providers pre-set", func(t *testing.T) {
+		reg := NewRegistry()
+		// Set providers before registering
+		reg.SetSemanticProvider(semantic.NewNoopProvider())
+		reg.SetQueryProvider(query.NewNoopProvider())
+		reg.SetMiddleware(middleware.NewChain())
+
+		toolkit := &mockToolkit{kind: "trino", name: "prod"}
+		if err := reg.Register(toolkit); err != nil {
+			t.Fatalf("Register() error = %v", err)
+		}
+
+		got, ok := reg.Get("trino", "prod")
+		if !ok {
+			t.Fatal("Get() returned false")
+		}
+		if got.Kind() != "trino" {
+			t.Errorf("Kind() = %q, want %q", got.Kind(), "trino")
+		}
+	})
+
+	t.Run("Close with toolkit error", func(t *testing.T) {
+		reg := NewRegistry()
+		toolkit := &mockToolkitWithCloseError{mockToolkit: mockToolkit{kind: "trino", name: "prod"}}
+		_ = reg.Register(toolkit)
+
+		err := reg.Close()
+		if err == nil {
+			t.Error("Close() expected error when toolkit fails")
+		}
+	})
+
+	t.Run("RegisterFactory", func(t *testing.T) {
+		reg := NewRegistry()
+		factory := func(name string, config map[string]any) (Toolkit, error) {
+			return &mockToolkit{kind: "custom", name: name}, nil
+		}
+		reg.RegisterFactory("custom", factory)
+
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "custom",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		if err != nil {
+			t.Fatalf("CreateAndRegister() error = %v", err)
+		}
+
+		_, ok := reg.Get("custom", "test")
+		if !ok {
+			t.Error("Get() returned false after CreateAndRegister")
+		}
+	})
+
+	t.Run("CreateAndRegister factory error", func(t *testing.T) {
+		reg := NewRegistry()
+		factory := func(name string, config map[string]any) (Toolkit, error) {
+			return nil, fmt.Errorf("factory error")
+		}
+		reg.RegisterFactory("failing", factory)
+
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "failing",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		if err == nil {
+			t.Error("CreateAndRegister() expected error when factory fails")
+		}
+	})
+
+	t.Run("CreateAndRegister unknown kind", func(t *testing.T) {
+		reg := NewRegistry()
+
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "unknown",
+			Name:   "test",
+			Config: map[string]any{},
+		})
+		if err == nil {
+			t.Error("CreateAndRegister() expected error for unknown kind")
+		}
 	})
 }
