@@ -1,3 +1,7 @@
+---
+description: Complete API specification for all MCP tools. Parameters, response schemas, error codes for DataHub, Trino, and S3 operations.
+---
+
 # Tools API Reference
 
 Complete specification for all MCP tools provided by mcp-data-platform.
