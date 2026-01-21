@@ -572,6 +572,10 @@ func TestConvertFunctions(t *testing.T) {
 		if ownerTypeToSemantic(types.OwnershipTypeBusinessOwner) != semantic.OwnerTypeUser {
 			t.Error("unexpected owner type conversion")
 		}
+		// Test default case with an unknown type
+		if ownerTypeToSemantic(types.OwnershipType("unknown")) != semantic.OwnerTypeUser {
+			t.Error("unexpected owner type conversion for unknown type")
+		}
 	})
 }
 
