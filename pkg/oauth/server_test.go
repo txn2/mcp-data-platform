@@ -2,9 +2,11 @@ package oauth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -491,5 +493,661 @@ func TestAuthorizationRequest(t *testing.T) {
 	}
 	if req.CodeChallengeMethod != "S256" {
 		t.Error("unexpected CodeChallengeMethod")
+	}
+}
+
+func TestHandleAuthorizationCodeGrant(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	t.Run("successful authorization code grant", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			RedirectURIs: []string{"http://localhost:8080/callback"},
+			Active:       true,
+		}
+		authCode := &AuthorizationCode{
+			ID:          "code-id-1",
+			Code:        "valid-code",
+			ClientID:    "client-123",
+			UserID:      "user-123",
+			UserClaims:  map[string]any{"role": "admin"},
+			RedirectURI: "http://localhost:8080/callback",
+			Scope:       "read",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+			CreatedAt:   time.Now(),
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+			deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "valid-code",
+			RedirectURI:  "http://localhost:8080/callback",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("expected non-empty access token")
+		}
+		if resp.RefreshToken == "" {
+			t.Error("expected non-empty refresh token")
+		}
+		if resp.TokenType != "Bearer" {
+			t.Errorf("expected token type Bearer, got %s", resp.TokenType)
+		}
+	})
+
+	t.Run("invalid authorization code", func(t *testing.T) {
+		storage := &mockStorage{
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return nil, fmt.Errorf("not found")
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType: "authorization_code",
+			Code:      "invalid-code",
+		})
+
+		if err == nil {
+			t.Error("expected error for invalid code")
+		}
+	})
+
+	t.Run("authorization code already used", func(t *testing.T) {
+		authCode := &AuthorizationCode{
+			Code:        "used-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			Used:        true,
+		}
+
+		storage := &mockStorage{
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:   "authorization_code",
+			Code:        "used-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for used code")
+		}
+	})
+
+	t.Run("authorization code expired", func(t *testing.T) {
+		authCode := &AuthorizationCode{
+			Code:        "expired-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			ExpiresAt:   time.Now().Add(-time.Hour),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:   "authorization_code",
+			Code:        "expired-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for expired code")
+		}
+	})
+
+	t.Run("client_id mismatch", func(t *testing.T) {
+		authCode := &AuthorizationCode{
+			Code:        "valid-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:   "authorization_code",
+			Code:        "valid-code",
+			ClientID:    "other-client",
+			RedirectURI: "http://localhost:8080/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for client_id mismatch")
+		}
+	})
+
+	t.Run("redirect_uri mismatch", func(t *testing.T) {
+		authCode := &AuthorizationCode{
+			Code:        "valid-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:   "authorization_code",
+			Code:        "valid-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://attacker.com/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for redirect_uri mismatch")
+		}
+	})
+
+	t.Run("invalid client credentials", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+		}
+		authCode := &AuthorizationCode{
+			Code:        "valid-code",
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "valid-code",
+			ClientID:     "client-123",
+			ClientSecret: "wrong-secret",
+			RedirectURI:  "http://localhost:8080/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for invalid client credentials")
+		}
+	})
+
+	t.Run("PKCE verification with valid verifier", func(t *testing.T) {
+		codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+		codeChallenge, _ := GenerateCodeChallenge(codeVerifier, PKCEMethodS256)
+
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			RedirectURIs: []string{"http://localhost:8080/callback"},
+			Active:       true,
+		}
+		authCode := &AuthorizationCode{
+			Code:          "pkce-code",
+			ClientID:      "client-123",
+			UserID:        "user-123",
+			RedirectURI:   "http://localhost:8080/callback",
+			CodeChallenge: codeChallenge,
+			ExpiresAt:     time.Now().Add(10 * time.Minute),
+			Used:          false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+			deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "pkce-code",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+			RedirectURI:  "http://localhost:8080/callback",
+			CodeVerifier: codeVerifier,
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("expected non-empty access token")
+		}
+	})
+
+	t.Run("PKCE verification missing verifier", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+		}
+		authCode := &AuthorizationCode{
+			Code:          "pkce-code",
+			ClientID:      "client-123",
+			RedirectURI:   "http://localhost:8080/callback",
+			CodeChallenge: "some-challenge",
+			ExpiresAt:     time.Now().Add(10 * time.Minute),
+			Used:          false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "pkce-code",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+			RedirectURI:  "http://localhost:8080/callback",
+		})
+
+		if err == nil {
+			t.Error("expected error for missing code_verifier")
+		}
+	})
+
+	t.Run("PKCE verification invalid verifier", func(t *testing.T) {
+		correctVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+		codeChallenge, _ := GenerateCodeChallenge(correctVerifier, PKCEMethodS256)
+
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			Active:       true,
+		}
+		authCode := &AuthorizationCode{
+			Code:          "pkce-code",
+			ClientID:      "client-123",
+			RedirectURI:   "http://localhost:8080/callback",
+			CodeChallenge: codeChallenge,
+			ExpiresAt:     time.Now().Add(10 * time.Minute),
+			Used:          false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "pkce-code",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+			RedirectURI:  "http://localhost:8080/callback",
+			CodeVerifier: "wrong-verifier-that-does-not-match",
+		})
+
+		if err == nil {
+			t.Error("expected error for invalid code_verifier")
+		}
+	})
+}
+
+func TestHandleRefreshTokenGrant(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	t.Run("successful refresh token grant", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			Active:       true,
+		}
+		refreshToken := &RefreshToken{
+			ID:         "token-id-1",
+			Token:      "valid-refresh-token",
+			ClientID:   "client-123",
+			UserID:     "user-123",
+			UserClaims: map[string]any{"role": "admin"},
+			Scope:      "read",
+			ExpiresAt:  time.Now().Add(24 * time.Hour),
+			CreatedAt:  time.Now(),
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+			deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "valid-refresh-token",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("expected non-empty access token")
+		}
+		if resp.RefreshToken == "" {
+			t.Error("expected non-empty refresh token (rotated)")
+		}
+	})
+
+	t.Run("invalid refresh token", func(t *testing.T) {
+		storage := &mockStorage{
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return nil, fmt.Errorf("not found")
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "invalid-token",
+		})
+
+		if err == nil {
+			t.Error("expected error for invalid refresh token")
+		}
+	})
+
+	t.Run("expired refresh token", func(t *testing.T) {
+		refreshToken := &RefreshToken{
+			Token:     "expired-token",
+			ClientID:  "client-123",
+			ExpiresAt: time.Now().Add(-time.Hour),
+		}
+
+		storage := &mockStorage{
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+			deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "expired-token",
+			ClientID:     "client-123",
+		})
+
+		if err == nil {
+			t.Error("expected error for expired refresh token")
+		}
+	})
+
+	t.Run("client_id mismatch", func(t *testing.T) {
+		refreshToken := &RefreshToken{
+			Token:     "valid-token",
+			ClientID:  "client-123",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}
+
+		storage := &mockStorage{
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "valid-token",
+			ClientID:     "other-client",
+		})
+
+		if err == nil {
+			t.Error("expected error for client_id mismatch")
+		}
+	})
+
+	t.Run("invalid client credentials", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+		}
+		refreshToken := &RefreshToken{
+			Token:     "valid-token",
+			ClientID:  "client-123",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "valid-token",
+			ClientID:     "client-123",
+			ClientSecret: "wrong-secret",
+		})
+
+		if err == nil {
+			t.Error("expected error for invalid client credentials")
+		}
+	})
+
+	t.Run("refresh token with scope override", func(t *testing.T) {
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			Active:       true,
+		}
+		refreshToken := &RefreshToken{
+			Token:     "valid-token",
+			ClientID:  "client-123",
+			UserID:    "user-123",
+			Scope:     "read write",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+			deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "refresh_token",
+			RefreshToken: "valid-token",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+			Scope:        "read",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Scope != "read" {
+			t.Errorf("expected scope 'read', got %q", resp.Scope)
+		}
+	})
+}
+
+func TestTokenEndpointBasicAuth(t *testing.T) {
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		Active:       true,
+	}
+	authCode := &AuthorizationCode{
+		Code:        "valid-code",
+		ClientID:    "client-123",
+		UserID:      "user-123",
+		RedirectURI: "http://localhost:8080/callback",
+		ExpiresAt:   time.Now().Add(10 * time.Minute),
+		Used:        false,
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return authCode, nil
+		},
+		deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
+	server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+
+	body := "grant_type=authorization_code&code=valid-code&redirect_uri=http://localhost:8080/callback"
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("client-123", "secret")
+	w := httptest.NewRecorder()
+
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartCleanupRoutine(t *testing.T) {
+	var mu sync.Mutex
+	cleanupCodesCalled := false
+	cleanupTokensCalled := false
+
+	storage := &mockStorage{
+		cleanupExpiredCodesFunc: func(_ context.Context) error {
+			mu.Lock()
+			cleanupCodesCalled = true
+			mu.Unlock()
+			return nil
+		},
+		cleanupExpiredTokensFunc: func(_ context.Context) error {
+			mu.Lock()
+			cleanupTokensCalled = true
+			mu.Unlock()
+			return nil
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server.StartCleanupRoutine(ctx, 50*time.Millisecond)
+
+	// Wait for at least one cleanup cycle
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	// Give the goroutine time to stop
+	time.Sleep(20 * time.Millisecond)
+
+	mu.Lock()
+	codesCalled := cleanupCodesCalled
+	tokensCalled := cleanupTokensCalled
+	mu.Unlock()
+
+	if !codesCalled {
+		t.Error("expected cleanup expired codes to be called")
+	}
+	if !tokensCalled {
+		t.Error("expected cleanup expired tokens to be called")
 	}
 }
