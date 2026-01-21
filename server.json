@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.{{github-org}}/{{project-name}}",
-  "description": "{{project-description}}",
+  "name": "io.github.txn2/mcp-data-platform",
+  "description": "Semantic data platform MCP server with bidirectional cross-injection",
   "repository": {
-    "url": "https://github.com/{{github-org}}/{{project-name}}",
+    "url": "https://github.com/txn2/mcp-data-platform",
     "source": "github"
   },
   "version": "0.0.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_darwin_arm64.mcpb",
+      "identifier": "https://github.com/txn2/mcp-data-platform/releases/download/v0.0.0/mcp-data-platform_0.0.0_darwin_arm64.mcpb",
       "fileSha256": "PLACEHOLDER_SHA256",
       "transport": {
         "type": "stdio"
@@ -18,7 +18,7 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_darwin_amd64.mcpb",
+      "identifier": "https://github.com/txn2/mcp-data-platform/releases/download/v0.0.0/mcp-data-platform_0.0.0_darwin_amd64.mcpb",
       "fileSha256": "PLACEHOLDER_SHA256",
       "transport": {
         "type": "stdio"
@@ -26,7 +26,15 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/{{github-org}}/{{project-name}}/releases/download/v0.0.0/{{project-name}}_0.0.0_windows_amd64.mcpb",
+      "identifier": "https://github.com/txn2/mcp-data-platform/releases/download/v0.0.0/mcp-data-platform_0.0.0_windows_amd64.mcpb",
+      "fileSha256": "PLACEHOLDER_SHA256",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/txn2/mcp-data-platform/releases/download/v0.0.0/mcp-data-platform_0.0.0_linux_amd64.mcpb",
       "fileSha256": "PLACEHOLDER_SHA256",
       "transport": {
         "type": "stdio"
@@ -34,6 +42,10 @@
     }
   ],
   "tags": [
-    "mcp"
+    "mcp",
+    "data-platform",
+    "semantic",
+    "trino",
+    "datahub"
   ]
 }

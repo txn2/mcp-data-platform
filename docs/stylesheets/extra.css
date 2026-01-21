@@ -1,7 +1,147 @@
-/* Custom styles for {{project-name}} documentation */
+/* mcp-data-platform Docs - Clean Design (kubefwd color scheme) */
 
 :root {
-  --md-primary-fg-color: #1976d2;
-  --md-primary-fg-color--light: #42a5f5;
-  --md-primary-fg-color--dark: #0d47a1;
+  --mt-green: #5D7A6B;
+  --mt-green-dark: #4a6356;
+  --mt-green-light: #6e8a7b;
+  --mt-text: #2d3748;
+  --mt-text-muted: #718096;
+  --mt-bg: #f7fafc;
+  --mt-border: #e2e8f0;
+}
+
+[data-md-color-scheme="slate"] {
+  --mt-green: #5D7A6B;
+  --mt-green-dark: #4a6356;
+  --mt-green-light: #6e8a7b;
+  --mt-text: #e2e8f0;
+  --mt-text-muted: #a0aec0;
+  --mt-bg: #1a202c;
+  --mt-border: #2d3748;
+}
+
+/* ===== COLOR VARIABLES - LIGHT MODE ===== */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #5D7A6B;
+  --md-primary-fg-color--light: #6e8a7b;
+  --md-primary-fg-color--dark: #4a6356;
+  --md-accent-fg-color: #5D7A6B;
+  --md-typeset-a-color: #5D7A6B;
+}
+
+/* ===== COLOR VARIABLES - DARK MODE ===== */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #5D7A6B;
+  --md-primary-fg-color--light: #6e8a7b;
+  --md-primary-fg-color--dark: #4a6356;
+  --md-accent-fg-color: #6e8a7b;
+  --md-typeset-a-color: #6e8a7b;
+  --md-default-bg-color: #1a202c;
+  --md-default-bg-color--light: #2d3748;
+  --md-default-bg-color--lighter: #4a5568;
+  --md-default-bg-color--lightest: #718096;
+  --md-code-bg-color: #171923;
+}
+
+/* ===== HEADER ===== */
+.md-header {
+  background: var(--mt-green);
+}
+
+[data-md-color-scheme="slate"] .md-header {
+  background: #2d3d35;
+}
+
+/* ===== TABS ===== */
+.md-tabs {
+  background: var(--mt-green-dark);
+}
+
+[data-md-color-scheme="slate"] .md-tabs {
+  background: #1a202c;
+}
+
+/* ===== TYPOGRAPHY ===== */
+.md-typeset {
+  line-height: 1.7;
+}
+
+[data-md-color-scheme="default"] .md-typeset {
+  color: #2d3748;
+}
+
+/* ===== CONTENT WIDTH ===== */
+.md-content__inner {
+  max-width: 52rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ===== CODE BLOCKS ===== */
+[data-md-color-scheme="default"] .md-typeset pre > code {
+  background-color: #1a202c;
+}
+
+[data-md-color-scheme="default"] .md-typeset code {
+  background-color: #edf2f7;
+}
+
+[data-md-color-scheme="slate"] .md-typeset pre > code {
+  background-color: #171923;
+}
+
+[data-md-color-scheme="slate"] .md-typeset code {
+  background-color: #2d3748;
+}
+
+/* ===== LINKS ===== */
+.md-typeset a {
+  color: var(--mt-green);
+  text-decoration: none;
+}
+
+.md-typeset a:hover {
+  color: var(--mt-green-dark);
+  text-decoration: underline;
+}
+
+/* Navigation active */
+.md-nav__link--active {
+  color: var(--mt-green) !important;
+}
+
+/* ===== TABLE HEADERS ===== */
+.md-typeset table:not([class]) th {
+  background-color: var(--mt-green);
+  color: white;
+}
+
+/* ===== BUTTONS ===== */
+.md-typeset .md-button--primary {
+  background: var(--mt-green);
+  border-color: var(--mt-green);
+}
+
+.md-typeset .md-button--primary:hover {
+  background: var(--mt-green-dark);
+  border-color: var(--mt-green-dark);
+}
+
+/* ===== SIDEBAR & NAV (DARK MODE) ===== */
+[data-md-color-scheme="slate"] .md-sidebar {
+  background-color: #1a202c;
+}
+
+[data-md-color-scheme="slate"] .md-nav {
+  background-color: #1a202c;
+}
+
+/* ===== FOOTER ===== */
+[data-md-color-scheme="default"] .md-footer-meta {
+  background-color: #f7fafc;
+}
+
+[data-md-color-scheme="slate"] .md-footer-meta {
+  background-color: #1a202c;
 }

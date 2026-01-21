@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+.venv
 
 # Test binary, built with `go test -c`
 *.test
@@ -41,5 +42,9 @@ site/
 # Build artifacts
 dist/
 build/
-/{{project-name}}
+/mcp-data-platform
 NOTES_*
+
+# E2E test artifacts
+e2e-test-output.log
+test/e2e/**/*.log

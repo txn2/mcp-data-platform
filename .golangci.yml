@@ -47,6 +47,6 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/{{github-org}}/{{project-name}}
+        - github.com/txn2/mcp-data-platform
   exclusions:
     generated: lax

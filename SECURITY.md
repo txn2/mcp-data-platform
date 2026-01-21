@@ -10,7 +10,7 @@ We release patches for security vulnerabilities in the following versions:
 
 ## Reporting a Vulnerability
 
-We take security seriously. If you discover a security vulnerability within {{project-name}}, please report it responsibly.
+We take security seriously. If you discover a security vulnerability within mcp-data-platform, please report it responsibly.
 
 ### How to Report
 
@@ -18,9 +18,9 @@ We take security seriously. If you discover a security vulnerability within {{pr
 
 Instead, please report them via one of the following methods:
 
-1. **GitHub Security Advisories** (Preferred): Use [GitHub's private vulnerability reporting](https://github.com/{{github-org}}/{{project-name}}/security/advisories/new) to report the vulnerability directly.
+1. **GitHub Security Advisories** (Preferred): Use [GitHub's private vulnerability reporting](https://github.com/txn2/mcp-data-platform/security/advisories/new) to report the vulnerability directly.
 
-2. **Email**: Send an email to {{maintainer-email}} with:
+2. **Email**: Send an email to cj@imti.co with:
    - A description of the vulnerability
    - Steps to reproduce the issue
    - Potential impact of the vulnerability
@@ -35,28 +35,40 @@ Instead, please report them via one of the following methods:
 
 ### Security Best Practices for Users
 
-When deploying {{project-name}}:
+When deploying mcp-data-platform:
 
 1. **Credentials Management**
    - Never commit credentials to version control
    - Use environment variables or secret managers for sensitive configuration
    - Rotate credentials regularly
+   - Use strong, unique API keys
 
 2. **Network Security**
    - Use TLS for all connections where available
    - Deploy behind a firewall or VPN when possible
+   - Restrict access to the MCP server to trusted clients
 
 3. **Access Control**
-   - Grant minimal necessary permissions
-   - Consider using read-only credentials where applicable
+   - Configure personas with minimal necessary permissions
+   - Use deny rules to explicitly block dangerous operations
+   - Regularly audit tool access patterns
+
+4. **Database Security**
+   - Use dedicated credentials for the audit database
+   - Enable TLS for database connections
+   - Regularly backup audit logs
 
 ## Security Features
 
-{{project-name}} includes several security features by default:
+mcp-data-platform includes several security features:
 
-- **Read-Only Mode**: Configurable to prevent write operations
-- **TLS Support**: Full TLS/SSL support where applicable
+- **OAuth 2.1 Authentication**: Full OAuth 2.1 support with PKCE and DCR
+- **OIDC Integration**: Integrate with any OIDC-compliant identity provider
+- **API Key Authentication**: Support for API key-based authentication
+- **Role-Based Personas**: Fine-grained tool access control with allow/deny rules
+- **Audit Logging**: Comprehensive audit trail of all tool invocations
 - **Input Validation**: All inputs are validated before processing
+- **PKCE Support**: Proof Key for Code Exchange for secure OAuth flows
 
 ## Security Updates
 
@@ -66,4 +78,4 @@ Security updates are released as patch versions and announced via:
 - Release notes
 - The project README
 
-We recommend always running the latest version of {{project-name}}.
+We recommend always running the latest version of mcp-data-platform.

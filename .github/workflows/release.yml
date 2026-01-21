@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: go.mod
           cache: true
@@ -118,15 +118,15 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
 
           # Calculate SHA-256 hashes for each MCPB bundle (using underscore naming convention)
-          SHA_DARWIN_ARM64=$(sha256sum dist/mcpb/{{project-name}}_${VERSION}_darwin_arm64.mcpb | cut -d' ' -f1)
-          SHA_DARWIN_AMD64=$(sha256sum dist/mcpb/{{project-name}}_${VERSION}_darwin_amd64.mcpb | cut -d' ' -f1)
-          SHA_WINDOWS_AMD64=$(sha256sum dist/mcpb/{{project-name}}_${VERSION}_windows_amd64.mcpb | cut -d' ' -f1)
+          SHA_DARWIN_ARM64=$(sha256sum dist/mcpb/mcp-data-platform_${VERSION}_darwin_arm64.mcpb | cut -d' ' -f1)
+          SHA_DARWIN_AMD64=$(sha256sum dist/mcpb/mcp-data-platform_${VERSION}_darwin_amd64.mcpb | cut -d' ' -f1)
+          SHA_WINDOWS_AMD64=$(sha256sum dist/mcpb/mcp-data-platform_${VERSION}_windows_amd64.mcpb | cut -d' ' -f1)
 
           # Update server.json with version and SHA-256 hashes
           sed -i "s/0.0.0/${VERSION}/g" server.json
-          sed -i "s/{{project-name}}_0.0.0_darwin_arm64.mcpb/{{project-name}}_${VERSION}_darwin_arm64.mcpb/" server.json
-          sed -i "s/{{project-name}}_0.0.0_darwin_amd64.mcpb/{{project-name}}_${VERSION}_darwin_amd64.mcpb/" server.json
-          sed -i "s/{{project-name}}_0.0.0_windows_amd64.mcpb/{{project-name}}_${VERSION}_windows_amd64.mcpb/" server.json
+          sed -i "s/mcp-data-platform_0.0.0_darwin_arm64.mcpb/mcp-data-platform_${VERSION}_darwin_arm64.mcpb/" server.json
+          sed -i "s/mcp-data-platform_0.0.0_darwin_amd64.mcpb/mcp-data-platform_${VERSION}_darwin_amd64.mcpb/" server.json
+          sed -i "s/mcp-data-platform_0.0.0_windows_amd64.mcpb/mcp-data-platform_${VERSION}_windows_amd64.mcpb/" server.json
 
           # Replace placeholder hashes (in order: arm64, amd64, windows)
           sed -i "0,/PLACEHOLDER_SHA256/{s/PLACEHOLDER_SHA256/${SHA_DARWIN_ARM64}/}" server.json

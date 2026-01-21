@@ -1,0 +1,117 @@
+# E2E Test Environment for MCP Data Platform
+#
+# This compose file provides platform services (Trino, MinIO, PostgreSQL).
+# DataHub should be started separately via: datahub docker quickstart
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up -d
+#
+# Prerequisites:
+#   - DataHub CLI: pip install acryl-datahub
+#   - DataHub running: datahub docker quickstart
+
+services:
+  # PostgreSQL for OAuth/Audit storage
+  postgres:
+    image: postgres:16-alpine
+    container_name: e2e-postgres
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform_secret
+      POSTGRES_DB: mcp_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./test/e2e/init/postgres:/docker-entrypoint-initdb.d:ro
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d mcp_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - e2e-network
+
+  # Trino for query execution
+  trino:
+    image: trinodb/trino:453
+    container_name: e2e-trino
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./test/e2e/init/trino/catalog:/etc/trino/catalog:ro
+      - ./test/e2e/init/trino/etc/config.properties:/etc/trino/config.properties:ro
+    healthcheck:
+      test: ["CMD", "trino", "--execute", "SELECT 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      - e2e-network
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: e2e-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - e2e-network
+
+  # MinIO setup - creates buckets and uploads test data
+  minio-setup:
+    image: minio/mc:latest
+    container_name: e2e-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb --ignore-existing local/test-data-lake;
+      mc mb --ignore-existing local/test-analytics;
+      mc cp /testdata/sample.parquet local/test-data-lake/raw/;
+      echo 'MinIO setup complete';
+      "
+    volumes:
+      - ./test/e2e/testdata/s3:/testdata:ro
+    networks:
+      - e2e-network
+
+  # Trino setup - creates test tables
+  trino-setup:
+    image: trinodb/trino:453
+    container_name: e2e-trino-setup
+    depends_on:
+      trino:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      trino --server http://trino:8080 --file /setup/setup.sql;
+      echo 'Trino setup complete';
+      "
+    volumes:
+      - ./test/e2e/init/trino/setup.sql:/setup/setup.sql:ro
+    networks:
+      - e2e-network
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  e2e-network:
+    driver: bridge

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & Discussions
-    url: https://github.com/{{github-org}}/{{project-name}}/discussions
+    url: https://github.com/txn2/mcp-data-platform/discussions
     about: For questions and general discussion, please use GitHub Discussions.
   - name: Security Vulnerabilities
-    url: https://github.com/{{github-org}}/{{project-name}}/security/advisories/new
+    url: https://github.com/txn2/mcp-data-platform/security/advisories/new
     about: For security vulnerabilities, please use GitHub Security Advisories.
