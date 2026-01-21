@@ -319,4 +319,116 @@ func TestGetNestedValue(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("path through non-map", func(t *testing.T) {
+		data := map[string]any{
+			"simple": "value",
+		}
+		result := getNestedValue(data, "simple.deeper")
+		if result != nil {
+			t.Errorf("expected nil for path through non-map, got %v", result)
+		}
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		data := map[string]any{
+			"key": "value",
+		}
+		result := getNestedValue(data, "")
+		if result != nil {
+			t.Errorf("expected nil for empty path, got %v", result)
+		}
+	})
+}
+
+func TestOIDCRoleMapper_MapToPersona_NoMatch(t *testing.T) {
+	registry := NewRegistry()
+	// Don't register any personas or set default
+
+	mapper := &OIDCRoleMapper{
+		Registry: registry,
+	}
+
+	persona, err := mapper.MapToPersona(context.Background(), []string{"unknown_role"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return DefaultPersona when nothing matches
+	if persona == nil {
+		t.Error("expected non-nil persona")
+	}
+}
+
+func TestStaticRoleMapper_MapToPersona_NotFound(t *testing.T) {
+	registry := NewRegistry()
+	// Don't register the default persona
+
+	mapper := &StaticRoleMapper{
+		DefaultPersonaName: "nonexistent",
+		Registry:           registry,
+	}
+
+	persona, err := mapper.MapToPersona(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return DefaultPersona when persona name not found
+	if persona == nil {
+		t.Error("expected non-nil persona")
+	}
+}
+
+func TestStaticRoleMapper_MapToPersona_NoDefault(t *testing.T) {
+	registry := NewRegistry()
+	// Don't set a default
+
+	mapper := &StaticRoleMapper{
+		Registry: registry,
+	}
+
+	persona, err := mapper.MapToPersona(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return DefaultPersona when no default set in registry
+	if persona == nil {
+		t.Error("expected non-nil persona")
+	}
+}
+
+func TestChainedRoleMapper_MapToRoles_WithError(t *testing.T) {
+	// ChainedRoleMapper should handle errors from individual mappers gracefully
+	registry := NewRegistry()
+
+	chained := &ChainedRoleMapper{
+		Mappers: []RoleMapper{},
+	}
+
+	roles, err := chained.MapToRoles(map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(roles) != 0 {
+		t.Errorf("expected empty roles from empty mappers, got %v", roles)
+	}
+	_ = registry
+}
+
+func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
+	mapper := &OIDCRoleMapper{
+		ClaimPath: "roles",
+	}
+
+	// roles contains a non-string value
+	claims := map[string]any{
+		"roles": []any{"admin", 42, "user"},
+	}
+	roles, err := mapper.MapToRoles(claims)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should only include string values
+	if len(roles) != 2 {
+		t.Errorf("expected 2 string roles, got %d: %v", len(roles), roles)
+	}
 }
