@@ -1,32 +1,34 @@
 # mcp-data-platform
 
-A semantic data platform MCP server that composes Trino, DataHub, and S3 toolkits with **bidirectional cross-injection**. Query a database table and automatically receive business context. Search your data catalog and learn which datasets are queryable.
+An MCP server for data exploration and analysis. Not an API wrapper—a platform for building AI-assisted data workflows with your semantic layer at the center.
+
+**The only requirement is [DataHub](https://datahubproject.io/).** Trino and S3 are optional but recommended.
 
 <div class="grid cards" markdown>
 
--   :material-semantic-web: **Semantic-First Access**
+-   :material-semantic-web: **Semantic-First**
 
     ---
 
-    Every data operation includes business context from your semantic layer. Table descriptions, ownership, data quality scores, and deprecation warnings surface automatically.
+    DataHub is the foundation. Query a table, get its business context automatically—owners, tags, quality scores, deprecation warnings. No separate lookups.
 
--   :material-swap-horizontal: **Bidirectional Cross-Injection**
-
-    ---
-
-    Trino results include DataHub metadata. DataHub search results show query availability. S3 objects link to their semantic context. No manual lookups required.
-
--   :material-shield-lock: **Enterprise Authentication**
+-   :material-swap-horizontal: **Cross-Injection**
 
     ---
 
-    OIDC with any provider (Keycloak, Auth0, Okta) and API keys for service accounts. Simple, direct authentication without unnecessary token complexity.
+    Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
--   :material-account-group: **Role-Based Personas**
+-   :material-code-braces: **Built for Customization**
 
     ---
 
-    Define analyst, admin, or custom personas with wildcard tool filtering. Map OIDC roles to personas automatically. Control what each user can access.
+    Add custom toolkits, providers, and middleware. The Go library exposes everything. Build the data platform your organization needs.
+
+-   :material-account-group: **Personas**
+
+    ---
+
+    Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
 
 </div>
 
@@ -34,7 +36,9 @@ A semantic data platform MCP server that composes Trino, DataHub, and S3 toolkit
 
 ## Quick Start
 
-=== "Claude Code"
+=== "Local (stdio)"
+
+    Run locally with your own credentials:
 
     ```bash
     # Install
@@ -44,20 +48,17 @@ A semantic data platform MCP server that composes Trino, DataHub, and S3 toolkit
     claude mcp add mcp-data-platform -- mcp-data-platform --config platform.yaml
     ```
 
-=== "Claude Desktop"
+    No MCP authentication needed—uses your configured DataHub/Trino/S3 credentials.
 
-    Add to `claude_desktop_config.json`:
+=== "Remote (SSE)"
 
-    ```json
-    {
-      "mcpServers": {
-        "mcp-data-platform": {
-          "command": "mcp-data-platform",
-          "args": ["--config", "/path/to/platform.yaml"]
-        }
-      }
-    }
+    Deploy as a shared service with Keycloak authentication:
+
+    ```bash
+    mcp-data-platform --config platform.yaml --transport sse --address :8443
     ```
+
+    Users connect via Claude Desktop and authenticate through your identity provider.
 
 === "Docker"
 
@@ -73,19 +74,19 @@ A semantic data platform MCP server that composes Trino, DataHub, and S3 toolkit
 
 <div class="grid cards" markdown>
 
--   :material-server: **Use the MCP Server**
+-   :material-server: **Deploy the Server**
 
     ---
 
-    Deploy the pre-built server to connect Claude to your data infrastructure. Configure toolkits, authentication, and personas via YAML.
+    Configure via YAML. Connect DataHub, add Trino and S3 if you have them. Works out of the box.
 
     [:octicons-arrow-right-24: Server Guide](server/overview.md)
 
--   :material-code-braces: **Build Custom MCP**
+-   :material-code-braces: **Build Your Own**
 
     ---
 
-    Use the Go library to build your own MCP server with custom toolkits, middleware, and providers. Full control over the platform behavior.
+    Import the Go library. Add custom tools, swap providers, write middleware. Make it yours.
 
     [:octicons-arrow-right-24: Library Guide](library/overview.md)
 
@@ -93,7 +94,15 @@ A semantic data platform MCP server that composes Trino, DataHub, and S3 toolkit
 
 ---
 
-## How Cross-Injection Works
+## Why DataHub?
+
+[DataHub](https://datahubproject.io/) knows what your data means. Table descriptions, who owns what, data quality, whether something's deprecated. Without it, AI just sees column names and types.
+
+With DataHub as the semantic layer:
+
+- Query a table → get told it's deprecated before you waste time
+- Search for "customer data" → find the right tables across all your systems
+- Ask about lineage → understand where data comes from
 
 ```mermaid
 graph LR
@@ -102,62 +111,51 @@ graph LR
     end
 
     subgraph "mcp-data-platform"
-        T[Trino Toolkit]
-        E[Enrichment Layer]
+        T[Trino]
         D[DataHub]
     end
 
     subgraph "Your Response"
-        R[Query Results +<br/>Owners, Tags, Quality Score,<br/>Deprecation Warning]
+        R[Results + Context]
     end
 
     Q --> T
-    T --> E
-    E --> D
-    D --> E
-    E --> R
+    T --> D
+    D --> R
 ```
 
-When you query a Trino table, the platform automatically:
-
-1. Executes your query against Trino
-2. Looks up the table in DataHub
-3. Appends semantic context to your results
-
-The same happens in reverse: search DataHub for datasets, and results include whether each table is queryable via Trino.
-
-[:octicons-arrow-right-24: Learn more about cross-injection](cross-injection/overview.md)
+[:octicons-arrow-right-24: Cross-injection details](cross-injection/overview.md)
 
 ---
 
-## Available Tools
+## What's Included
 
-| Toolkit | Tools | Description |
-|---------|-------|-------------|
-| **Trino** | 7 tools | Query execution, schema exploration, table metadata |
-| **DataHub** | 11 tools | Search, entity details, lineage, glossary, data products |
-| **S3** | 6-9 tools | Object storage operations (read-only or full access) |
+| Toolkit | Tools | Required |
+|---------|-------|----------|
+| **DataHub** | 11 tools | Yes |
+| **Trino** | 7 tools | No |
+| **S3** | 6-9 tools | No |
 
-[:octicons-arrow-right-24: Complete tools reference](reference/tools-api.md)
+DataHub is the foundation. Add Trino for SQL queries, S3 for object storage. Use what you have.
 
----
-
-## Works With
-
-- [Claude Desktop](https://claude.ai/download) - Anthropic's desktop application
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - CLI for software development
-- Any MCP-compatible client using stdio or SSE transport
+[:octicons-arrow-right-24: Tools reference](reference/tools-api.md)
 
 ---
 
-## Part of the txn2 MCP Ecosystem
+## Runs With
 
-mcp-data-platform composes these standalone MCP servers:
+- Claude Desktop (add the SSE endpoint)
+- Claude Code (stdio or SSE)
+- Any MCP client
 
-| Project | Purpose |
-|---------|---------|
-| [mcp-trino](https://github.com/txn2/mcp-trino) | Trino query engine access |
-| [mcp-datahub](https://github.com/txn2/mcp-datahub) | DataHub metadata catalog |
-| [mcp-s3](https://github.com/txn2/mcp-s3) | S3-compatible object storage |
+---
 
-Each can be used independently, but mcp-data-platform adds cross-injection, authentication, personas, and audit logging.
+## Built On
+
+| Project | What it does |
+|---------|--------------|
+| [mcp-trino](https://github.com/txn2/mcp-trino) | Trino queries |
+| [mcp-datahub](https://github.com/txn2/mcp-datahub) | DataHub metadata |
+| [mcp-s3](https://github.com/txn2/mcp-s3) | S3 storage |
+
+These work standalone. This platform wires them together with cross-injection, auth, and personas.
