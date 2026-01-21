@@ -90,6 +90,29 @@ func TestRuleEngine_CheckQueryExecution(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("PII access with acknowledgment required", func(t *testing.T) {
+		piiEngine := NewRuleEngine(&Rules{
+			RequirePIIAcknowledgment: true,
+		})
+		metadata := QueryMetadata{
+			ContainsPII: true,
+		}
+		violations := piiEngine.CheckQueryExecution(metadata)
+
+		found := false
+		for _, v := range violations {
+			if v.Rule == "pii_access" {
+				found = true
+				if v.Severity != SeverityInfo {
+					t.Errorf("Severity = %v, want %v", v.Severity, SeverityInfo)
+				}
+			}
+		}
+		if !found {
+			t.Error("expected pii_access violation when RequirePIIAcknowledgment is true")
+		}
+	})
 }
 
 func TestRuleEngine_Methods(t *testing.T) {
