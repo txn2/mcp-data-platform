@@ -234,6 +234,19 @@ func TestExtractErrorMessage(t *testing.T) {
 			t.Errorf("expected 'test error message', got %q", msg)
 		}
 	})
+
+	t.Run("non-text content", func(t *testing.T) {
+		// Create a result with non-TextContent (e.g., ImageContent)
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ImageContent{Data: []byte("base64data")},
+			},
+		}
+		msg := extractErrorMessage(result)
+		if msg != "" {
+			t.Errorf("expected empty string for non-text content, got %q", msg)
+		}
+	})
 }
 
 func TestNoopAuditLogger(t *testing.T) {
