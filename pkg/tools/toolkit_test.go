@@ -1,10 +1,18 @@
 package tools
 
 import (
+	"context"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestNewToolkit(t *testing.T) {
+	toolkit := NewToolkit()
+	if toolkit == nil {
+		t.Error("NewToolkit() returned nil")
+	}
+}
 
 func TestToolkit_RegisterTools(t *testing.T) {
 	toolkit := NewToolkit()
@@ -18,6 +26,47 @@ func TestToolkit_RegisterTools(t *testing.T) {
 
 	// Should not panic
 	toolkit.RegisterTools(server)
+}
+
+func TestToolkit_handleExampleTool(t *testing.T) {
+	toolkit := NewToolkit()
+	defer toolkit.Close()
+
+	args := ExampleToolArgs{
+		Message: "Hello, World!",
+	}
+
+	result, _, err := toolkit.handleExampleTool(context.Background(), nil, args)
+	if err != nil {
+		t.Fatalf("handleExampleTool() error = %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	if len(result.Content) != 1 {
+		t.Errorf("expected 1 content item, got %d", len(result.Content))
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected TextContent")
+	}
+
+	if textContent.Text != "Echo: Hello, World!" {
+		t.Errorf("expected 'Echo: Hello, World!', got %q", textContent.Text)
+	}
+}
+
+func TestExampleToolArgs(t *testing.T) {
+	args := ExampleToolArgs{
+		Message: "Test message",
+	}
+
+	if args.Message != "Test message" {
+		t.Errorf("unexpected Message: %s", args.Message)
+	}
 }
 
 func TestToolkit_Close(t *testing.T) {

@@ -163,6 +163,10 @@ func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.Gl
 		return nil, fmt.Errorf("getting glossary term from datahub: %w", err)
 	}
 
+	if term == nil {
+		return nil, fmt.Errorf("glossary term not found: %s", urn)
+	}
+
 	return &semantic.GlossaryTerm{
 		URN:         term.URN,
 		Name:        term.Name,

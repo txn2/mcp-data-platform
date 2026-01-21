@@ -183,3 +183,17 @@ func TestLifecycle_RegisterCloser(t *testing.T) {
 		t.Error("closer not closed")
 	}
 }
+
+func TestLifecycle_StopWithError(t *testing.T) {
+	lc := NewLifecycle()
+
+	lc.OnStop(func(_ context.Context) error {
+		return errors.New("stop error")
+	})
+
+	_ = lc.Start(context.Background())
+	err := lc.Stop(context.Background())
+	if err == nil {
+		t.Error("Stop() expected error when callback fails")
+	}
+}

@@ -1,0 +1,135 @@
+[
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "aspect": {
+      "name": "test_orders",
+      "description": "E-commerce test orders table for E2E testing",
+      "customProperties": {
+        "team": "e2e-testing",
+        "classification": "internal"
+      }
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "ownership",
+    "aspect": {
+      "owners": [
+        {
+          "owner": "urn:li:corpuser:alice",
+          "type": "DATAOWNER"
+        },
+        {
+          "owner": "urn:li:corpuser:bob",
+          "type": "DELEGATE"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "globalTags",
+    "aspect": {
+      "tags": [
+        {
+          "tag": "urn:li:tag:e2e-test"
+        },
+        {
+          "tag": "urn:li:tag:ecommerce"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "domains",
+    "aspect": {
+      "domains": [
+        "urn:li:domain:ecommerce"
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.legacy_users,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "aspect": {
+      "name": "legacy_users",
+      "description": "Legacy user table - DEPRECATED, use user_profiles instead"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.legacy_users,PROD)",
+    "entityType": "dataset",
+    "aspectName": "deprecation",
+    "aspect": {
+      "deprecated": true,
+      "decommissionTime": 1735689600000,
+      "note": "This table is deprecated. Please use user_profiles table instead.",
+      "actor": "urn:li:corpuser:admin"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "aspect": {
+      "name": "customer_metrics",
+      "description": "Aggregated customer metrics for analytics"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)",
+    "entityType": "dataset",
+    "aspectName": "ownership",
+    "aspect": {
+      "owners": [
+        {
+          "owner": "urn:li:corpuser:analytics-team",
+          "type": "DATAOWNER"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "aspect": {
+      "name": "raw-data-lake",
+      "description": "Raw data landing zone in S3",
+      "customProperties": {
+        "bucket": "test-data-lake",
+        "prefix": "raw"
+      }
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
+    "entityType": "dataset",
+    "aspectName": "ownership",
+    "aspect": {
+      "owners": [
+        {
+          "owner": "urn:li:corpuser:data-engineering",
+          "type": "DATAOWNER"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
+    "entityType": "dataset",
+    "aspectName": "domains",
+    "aspect": {
+      "domains": [
+        "urn:li:domain:data-platform"
+      ]
+    }
+  }
+]

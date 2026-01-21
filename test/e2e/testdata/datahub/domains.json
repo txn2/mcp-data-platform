@@ -1,0 +1,29 @@
+[
+  {
+    "entityUrn": "urn:li:domain:ecommerce",
+    "entityType": "domain",
+    "aspectName": "domainProperties",
+    "aspect": {
+      "name": "E-Commerce",
+      "description": "E-commerce business domain including orders, products, and customers"
+    }
+  },
+  {
+    "entityUrn": "urn:li:domain:data-platform",
+    "entityType": "domain",
+    "aspectName": "domainProperties",
+    "aspect": {
+      "name": "Data Platform",
+      "description": "Data platform infrastructure and raw data"
+    }
+  },
+  {
+    "entityUrn": "urn:li:domain:analytics",
+    "entityType": "domain",
+    "aspectName": "domainProperties",
+    "aspect": {
+      "name": "Analytics",
+      "description": "Analytics and business intelligence"
+    }
+  }
+]

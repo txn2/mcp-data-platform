@@ -1,6 +1,14 @@
 package persona
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
+)
 
 func TestToolFilter_IsAllowed(t *testing.T) {
 	reg := NewRegistry()
@@ -114,3 +122,199 @@ func TestToolFilter_FilterTools(t *testing.T) {
 		}
 	}
 }
+
+func TestToolFilter_FilterTools_NilPersona(t *testing.T) {
+	reg := NewRegistry()
+	filter := NewToolFilter(reg)
+
+	tools := []string{"tool1", "tool2", "tool3"}
+	allowed := filter.FilterTools(nil, tools)
+
+	if len(allowed) != 3 {
+		t.Errorf("FilterTools(nil) should return all tools, got %d", len(allowed))
+	}
+}
+
+func TestMatchPattern(t *testing.T) {
+	tests := []struct {
+		pattern string
+		name    string
+		want    bool
+	}{
+		{"*", "anything", true},
+		{"trino_*", "trino_query", true},
+		{"trino_*", "datahub_search", false},
+		{"exact_match", "exact_match", true},
+		{"exact_match", "other", false},
+		{"prefix_*_suffix", "prefix_middle_suffix", true},
+		{"[invalid", "test", false}, // Invalid pattern
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern+"_"+tt.name, func(t *testing.T) {
+			got := matchPattern(tt.pattern, tt.name)
+			if got != tt.want {
+				t.Errorf("matchPattern(%q, %q) = %v, want %v", tt.pattern, tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// mockRoleMapper implements RoleMapper for testing.
+type mockRoleMapper struct {
+	mapToPersonaFunc func(ctx context.Context, roles []string) (*Persona, error)
+	mapToRolesFunc   func(claims map[string]any) ([]string, error)
+}
+
+func (m *mockRoleMapper) MapToPersona(ctx context.Context, roles []string) (*Persona, error) {
+	if m.mapToPersonaFunc != nil {
+		return m.mapToPersonaFunc(ctx, roles)
+	}
+	return nil, nil
+}
+
+func (m *mockRoleMapper) MapToRoles(claims map[string]any) ([]string, error) {
+	if m.mapToRolesFunc != nil {
+		return m.mapToRolesFunc(claims)
+	}
+	return nil, nil
+}
+
+func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
+	reg := NewRegistry()
+
+	t.Run("mapper error returns not authorized", func(t *testing.T) {
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return nil, errors.New("mapper error")
+			},
+		}
+		auth := NewPersonaAuthorizer(reg, mapper)
+
+		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
+		if authorized {
+			t.Error("expected not authorized on mapper error")
+		}
+		if reason != "failed to determine persona" {
+			t.Errorf("unexpected reason: %s", reason)
+		}
+	})
+
+	t.Run("tool not allowed for persona", func(t *testing.T) {
+		persona := &Persona{
+			Name:  "analyst",
+			Tools: ToolRules{Allow: []string{"trino_*"}},
+		}
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return persona, nil
+			},
+		}
+		auth := NewPersonaAuthorizer(reg, mapper)
+
+		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"analyst"}, "s3_list_buckets")
+		if authorized {
+			t.Error("expected not authorized for disallowed tool")
+		}
+		if reason != "tool not allowed for persona: analyst" {
+			t.Errorf("unexpected reason: %s", reason)
+		}
+	})
+
+	t.Run("tool allowed for persona", func(t *testing.T) {
+		persona := &Persona{
+			Name:  "admin",
+			Tools: ToolRules{Allow: []string{"*"}},
+		}
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return persona, nil
+			},
+		}
+		auth := NewPersonaAuthorizer(reg, mapper)
+
+		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"admin"}, "any_tool")
+		if !authorized {
+			t.Error("expected authorized for admin persona")
+		}
+		if reason != "" {
+			t.Errorf("unexpected reason: %s", reason)
+		}
+	})
+}
+
+func TestPersonaMiddleware(t *testing.T) {
+	t.Run("no platform context", func(t *testing.T) {
+		mapper := &mockRoleMapper{}
+		mw := PersonaMiddleware(mapper)
+		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{}, nil
+		})
+
+		result, err := handler(context.Background(), mcp.CallToolRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Error("expected non-nil result")
+		}
+	})
+
+	t.Run("sets persona name in context", func(t *testing.T) {
+		persona := &Persona{Name: "analyst"}
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return persona, nil
+			},
+		}
+		mw := PersonaMiddleware(mapper)
+
+		var capturedPC *middleware.PlatformContext
+		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			capturedPC = middleware.GetPlatformContext(ctx)
+			return &mcp.CallToolResult{}, nil
+		})
+
+		pc := middleware.NewPlatformContext("req-1")
+		pc.Roles = []string{"analyst"}
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+
+		_, err := handler(ctx, mcp.CallToolRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if capturedPC.PersonaName != "analyst" {
+			t.Errorf("expected PersonaName 'analyst', got %q", capturedPC.PersonaName)
+		}
+	})
+
+	t.Run("mapper error continues without persona", func(t *testing.T) {
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return nil, errors.New("mapper error")
+			},
+		}
+		mw := PersonaMiddleware(mapper)
+
+		var capturedPC *middleware.PlatformContext
+		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			capturedPC = middleware.GetPlatformContext(ctx)
+			return &mcp.CallToolResult{}, nil
+		})
+
+		pc := middleware.NewPlatformContext("req-1")
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+
+		_, err := handler(ctx, mcp.CallToolRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if capturedPC.PersonaName != "" {
+			t.Errorf("expected empty PersonaName, got %q", capturedPC.PersonaName)
+		}
+	})
+}
+
+// Verify interface compliance.
+var _ RoleMapper = (*mockRoleMapper)(nil)
+var _ middleware.Authorizer = (*PersonaAuthorizer)(nil)

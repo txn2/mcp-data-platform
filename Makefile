@@ -20,7 +20,8 @@ GOMOD := $(GO) mod
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint fmt clean install help docs-serve docs-build verify
+.PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
+	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
 all: build test lint
@@ -144,3 +145,69 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
+
+# =============================================================================
+# E2E Testing Targets
+# =============================================================================
+
+E2E_COMPOSE := docker compose -f docker-compose.e2e.yml
+
+## e2e-up: Start E2E test environment (PostgreSQL, Trino, MinIO)
+e2e-up:
+	@echo "Starting E2E test environment..."
+	@echo "NOTE: For full E2E tests, also run 'datahub docker quickstart' separately"
+	$(E2E_COMPOSE) up -d postgres trino minio
+	@echo "Waiting for services to be healthy..."
+	@./scripts/wait-for-services.sh
+	@echo "Running setup containers..."
+	$(E2E_COMPOSE) up minio-setup trino-setup
+	@echo "E2E environment is ready!"
+
+## e2e-down: Stop E2E test environment
+e2e-down:
+	@echo "Stopping E2E test environment..."
+	$(E2E_COMPOSE) down -v
+	@echo "E2E environment stopped."
+
+## e2e-seed: Seed DataHub with test data (requires DataHub running)
+e2e-seed:
+	@echo "Seeding DataHub with test data..."
+	@if ! docker ps --format '{{.Names}}' | grep -q "datahub-gms"; then \
+		echo "ERROR: DataHub is not running. Start it with: datahub docker quickstart"; \
+		exit 1; \
+	fi
+	@echo "Ingesting datasets..."
+	@datahub put --file test/e2e/testdata/datahub/domains.json 2>/dev/null || \
+		echo "Note: datahub CLI not found or ingestion failed - manual seeding may be required"
+	@datahub put --file test/e2e/testdata/datahub/tags.json 2>/dev/null || true
+	@datahub put --file test/e2e/testdata/datahub/owners.json 2>/dev/null || true
+	@datahub put --file test/e2e/testdata/datahub/datasets.json 2>/dev/null || true
+	@echo "DataHub seeding complete."
+
+## e2e-test: Run E2E tests (requires services running)
+e2e-test:
+	@echo "Running E2E tests..."
+	$(GOTEST) -v -race -tags=integration ./test/e2e/...
+	@echo "E2E tests complete."
+
+## e2e: Full E2E cycle (up, seed, test, down)
+e2e: e2e-up
+	@echo ""
+	@echo "To run full E2E tests with DataHub:"
+	@echo "  1. In another terminal: datahub docker quickstart"
+	@echo "  2. Run: make e2e-seed"
+	@echo "  3. Run: make e2e-test"
+	@echo "  4. Run: make e2e-down"
+	@echo ""
+	@echo "Or run partial tests without DataHub:"
+	@echo "  make e2e-test"
+
+## e2e-logs: Show E2E service logs
+e2e-logs:
+	$(E2E_COMPOSE) logs -f
+
+## e2e-clean: Remove all E2E artifacts and volumes
+e2e-clean: e2e-down
+	@echo "Cleaning E2E artifacts..."
+	@docker volume rm -f mcp-data-platform_postgres_data mcp-data-platform_minio_data 2>/dev/null || true
+	@echo "E2E cleanup complete."
