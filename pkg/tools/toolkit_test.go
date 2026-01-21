@@ -4,70 +4,76 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func TestNewToolkit(t *testing.T) {
+	toolkit := NewToolkit()
+	if toolkit == nil {
+		t.Error("NewToolkit() returned nil")
+	}
+}
+
+func TestToolkit_RegisterTools(t *testing.T) {
+	toolkit := NewToolkit()
+	defer toolkit.Close()
+
+	// Create a test server
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test",
+		Version: "1.0.0",
+	}, nil)
+
+	// Should not panic
+	toolkit.RegisterTools(server)
+}
+
 func TestToolkit_handleExampleTool(t *testing.T) {
-	tests := []struct {
-		name      string
-		args      map[string]interface{}
-		wantText  string
-		wantError bool
-	}{
-		{
-			name:     "valid message",
-			args:     map[string]interface{}{"message": "hello"},
-			wantText: "Echo: hello",
-		},
-		{
-			name:      "missing message",
-			args:      map[string]interface{}{},
-			wantError: true,
-		},
-		{
-			name:      "invalid message type",
-			args:      map[string]interface{}{"message": 123},
-			wantError: true,
-		},
+	toolkit := NewToolkit()
+	defer toolkit.Close()
+
+	args := ExampleToolArgs{
+		Message: "Hello, World!",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			toolkit := NewToolkit()
-			defer toolkit.Close()
+	result, _, err := toolkit.handleExampleTool(context.Background(), nil, args)
+	if err != nil {
+		t.Fatalf("handleExampleTool() error = %v", err)
+	}
 
-			req := mcp.CallToolRequest{}
-			req.Params.Arguments = tt.args
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
 
-			result, err := toolkit.handleExampleTool(context.Background(), req)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+	if len(result.Content) != 1 {
+		t.Errorf("expected 1 content item, got %d", len(result.Content))
+	}
 
-			if tt.wantError {
-				if !result.IsError {
-					t.Error("expected error result")
-				}
-				return
-			}
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected TextContent")
+	}
 
-			if result.IsError {
-				t.Errorf("unexpected error result: %v", result)
-				return
-			}
+	if textContent.Text != "Echo: Hello, World!" {
+		t.Errorf("expected 'Echo: Hello, World!', got %q", textContent.Text)
+	}
+}
 
-			if len(result.Content) == 0 {
-				t.Fatal("expected content in result")
-			}
+func TestExampleToolArgs(t *testing.T) {
+	args := ExampleToolArgs{
+		Message: "Test message",
+	}
 
-			textContent, ok := result.Content[0].(mcp.TextContent)
-			if !ok {
-				t.Fatalf("expected TextContent, got %T", result.Content[0])
-			}
+	if args.Message != "Test message" {
+		t.Errorf("unexpected Message: %s", args.Message)
+	}
+}
 
-			if textContent.Text != tt.wantText {
-				t.Errorf("got text %q, want %q", textContent.Text, tt.wantText)
-			}
-		})
+func TestToolkit_Close(t *testing.T) {
+	toolkit := NewToolkit()
+
+	// Should not error
+	if err := toolkit.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
 	}
 }

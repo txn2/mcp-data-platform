@@ -1,9 +1,9 @@
-site_name: {{github-org}}/{{project-name}}
-site_url: https://{{docs-url}}
-site_description: {{project-description}}
+site_name: txn2/mcp-data-platform
+site_url: https://mcp-data-platform.txn2.com
+site_description: Semantic data platform MCP server with bidirectional cross-injection
 site_author: Craig Johnston
-repo_url: https://github.com/{{github-org}}/{{project-name}}
-repo_name: {{github-org}}/{{project-name}}
+repo_url: https://github.com/txn2/mcp-data-platform
+repo_name: txn2/mcp-data-platform
 edit_uri: edit/main/docs/
 
 theme:
@@ -34,11 +34,39 @@ theme:
 
 nav:
   - Home: index.md
-  - Getting Started:
-    - Installation: getting-started/installation.md
-    - Configuration: getting-started/configuration.md
+  - MCP Server:
+    - Overview: server/overview.md
+    - Installation: server/installation.md
+    - Configuration: server/configuration.md
+    - Tools: server/tools.md
+    - Multi-Provider: server/multi-provider.md
+  - Cross-Injection:
+    - Overview: cross-injection/overview.md
+    - Trino to DataHub: cross-injection/trino-datahub.md
+    - DataHub to Trino: cross-injection/datahub-trino.md
+    - S3 Enrichment: cross-injection/s3.md
+  - Authentication:
+    - Overview: auth/overview.md
+    - OIDC: auth/oidc.md
+    - API Keys: auth/api-keys.md
+    - OAuth 2.1 Server: auth/oauth-server.md
+  - Personas:
+    - Overview: personas/overview.md
+    - Tool Filtering: personas/tool-filtering.md
+    - Role Mapping: personas/role-mapping.md
+  - Go Library:
+    - Overview: library/overview.md
+    - Quick Start: library/quickstart.md
+    - Architecture: library/architecture.md
+    - Extensibility: library/extensibility.md
   - Reference:
-    - Tools: reference/tools.md
+    - Tools API: reference/tools-api.md
+    - Configuration: reference/configuration.md
+    - Providers: reference/providers.md
+    - Middleware: reference/middleware.md
+  - Support:
+    - Troubleshooting: support/troubleshooting.md
+    - Changelog: support/changelog.md
 
 markdown_extensions:
   - abbr

@@ -1,6 +1,6 @@
-# Contributing to {{project-name}}
+# Contributing to mcp-data-platform
 
-Thank you for your interest in contributing to {{project-name}}! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to mcp-data-platform! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -12,13 +12,14 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 - Go 1.24 or later
 - golangci-lint (for linting)
+- gosec (for security scanning)
 
 ### Setting Up Development Environment
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/{{project-name}}.git
-   cd {{project-name}}
+   git clone https://github.com/YOUR_USERNAME/mcp-data-platform.git
+   cd mcp-data-platform
    ```
 
 2. Install dependencies:
@@ -35,7 +36,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 4. Verify your setup:
    ```bash
-   make verify
+   go test -race ./...
+   golangci-lint run ./...
+   gosec ./...
    ```
 
 ## Development Workflow
@@ -51,7 +54,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 3. Run tests and linting:
    ```bash
-   make verify
+   go test -race ./...
+   golangci-lint run ./...
+   gosec ./...
    ```
 
 4. Commit your changes:
@@ -73,19 +78,19 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 Examples:
 ```
-feat: add support for query cancellation
-fix: handle null values in JSON output
+feat: add support for custom semantic providers
+fix: handle nil pointer in middleware chain
 docs: update configuration examples
-test: add tests for new tool
+test: add tests for persona filtering
 ```
 
 ### Pull Requests
 
 1. Update documentation if needed.
 2. Add tests for new functionality.
-3. Ensure all tests pass: `make test`
-4. Ensure linting passes: `make lint`
-5. Ensure security checks pass: `make security`
+3. Ensure all tests pass: `go test -race ./...`
+4. Ensure linting passes: `golangci-lint run ./...`
+5. Ensure security checks pass: `gosec ./...`
 6. Update CHANGELOG.md if applicable.
 7. Submit your pull request.
 
@@ -125,11 +130,17 @@ test: add tests for new tool
 
 Example:
 ```go
-func TestConfig_Validate_MissingHost(t *testing.T) {
-    cfg := Config{User: "test"}
-    err := cfg.Validate()
-    if err == nil {
-        t.Error("expected error for missing host")
+func TestPersonaFilter_AllowDeny_WildcardPatterns(t *testing.T) {
+    filter := persona.NewFilter(persona.ToolRules{
+        Allow: []string{"trino_*"},
+        Deny:  []string{"*_delete_*"},
+    })
+
+    if !filter.IsAllowed("trino_query") {
+        t.Error("expected trino_query to be allowed")
+    }
+    if filter.IsAllowed("trino_delete_table") {
+        t.Error("expected trino_delete_table to be denied")
     }
 }
 ```
@@ -144,43 +155,56 @@ func TestConfig_Validate_MissingHost(t *testing.T) {
 ## Project Structure
 
 ```
-{{project-name}}/
-├── cmd/{{project-name}}/   # Main application entry point
-├── internal/server/        # Internal server implementation
-├── pkg/client/             # Public client API
-├── pkg/tools/              # Public MCP tool definitions
-└── .github/                # GitHub configuration (workflows, etc.)
+mcp-data-platform/
+├── cmd/mcp-data-platform/   # Main application entry point
+├── internal/server/         # Internal server implementation
+├── pkg/                     # Public API packages
+│   ├── platform/            # Core platform facade
+│   ├── auth/                # Authentication (OIDC, API keys)
+│   ├── oauth/               # OAuth 2.1 server
+│   ├── persona/             # Role-based personas
+│   ├── semantic/            # Semantic metadata provider
+│   ├── query/               # Query execution provider
+│   ├── middleware/          # Request/response middleware
+│   ├── registry/            # Toolkit registry
+│   ├── audit/               # Audit logging
+│   ├── tuning/              # Prompts, hints, rules
+│   └── tools/               # Base toolkit
+├── configs/                 # Example configurations
+└── migrations/              # SQL migrations
 ```
 
 ### Where to Make Changes
 
-- **New MCP tools**: Add to `pkg/tools/`
-- **Client functionality**: Modify `pkg/client/`
-- **Server behavior**: Modify `internal/server/`
-- **CI/CD**: Modify `.github/workflows/`
+- **New semantic providers**: Add to `pkg/semantic/`
+- **New query providers**: Add to `pkg/query/`
+- **New middleware**: Add to `pkg/middleware/`
+- **New toolkits**: Add to `pkg/registry/` and register in `pkg/tools/`
+- **Authentication methods**: Add to `pkg/auth/`
+- **Configuration options**: Modify `pkg/platform/config.go`
 
 ## Testing
 
 ### Running Tests
 
 ```bash
-# Run all tests
-make test
+# Run all tests with race detection
+go test -race ./...
 
 # Run tests with coverage
-make coverage
+go test -race -coverprofile=coverage.out ./...
 
 # Generate HTML coverage report
-make coverage-html
+go tool cover -html=coverage.out
 
-# Run short tests only
-make test-short
+# Run specific package tests
+go test -race ./pkg/platform/...
 ```
 
 ## Security
 
 - Never commit secrets or credentials
-- Run `make security` before submitting PRs
+- Run `gosec ./...` before submitting PRs
 - Report security vulnerabilities via [SECURITY.md](SECURITY.md)
 - Follow secure coding practices
 
