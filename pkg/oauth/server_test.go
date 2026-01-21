@@ -1308,6 +1308,57 @@ func TestHandleRegisterEndpointStorageError(t *testing.T) {
 	}
 }
 
+func TestGenerateTokensSaveError(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	authCode := &AuthorizationCode{
+		Code:        "valid-code",
+		ClientID:    "client-123",
+		RedirectURI: "http://localhost:8080/callback",
+		UserID:      "user-123",
+		Scope:       "read",
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		Active:       true,
+	}
+
+	storage := &mockStorage{
+		getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return authCode, nil
+		},
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return fmt.Errorf("database unavailable")
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	_, err := server.Token(ctx, TokenRequest{
+		GrantType:    "authorization_code",
+		Code:         "valid-code",
+		RedirectURI:  "http://localhost:8080/callback",
+		ClientID:     "client-123",
+		ClientSecret: "secret",
+	})
+
+	if err == nil {
+		t.Error("expected error when SaveRefreshToken fails")
+	}
+	if !strings.Contains(err.Error(), "saving refresh token") {
+		t.Errorf("expected 'saving refresh token' in error, got: %v", err)
+	}
+}
+
 func TestValidatePKCEPlain(t *testing.T) {
 	ctx := context.Background()
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
