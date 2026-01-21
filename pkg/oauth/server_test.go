@@ -1151,3 +1151,202 @@ func TestStartCleanupRoutine(t *testing.T) {
 		t.Error("expected cleanup expired tokens to be called")
 	}
 }
+
+func TestAuthorizeSaveCodeError(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		Active:       true,
+		RequirePKCE:  false,
+	}
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		saveAuthorizationCodeFunc: func(_ context.Context, _ *AuthorizationCode) error {
+			return fmt.Errorf("database error")
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	_, err := server.Authorize(ctx, AuthorizationRequest{
+		ResponseType: "code",
+		ClientID:     "client-123",
+		RedirectURI:  "http://localhost:8080/callback",
+		Scope:        "read",
+	}, "user-123", nil)
+
+	if err == nil {
+		t.Error("expected error for save failure")
+	}
+}
+
+func TestGenerateTokensSaveRefreshError(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		Active:       true,
+	}
+	authCode := &AuthorizationCode{
+		Code:        "valid-code",
+		ClientID:    "client-123",
+		UserID:      "user-123",
+		RedirectURI: "http://localhost:8080/callback",
+		ExpiresAt:   time.Now().Add(10 * time.Minute),
+		Used:        false,
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return authCode, nil
+		},
+		deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return fmt.Errorf("database error")
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	_, err := server.Token(ctx, TokenRequest{
+		GrantType:    "authorization_code",
+		Code:         "valid-code",
+		RedirectURI:  "http://localhost:8080/callback",
+		ClientID:     "client-123",
+		ClientSecret: "secret",
+	})
+
+	if err == nil {
+		t.Error("expected error for save refresh token failure")
+	}
+}
+
+func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
+	// Delete refresh token errors are ignored (the token rotation proceeds)
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		Active:       true,
+	}
+	refreshToken := &RefreshToken{
+		Token:      "valid-token",
+		ClientID:   "client-123",
+		UserID:     "user-123",
+		UserClaims: map[string]any{"role": "admin"},
+		Scope:      "read",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+			return refreshToken, nil
+		},
+		deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
+			return fmt.Errorf("database error") // Error is ignored
+		},
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	resp, err := server.Token(ctx, TokenRequest{
+		GrantType:    "refresh_token",
+		RefreshToken: "valid-token",
+		ClientID:     "client-123",
+		ClientSecret: "secret",
+	})
+
+	// Should succeed despite delete error
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected non-empty access token")
+	}
+}
+
+func TestHandleRegisterEndpointStorageError(t *testing.T) {
+	storage := &mockStorage{
+		createClientFunc: func(_ context.Context, _ *Client) error {
+			return fmt.Errorf("database error")
+		},
+	}
+	server, _ := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		DCR:    DCRConfig{Enabled: true},
+	}, storage)
+
+	body := `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+	req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.ServeHTTP(w, req)
+
+	// Storage errors are returned as 400 (invalid_request) in this implementation
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestValidatePKCEPlain(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	codeVerifier := "plain-code-verifier-123456"
+	codeChallenge := codeVerifier // plain method uses verifier directly
+
+	client := &Client{
+		ClientID:     "client-123",
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		Active:       true,
+		RequirePKCE:  true,
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		saveAuthorizationCodeFunc: func(_ context.Context, _ *AuthorizationCode) error {
+			return nil
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	// Authorize with plain PKCE
+	code, err := server.Authorize(ctx, AuthorizationRequest{
+		ResponseType:        "code",
+		ClientID:            "client-123",
+		RedirectURI:         "http://localhost:8080/callback",
+		Scope:               "read",
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: "plain",
+	}, "user-123", nil)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if code == "" {
+		t.Error("expected non-empty code")
+	}
+}
