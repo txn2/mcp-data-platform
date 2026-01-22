@@ -215,6 +215,36 @@ Authentication identifies who is making requests. Anonymous access is disabled b
 
 - **OIDC**: Human users via Keycloak, Auth0, Okta
 - **API Keys**: Service accounts, automation
+- **OAuth 2.1**: Claude Desktop authentication via upstream IdP
+
+### OAuth 2.1 for Claude Desktop
+
+For Claude Desktop connecting to a remote MCP server, the built-in OAuth 2.1 server bridges authentication:
+
+1. Claude Desktop calls `/oauth/authorize`
+2. MCP server redirects to Keycloak
+3. User logs in to Keycloak
+4. Keycloak redirects back to MCP server's `/oauth/callback`
+5. MCP server exchanges code with Keycloak, extracts user info
+6. MCP server issues its own token to Claude Desktop
+
+Configuration:
+```yaml
+oauth:
+  enabled: true
+  issuer: "https://mcp.example.com"
+  clients:
+    - id: "claude-desktop"
+      secret: "${CLAUDE_CLIENT_SECRET}"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
+  upstream:
+    issuer: "https://keycloak.example.com/realms/your-realm"
+    client_id: "mcp-data-platform"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    redirect_uri: "https://mcp.example.com/oauth/callback"
+```
 
 ### Secure SSE Configuration
 
