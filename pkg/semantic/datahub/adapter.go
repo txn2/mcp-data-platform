@@ -35,8 +35,9 @@ type Client interface {
 
 // Adapter implements semantic.Provider using DataHub.
 type Adapter struct {
-	cfg    Config
-	client Client
+	cfg       Config
+	client    Client
+	sanitizer *semantic.Sanitizer
 }
 
 // New creates a new DataHub adapter with a real client.
@@ -62,8 +63,9 @@ func New(cfg Config) (*Adapter, error) {
 	}
 
 	return &Adapter{
-		cfg:    cfg,
-		client: client,
+		cfg:       cfg,
+		client:    client,
+		sanitizer: semantic.NewSanitizer(semantic.DefaultSanitizeConfig()),
 	}, nil
 }
 
@@ -76,8 +78,9 @@ func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 		cfg.Platform = "trino"
 	}
 	return &Adapter{
-		cfg:    cfg,
-		client: client,
+		cfg:       cfg,
+		client:    client,
+		sanitizer: semantic.NewSanitizer(semantic.DefaultSanitizeConfig()),
 	}, nil
 }
 
@@ -95,7 +98,8 @@ func (a *Adapter) GetTableContext(ctx context.Context, table semantic.TableIdent
 		return nil, fmt.Errorf("getting entity from datahub: %w", err)
 	}
 
-	return a.entityToTableContext(entity), nil
+	tc := a.entityToTableContext(entity)
+	return a.sanitizer.SanitizeTableContext(tc), nil
 }
 
 // GetColumnContext retrieves column context from DataHub.
@@ -111,7 +115,8 @@ func (a *Adapter) GetColumnContext(ctx context.Context, column semantic.ColumnId
 	for _, field := range schema.Fields {
 		fieldName := extractFieldName(field.FieldPath)
 		if fieldName == column.Column {
-			return a.fieldToColumnContext(field), nil
+			cc := a.fieldToColumnContext(field)
+			return a.sanitizer.SanitizeColumnContext(cc), nil
 		}
 	}
 
@@ -130,7 +135,8 @@ func (a *Adapter) GetColumnsContext(ctx context.Context, table semantic.TableIde
 	columns := make(map[string]*semantic.ColumnContext, len(schema.Fields))
 	for _, field := range schema.Fields {
 		fieldName := extractFieldName(field.FieldPath)
-		columns[fieldName] = a.fieldToColumnContext(field)
+		cc := a.fieldToColumnContext(field)
+		columns[fieldName] = a.sanitizer.SanitizeColumnContext(cc)
 	}
 
 	return columns, nil
@@ -169,8 +175,8 @@ func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.Gl
 
 	return &semantic.GlossaryTerm{
 		URN:         term.URN,
-		Name:        term.Name,
-		Description: term.Description,
+		Name:        a.sanitizer.SanitizeString(term.Name),
+		Description: a.sanitizer.SanitizeDescription(term.Description),
 	}, nil
 }
 
@@ -200,20 +206,22 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 
 		domainName := ""
 		if entity.Domain != nil {
-			domainName = entity.Domain.Name
+			domainName = a.sanitizer.SanitizeString(entity.Domain.Name)
 		}
 
-		tags := make([]string, len(entity.Tags))
+		// Collect and sanitize tags
+		rawTags := make([]string, len(entity.Tags))
 		for i, tag := range entity.Tags {
-			tags[i] = tag.Name
+			rawTags[i] = tag.Name
 		}
+		sanitizedTags := a.sanitizer.SanitizeTags(rawTags)
 
 		results = append(results, semantic.TableSearchResult{
 			URN:          entity.URN,
-			Name:         entity.Name,
+			Name:         entity.Name, // Keep name as-is (system identifier)
 			Platform:     entity.Platform,
-			Description:  entity.Description,
-			Tags:         tags,
+			Description:  a.sanitizer.SanitizeDescription(entity.Description),
+			Tags:         sanitizedTags,
 			Domain:       domainName,
 			MatchedField: matchedField,
 		})
@@ -278,6 +286,9 @@ func (a *Adapter) BuildURN(_ context.Context, table semantic.TableIdentifier) (s
 
 // entityToTableContext converts a DataHub entity to semantic table context.
 func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableContext {
+	// Log any injection attempts in user-provided content
+	a.logInjectionAttempts(entity)
+
 	tc := &semantic.TableContext{
 		URN:              entity.URN,
 		Description:      entity.Description,
@@ -291,6 +302,41 @@ func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableCont
 	}
 
 	return tc
+}
+
+// logInjectionAttempts checks for and logs any prompt injection attempts in entity fields.
+func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
+	logger := semantic.DefaultInjectionLogger
+
+	// Check description
+	logger.DetectAndLog(a.sanitizer, entity.URN, "description", entity.Description)
+
+	// Check owner names
+	for i, owner := range entity.Owners {
+		logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("owners[%d].name", i), owner.Name)
+	}
+
+	// Check glossary term descriptions
+	for i, term := range entity.GlossaryTerms {
+		logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
+	}
+
+	// Check domain description
+	if entity.Domain != nil {
+		logger.DetectAndLog(a.sanitizer, entity.URN, "domain.description", entity.Domain.Description)
+	}
+
+	// Check deprecation note
+	if entity.Deprecation != nil {
+		logger.DetectAndLog(a.sanitizer, entity.URN, "deprecation.note", entity.Deprecation.Note)
+	}
+
+	// Check custom properties
+	for key, value := range entity.Properties {
+		if str, ok := value.(string); ok {
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("properties[%s]", key), str)
+		}
+	}
 }
 
 // convertOwners converts DataHub owners to semantic owners.
@@ -384,6 +430,14 @@ func convertTimestamp(ms int64) *time.Time {
 // fieldToColumnContext converts a DataHub schema field to semantic column context.
 func (a *Adapter) fieldToColumnContext(field types.SchemaField) *semantic.ColumnContext {
 	fieldName := extractFieldName(field.FieldPath)
+
+	// Log any injection attempts in user-provided content
+	logger := semantic.DefaultInjectionLogger
+	logger.DetectAndLog(a.sanitizer, "column:"+fieldName, "description", field.Description)
+	for i, term := range field.GlossaryTerms {
+		logger.DetectAndLog(a.sanitizer, "column:"+fieldName, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
+	}
+
 	cc := &semantic.ColumnContext{
 		Name:        fieldName,
 		Description: field.Description,
