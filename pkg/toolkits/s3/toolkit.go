@@ -47,6 +47,25 @@ type Toolkit struct {
 
 // New creates a new S3 toolkit.
 func New(name string, cfg Config) (*Toolkit, error) {
+	cfg = applyDefaults(name, cfg)
+
+	client, err := createClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	s3Toolkit := createToolkit(client, cfg)
+
+	return &Toolkit{
+		name:      name,
+		config:    cfg,
+		client:    client,
+		s3Toolkit: s3Toolkit,
+	}, nil
+}
+
+// applyDefaults applies default values to the configuration.
+func applyDefaults(name string, cfg Config) Config {
 	if cfg.Region == "" {
 		cfg.Region = "us-east-1"
 	}
@@ -62,7 +81,11 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
+	return cfg
+}
 
+// createClient creates a new S3 client from the configuration.
+func createClient(cfg Config) (*s3client.Client, error) {
 	clientCfg := &s3client.Config{
 		Region:          cfg.Region,
 		Endpoint:        cfg.Endpoint,
@@ -76,14 +99,16 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		DisableSSL:      cfg.DisableSSL,
 	}
 
-	// Create client with background context for initialization
 	ctx := context.Background()
 	client, err := s3client.New(ctx, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating s3 client: %w", err)
 	}
+	return client, nil
+}
 
-	// Create the mcp-s3 toolkit with options
+// createToolkit creates the mcp-s3 toolkit with appropriate options.
+func createToolkit(client *s3client.Client, cfg Config) *s3tools.Toolkit {
 	var opts []s3tools.Option
 	opts = append(opts, s3tools.WithReadOnly(cfg.ReadOnly))
 	if cfg.MaxGetSize > 0 {
@@ -92,14 +117,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if cfg.MaxPutSize > 0 {
 		opts = append(opts, s3tools.WithMaxPutSize(cfg.MaxPutSize))
 	}
-	s3Toolkit := s3tools.NewToolkit(client, opts...)
-
-	return &Toolkit{
-		name:      name,
-		config:    cfg,
-		client:    client,
-		s3Toolkit: s3Toolkit,
-	}, nil
+	return s3tools.NewToolkit(client, opts...)
 }
 
 // Kind returns the toolkit kind.
