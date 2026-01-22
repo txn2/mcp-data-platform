@@ -75,6 +75,10 @@ oauth:
   enabled: true
   issuer: "https://mcp.example.com"
 
+  # JWT signing key for access tokens (REQUIRED for production)
+  # Generate with: openssl rand -base64 32
+  signing_key: "${OAUTH_SIGNING_KEY}"
+
   # Pre-registered client for Claude Desktop
   clients:
     - id: "claude-desktop"
@@ -104,6 +108,7 @@ oauth:
 |-------|----------|-------------|
 | `oauth.enabled` | Yes | Enable the OAuth server |
 | `oauth.issuer` | Yes | The OAuth issuer URL (your MCP server's public URL) |
+| `oauth.signing_key` | Yes* | HMAC key for signing JWT access tokens (base64 or raw string). Required for production; auto-generated if omitted (tokens won't survive restart). Generate with: `openssl rand -base64 32` |
 | `oauth.clients` | No | Pre-registered OAuth clients |
 | `oauth.clients[].id` | Yes | Client ID |
 | `oauth.clients[].secret` | Yes | Client secret (use environment variable) |
@@ -230,6 +235,7 @@ Response:
 
 | Feature | Description |
 |---------|-------------|
+| **JWT Access Tokens** | Self-validating signed JWTs containing user claims and roles |
 | **PKCE Required** | All clients must use PKCE with S256 |
 | **Bcrypt Secrets** | Client secrets stored as bcrypt hashes |
 | **State Validation** | CSRF protection via state parameter |
