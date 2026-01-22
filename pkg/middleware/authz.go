@@ -18,7 +18,8 @@ func AuthzMiddleware(authorizer Authorizer) Middleware {
 		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
-				return next(ctx, request)
+				// Fail closed: missing platform context is an internal error
+				return NewToolResultError("internal error: missing platform context"), nil
 			}
 
 			// Check authorization
