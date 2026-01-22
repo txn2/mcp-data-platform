@@ -44,8 +44,9 @@ type TLSConfig struct {
 
 // AuthConfig configures authentication.
 type AuthConfig struct {
-	OIDC    OIDCAuthConfig   `yaml:"oidc"`
-	APIKeys APIKeyAuthConfig `yaml:"api_keys"`
+	OIDC           OIDCAuthConfig   `yaml:"oidc"`
+	APIKeys        APIKeyAuthConfig `yaml:"api_keys"`
+	AllowAnonymous bool             `yaml:"allow_anonymous"` // default: false
 }
 
 // OIDCAuthConfig configures OIDC authentication.

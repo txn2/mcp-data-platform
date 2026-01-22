@@ -2,6 +2,9 @@ package middleware
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -71,19 +74,12 @@ func (c *Chain) WrapWithContext(handler Handler, toolName, toolkitKind, toolkitN
 	}
 }
 
-// generateRequestID creates a simple request ID.
+// generateRequestID creates a cryptographically secure request ID.
 func generateRequestID() string {
-	// In production, use a UUID or similar.
-	// For now, use a simple timestamp-based ID.
-	return "req-" + randomString(8)
-}
-
-// randomString generates a random alphanumeric string.
-func randomString(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[i%len(letters)]
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("req-%d", time.Now().UnixNano())
 	}
-	return string(b)
+	return fmt.Sprintf("req-%x", b)
 }
