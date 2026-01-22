@@ -45,18 +45,42 @@ type Toolkit struct {
 
 // New creates a new Trino toolkit.
 func New(name string, cfg Config) (*Toolkit, error) {
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	cfg = applyDefaults(name, cfg)
+
+	client, err := createClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	trinoToolkit := createToolkit(client, cfg)
+
+	return &Toolkit{
+		name:         name,
+		config:       cfg,
+		client:       client,
+		trinoToolkit: trinoToolkit,
+	}, nil
+}
+
+// validateConfig validates the required configuration fields.
+func validateConfig(cfg Config) error {
 	if cfg.Host == "" {
-		return nil, fmt.Errorf("trino host is required")
+		return fmt.Errorf("trino host is required")
 	}
 	if cfg.User == "" {
-		return nil, fmt.Errorf("trino user is required")
+		return fmt.Errorf("trino user is required")
 	}
+	return nil
+}
+
+// applyDefaults applies default values to the configuration.
+func applyDefaults(name string, cfg Config) Config {
 	if cfg.Port == 0 {
-		if cfg.SSL {
-			cfg.Port = 443
-		} else {
-			cfg.Port = 8080
-		}
+		cfg.Port = defaultPort(cfg.SSL)
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = 1000
@@ -70,7 +94,19 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
+	return cfg
+}
 
+// defaultPort returns the default port based on SSL setting.
+func defaultPort(ssl bool) int {
+	if ssl {
+		return 443
+	}
+	return 8080
+}
+
+// createClient creates a new Trino client from the configuration.
+func createClient(cfg Config) (*trinoclient.Client, error) {
 	clientCfg := trinoclient.Config{
 		Host:      cfg.Host,
 		Port:      cfg.Port,
@@ -88,19 +124,22 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating trino client: %w", err)
 	}
+	return client, nil
+}
 
-	// Create the mcp-trino toolkit
-	trinoToolkit := trinotools.NewToolkit(client, trinotools.Config{
+// createToolkit creates the mcp-trino toolkit with appropriate options.
+func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
+	var opts []trinotools.ToolkitOption
+
+	// Add read-only interceptor if configured
+	if cfg.ReadOnly {
+		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
+	}
+
+	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
-	})
-
-	return &Toolkit{
-		name:         name,
-		config:       cfg,
-		client:       client,
-		trinoToolkit: trinoToolkit,
-	}, nil
+	}, opts...)
 }
 
 // Kind returns the toolkit kind.
