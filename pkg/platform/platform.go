@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
@@ -41,6 +43,9 @@ type Platform struct {
 	// Auth
 	authenticator middleware.Authenticator
 	authorizer    middleware.Authorizer
+
+	// OAuth
+	oauthServer *oauth.Server
 
 	// Audit
 	auditLogger middleware.AuditLogger
@@ -84,6 +89,9 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	if err := p.initAuth(opts); err != nil {
+		return err
+	}
+	if err := p.initOAuth(); err != nil {
 		return err
 	}
 	p.initTuning(opts)
@@ -171,6 +179,69 @@ func (p *Platform) initAuth(opts *Options) error {
 	} else {
 		p.auditLogger = &middleware.NoopAuditLogger{}
 	}
+	return nil
+}
+
+// initOAuth initializes the OAuth server if enabled.
+func (p *Platform) initOAuth() error {
+	if !p.config.OAuth.Enabled {
+		return nil
+	}
+
+	// Create in-memory storage
+	storage := oauth.NewMemoryStorage()
+
+	// Pre-register clients from config
+	for _, clientCfg := range p.config.OAuth.Clients {
+		hashedSecret, err := bcrypt.GenerateFromPassword([]byte(clientCfg.Secret), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hashing client secret for %s: %w", clientCfg.ID, err)
+		}
+
+		client := &oauth.Client{
+			ID:           clientCfg.ID,
+			ClientID:     clientCfg.ID,
+			ClientSecret: string(hashedSecret),
+			Name:         clientCfg.ID,
+			RedirectURIs: clientCfg.RedirectURIs,
+			GrantTypes:   []string{"authorization_code", "refresh_token"},
+			RequirePKCE:  true,
+			Active:       true,
+		}
+
+		if err := storage.CreateClient(context.Background(), client); err != nil {
+			return fmt.Errorf("creating client %s: %w", clientCfg.ID, err)
+		}
+	}
+
+	// Build OAuth server config
+	serverConfig := oauth.ServerConfig{
+		Issuer:         p.config.OAuth.Issuer,
+		AccessTokenTTL: 1 * time.Hour,
+		DCR: oauth.DCRConfig{
+			Enabled:                 p.config.OAuth.DCR.Enabled,
+			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
+			RequirePKCE:             true,
+		},
+	}
+
+	// Configure upstream IdP if present
+	if p.config.OAuth.Upstream != nil {
+		serverConfig.Upstream = &oauth.UpstreamConfig{
+			Issuer:       p.config.OAuth.Upstream.Issuer,
+			ClientID:     p.config.OAuth.Upstream.ClientID,
+			ClientSecret: p.config.OAuth.Upstream.ClientSecret,
+			RedirectURI:  p.config.OAuth.Upstream.RedirectURI,
+		}
+	}
+
+	// Create OAuth server
+	server, err := oauth.NewServer(serverConfig, storage)
+	if err != nil {
+		return fmt.Errorf("creating OAuth server: %w", err)
+	}
+
+	p.oauthServer = server
 	return nil
 }
 
@@ -493,6 +564,11 @@ func (p *Platform) RuleEngine() *tuning.RuleEngine {
 // MiddlewareChain returns the middleware chain.
 func (p *Platform) MiddlewareChain() *middleware.Chain {
 	return p.middlewareChain
+}
+
+// OAuthServer returns the OAuth server, or nil if not enabled.
+func (p *Platform) OAuthServer() *oauth.Server {
+	return p.oauthServer
 }
 
 // datahubConfig holds extracted DataHub configuration.
