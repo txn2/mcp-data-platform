@@ -1,120 +1,119 @@
 # OAuth 2.1 Server
 
-!!! danger "Consider Alternatives First"
-    **You probably don't need this.** The built-in OAuth server adds complexity and attack surface. For most deployments, use:
+mcp-data-platform includes a built-in OAuth 2.1 authorization server that enables Claude Desktop and other MCP clients to authenticate via your existing identity provider (e.g., Keycloak).
 
-    - **OIDC** with your existing identity provider (Keycloak, Auth0, Okta)
-    - **API keys** for service accounts and automation
+## Use Cases
 
-    These approaches are simpler, more secure, and easier to audit.
+The built-in OAuth server supports two primary scenarios:
 
-mcp-data-platform includes a built-in OAuth 2.1 authorization server. This exists for edge cases where no other authentication option is viable.
-
-## When to Use
-
-Use the built-in OAuth server **only** when:
-
-- You have no existing identity provider
-- You cannot use API keys
-- You understand the security implications
-
-## When NOT to Use
-
-**Do not use** the built-in OAuth server when:
-
-- You have an existing OIDC provider (use that instead)
-- API keys meet your requirements (simpler and more auditable)
-- You're deploying to production without security review
-- You want Dynamic Client Registration (see warning below)
-
-!!! warning "Avoid Dynamic Client Registration"
-    DCR allows unknown clients to register themselves. This is an anti-pattern for security-sensitive systems. If you enable DCR, any client can obtain credentials. For MCP servers with access to sensitive data infrastructure, this is rarely appropriate.
-
-    Instead: pre-register clients, use API keys, or authenticate via your identity provider.
+| Scenario | Description |
+|----------|-------------|
+| **Claude Desktop + IdP** | Claude Desktop authenticates users via Keycloak/Auth0/Okta |
+| **Pre-registered Clients** | Known clients with pre-configured credentials |
 
 ## How It Works
 
+The OAuth server acts as a bridge between MCP clients (like Claude Desktop) and your upstream identity provider:
+
 ```mermaid
 sequenceDiagram
-    participant C as MCP Client
-    participant O as OAuth Server
-    participant P as Platform
+    participant CD as Claude Desktop
+    participant MCP as MCP Server
+    participant KC as Keycloak
 
-    Note over C,O: Dynamic Client Registration
-    C->>O: POST /register
-    O-->>C: client_id, client_secret
-
-    Note over C,O: Authorization (PKCE)
-    C->>O: GET /authorize + code_challenge
-    O-->>C: authorization_code
-
-    C->>O: POST /token + code_verifier
-    O-->>C: access_token
-
-    Note over C,P: API Access
-    C->>P: Tool request + Bearer token
-    P-->>C: Tool result
+    CD->>MCP: GET /oauth/authorize
+    MCP->>CD: 302 Redirect to Keycloak
+    CD->>KC: User logs in
+    KC->>CD: 302 Redirect with code
+    CD->>MCP: GET /oauth/callback?code=...
+    MCP->>KC: Exchange code for token
+    KC->>MCP: ID token + access token
+    MCP->>CD: 302 Redirect with MCP code
+    CD->>MCP: POST /oauth/token
+    MCP->>CD: MCP access token
+    CD->>MCP: Tool requests with Bearer token
 ```
 
 ## Configuration
 
-Enable the OAuth server:
+### Basic Configuration (Pre-registered Clients)
+
+For development or simple deployments with known clients:
 
 ```yaml
+server:
+  transport: sse
+  address: ":8080"
+
 oauth:
   enabled: true
-  dcr:
-    enabled: true
-    allowed_redirect_patterns:
-      - "http://localhost:*"
-      - "https://*.example.com/callback"
+  issuer: "http://localhost:8080"
 
-database:
-  dsn: ${DATABASE_URL}
+  # Pre-registered clients (no DCR needed)
+  clients:
+    - id: "claude-desktop"
+      secret: "${CLAUDE_CLIENT_SECRET}"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
 ```
+
+### Full Configuration (with Keycloak)
+
+For production deployments with Keycloak as the identity provider:
+
+```yaml
+server:
+  transport: sse
+  address: ":8080"
+  tls:
+    enabled: true
+    cert_file: /path/to/cert.pem
+    key_file: /path/to/key.pem
+
+oauth:
+  enabled: true
+  issuer: "https://mcp.example.com"
+
+  # Pre-registered client for Claude Desktop
+  clients:
+    - id: "claude-desktop"
+      secret: "${CLAUDE_CLIENT_SECRET}"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
+
+  # Dynamic Client Registration (optional)
+  dcr:
+    enabled: false  # Disabled by default for security
+    allowed_redirect_patterns:
+      - "^http://localhost.*"
+      - "^http://127.0.0.1.*"
+
+  # Keycloak as upstream IdP
+  upstream:
+    issuer: "https://keycloak.example.com/realms/mcp-demo"
+    client_id: "mcp-data-platform"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    redirect_uri: "https://mcp.example.com/oauth/callback"
+```
+
+### Configuration Reference
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `enabled` | Yes | Enable the OAuth server |
-| `dcr.enabled` | No | Enable Dynamic Client Registration |
-| `dcr.allowed_redirect_patterns` | No | Allowed redirect URI patterns |
-
-The OAuth server requires a PostgreSQL database for storing client registrations and tokens.
-
-## Database Setup
-
-Run the migrations to create required tables:
-
-```sql
--- OAuth clients table
-CREATE TABLE oauth_clients (
-    client_id VARCHAR(255) PRIMARY KEY,
-    client_secret_hash VARCHAR(255) NOT NULL,
-    client_name VARCHAR(255),
-    redirect_uris TEXT[],
-    grant_types TEXT[],
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Authorization codes table
-CREATE TABLE oauth_codes (
-    code VARCHAR(255) PRIMARY KEY,
-    client_id VARCHAR(255) NOT NULL,
-    redirect_uri TEXT NOT NULL,
-    code_challenge VARCHAR(255),
-    code_challenge_method VARCHAR(10),
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Access tokens table
-CREATE TABLE oauth_tokens (
-    token_hash VARCHAR(255) PRIMARY KEY,
-    client_id VARCHAR(255) NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+| `oauth.enabled` | Yes | Enable the OAuth server |
+| `oauth.issuer` | Yes | The OAuth issuer URL (your MCP server's public URL) |
+| `oauth.clients` | No | Pre-registered OAuth clients |
+| `oauth.clients[].id` | Yes | Client ID |
+| `oauth.clients[].secret` | Yes | Client secret (use environment variable) |
+| `oauth.clients[].redirect_uris` | Yes | Allowed redirect URIs |
+| `oauth.dcr.enabled` | No | Enable Dynamic Client Registration |
+| `oauth.dcr.allowed_redirect_patterns` | No | Regex patterns for allowed redirect URIs |
+| `oauth.upstream.issuer` | No | Upstream IdP issuer URL |
+| `oauth.upstream.client_id` | No | MCP server's client ID in the upstream IdP |
+| `oauth.upstream.client_secret` | No | MCP server's client secret |
+| `oauth.upstream.redirect_uri` | No | Callback URL for upstream IdP |
 
 ## Endpoints
 
@@ -123,35 +122,97 @@ When enabled, the OAuth server exposes:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/.well-known/oauth-authorization-server` | GET | Server metadata |
-| `/register` | POST | Dynamic Client Registration |
-| `/authorize` | GET | Authorization endpoint |
-| `/token` | POST | Token endpoint |
+| `/oauth/authorize` | GET | Authorization endpoint (redirects to upstream IdP) |
+| `/oauth/callback` | GET | Callback from upstream IdP |
+| `/oauth/token` | POST | Token endpoint |
+| `/oauth/register` | POST | Dynamic Client Registration (if enabled) |
+
+## Claude Desktop Setup
+
+### 1. Configure Keycloak
+
+Create a client in Keycloak for the MCP server:
+
+1. Go to your Keycloak admin console
+2. Create a new client:
+   - **Client ID**: `mcp-data-platform`
+   - **Client authentication**: ON
+   - **Valid redirect URIs**: `https://mcp.example.com/oauth/callback`
+3. Note the client secret from the Credentials tab
+4. Create test users as needed
+
+### 2. Configure MCP Server
+
+```yaml
+oauth:
+  enabled: true
+  issuer: "https://mcp.example.com"
+  clients:
+    - id: "claude-desktop"
+      secret: "your-client-secret"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
+  upstream:
+    issuer: "https://keycloak.example.com/realms/your-realm"
+    client_id: "mcp-data-platform"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    redirect_uri: "https://mcp.example.com/oauth/callback"
+```
+
+### 3. Configure Claude Desktop
+
+In Claude Desktop, add your MCP server:
+
+1. Open Settings > MCP Servers
+2. Add a new server:
+   - **Name**: My Data Platform
+   - **URL**: `https://mcp.example.com`
+   - **Client ID**: `claude-desktop`
+   - **Client Secret**: (the secret you configured)
+
+When you connect, Claude Desktop will:
+1. Open your browser to the MCP server's `/oauth/authorize` endpoint
+2. Redirect you to Keycloak to log in
+3. After login, redirect back to the MCP server
+4. Complete the OAuth flow and connect
+
+## Storage
+
+The OAuth server uses **in-memory storage** by default, which is suitable for:
+
+- Development and testing
+- Single-instance deployments
+- Stateless deployments where tokens can be re-issued
+
+For production multi-instance deployments, PostgreSQL storage is available:
+
+```yaml
+database:
+  dsn: "${DATABASE_URL}"
+```
+
+## PKCE Support
+
+PKCE (Proof Key for Code Exchange) is **required** for all authorization requests:
+
+- Clients must provide `code_challenge` and `code_challenge_method=S256`
+- The server validates the `code_verifier` during token exchange
+- This prevents authorization code interception attacks
 
 ## Dynamic Client Registration
 
-!!! danger "Security Risk"
-    **DCR is disabled by default and should remain disabled for most deployments.**
+!!! warning "Security Consideration"
+    DCR allows unknown clients to register. For production deployments with sensitive data, prefer pre-registered clients.
 
-    DCR allows any client to register and obtain credentials. For MCP servers connected to your data infrastructure, this means any malicious actor who can reach your server can obtain access credentials.
-
-    If you must use DCR:
-
-    - Restrict network access to the registration endpoint
-    - Use strict redirect URI validation
-    - Implement additional authorization checks
-    - Monitor and audit all registrations
-    - Consider: would API keys be simpler and safer?
-
-If DCR is enabled (not recommended), clients can register:
+If DCR is enabled, clients can register:
 
 ```bash
-curl -X POST http://localhost:8080/register \
+curl -X POST https://mcp.example.com/oauth/register \
   -H "Content-Type: application/json" \
   -d '{
     "client_name": "my-mcp-client",
-    "redirect_uris": ["http://localhost:3000/callback"],
-    "grant_types": ["authorization_code"],
-    "token_endpoint_auth_method": "client_secret_post"
+    "redirect_uris": ["http://localhost:8080/callback"]
   }'
 ```
 
@@ -161,123 +222,63 @@ Response:
   "client_id": "generated-client-id",
   "client_secret": "generated-client-secret",
   "client_name": "my-mcp-client",
-  "redirect_uris": ["http://localhost:3000/callback"]
+  "redirect_uris": ["http://localhost:8080/callback"]
 }
 ```
 
-## PKCE Authorization Flow
+## Security Features
 
-1. **Generate code verifier and challenge:**
-```javascript
-const codeVerifier = generateRandomString(64);
-const codeChallenge = base64url(sha256(codeVerifier));
-```
-
-2. **Request authorization:**
-```
-GET /authorize?
-  response_type=code&
-  client_id=your-client-id&
-  redirect_uri=http://localhost:3000/callback&
-  code_challenge=your-code-challenge&
-  code_challenge_method=S256&
-  state=random-state
-```
-
-3. **Exchange code for token:**
-```bash
-curl -X POST http://localhost:8080/token \
-  -d "grant_type=authorization_code" \
-  -d "client_id=your-client-id" \
-  -d "client_secret=your-client-secret" \
-  -d "code=authorization-code" \
-  -d "redirect_uri=http://localhost:3000/callback" \
-  -d "code_verifier=your-code-verifier"
-```
-
-Response:
-```json
-{
-  "access_token": "generated-access-token",
-  "token_type": "Bearer",
-  "expires_in": 3600
-}
-```
-
-## Redirect URI Validation
-
-Configure allowed redirect URI patterns:
-
-```yaml
-oauth:
-  dcr:
-    allowed_redirect_patterns:
-      - "http://localhost:*"           # Any localhost port
-      - "http://127.0.0.1:*"          # IPv4 localhost
-      - "https://*.example.com/*"      # Any subdomain
-      - "myapp://callback"             # Custom scheme
-```
-
-Patterns support:
-- `*` matches any characters
-- Exact string matching for literal URIs
-
-## Token Validation
-
-Tokens issued by the OAuth server are validated automatically when making tool requests. The platform checks:
-
-- Token exists and hasn't been revoked
-- Token hasn't expired
-- Client is still registered
-
-## Security Considerations
-
-**PKCE is required:**
-All authorization requests must include `code_challenge` and `code_challenge_method=S256`.
-
-**HTTPS in production:**
-Always use HTTPS for the OAuth endpoints in production:
-```yaml
-server:
-  tls:
-    enabled: true
-    cert_file: /path/to/cert.pem
-    key_file: /path/to/key.pem
-```
-
-**Token expiration:**
-Tokens expire after 1 hour by default. Clients should handle token refresh or re-authorization.
-
-**Client secrets:**
-Client secrets are stored as bcrypt hashes. Original secrets are only returned during registration.
-
-## Limitations
-
-The built-in OAuth server is designed for MCP client authentication. It does not support:
-
-- Refresh tokens (clients must re-authorize)
-- User authentication (it's machine-to-machine only)
-- Scopes (all tokens have the same permissions)
-- Token revocation endpoint
-
-For more advanced OAuth requirements, use an external identity provider with OIDC.
+| Feature | Description |
+|---------|-------------|
+| **PKCE Required** | All clients must use PKCE with S256 |
+| **Bcrypt Secrets** | Client secrets stored as bcrypt hashes |
+| **State Validation** | CSRF protection via state parameter |
+| **Token Expiration** | Access tokens expire after 1 hour |
+| **Refresh Token Rotation** | New refresh token issued on each use |
 
 ## Troubleshooting
 
 **"Invalid redirect_uri":**
-- Check the URI matches an allowed pattern exactly
-- Verify port numbers and paths match
+- Ensure the redirect URI exactly matches a configured pattern
+- Check for trailing slashes or port mismatches
 
-**"Invalid code_verifier":**
-- Ensure code_verifier matches the original code_challenge
-- Verify SHA256 hashing and base64url encoding
+**"upstream IdP not configured":**
+- Add the `oauth.upstream` configuration block
+- Verify the upstream issuer URL is correct
 
-**Database connection errors:**
-- Verify `database.dsn` is correct
-- Check PostgreSQL is accessible
-- Ensure migrations have been run
+**"authorization state not found":**
+- The OAuth flow may have timed out (states expire after 10 minutes)
+- Restart the authorization flow
+
+**"token_exchange_failed":**
+- Check Keycloak client secret is correct
+- Verify the callback URL matches Keycloak's valid redirect URIs
+- Check network connectivity to Keycloak
+
+## Verifying Setup
+
+Check the OAuth metadata endpoint:
+
+```bash
+curl https://mcp.example.com/.well-known/oauth-authorization-server
+```
+
+Expected response:
+```json
+{
+  "issuer": "https://mcp.example.com",
+  "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
+  "token_endpoint": "https://mcp.example.com/oauth/token",
+  "registration_endpoint": "https://mcp.example.com/oauth/register",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256", "plain"],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"]
+}
+```
 
 ## Next Steps
 
-- [OIDC Authentication](oidc.md) - External identity provider
-- [Personas](../personas/overview.md) - Access control
+- [OIDC Authentication](oidc.md) - Direct OIDC without the OAuth server
+- [API Keys](api-keys.md) - Service account authentication
+- [Personas](../personas/overview.md) - Role-based tool filtering
