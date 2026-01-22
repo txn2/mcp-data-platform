@@ -165,11 +165,17 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 	if p != nil && p.OAuthServer() != nil {
 		oauthServer := p.OAuthServer()
 		// Mount OAuth endpoints (no auth middleware - OAuth handles its own auth)
+		// Standard paths (with /oauth prefix)
 		mux.Handle("/.well-known/oauth-authorization-server", oauthServer)
 		mux.Handle("/oauth/authorize", oauthServer)
 		mux.Handle("/oauth/callback", oauthServer)
 		mux.Handle("/oauth/token", oauthServer)
 		mux.Handle("/oauth/register", oauthServer)
+		// Claude Desktop compatibility paths (without /oauth prefix)
+		mux.Handle("/authorize", oauthServer)
+		mux.Handle("/callback", oauthServer)
+		mux.Handle("/token", oauthServer)
+		mux.Handle("/register", oauthServer)
 		log.Println("OAuth server enabled")
 	}
 
