@@ -21,10 +21,10 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 		want     bool
 	}{
 		{
-			name:     "nil persona allows all",
+			name:     "nil persona denies all",
 			persona:  nil,
 			toolName: "any_tool",
-			want:     true,
+			want:     false, // SECURITY: fail closed - nil persona denies access
 		},
 		{
 			name: "wildcard allow",
@@ -130,8 +130,9 @@ func TestToolFilter_FilterTools_NilPersona(t *testing.T) {
 	tools := []string{"tool1", "tool2", "tool3"}
 	allowed := filter.FilterTools(nil, tools)
 
-	if len(allowed) != 3 {
-		t.Errorf("FilterTools(nil) should return all tools, got %d", len(allowed))
+	// SECURITY: nil persona denies all tools (fail closed)
+	if len(allowed) != 0 {
+		t.Errorf("FilterTools(nil) should return no tools (fail closed), got %d", len(allowed))
 	}
 }
 
@@ -244,19 +245,23 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 }
 
 func TestPersonaMiddleware(t *testing.T) {
-	t.Run("no platform context", func(t *testing.T) {
+	t.Run("no platform context fails closed", func(t *testing.T) {
 		mapper := &mockRoleMapper{}
 		mw := PersonaMiddleware(mapper)
-		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		handler := mw(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{}, nil
 		})
 
+		// SECURITY: missing platform context should fail closed
 		result, err := handler(context.Background(), mcp.CallToolRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if result == nil {
 			t.Error("expected non-nil result")
+		}
+		if !result.IsError {
+			t.Error("expected error result when platform context is missing")
 		}
 	})
 

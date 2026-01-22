@@ -22,14 +22,21 @@ type Config struct {
 	ReadOnly       bool
 }
 
+// S3Client defines the interface for S3 operations used by the adapter.
+// This interface allows for mocking in tests.
+type S3Client interface {
+	ListObjects(ctx context.Context, bucket, prefix, delimiter string, maxKeys int32, continueToken string) (*s3client.ListObjectsOutput, error)
+	Close() error
+}
+
 // Adapter implements storage.Provider using S3.
 type Adapter struct {
 	cfg    Config
-	client *s3client.Client
+	client S3Client
 }
 
 // New creates a new S3 adapter with an existing client.
-func New(cfg Config, client *s3client.Client) (*Adapter, error) {
+func New(cfg Config, client S3Client) (*Adapter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("s3 client is required")
 	}

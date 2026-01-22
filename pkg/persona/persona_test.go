@@ -8,14 +8,15 @@ func TestDefaultPersona(t *testing.T) {
 	if p.Name != "default" {
 		t.Errorf("Name = %q, want %q", p.Name, "default")
 	}
-	if p.DisplayName != "Default User" {
-		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "Default User")
+	if p.DisplayName != "Default User (No Access)" {
+		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "Default User (No Access)")
 	}
-	if len(p.Tools.Allow) != 1 || p.Tools.Allow[0] != "*" {
-		t.Error("expected Allow to be [\"*\"]")
+	// SECURITY: DefaultPersona now denies all access (fail closed)
+	if len(p.Tools.Allow) != 0 {
+		t.Error("expected Allow to be empty (deny by default)")
 	}
-	if len(p.Tools.Deny) != 0 {
-		t.Error("expected Deny to be empty")
+	if len(p.Tools.Deny) != 1 || p.Tools.Deny[0] != "*" {
+		t.Error("expected Deny to be [\"*\"] (explicit deny all)")
 	}
 }
 

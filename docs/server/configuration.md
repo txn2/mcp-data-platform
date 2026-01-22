@@ -61,6 +61,48 @@ server:
 | `tls.cert_file` | string | - | Path to TLS certificate |
 | `tls.key_file` | string | - | Path to TLS private key |
 
+!!! warning "SSE Transport Security"
+    When using SSE transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.
+
+## Authentication Configuration
+
+```yaml
+auth:
+  allow_anonymous: false       # Require authentication (default)
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+    audience: "mcp-data-platform"
+    role_claim_path: "realm_access.roles"
+    role_prefix: "dp_"
+    clock_skew_seconds: 30     # Allowed clock drift
+    max_token_age: 24h         # Reject tokens older than this
+  api_keys:
+    enabled: true
+    keys:
+      - key: ${API_KEY_ADMIN}
+        name: "admin"
+        roles: ["admin"]
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allow_anonymous` | bool | `false` | Allow unauthenticated requests |
+| `oidc.enabled` | bool | `false` | Enable OIDC authentication |
+| `oidc.issuer` | string | - | OIDC issuer URL |
+| `oidc.client_id` | string | - | OAuth client ID |
+| `oidc.audience` | string | - | Expected token audience |
+| `oidc.role_claim_path` | string | `roles` | Path to roles in token claims |
+| `oidc.role_prefix` | string | - | Filter roles to those with this prefix |
+| `oidc.clock_skew_seconds` | int | `30` | Allowed clock skew for time claims |
+| `oidc.max_token_age` | duration | `0` | Max token age (0 = no limit) |
+| `api_keys.enabled` | bool | `false` | Enable API key authentication |
+| `api_keys.keys` | array | - | List of API key configurations |
+
+!!! note "Fail-Closed Security"
+    Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access.
+
 ## Toolkit Configuration
 
 ### Trino
@@ -275,7 +317,50 @@ audit:
 
 database:
   dsn: ${DATABASE_URL}
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_query", "trino_explain", "datahub_*"]
+        deny: ["*_delete_*"]
+  default_persona: analyst
 ```
+
+## Persona Configuration
+
+Personas define tool access based on user roles. The security model follows a **default-deny** approach.
+
+```yaml
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst", "data_engineer"]
+      tools:
+        allow: ["trino_*", "datahub_*"]
+        deny: ["*_delete_*", "*_drop_*"]
+    admin:
+      display_name: "Administrator"
+      roles: ["admin"]
+      tools:
+        allow: ["*"]
+  default_persona: analyst
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `definitions` | map | - | Named persona configurations |
+| `definitions.<name>.display_name` | string | - | Human-readable name |
+| `definitions.<name>.roles` | array | - | Roles that map to this persona |
+| `definitions.<name>.tools.allow` | array | `[]` | Allowed tool patterns |
+| `definitions.<name>.tools.deny` | array | `[]` | Denied tool patterns |
+| `default_persona` | string | - | Persona for users without role match |
+
+!!! warning "Default-Deny Security"
+    Users without a resolved persona have **no tool access**. The built-in default persona denies all tools. You must define explicit personas with tool access for your users.
 
 ## Next Steps
 

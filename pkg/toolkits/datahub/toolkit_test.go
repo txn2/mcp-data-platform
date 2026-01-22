@@ -20,6 +20,123 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestValidateConfig(t *testing.T) {
+	t.Run("valid config", func(t *testing.T) {
+		cfg := Config{URL: "http://localhost:8080"}
+		if err := validateConfig(cfg); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing URL", func(t *testing.T) {
+		cfg := Config{}
+		if err := validateConfig(cfg); err == nil {
+			t.Error("expected error for missing URL")
+		}
+	})
+}
+
+func TestApplyDefaults(t *testing.T) {
+	t.Run("applies default timeout", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080"})
+		if cfg.Timeout != 30*time.Second {
+			t.Errorf("Timeout = %v, want 30s", cfg.Timeout)
+		}
+	})
+
+	t.Run("applies default limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080"})
+		if cfg.DefaultLimit != 10 {
+			t.Errorf("DefaultLimit = %d, want 10", cfg.DefaultLimit)
+		}
+	})
+
+	t.Run("applies max limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080"})
+		if cfg.MaxLimit != 100 {
+			t.Errorf("MaxLimit = %d, want 100", cfg.MaxLimit)
+		}
+	})
+
+	t.Run("applies max lineage depth", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080"})
+		if cfg.MaxLineageDepth != 5 {
+			t.Errorf("MaxLineageDepth = %d, want 5", cfg.MaxLineageDepth)
+		}
+	})
+
+	t.Run("applies connection name from toolkit name", func(t *testing.T) {
+		cfg := applyDefaults("my-toolkit", Config{URL: "http://localhost:8080"})
+		if cfg.ConnectionName != "my-toolkit" {
+			t.Errorf("ConnectionName = %q, want 'my-toolkit'", cfg.ConnectionName)
+		}
+	})
+
+	t.Run("preserves custom timeout", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080", Timeout: 60 * time.Second})
+		if cfg.Timeout != 60*time.Second {
+			t.Errorf("Timeout = %v, want 60s", cfg.Timeout)
+		}
+	})
+
+	t.Run("preserves custom default limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080", DefaultLimit: 50})
+		if cfg.DefaultLimit != 50 {
+			t.Errorf("DefaultLimit = %d, want 50", cfg.DefaultLimit)
+		}
+	})
+
+	t.Run("preserves custom max limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080", MaxLimit: 500})
+		if cfg.MaxLimit != 500 {
+			t.Errorf("MaxLimit = %d, want 500", cfg.MaxLimit)
+		}
+	})
+
+	t.Run("preserves custom max lineage depth", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080", MaxLineageDepth: 10})
+		if cfg.MaxLineageDepth != 10 {
+			t.Errorf("MaxLineageDepth = %d, want 10", cfg.MaxLineageDepth)
+		}
+	})
+
+	t.Run("preserves custom connection name", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{URL: "http://localhost:8080", ConnectionName: "custom"})
+		if cfg.ConnectionName != "custom" {
+			t.Errorf("ConnectionName = %q, want 'custom'", cfg.ConnectionName)
+		}
+	})
+}
+
+func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
+	cfg := Config{
+		URL:             "http://localhost:8080",
+		Token:           "token",
+		Timeout:         60 * time.Second,
+		DefaultLimit:    50,
+		MaxLimit:        500,
+		MaxLineageDepth: 10,
+		ConnectionName:  "custom-name",
+	}
+	result := applyDefaults("test", cfg)
+
+	if result.Timeout != 60*time.Second {
+		t.Errorf("Timeout should be preserved: got %v", result.Timeout)
+	}
+	if result.DefaultLimit != 50 {
+		t.Errorf("DefaultLimit should be preserved: got %d", result.DefaultLimit)
+	}
+	if result.MaxLimit != 500 {
+		t.Errorf("MaxLimit should be preserved: got %d", result.MaxLimit)
+	}
+	if result.MaxLineageDepth != 10 {
+		t.Errorf("MaxLineageDepth should be preserved: got %d", result.MaxLineageDepth)
+	}
+	if result.ConnectionName != "custom-name" {
+		t.Errorf("ConnectionName should be preserved: got %s", result.ConnectionName)
+	}
+}
+
 func TestConfig_Fields(t *testing.T) {
 	cfg := Config{
 		URL:             "http://localhost:8080",

@@ -20,19 +20,21 @@ func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles 
 }
 
 func TestAuthzMiddleware(t *testing.T) {
-	t.Run("no platform context", func(t *testing.T) {
+	t.Run("no platform context fails closed", func(t *testing.T) {
 		authz := &mockAuthorizer{}
-		middleware := AuthzMiddleware(authz)
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		mw := AuthzMiddleware(authz)
+		handler := mw(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			t.Error("handler should not be called without platform context")
 			return NewToolResultText("success"), nil
 		})
 
+		// SECURITY: missing platform context should fail closed
 		result, err := handler(context.Background(), mcp.CallToolRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if result.IsError {
-			t.Error("expected success result")
+		if !result.IsError {
+			t.Error("expected error result when platform context is missing")
 		}
 	})
 

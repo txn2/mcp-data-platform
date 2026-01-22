@@ -378,9 +378,9 @@ func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
 		}, nil
 	}
 
-	// Chain authenticators
+	// Chain authenticators - anonymous access disabled by default
 	return auth.NewChainedAuthenticator(
-		auth.ChainedAuthConfig{AllowAnonymous: true},
+		auth.ChainedAuthConfig{AllowAnonymous: p.config.Auth.AllowAnonymous},
 		authenticators...,
 	), nil
 }

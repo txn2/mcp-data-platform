@@ -31,6 +31,138 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestValidateConfig(t *testing.T) {
+	t.Run("valid config", func(t *testing.T) {
+		cfg := Config{Host: "localhost", User: "testuser"}
+		if err := validateConfig(cfg); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing host", func(t *testing.T) {
+		cfg := Config{User: "testuser"}
+		if err := validateConfig(cfg); err == nil {
+			t.Error("expected error for missing host")
+		}
+	})
+
+	t.Run("missing user", func(t *testing.T) {
+		cfg := Config{Host: "localhost"}
+		if err := validateConfig(cfg); err == nil {
+			t.Error("expected error for missing user")
+		}
+	})
+}
+
+func TestApplyDefaults(t *testing.T) {
+	t.Run("applies default port for non-SSL", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user"})
+		if cfg.Port != 8080 {
+			t.Errorf("Port = %d, want 8080", cfg.Port)
+		}
+	})
+
+	t.Run("applies default port for SSL", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user", SSL: true})
+		if cfg.Port != 443 {
+			t.Errorf("Port = %d, want 443", cfg.Port)
+		}
+	})
+
+	t.Run("preserves custom port", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user", Port: 9090})
+		if cfg.Port != 9090 {
+			t.Errorf("Port = %d, want 9090", cfg.Port)
+		}
+	})
+
+	t.Run("applies default limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user"})
+		if cfg.DefaultLimit != 1000 {
+			t.Errorf("DefaultLimit = %d, want 1000", cfg.DefaultLimit)
+		}
+	})
+
+	t.Run("applies max limit", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user"})
+		if cfg.MaxLimit != 10000 {
+			t.Errorf("MaxLimit = %d, want 10000", cfg.MaxLimit)
+		}
+	})
+
+	t.Run("applies timeout", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user"})
+		if cfg.Timeout != 120*time.Second {
+			t.Errorf("Timeout = %v, want 120s", cfg.Timeout)
+		}
+	})
+
+	t.Run("applies connection name from toolkit name", func(t *testing.T) {
+		cfg := applyDefaults("my-toolkit", Config{Host: "localhost", User: "user"})
+		if cfg.ConnectionName != "my-toolkit" {
+			t.Errorf("ConnectionName = %q, want 'my-toolkit'", cfg.ConnectionName)
+		}
+	})
+
+	t.Run("preserves custom connection name", func(t *testing.T) {
+		cfg := applyDefaults("test", Config{Host: "localhost", User: "user", ConnectionName: "custom"})
+		if cfg.ConnectionName != "custom" {
+			t.Errorf("ConnectionName = %q, want 'custom'", cfg.ConnectionName)
+		}
+	})
+}
+
+func TestDefaultPort(t *testing.T) {
+	t.Run("SSL port", func(t *testing.T) {
+		if port := defaultPort(true); port != 443 {
+			t.Errorf("defaultPort(true) = %d, want 443", port)
+		}
+	})
+
+	t.Run("non-SSL port", func(t *testing.T) {
+		if port := defaultPort(false); port != 8080 {
+			t.Errorf("defaultPort(false) = %d, want 8080", port)
+		}
+	})
+}
+
+func TestValidateConfig_BothMissing(t *testing.T) {
+	cfg := Config{}
+	err := validateConfig(cfg)
+	if err == nil {
+		t.Error("expected error for empty config")
+	}
+}
+
+func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
+	cfg := Config{
+		Host:           "localhost",
+		User:           "user",
+		Port:           9999,
+		DefaultLimit:   500,
+		MaxLimit:       5000,
+		Timeout:        60 * time.Second,
+		ConnectionName: "custom-name",
+	}
+	result := applyDefaults("test", cfg)
+
+	if result.Port != 9999 {
+		t.Errorf("Port should be preserved: got %d", result.Port)
+	}
+	if result.DefaultLimit != 500 {
+		t.Errorf("DefaultLimit should be preserved: got %d", result.DefaultLimit)
+	}
+	if result.MaxLimit != 5000 {
+		t.Errorf("MaxLimit should be preserved: got %d", result.MaxLimit)
+	}
+	if result.Timeout != 60*time.Second {
+		t.Errorf("Timeout should be preserved: got %v", result.Timeout)
+	}
+	if result.ConnectionName != "custom-name" {
+		t.Errorf("ConnectionName should be preserved: got %s", result.ConnectionName)
+	}
+}
+
 func TestConfig_Defaults(t *testing.T) {
 	cfg := Config{
 		Host: "localhost",

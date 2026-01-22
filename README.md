@@ -17,10 +17,13 @@ A semantic data platform MCP server that composes multiple data tools with **bid
   - DataHub searches include query availability from Trino
   - S3 listings enriched with matching DataHub datasets
   - DataHub S3 searches include storage availability
+- **Enterprise Security**: Fail-closed authentication, TLS enforcement, prompt injection protection
 - **OAuth 2.1 Authentication**: OIDC, API keys, PKCE, Dynamic Client Registration
 - **Role-Based Personas**: Tool filtering with wildcard patterns (allow/deny rules)
 - **Comprehensive Audit Logging**: PostgreSQL-backed audit trail
 - **Middleware Architecture**: Extensible request/response processing
+
+> **Security Architecture**: For a detailed analysis of securing internal MCP servers, see [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/).
  
 ## Architecture
 
@@ -46,6 +49,58 @@ graph LR
 - **DataHub → Trino**: Search results include query availability and sample SQL
 - **S3 → DataHub**: Object listings include matching dataset metadata from DataHub
 - **DataHub → S3**: Search results for S3 datasets include storage availability
+
+## Security
+
+mcp-data-platform implements a **fail-closed** security model designed for enterprise deployments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
+
+### Security Features
+
+| Feature | Description |
+|---------|-------------|
+| **Fail-Closed Authentication** | Missing or invalid credentials deny access (never bypass) |
+| **Required JWT Claims** | Tokens must include `sub` and `exp` claims |
+| **TLS for SSE Transport** | Configurable TLS with warnings for plaintext connections |
+| **Prompt Injection Protection** | Metadata sanitization prevents injection attacks |
+| **Read-Only Mode** | Trino and S3 toolkits support enforced read-only access |
+| **Default-Deny Personas** | Users without explicit persona assignment have no tool access |
+| **Cryptographic Request IDs** | Request tracing uses secure random identifiers |
+
+### Transport Security
+
+| Transport | Authentication | TLS |
+|-----------|---------------|-----|
+| **stdio** | Not required (local execution) | N/A |
+| **SSE** | Required (Bearer token or API key) | Strongly recommended |
+
+### SSE Security Configuration
+
+```yaml
+server:
+  transport: sse
+  address: ":8443"
+  tls:
+    enabled: true
+    cert_file: /path/to/cert.pem
+    key_file: /path/to/key.pem
+
+auth:
+  allow_anonymous: false  # Default: authentication required
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_query", "datahub_search"]
+        deny: ["*_delete_*", "*_drop_*"]
+  default_persona: analyst  # Required: no implicit access
+```
 
 ## Installation
 

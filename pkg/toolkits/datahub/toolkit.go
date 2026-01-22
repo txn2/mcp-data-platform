@@ -39,9 +39,37 @@ type Toolkit struct {
 
 // New creates a new DataHub toolkit.
 func New(name string, cfg Config) (*Toolkit, error) {
-	if cfg.URL == "" {
-		return nil, fmt.Errorf("datahub URL is required")
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
+
+	cfg = applyDefaults(name, cfg)
+
+	client, err := createClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	datahubToolkit := createToolkit(client, cfg)
+
+	return &Toolkit{
+		name:           name,
+		config:         cfg,
+		client:         client,
+		datahubToolkit: datahubToolkit,
+	}, nil
+}
+
+// validateConfig validates the required configuration fields.
+func validateConfig(cfg Config) error {
+	if cfg.URL == "" {
+		return fmt.Errorf("datahub URL is required")
+	}
+	return nil
+}
+
+// applyDefaults applies default values to the configuration.
+func applyDefaults(name string, cfg Config) Config {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
@@ -57,7 +85,11 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
+	return cfg
+}
 
+// createClient creates a new DataHub client from the configuration.
+func createClient(cfg Config) (*dhclient.Client, error) {
 	clientCfg := dhclient.DefaultConfig()
 	clientCfg.URL = cfg.URL
 	clientCfg.Token = cfg.Token
@@ -70,20 +102,16 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating datahub client: %w", err)
 	}
+	return client, nil
+}
 
-	// Create the mcp-datahub toolkit
-	datahubToolkit := dhtools.NewToolkit(client, dhtools.Config{
+// createToolkit creates the mcp-datahub toolkit.
+func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
+	return dhtools.NewToolkit(client, dhtools.Config{
 		DefaultLimit:    cfg.DefaultLimit,
 		MaxLimit:        cfg.MaxLimit,
 		MaxLineageDepth: cfg.MaxLineageDepth,
 	})
-
-	return &Toolkit{
-		name:           name,
-		config:         cfg,
-		client:         client,
-		datahubToolkit: datahubToolkit,
-	}, nil
 }
 
 // Kind returns the toolkit kind.

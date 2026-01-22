@@ -1,11 +1,16 @@
 # Authentication Overview
 
-Whether you need MCP-level authentication depends on your transport:
+mcp-data-platform implements a **fail-closed** security model where missing or invalid credentials result in denied access, never bypassed checks. For the security architecture rationale, see [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/).
 
-| Transport | Authentication | Why |
-|-----------|---------------|-----|
-| **stdio** | Not needed | Local execution with your own credentials |
-| **SSE** | Required | Shared server needs to identify users |
+## Transport Security Requirements
+
+| Transport | Authentication | TLS | Why |
+|-----------|---------------|-----|-----|
+| **stdio** | Not needed | N/A | Local execution with your own credentials |
+| **SSE** | **Required** | Strongly recommended | Shared server needs to identify users |
+
+!!! warning "SSE Security"
+    When using SSE transport, authentication is **required by default**. Anonymous access must be explicitly enabled and is not recommended for production deployments.
 
 ## stdio Transport (Local)
 
@@ -36,6 +41,49 @@ When deploying mcp-data-platform as a shared remote service, authentication iden
 |--------|----------|
 | **OIDC** | Human users via Keycloak, Auth0, Okta |
 | **API Keys** | Service accounts, automation |
+
+## Security Model
+
+mcp-data-platform follows a **fail-closed** security model:
+
+### Authentication Requirements
+
+| Requirement | Behavior |
+|-------------|----------|
+| Missing token | HTTP 401 Unauthorized |
+| Invalid token | Authentication error |
+| Expired token | Authentication error |
+| Missing `sub` claim | Token rejected |
+| Missing `exp` claim | Token rejected |
+
+### Authorization Defaults
+
+| Scenario | Behavior |
+|----------|----------|
+| No persona resolved | Access denied |
+| Default persona | Denies all tools (explicit assignment required) |
+| Nil persona in filter | Returns empty tool list |
+
+### Token Validation
+
+JWT tokens are validated with the following checks:
+
+1. **Signature verification** - Token signature verified against JWKS
+2. **Required claims** - `sub` (subject) and `exp` (expiration) are mandatory
+3. **Time validation** - `exp`, `nbf`, and `iat` claims validated with configurable clock skew
+4. **Issuer verification** - Token issuer must match configuration
+5. **Audience verification** - Token audience must match (when configured)
+
+```yaml
+auth:
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+    audience: "mcp-data-platform"
+    clock_skew_seconds: 30      # Default: 30 seconds
+    max_token_age: 24h          # Optional: reject tokens older than this
+```
 
 ## SSE Authentication Flow
 
@@ -70,6 +118,7 @@ server:
     key_file: /path/to/key.pem
 
 auth:
+  allow_anonymous: false  # Default: require authentication
   oidc:
     enabled: true
     issuer: "https://keycloak.example.com/realms/your-realm"
@@ -77,6 +126,8 @@ auth:
     audience: "mcp-data-platform"
     role_claim_path: "realm_access.roles"
     role_prefix: "dp_"
+    clock_skew_seconds: 30
+    max_token_age: 24h
 
   api_keys:
     enabled: true
@@ -84,13 +135,26 @@ auth:
       - key: ${API_KEY_ETL}
         name: "etl-service"
         roles: ["service"]
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_query", "trino_explain", "datahub_*"]
+        deny: ["*_delete_*"]
+  default_persona: analyst  # Required: users need explicit persona
 ```
 
 This configuration:
 
-- Human users authenticate via Keycloak
-- Service accounts use API keys
-- Roles from Keycloak tokens map to personas
+- **TLS enabled** - Credentials encrypted in transit
+- **Anonymous access disabled** - All requests require authentication
+- **Human users** - Authenticate via Keycloak OIDC
+- **Service accounts** - Use API keys
+- **Role-based access** - Keycloak roles map to personas
+- **Explicit personas** - Users must have assigned persona with tool access
 
 ## User Context
 
