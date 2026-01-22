@@ -163,13 +163,7 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 
 	// Mount OAuth server if enabled
 	if p != nil && p.OAuthServer() != nil {
-		oauthServer := p.OAuthServer()
-		// Mount OAuth endpoints (no auth middleware - OAuth handles its own auth)
-		mux.Handle("/.well-known/oauth-authorization-server", oauthServer)
-		mux.Handle("/oauth/authorize", oauthServer)
-		mux.Handle("/oauth/callback", oauthServer)
-		mux.Handle("/oauth/token", oauthServer)
-		mux.Handle("/oauth/register", oauthServer)
+		registerOAuthRoutes(mux, p.OAuthServer())
 		log.Println("OAuth server enabled")
 	}
 
@@ -192,4 +186,21 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 
 	log.Printf("Starting SSE server on %s\n", opts.address)
 	return server.ListenAndServe()
+}
+
+// registerOAuthRoutes registers OAuth endpoints on the given mux.
+// Supports both standard paths (with /oauth prefix) and Claude Desktop
+// compatible paths (without /oauth prefix).
+func registerOAuthRoutes(mux *http.ServeMux, handler http.Handler) {
+	// Standard paths (with /oauth prefix)
+	mux.Handle("/.well-known/oauth-authorization-server", handler)
+	mux.Handle("/oauth/authorize", handler)
+	mux.Handle("/oauth/callback", handler)
+	mux.Handle("/oauth/token", handler)
+	mux.Handle("/oauth/register", handler)
+	// Claude Desktop compatibility paths (without /oauth prefix)
+	mux.Handle("/authorize", handler)
+	mux.Handle("/callback", handler)
+	mux.Handle("/token", handler)
+	mux.Handle("/register", handler)
 }

@@ -427,15 +427,16 @@ func (s *Server) RegisterClient(ctx context.Context, req DCRRequest) (*DCRRespon
 }
 
 // ServeHTTP implements http.Handler for the OAuth server.
+// Handles both standard paths (with /oauth prefix) and Claude Desktop compatible paths (without prefix).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "/oauth/authorize":
+	case "/oauth/authorize", "/authorize":
 		s.handleAuthorizeEndpoint(w, r)
-	case "/oauth/callback":
+	case "/oauth/callback", "/callback":
 		s.handleCallbackEndpoint(w, r)
-	case "/oauth/token":
+	case "/oauth/token", "/token":
 		s.handleTokenEndpoint(w, r)
-	case "/oauth/register":
+	case "/oauth/register", "/register":
 		s.handleRegisterEndpoint(w, r)
 	case "/.well-known/oauth-authorization-server":
 		s.handleMetadata(w, r)
@@ -752,12 +753,13 @@ func (s *Server) buildClientRedirectURL(redirectURI, code, state string) string 
 }
 
 // handleMetadata handles GET /.well-known/oauth-authorization-server.
+// Returns metadata with paths without /oauth prefix for Claude Desktop compatibility.
 func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 	metadata := map[string]any{
 		"issuer":                                s.config.Issuer,
-		"authorization_endpoint":                s.config.Issuer + "/oauth/authorize",
-		"token_endpoint":                        s.config.Issuer + "/oauth/token",
-		"registration_endpoint":                 s.config.Issuer + "/oauth/register",
+		"authorization_endpoint":                s.config.Issuer + "/authorize",
+		"token_endpoint":                        s.config.Issuer + "/token",
+		"registration_endpoint":                 s.config.Issuer + "/register",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
@@ -798,6 +800,7 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 }
 
 // BuildAuthorizationURL builds an authorization URL.
+// Uses paths without /oauth prefix for Claude Desktop compatibility.
 func BuildAuthorizationURL(baseURL, clientID, redirectURI, scope, state string) string {
 	// Generate PKCE
 	verifier := make([]byte, 32)
@@ -806,7 +809,7 @@ func BuildAuthorizationURL(baseURL, clientID, redirectURI, scope, state string) 
 	challenge, _ := GenerateCodeChallenge(codeVerifier, PKCEMethodS256)
 
 	return fmt.Sprintf(
-		"%s/oauth/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=%s&state=%s&code_challenge=%s&code_challenge_method=S256",
+		"%s/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=%s&state=%s&code_challenge=%s&code_challenge_method=S256",
 		strings.TrimSuffix(baseURL, "/"),
 		clientID,
 		redirectURI,
