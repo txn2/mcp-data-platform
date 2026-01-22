@@ -139,7 +139,7 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 claude mcp add mcp-data-platform -- mcp-data-platform
 ```
 
-### Claude Desktop
+### Claude Desktop (Local)
 
 Add to your `claude_desktop_config.json`:
 
@@ -153,6 +153,42 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Claude Desktop (Remote with OAuth)
+
+For connecting Claude Desktop to a remote MCP server with Keycloak authentication:
+
+1. **Configure the MCP server** with OAuth and upstream IdP:
+
+```yaml
+server:
+  transport: sse
+  address: ":8080"
+
+oauth:
+  enabled: true
+  issuer: "https://mcp.example.com"
+  clients:
+    - id: "claude-desktop"
+      secret: "${CLAUDE_CLIENT_SECRET}"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
+  upstream:
+    issuer: "https://keycloak.example.com/realms/your-realm"
+    client_id: "mcp-data-platform"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    redirect_uri: "https://mcp.example.com/oauth/callback"
+```
+
+2. **In Claude Desktop**, add the server with OAuth credentials:
+   - **URL**: `https://mcp.example.com`
+   - **Client ID**: `claude-desktop`
+   - **Client Secret**: (the secret you configured)
+
+When you connect, Claude Desktop will open your browser for Keycloak login, then automatically complete the OAuth flow.
+
+See [OAuth 2.1 Server documentation](https://txn2.github.io/mcp-data-platform/auth/oauth-server/) for complete setup instructions.
 
 ## Configuration
 
