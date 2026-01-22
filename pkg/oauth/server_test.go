@@ -313,6 +313,25 @@ func TestServerHTTPHandlers(t *testing.T) {
 		}
 	})
 
+	t.Run("metadata endpoint advertises paths without oauth prefix", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		// Should advertise paths without /oauth prefix for Claude Desktop compatibility
+		if !strings.Contains(body, `"authorization_endpoint":"http://localhost:8080/authorize"`) {
+			t.Errorf("expected authorization_endpoint without /oauth prefix, got: %s", body)
+		}
+		if !strings.Contains(body, `"token_endpoint":"http://localhost:8080/token"`) {
+			t.Errorf("expected token_endpoint without /oauth prefix, got: %s", body)
+		}
+		if !strings.Contains(body, `"registration_endpoint":"http://localhost:8080/register"`) {
+			t.Errorf("expected registration_endpoint without /oauth prefix, got: %s", body)
+		}
+	})
+
 	t.Run("token endpoint wrong method", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/oauth/token", nil)
 		w := httptest.NewRecorder()
@@ -384,6 +403,85 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 }
 
+func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
+	storage := &mockStorage{}
+	server, _ := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		DCR:    DCRConfig{Enabled: true},
+	}, storage)
+
+	// Test paths without /oauth prefix (Claude Desktop compatibility)
+	t.Run("token endpoint without oauth prefix", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=password"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		// Should return 400 (bad request for unsupported grant), not 404
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("token endpoint without oauth prefix wrong method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/token", nil)
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", w.Code)
+		}
+	})
+
+	t.Run("register endpoint without oauth prefix", func(t *testing.T) {
+		body := `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+		req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("expected status 201, got %d", w.Code)
+		}
+	})
+
+	t.Run("register endpoint without oauth prefix wrong method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/register", nil)
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", w.Code)
+		}
+	})
+
+	t.Run("authorize endpoint without oauth prefix wrong method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/authorize", nil)
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", w.Code)
+		}
+	})
+
+	t.Run("callback endpoint without oauth prefix wrong method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/callback", nil)
+		w := httptest.NewRecorder()
+
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", w.Code)
+		}
+	})
+}
+
 func TestBuildAuthorizationURL(t *testing.T) {
 	url := BuildAuthorizationURL(
 		"http://localhost:8080",
@@ -404,6 +502,13 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	}
 	if !strings.Contains(url, "code_challenge_method=S256") {
 		t.Error("expected code_challenge_method in URL")
+	}
+	// Verify path uses /authorize without /oauth prefix (Claude Desktop compatibility)
+	if !strings.HasPrefix(url, "http://localhost:8080/authorize?") {
+		t.Errorf("expected URL to use /authorize path (without /oauth prefix), got: %s", url)
+	}
+	if strings.Contains(url, "/oauth/authorize") {
+		t.Errorf("expected URL without /oauth prefix, got: %s", url)
 	}
 }
 
