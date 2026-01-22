@@ -3,6 +3,7 @@ module github.com/txn2/mcp-data-platform
 go 1.24.7
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/txn2/mcp-datahub v0.3.0
