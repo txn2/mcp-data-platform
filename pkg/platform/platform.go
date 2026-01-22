@@ -2,7 +2,10 @@ package platform
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,7 +48,8 @@ type Platform struct {
 	authorizer    middleware.Authorizer
 
 	// OAuth
-	oauthServer *oauth.Server
+	oauthServer     *oauth.Server
+	oauthSigningKey []byte
 
 	// Audit
 	auditLogger middleware.AuditLogger
@@ -88,6 +92,10 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	if err := p.initRegistries(opts); err != nil {
 		return err
 	}
+	// Parse OAuth signing key early so auth can use it
+	if err := p.initOAuthSigningKey(); err != nil {
+		return err
+	}
 	if err := p.initAuth(opts); err != nil {
 		return err
 	}
@@ -96,6 +104,21 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	}
 	p.initTuning(opts)
 	p.finalizeSetup()
+	return nil
+}
+
+// initOAuthSigningKey parses or generates the OAuth signing key.
+// This must be called before initAuth so the OAuth authenticator can be configured.
+func (p *Platform) initOAuthSigningKey() error {
+	if !p.config.OAuth.Enabled {
+		return nil
+	}
+
+	signingKey, err := p.parseOrGenerateSigningKey()
+	if err != nil {
+		return fmt.Errorf("configuring OAuth signing key: %w", err)
+	}
+	p.oauthSigningKey = signingKey
 	return nil
 }
 
@@ -218,6 +241,7 @@ func (p *Platform) initOAuth() error {
 	serverConfig := oauth.ServerConfig{
 		Issuer:         p.config.OAuth.Issuer,
 		AccessTokenTTL: 1 * time.Hour,
+		SigningKey:     p.oauthSigningKey,
 		DCR: oauth.DCRConfig{
 			Enabled:                 p.config.OAuth.DCR.Enabled,
 			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
@@ -243,6 +267,29 @@ func (p *Platform) initOAuth() error {
 
 	p.oauthServer = server
 	return nil
+}
+
+// parseOrGenerateSigningKey parses the configured signing key or generates a random one.
+func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
+	if p.config.OAuth.SigningKey != "" {
+		// Decode base64-encoded key from config
+		key, err := base64.StdEncoding.DecodeString(p.config.OAuth.SigningKey)
+		if err != nil {
+			return nil, fmt.Errorf("decoding signing key: %w", err)
+		}
+		if len(key) < 32 {
+			return nil, fmt.Errorf("signing key must be at least 32 bytes")
+		}
+		return key, nil
+	}
+
+	// Generate random key if not configured (not recommended for production)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generating random key: %w", err)
+	}
+	slog.Warn("OAuth signing key not configured, generated random key (tokens won't survive restart)")
+	return key, nil
 }
 
 // initTuning initializes tuning components.
@@ -273,6 +320,14 @@ func (p *Platform) finalizeSetup() {
 		Name:    p.config.Server.Name,
 		Version: "1.0.0",
 	}, nil)
+
+	// Add MCP protocol-level middleware for authentication and authorization.
+	// This intercepts all tools/call requests and enforces auth before the
+	// tool handler is invoked, ensuring security even when toolkits register
+	// their tools directly with the MCP server.
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
+	)
 }
 
 // createSemanticProvider creates the semantic provider based on config.
@@ -412,7 +467,22 @@ func (p *Platform) loadPersonas() error {
 func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
 	var authenticators []middleware.Authenticator
 
-	// OIDC authenticator
+	// OAuth JWT authenticator (for tokens issued by our OAuth server)
+	// This is checked first because OAuth tokens from Claude Desktop will use this
+	if p.config.OAuth.Enabled && len(p.oauthSigningKey) > 0 {
+		oauthAuth, err := auth.NewOAuthJWTAuthenticator(auth.OAuthJWTConfig{
+			Issuer:        p.config.OAuth.Issuer,
+			SigningKey:    p.oauthSigningKey,
+			RoleClaimPath: p.config.Auth.OIDC.RoleClaimPath,
+			RolePrefix:    p.config.Auth.OIDC.RolePrefix,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating OAuth JWT authenticator: %w", err)
+		}
+		authenticators = append(authenticators, oauthAuth)
+	}
+
+	// OIDC authenticator (for tokens from external IdPs like Keycloak)
 	if p.config.Auth.OIDC.Enabled {
 		oidcAuth, err := auth.NewOIDCAuthenticator(auth.OIDCConfig{
 			Issuer:        p.config.Auth.OIDC.Issuer,
