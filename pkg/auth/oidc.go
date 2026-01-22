@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -32,6 +33,12 @@ type OIDCConfig struct {
 
 	// RolePrefix filters roles to those with this prefix.
 	RolePrefix string
+
+	// ClockSkewSeconds is the allowed clock skew for time-based claims (default: 30).
+	ClockSkewSeconds int
+
+	// MaxTokenAge is the maximum allowed age of a token based on iat claim (0 = no limit).
+	MaxTokenAge time.Duration
 
 	// SkipIssuerVerification skips issuer verification (for testing).
 	SkipIssuerVerification bool
@@ -221,6 +228,68 @@ func (a *OIDCAuthenticator) getPublicKey(kid string) (*rsa.PublicKey, error) {
 
 // validateClaims validates standard JWT claims.
 func (a *OIDCAuthenticator) validateClaims(claims map[string]any) error {
+	if err := a.validateRequiredClaims(claims); err != nil {
+		return err
+	}
+
+	if err := a.validateTimeClaims(claims); err != nil {
+		return err
+	}
+
+	return a.validateIdentityClaims(claims)
+}
+
+// validateRequiredClaims checks that required claims are present.
+func (a *OIDCAuthenticator) validateRequiredClaims(claims map[string]any) error {
+	// REQUIRE sub claim - every token must have a subject
+	sub, ok := claims["sub"].(string)
+	if !ok || sub == "" {
+		return fmt.Errorf("missing or invalid sub claim")
+	}
+
+	// REQUIRE exp claim - tokens must have an expiration
+	if _, ok := claims["exp"].(float64); !ok {
+		return fmt.Errorf("missing exp claim")
+	}
+
+	return nil
+}
+
+// validateTimeClaims validates time-based claims (exp, nbf, iat).
+func (a *OIDCAuthenticator) validateTimeClaims(claims map[string]any) error {
+	now := time.Now().Unix()
+	skew := a.getClockSkew()
+
+	// Check expiration with clock skew allowance
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return fmt.Errorf("missing exp claim")
+	}
+	if now > int64(exp)+skew {
+		return fmt.Errorf("token expired")
+	}
+
+	// Check nbf (not before) if present
+	if nbf, ok := claims["nbf"].(float64); ok {
+		if now < int64(nbf)-skew {
+			return fmt.Errorf("token not yet valid")
+		}
+	}
+
+	// Check iat (issued at) for max token age
+	if a.cfg.MaxTokenAge > 0 {
+		if iat, ok := claims["iat"].(float64); ok {
+			if now-int64(iat) > int64(a.cfg.MaxTokenAge.Seconds()) {
+				return fmt.Errorf("token too old")
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateIdentityClaims validates issuer and audience claims.
+func (a *OIDCAuthenticator) validateIdentityClaims(claims map[string]any) error {
 	// Check issuer
 	if !a.cfg.SkipIssuerVerification {
 		if iss, ok := claims["iss"].(string); !ok || iss != a.cfg.Issuer {
@@ -228,21 +297,20 @@ func (a *OIDCAuthenticator) validateClaims(claims map[string]any) error {
 		}
 	}
 
-	// Check audience if configured
-	if a.cfg.Audience != "" {
-		if !a.checkAudience(claims) {
-			return fmt.Errorf("invalid audience")
-		}
-	}
-
-	// Check expiration
-	if exp, ok := claims["exp"].(float64); ok {
-		if time.Now().Unix() > int64(exp) {
-			return fmt.Errorf("token expired")
-		}
+	// REQUIRE audience when configured
+	if a.cfg.Audience != "" && !a.checkAudience(claims) {
+		return fmt.Errorf("invalid audience")
 	}
 
 	return nil
+}
+
+// getClockSkew returns the configured clock skew or default.
+func (a *OIDCAuthenticator) getClockSkew() int64 {
+	if a.cfg.ClockSkewSeconds > 0 {
+		return int64(a.cfg.ClockSkewSeconds)
+	}
+	return 30 // default 30 second skew
 }
 
 // checkAudience checks if the token audience matches.
@@ -262,97 +330,14 @@ func (a *OIDCAuthenticator) checkAudience(claims map[string]any) bool {
 
 // FetchJWKS fetches the JWKS from the issuer and parses RSA public keys.
 func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
-	// Discover the JWKS URI
-	discoveryURL := strings.TrimSuffix(a.cfg.Issuer, "/") + "/.well-known/openid-configuration"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	jwksURI, err := a.discoverJWKSURI(ctx)
 	if err != nil {
-		return fmt.Errorf("creating discovery request: %w", err)
+		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	keys, rawKeys, err := a.fetchAndParseJWKS(ctx, jwksURI)
 	if err != nil {
-		return fmt.Errorf("fetching discovery document: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("discovery request failed: %d", resp.StatusCode)
-	}
-
-	var discovery struct {
-		JwksURI string `json:"jwks_uri"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
-		return fmt.Errorf("parsing discovery document: %w", err)
-	}
-
-	if discovery.JwksURI == "" {
-		return fmt.Errorf("jwks_uri not found in discovery document")
-	}
-
-	// Fetch JWKS
-	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, discovery.JwksURI, nil)
-	if err != nil {
-		return fmt.Errorf("creating JWKS request: %w", err)
-	}
-
-	jwksResp, err := http.DefaultClient.Do(jwksReq)
-	if err != nil {
-		return fmt.Errorf("fetching JWKS: %w", err)
-	}
-	defer func() { _ = jwksResp.Body.Close() }()
-
-	if jwksResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("JWKS request failed: %d", jwksResp.StatusCode)
-	}
-
-	var jwksResponse struct {
-		Keys []json.RawMessage `json:"keys"`
-	}
-	if err := json.NewDecoder(jwksResp.Body).Decode(&jwksResponse); err != nil {
-		return fmt.Errorf("parsing JWKS: %w", err)
-	}
-
-	// Parse each key
-	keys := make(map[string]*rsa.PublicKey)
-	rawKeys := make(map[string]any)
-	for _, keyData := range jwksResponse.Keys {
-		var keyInfo struct {
-			Kty string `json:"kty"`
-			Kid string `json:"kid"`
-			Use string `json:"use"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-		}
-		if err := json.Unmarshal(keyData, &keyInfo); err != nil {
-			continue // Skip keys that can't be parsed
-		}
-
-		// Store raw key for debugging
-		var raw any
-		_ = json.Unmarshal(keyData, &raw)
-		rawKeys[keyInfo.Kid] = raw
-
-		// Only process RSA keys used for signing
-		if keyInfo.Kty != "RSA" {
-			continue
-		}
-		if keyInfo.Use != "" && keyInfo.Use != "sig" {
-			continue
-		}
-
-		// Parse the RSA key components
-		pubKey, err := parseRSAPublicKey(keyInfo.N, keyInfo.E)
-		if err != nil {
-			continue // Skip keys that can't be parsed
-		}
-
-		keys[keyInfo.Kid] = pubKey
-	}
-
-	if len(keys) == 0 {
-		return fmt.Errorf("no valid RSA signing keys found in JWKS")
+		return err
 	}
 
 	a.mu.Lock()
@@ -364,6 +349,120 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 	a.mu.Unlock()
 
 	return nil
+}
+
+// discoverJWKSURI fetches the OIDC discovery document to get the JWKS URI.
+func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error) {
+	discoveryURL := strings.TrimSuffix(a.cfg.Issuer, "/") + "/.well-known/openid-configuration"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating discovery request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching discovery document: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("discovery request failed: %d", resp.StatusCode)
+	}
+
+	var discovery struct {
+		JwksURI string `json:"jwks_uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		return "", fmt.Errorf("parsing discovery document: %w", err)
+	}
+
+	if discovery.JwksURI == "" {
+		return "", fmt.Errorf("jwks_uri not found in discovery document")
+	}
+
+	return discovery.JwksURI, nil
+}
+
+// fetchAndParseJWKS fetches the JWKS and parses RSA keys.
+func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI string) (map[string]*rsa.PublicKey, map[string]any, error) {
+	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating JWKS request: %w", err)
+	}
+
+	jwksResp, err := http.DefaultClient.Do(jwksReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching JWKS: %w", err)
+	}
+	defer func() { _ = jwksResp.Body.Close() }()
+
+	if jwksResp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("JWKS request failed: %d", jwksResp.StatusCode)
+	}
+
+	var jwksResponse struct {
+		Keys []json.RawMessage `json:"keys"`
+	}
+	if err := json.NewDecoder(jwksResp.Body).Decode(&jwksResponse); err != nil {
+		return nil, nil, fmt.Errorf("parsing JWKS: %w", err)
+	}
+
+	keys, rawKeys := a.parseJWKSKeys(jwksResponse.Keys)
+	if len(keys) == 0 {
+		return nil, nil, fmt.Errorf("no valid RSA signing keys found in JWKS")
+	}
+
+	return keys, rawKeys, nil
+}
+
+// jwkKeyInfo holds parsed JWK key information.
+type jwkKeyInfo struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	Use string `json:"use"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+
+// parseJWKSKeys parses raw JWKS keys into RSA public keys.
+func (a *OIDCAuthenticator) parseJWKSKeys(rawKeys []json.RawMessage) (map[string]*rsa.PublicKey, map[string]any) {
+	keys := make(map[string]*rsa.PublicKey)
+	rawKeyMap := make(map[string]any)
+
+	for _, keyData := range rawKeys {
+		var keyInfo jwkKeyInfo
+		if err := json.Unmarshal(keyData, &keyInfo); err != nil {
+			continue
+		}
+
+		// Store raw key for debugging
+		var raw any
+		_ = json.Unmarshal(keyData, &raw)
+		rawKeyMap[keyInfo.Kid] = raw
+
+		// Only process RSA keys used for signing
+		if !isSigningRSAKey(keyInfo) {
+			continue
+		}
+
+		pubKey, err := parseRSAPublicKey(keyInfo.N, keyInfo.E)
+		if err != nil {
+			continue
+		}
+
+		keys[keyInfo.Kid] = pubKey
+	}
+
+	return keys, rawKeyMap
+}
+
+// isSigningRSAKey checks if a JWK key is an RSA signing key.
+func isSigningRSAKey(keyInfo jwkKeyInfo) bool {
+	if keyInfo.Kty != "RSA" {
+		return false
+	}
+	return keyInfo.Use == "" || keyInfo.Use == "sig"
 }
 
 // parseRSAPublicKey parses RSA public key from JWK n and e values.

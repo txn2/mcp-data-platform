@@ -326,8 +326,8 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
 		err := auth.validateClaims(claims)
-		if err == nil {
-			t.Error("expected error for invalid issuer")
+		if err == nil || err.Error() != "invalid issuer" {
+			t.Errorf("expected 'invalid issuer' error, got: %v", err)
 		}
 	})
 
@@ -344,12 +344,12 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
 		err := auth.validateClaims(claims)
-		if err == nil {
-			t.Error("expected error for invalid audience")
+		if err == nil || err.Error() != "invalid audience" {
+			t.Errorf("expected 'invalid audience' error, got: %v", err)
 		}
 	})
 
-	t.Run("expired token", func(t *testing.T) {
+	t.Run("expired token outside skew", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
@@ -357,7 +357,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 		})
 		claims := map[string]any{
 			"sub": "user123",
-			"exp": float64(time.Now().Add(-time.Hour).Unix()),
+			"exp": float64(time.Now().Add(-time.Hour).Unix()), // expired 1 hour ago, well beyond 30s skew
 		}
 		err := auth.validateClaims(claims)
 		if err == nil {
@@ -381,7 +381,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 		}
 	})
 
-	t.Run("missing exp is ok", func(t *testing.T) {
+	t.Run("missing exp is rejected", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
@@ -391,8 +391,91 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			"sub": "user123",
 		}
 		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for missing exp claim")
+		}
+	})
+
+	t.Run("missing sub is rejected", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                    "https://issuer.example.com",
+			SkipIssuerVerification:    true,
+			SkipSignatureVerification: true,
+		})
+		claims := map[string]any{
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for missing sub claim")
+		}
+	})
+
+	t.Run("empty sub is rejected", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                    "https://issuer.example.com",
+			SkipIssuerVerification:    true,
+			SkipSignatureVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for empty sub claim")
+		}
+	})
+
+	t.Run("nbf not yet valid", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                    "https://issuer.example.com",
+			SkipIssuerVerification:    true,
+			SkipSignatureVerification: true,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+			"nbf": float64(time.Now().Add(time.Hour).Unix()), // not valid for an hour
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for token not yet valid")
+		}
+	})
+
+	t.Run("token too old by iat", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                    "https://issuer.example.com",
+			SkipIssuerVerification:    true,
+			SkipSignatureVerification: true,
+			MaxTokenAge:               1 * time.Hour,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"exp": float64(time.Now().Add(time.Hour).Unix()),
+			"iat": float64(time.Now().Add(-2 * time.Hour).Unix()), // issued 2 hours ago
+		}
+		err := auth.validateClaims(claims)
+		if err == nil {
+			t.Error("expected error for token too old")
+		}
+	})
+
+	t.Run("clock skew allows slightly expired token", func(t *testing.T) {
+		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			Issuer:                    "https://issuer.example.com",
+			SkipIssuerVerification:    true,
+			SkipSignatureVerification: true,
+			ClockSkewSeconds:          60,
+		})
+		claims := map[string]any{
+			"sub": "user123",
+			"exp": float64(time.Now().Add(-10 * time.Second).Unix()), // expired 10 seconds ago
+		}
+		err := auth.validateClaims(claims)
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf("expected clock skew to allow slightly expired token: %v", err)
 		}
 	})
 }
