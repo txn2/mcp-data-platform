@@ -31,6 +31,10 @@ type AuthorizationState struct {
 
 	// CreatedAt is when this state was created.
 	CreatedAt time.Time
+
+	// PromptNoneAttempted tracks if we already tried prompt=none.
+	// Used to handle Keycloak's login_required error by retrying without prompt=none.
+	PromptNoneAttempted bool
 }
 
 // StateStore manages authorization states for the OAuth flow.
