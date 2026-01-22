@@ -233,6 +233,7 @@ Configuration:
 oauth:
   enabled: true
   issuer: "https://mcp.example.com"
+  signing_key: "${OAUTH_SIGNING_KEY}"  # Required: openssl rand -base64 32
   clients:
     - id: "claude-desktop"
       secret: "${CLAUDE_CLIENT_SECRET}"
