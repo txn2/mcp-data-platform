@@ -1122,6 +1122,95 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 	_ = p.Close()
 }
 
+func TestParseOrGenerateSigningKey(t *testing.T) {
+	t.Run("valid base64 signing key", func(t *testing.T) {
+		// Generate a valid 32-byte key encoded as base64
+		validKey := "dGVzdC1zaWduaW5nLWtleS1hdC1sZWFzdC0zMi1ieXRlcw==" // "test-signing-key-at-least-32-bytes"
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled:    true,
+				Issuer:     "http://localhost:8080",
+				SigningKey: validKey,
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		if p.OAuthServer() == nil {
+			t.Error("OAuthServer() should not be nil")
+		}
+		_ = p.Close()
+	})
+
+	t.Run("invalid base64 signing key", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled:    true,
+				Issuer:     "http://localhost:8080",
+				SigningKey: "not-valid-base64!!!", // Invalid base64
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() expected error for invalid base64 signing key")
+		}
+	})
+
+	t.Run("signing key too short", func(t *testing.T) {
+		// "short" in base64 = "c2hvcnQ=" (5 bytes, less than 32)
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled:    true,
+				Issuer:     "http://localhost:8080",
+				SigningKey: "c2hvcnQ=", // "short" - only 5 bytes
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() expected error for signing key too short")
+		}
+	})
+
+	t.Run("auto-generate signing key when not configured", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled:    true,
+				Issuer:     "http://localhost:8080",
+				SigningKey: "", // Empty - should auto-generate
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		if p.OAuthServer() == nil {
+			t.Error("OAuthServer() should not be nil with auto-generated key")
+		}
+		_ = p.Close()
+	})
+}
+
 func TestInitOAuth(t *testing.T) {
 	t.Run("OAuth disabled", func(t *testing.T) {
 		cfg := &Config{
