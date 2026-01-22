@@ -2,14 +2,17 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -32,6 +35,10 @@ type OIDCConfig struct {
 
 	// SkipIssuerVerification skips issuer verification (for testing).
 	SkipIssuerVerification bool
+
+	// SkipSignatureVerification skips JWT signature verification (for testing only).
+	// WARNING: Never enable in production - allows forged tokens.
+	SkipSignatureVerification bool
 }
 
 // OIDCAuthenticator authenticates using OIDC tokens.
@@ -45,7 +52,8 @@ type OIDCAuthenticator struct {
 }
 
 type jwksCache struct {
-	keys      map[string]any
+	keys      map[string]*rsa.PublicKey // kid -> RSA public key
+	rawKeys   map[string]any            // raw JWKS response for debugging
 	expiresAt time.Time
 }
 
@@ -63,10 +71,21 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 		SubjectClaimPath: "sub",
 	}
 
-	return &OIDCAuthenticator{
+	auth := &OIDCAuthenticator{
 		cfg:       cfg,
 		extractor: extractor,
-	}, nil
+	}
+
+	// Fetch JWKS on startup unless signature verification is disabled
+	if !cfg.SkipSignatureVerification {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := auth.FetchJWKS(ctx); err != nil {
+			return nil, fmt.Errorf("fetching JWKS: %w", err)
+		}
+	}
+
+	return auth, nil
 }
 
 // Authenticate validates the token and returns user info.
@@ -97,15 +116,70 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserI
 	}, nil
 }
 
-// parseAndValidateToken parses and validates a JWT.
-func (a *OIDCAuthenticator) parseAndValidateToken(token string) (map[string]any, error) {
-	// Split the JWT
-	parts := strings.Split(token, ".")
+// parseAndValidateToken parses and validates a JWT with signature verification.
+func (a *OIDCAuthenticator) parseAndValidateToken(tokenString string) (map[string]any, error) {
+	// If signature verification is disabled (testing only), use legacy parsing
+	if a.cfg.SkipSignatureVerification {
+		return a.parseTokenWithoutSignatureVerification(tokenString)
+	}
+
+	// Parse and verify the JWT signature
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		// Validate the algorithm is RSA-based
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		// Get the key ID from the header
+		kid, ok := token.Header["kid"].(string)
+		if !ok {
+			return nil, fmt.Errorf("token missing kid header")
+		}
+
+		// Get the public key from JWKS cache
+		key, err := a.getPublicKey(kid)
+		if err != nil {
+			return nil, fmt.Errorf("getting public key: %w", err)
+		}
+
+		return key, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verifying token: %w", err)
+	}
+
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Extract claims as map
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid claims type")
+	}
+
+	// Convert to map[string]any for compatibility
+	claimsMap := make(map[string]any)
+	for k, v := range claims {
+		claimsMap[k] = v
+	}
+
+	// Validate standard claims (issuer, audience)
+	if err := a.validateClaims(claimsMap); err != nil {
+		return nil, err
+	}
+
+	return claimsMap, nil
+}
+
+// parseTokenWithoutSignatureVerification parses JWT without verifying signature.
+// WARNING: Only for testing - never use in production.
+func (a *OIDCAuthenticator) parseTokenWithoutSignatureVerification(tokenString string) (map[string]any, error) {
+	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT format")
 	}
 
-	// Decode the payload (middle part)
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("decoding payload: %w", err)
@@ -116,12 +190,33 @@ func (a *OIDCAuthenticator) parseAndValidateToken(token string) (map[string]any,
 		return nil, fmt.Errorf("parsing claims: %w", err)
 	}
 
-	// Validate standard claims
 	if err := a.validateClaims(claims); err != nil {
 		return nil, err
 	}
 
 	return claims, nil
+}
+
+// getPublicKey retrieves an RSA public key by key ID from the JWKS cache.
+func (a *OIDCAuthenticator) getPublicKey(kid string) (*rsa.PublicKey, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.jwks == nil {
+		return nil, fmt.Errorf("JWKS not loaded")
+	}
+
+	// Check if cache is expired
+	if time.Now().After(a.jwks.expiresAt) {
+		return nil, fmt.Errorf("JWKS cache expired")
+	}
+
+	key, ok := a.jwks.keys[kid]
+	if !ok {
+		return nil, fmt.Errorf("key not found: %s", kid)
+	}
+
+	return key, nil
 }
 
 // validateClaims validates standard JWT claims.
@@ -165,7 +260,7 @@ func (a *OIDCAuthenticator) checkAudience(claims map[string]any) bool {
 	return false
 }
 
-// FetchJWKS fetches the JWKS from the issuer.
+// FetchJWKS fetches the JWKS from the issuer and parses RSA public keys.
 func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 	// Discover the JWKS URI
 	discoveryURL := strings.TrimSuffix(a.cfg.Issuer, "/") + "/.well-known/openid-configuration"
@@ -192,6 +287,10 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 		return fmt.Errorf("parsing discovery document: %w", err)
 	}
 
+	if discovery.JwksURI == "" {
+		return fmt.Errorf("jwks_uri not found in discovery document")
+	}
+
 	// Fetch JWKS
 	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, discovery.JwksURI, nil)
 	if err != nil {
@@ -208,19 +307,94 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 		return fmt.Errorf("JWKS request failed: %d", jwksResp.StatusCode)
 	}
 
-	var jwks map[string]any
-	if err := json.NewDecoder(jwksResp.Body).Decode(&jwks); err != nil {
+	var jwksResponse struct {
+		Keys []json.RawMessage `json:"keys"`
+	}
+	if err := json.NewDecoder(jwksResp.Body).Decode(&jwksResponse); err != nil {
 		return fmt.Errorf("parsing JWKS: %w", err)
+	}
+
+	// Parse each key
+	keys := make(map[string]*rsa.PublicKey)
+	rawKeys := make(map[string]any)
+	for _, keyData := range jwksResponse.Keys {
+		var keyInfo struct {
+			Kty string `json:"kty"`
+			Kid string `json:"kid"`
+			Use string `json:"use"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		}
+		if err := json.Unmarshal(keyData, &keyInfo); err != nil {
+			continue // Skip keys that can't be parsed
+		}
+
+		// Store raw key for debugging
+		var raw any
+		_ = json.Unmarshal(keyData, &raw)
+		rawKeys[keyInfo.Kid] = raw
+
+		// Only process RSA keys used for signing
+		if keyInfo.Kty != "RSA" {
+			continue
+		}
+		if keyInfo.Use != "" && keyInfo.Use != "sig" {
+			continue
+		}
+
+		// Parse the RSA key components
+		pubKey, err := parseRSAPublicKey(keyInfo.N, keyInfo.E)
+		if err != nil {
+			continue // Skip keys that can't be parsed
+		}
+
+		keys[keyInfo.Kid] = pubKey
+	}
+
+	if len(keys) == 0 {
+		return fmt.Errorf("no valid RSA signing keys found in JWKS")
 	}
 
 	a.mu.Lock()
 	a.jwks = &jwksCache{
-		keys:      jwks,
+		keys:      keys,
+		rawKeys:   rawKeys,
 		expiresAt: time.Now().Add(1 * time.Hour),
 	}
 	a.mu.Unlock()
 
 	return nil
+}
+
+// parseRSAPublicKey parses RSA public key from JWK n and e values.
+func parseRSAPublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
+	// Decode modulus (n)
+	nBytes, err := base64.RawURLEncoding.DecodeString(nStr)
+	if err != nil {
+		return nil, fmt.Errorf("decoding modulus: %w", err)
+	}
+
+	// Decode exponent (e)
+	eBytes, err := base64.RawURLEncoding.DecodeString(eStr)
+	if err != nil {
+		return nil, fmt.Errorf("decoding exponent: %w", err)
+	}
+
+	// Convert exponent bytes to int
+	var e int
+	for _, b := range eBytes {
+		e = e<<8 + int(b)
+	}
+
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: e,
+	}, nil
+}
+
+// RefreshJWKS refreshes the JWKS cache. Call this periodically or when keys expire.
+func (a *OIDCAuthenticator) RefreshJWKS(ctx context.Context) error {
+	return a.FetchJWKS(ctx)
 }
 
 // Verify interface compliance.
