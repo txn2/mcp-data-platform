@@ -79,6 +79,11 @@ func extractToolName(req mcp.Request) (string, error) {
 		return "", fmt.Errorf("unexpected params type: %T", params)
 	}
 
+	// Check if the pointer itself is nil (type assertion can succeed with nil pointer)
+	if callParams == nil {
+		return "", fmt.Errorf("missing params")
+	}
+
 	if callParams.Name == "" {
 		return "", fmt.Errorf("missing tool name")
 	}
