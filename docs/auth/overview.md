@@ -87,21 +87,66 @@ auth:
 
 ## SSE Authentication Flow
 
-When a user connects to the SSE endpoint:
+mcp-data-platform supports two authentication flows for SSE transport:
+
+### OAuth 2.1 Flow (Claude Desktop + Keycloak)
+
+For Claude Desktop connecting to a remote MCP server with Keycloak authentication:
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Claude Desktop)
+    participant CD as Claude Desktop
+    participant MCP as MCP Server
+    participant KC as Keycloak
+
+    CD->>MCP: GET /oauth/authorize
+    MCP->>CD: 302 Redirect to Keycloak
+    CD->>KC: User logs in
+    KC->>CD: 302 Redirect with code
+    CD->>MCP: GET /oauth/callback?code=...
+    MCP->>KC: Exchange code for token
+    KC->>MCP: ID token + access token
+    MCP->>CD: 302 Redirect with MCP code
+    CD->>MCP: POST /oauth/token
+    MCP->>CD: MCP access token
+    CD->>MCP: Tool requests with Bearer token
+```
+
+This flow enables Claude Desktop to authenticate users via your existing identity provider without requiring users to manually manage tokens.
+
+**Configuration:**
+```yaml
+oauth:
+  enabled: true
+  issuer: "https://mcp.example.com"
+  clients:
+    - id: "claude-desktop"
+      secret: "${CLAUDE_CLIENT_SECRET}"
+      redirect_uris:
+        - "http://localhost"
+        - "http://127.0.0.1"
+  upstream:
+    issuer: "https://keycloak.example.com/realms/your-realm"
+    client_id: "mcp-data-platform"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+    redirect_uri: "https://mcp.example.com/oauth/callback"
+```
+
+See [OAuth 2.1 Server](oauth-server.md) for complete setup instructions.
+
+### Direct Bearer Token Flow
+
+For clients that already have a valid token (e.g., service accounts, API integrations):
+
+```mermaid
+sequenceDiagram
+    participant C as Client
     participant M as mcp-data-platform
     participant K as Keycloak
 
-    U->>M: Connect to SSE endpoint
-    M-->>U: 401 + Auth required
-    U->>K: Login (redirect)
-    K-->>U: Access token
-    U->>M: Connect with Bearer token
+    C->>M: Connect with Bearer token
     M->>K: Validate token (JWKS)
-    M-->>U: Connected
+    M-->>C: Connected
 ```
 
 ## Recommended SSE Configuration
