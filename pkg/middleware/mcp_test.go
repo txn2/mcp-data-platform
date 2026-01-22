@@ -252,3 +252,71 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 		t.Error("expected IsError to be true for missing tool name")
 	}
 }
+
+func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: "user1"},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		t.Fatal("next should not be called with nil params")
+		return nil, nil
+	}
+
+	handler := middleware(next)
+
+	// Create a ServerRequest with nil Params
+	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: nil,
+	}
+
+	result, err := handler(context.Background(), "tools/call", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	toolResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf("expected CallToolResult, got %T", result)
+	}
+	if !toolResult.IsError {
+		t.Error("expected IsError to be true for nil params")
+	}
+}
+
+func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: "user1"},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		t.Fatal("next should not be called with wrong params type")
+		return nil, nil
+	}
+
+	handler := middleware(next)
+
+	// Create a ServerRequest with a different params type (ListToolsParams instead of CallToolParamsRaw)
+	req := &mcp.ServerRequest[*mcp.ListToolsParams]{
+		Params: &mcp.ListToolsParams{},
+	}
+
+	result, err := handler(context.Background(), "tools/call", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	toolResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf("expected CallToolResult, got %T", result)
+	}
+	if !toolResult.IsError {
+		t.Error("expected IsError to be true for wrong params type")
+	}
+}
