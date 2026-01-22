@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1399,5 +1400,170 @@ func TestValidatePKCEPlain(t *testing.T) {
 	}
 	if code == "" {
 		t.Error("expected non-empty code")
+	}
+}
+
+func TestGenerateAccessToken_JWT(t *testing.T) {
+	signingKey := []byte("test-signing-key-at-least-32-bytes-long")
+	issuer := "https://oauth.example.com"
+
+	storage := &mockStorage{
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
+
+	server, err := NewServer(ServerConfig{
+		Issuer:         issuer,
+		SigningKey:     signingKey,
+		AccessTokenTTL: time.Hour,
+	}, storage)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	t.Run("generates valid JWT", func(t *testing.T) {
+		client := &Client{ClientID: "test-client"}
+		userClaims := map[string]any{
+			"email": "user@example.com",
+			"realm_access": map[string]any{
+				"roles": []any{"admin", "user"},
+			},
+		}
+
+		resp, err := server.generateTokens(context.Background(), client, "user-123", userClaims, "openid profile")
+		if err != nil {
+			t.Fatalf("failed to generate tokens: %v", err)
+		}
+
+		// Parse the JWT without verification first to see the claims
+		token, err := jwt.Parse(resp.AccessToken, func(t *jwt.Token) (any, error) {
+			return signingKey, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to parse JWT: %v", err)
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			t.Fatal("invalid claims type")
+		}
+
+		// Verify standard claims
+		if claims["iss"] != issuer {
+			t.Errorf("expected issuer %q, got %q", issuer, claims["iss"])
+		}
+		if claims["sub"] != "user-123" {
+			t.Errorf("expected sub 'user-123', got %q", claims["sub"])
+		}
+		if claims["aud"] != "test-client" {
+			t.Errorf("expected aud 'test-client', got %q", claims["aud"])
+		}
+		if claims["scope"] != "openid profile" {
+			t.Errorf("expected scope 'openid profile', got %q", claims["scope"])
+		}
+
+		// Verify user claims are nested
+		nestedClaims, ok := claims["claims"].(map[string]any)
+		if !ok {
+			t.Fatal("expected nested claims")
+		}
+		if nestedClaims["email"] != "user@example.com" {
+			t.Errorf("expected email in nested claims")
+		}
+	})
+
+	t.Run("JWT is verifiable", func(t *testing.T) {
+		client := &Client{ClientID: "test-client"}
+
+		resp, err := server.generateTokens(context.Background(), client, "user-456", nil, "read")
+		if err != nil {
+			t.Fatalf("failed to generate tokens: %v", err)
+		}
+
+		// Verify with correct key
+		token, err := jwt.Parse(resp.AccessToken, func(t *jwt.Token) (any, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return signingKey, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to verify JWT: %v", err)
+		}
+		if !token.Valid {
+			t.Error("token should be valid")
+		}
+
+		// Verify with wrong key fails
+		wrongKey := []byte("wrong-key-at-least-32-bytes-long")
+		_, err = jwt.Parse(resp.AccessToken, func(_ *jwt.Token) (any, error) {
+			return wrongKey, nil
+		})
+		if err == nil {
+			t.Error("expected verification to fail with wrong key")
+		}
+	})
+}
+
+func TestGenerateAccessToken_NoSigningKey(t *testing.T) {
+	storage := &mockStorage{
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
+
+	// Server without signing key - should generate opaque tokens
+	server, err := NewServer(ServerConfig{
+		Issuer:         "https://oauth.example.com",
+		AccessTokenTTL: time.Hour,
+	}, storage)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	client := &Client{ClientID: "test-client"}
+	resp, err := server.generateTokens(context.Background(), client, "user-123", nil, "read")
+	if err != nil {
+		t.Fatalf("failed to generate tokens: %v", err)
+	}
+
+	// Opaque token should not be a JWT (no dots)
+	if strings.Count(resp.AccessToken, ".") == 2 {
+		// It might still generate something that looks like a JWT by chance,
+		// but it won't be parseable
+		_, err := jwt.Parse(resp.AccessToken, func(_ *jwt.Token) (any, error) {
+			return []byte("any-key"), nil
+		})
+		// Should fail to parse because it's not a real JWT
+		if err == nil {
+			t.Log("Warning: opaque token looks like JWT but should fail validation")
+		}
+	}
+
+	// Token should not be empty
+	if resp.AccessToken == "" {
+		t.Error("expected non-empty access token")
+	}
+}
+
+func TestServerSigningKey(t *testing.T) {
+	signingKey := []byte("test-signing-key-at-least-32-bytes-long")
+	storage := &mockStorage{}
+
+	server, err := NewServer(ServerConfig{
+		Issuer:     "https://oauth.example.com",
+		SigningKey: signingKey,
+	}, storage)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	if string(server.SigningKey()) != string(signingKey) {
+		t.Error("SigningKey() should return the configured signing key")
+	}
+
+	if server.Issuer() != "https://oauth.example.com" {
+		t.Error("Issuer() should return the configured issuer")
 	}
 }

@@ -90,6 +90,8 @@ auth:
 ```yaml
 oauth:
   enabled: false
+  issuer: "https://mcp.example.com"
+  signing_key: "${OAUTH_SIGNING_KEY}"  # Generate: openssl rand -base64 32
   dcr:
     enabled: false  # Keep disabled - security risk
     allowed_redirect_patterns:
@@ -99,6 +101,8 @@ oauth:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `oauth.enabled` | bool | `false` | Enable OAuth 2.1 server |
+| `oauth.issuer` | string | - | OAuth issuer URL (your MCP server's public URL) |
+| `oauth.signing_key` | string | auto-generated | HMAC key for JWT access tokens. Required for production. |
 | `oauth.dcr.enabled` | bool | `false` | Enable Dynamic Client Registration (**not recommended**) |
 | `oauth.dcr.allowed_redirect_patterns` | array | `[]` | Allowed redirect URI patterns |
 

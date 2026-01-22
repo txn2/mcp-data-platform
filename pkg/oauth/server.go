@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -34,6 +35,11 @@ type ServerConfig struct {
 
 	// AuthCodeTTL is the authorization code lifetime.
 	AuthCodeTTL time.Duration
+
+	// SigningKey is the HMAC key used to sign JWT access tokens.
+	// If not provided, tokens will be opaque (not recommended for production).
+	// Generate with: openssl rand -base64 32
+	SigningKey []byte
 
 	// DCR configures Dynamic Client Registration.
 	DCR DCRConfig
@@ -326,8 +332,8 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 
 // generateTokens generates access and refresh tokens.
 func (s *Server) generateTokens(ctx context.Context, client *Client, userID string, userClaims map[string]any, scope string) (*TokenResponse, error) {
-	// Generate access token (in production, use JWT)
-	accessToken, err := generateSecureToken(32)
+	// Generate access token
+	accessToken, err := s.generateAccessToken(client.ClientID, userID, userClaims, scope)
 	if err != nil {
 		return nil, fmt.Errorf("generating access token: %w", err)
 	}
@@ -361,6 +367,55 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 		RefreshToken: refreshTokenValue,
 		Scope:        scope,
 	}, nil
+}
+
+// generateAccessToken creates a JWT access token with user claims.
+// If no signing key is configured, falls back to an opaque token (not recommended).
+func (s *Server) generateAccessToken(clientID, userID string, userClaims map[string]any, scope string) (string, error) {
+	// If no signing key configured, fall back to opaque token
+	if len(s.config.SigningKey) == 0 {
+		return generateSecureToken(32)
+	}
+
+	now := time.Now()
+	exp := now.Add(s.config.AccessTokenTTL)
+
+	// Build JWT claims
+	claims := jwt.MapClaims{
+		"iss":   s.config.Issuer,
+		"sub":   userID,
+		"aud":   clientID,
+		"exp":   exp.Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Unix(),
+		"scope": scope,
+	}
+
+	// Include upstream IdP claims (roles, email, etc.) under a nested key
+	// to preserve the full user context for authorization
+	if len(userClaims) > 0 {
+		claims["claims"] = userClaims
+	}
+
+	// Sign the token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString(s.config.SigningKey)
+	if err != nil {
+		return "", fmt.Errorf("signing token: %w", err)
+	}
+
+	return signedToken, nil
+}
+
+// SigningKey returns the OAuth server's signing key.
+// This is needed by the OAuth JWT authenticator to validate tokens.
+func (s *Server) SigningKey() []byte {
+	return s.config.SigningKey
+}
+
+// Issuer returns the OAuth server's issuer URL.
+func (s *Server) Issuer() string {
+	return s.config.Issuer
 }
 
 // RegisterClient handles Dynamic Client Registration.

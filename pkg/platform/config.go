@@ -74,11 +74,12 @@ type APIKeyDef struct {
 
 // OAuthConfig configures the OAuth server.
 type OAuthConfig struct {
-	Enabled  bool                `yaml:"enabled"`
-	Issuer   string              `yaml:"issuer"`
-	Clients  []OAuthClientConfig `yaml:"clients"`
-	DCR      DCRConfig           `yaml:"dcr"`
-	Upstream *UpstreamIDPConfig  `yaml:"upstream,omitempty"`
+	Enabled    bool                `yaml:"enabled"`
+	Issuer     string              `yaml:"issuer"`
+	SigningKey string              `yaml:"signing_key"` // Base64-encoded HMAC key for JWT signing
+	Clients    []OAuthClientConfig `yaml:"clients"`
+	DCR        DCRConfig           `yaml:"dcr"`
+	Upstream   *UpstreamIDPConfig  `yaml:"upstream,omitempty"`
 }
 
 // OAuthClientConfig defines a pre-registered OAuth client.
