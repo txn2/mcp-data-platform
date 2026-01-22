@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -89,7 +91,7 @@ func run() error {
 
 	applyConfigOverrides(result.platform, &opts)
 
-	return startServer(result.mcpServer, opts)
+	return startServer(result.mcpServer, result.platform, opts)
 }
 
 func closeServer(result *serverResult) {
@@ -113,21 +115,61 @@ func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
 	}
 }
 
-func startServer(mcpServer *mcp.Server, opts serverOptions) error {
+func startServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	switch opts.transport {
 	case "stdio":
 		return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
 	case "sse":
-		handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
-			return mcpServer
-		}, nil)
-		server := &http.Server{
-			Addr:              opts.address,
-			Handler:           handler,
-			ReadHeaderTimeout: 10 * time.Second,
-		}
-		return server.ListenAndServe()
+		return startSSEServer(mcpServer, p, opts)
 	default:
 		return fmt.Errorf("unknown transport: %s", opts.transport)
 	}
+}
+
+func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+	handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
+		return mcpServer
+	}, nil)
+
+	// Get config if available
+	var requireAuth bool
+	var tlsEnabled bool
+	var tlsCertFile, tlsKeyFile string
+
+	if p != nil && p.Config() != nil {
+		cfg := p.Config()
+		// Require auth unless explicitly allowing anonymous
+		requireAuth = !cfg.Auth.AllowAnonymous
+		tlsEnabled = cfg.Server.TLS.Enabled
+		tlsCertFile = cfg.Server.TLS.CertFile
+		tlsKeyFile = cfg.Server.TLS.KeyFile
+	}
+
+	// Warn if SSE transport is used without TLS
+	if !tlsEnabled {
+		log.Println("WARNING: SSE transport without TLS - credentials may be transmitted in plaintext")
+	}
+
+	// Apply HTTP auth middleware
+	var wrappedHandler http.Handler
+	if requireAuth {
+		wrappedHandler = httpauth.RequireAuth()(handler)
+	} else {
+		wrappedHandler = httpauth.OptionalAuth()(handler)
+	}
+
+	server := &http.Server{
+		Addr:              opts.address,
+		Handler:           wrappedHandler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	// Use TLS if configured
+	if tlsEnabled {
+		log.Printf("Starting SSE server with TLS on %s\n", opts.address)
+		return server.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
+	}
+
+	log.Printf("Starting SSE server on %s\n", opts.address)
+	return server.ListenAndServe()
 }
