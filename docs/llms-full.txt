@@ -1,6 +1,8 @@
 # mcp-data-platform
 
-> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub.
+> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+
+For the security architecture rationale, see: https://imti.co/mcp-defense/
 
 ---
 
@@ -15,6 +17,8 @@ The only requirement is DataHub (https://datahubproject.io/). Trino and S3 are o
 - **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically—owners, tags, quality scores, deprecation warnings. No separate lookups.
 
 - **Cross-Injection**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
+
+- **Enterprise Security**: Fail-closed authentication model, TLS enforcement for SSE, prompt injection protection, and read-only mode enforcement.
 
 - **Built for Customization**: Add custom toolkits, providers, and middleware. The Go library exposes everything. Build the data platform your organization needs.
 
@@ -182,14 +186,24 @@ injection:
 
 ---
 
-# Authentication
+# Authentication & Security
 
-Whether you need MCP-level authentication depends on your transport:
+mcp-data-platform implements a **fail-closed** security model. Missing or invalid credentials deny access—never bypass. For the security architecture rationale, see: https://imti.co/mcp-defense/
 
-| Transport | Authentication | Why |
-|-----------|---------------|-----|
-| stdio | Not needed | Local execution with your own credentials |
-| SSE | Required | Shared server needs to identify users |
+## Transport Security
+
+| Transport | Authentication | TLS | Why |
+|-----------|---------------|-----|-----|
+| stdio | Not needed | N/A | Local execution with your own credentials |
+| SSE | **Required** | Recommended | Shared server needs to identify users |
+
+## Security Model
+
+- **Required JWT Claims**: Tokens must include `sub` (subject) and `exp` (expiration)
+- **Default-Deny Personas**: Users without explicit persona have no tool access
+- **Prompt Injection Protection**: DataHub metadata is sanitized before exposure
+- **Read-Only Enforcement**: Trino `read_only: true` blocks write queries at query level
+- **Cryptographic Request IDs**: Secure random identifiers for audit trails
 
 ## stdio Transport (Local)
 
@@ -197,33 +211,49 @@ No MCP authentication required. The server runs on your machine using credential
 
 ## SSE Transport (Remote/Shared)
 
-Authentication identifies who is making requests. Supports:
+Authentication identifies who is making requests. Anonymous access is disabled by default.
 
 - **OIDC**: Human users via Keycloak, Auth0, Okta
 - **API Keys**: Service accounts, automation
 
-### OIDC Configuration
+### Secure SSE Configuration
 
 ```yaml
+server:
+  transport: sse
+  address: ":8443"
+  tls:
+    enabled: true
+    cert_file: /path/to/cert.pem
+    key_file: /path/to/key.pem
+
 auth:
+  allow_anonymous: false  # Default: require authentication
   oidc:
     enabled: true
     issuer: "https://keycloak.example.com/realms/your-realm"
     client_id: "mcp-data-platform"
     audience: "mcp-data-platform"
     role_claim_path: "realm_access.roles"
-```
+    clock_skew_seconds: 30
+    max_token_age: 24h
 
-### API Keys Configuration
-
-```yaml
-auth:
   api_keys:
     enabled: true
     keys:
       - key: ${API_KEY_ETL}
         name: "etl-service"
         roles: ["service"]
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_query", "datahub_*"]
+        deny: ["*_delete_*"]
+  default_persona: analyst  # Required: no implicit access
 ```
 
 ---

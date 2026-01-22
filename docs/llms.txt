@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub.
+> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
 
 ## Documentation
 
@@ -17,12 +17,13 @@
 - [DataHub to Trino](cross-injection/datahub-trino.md): DataHub results show query availability
 - [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
 
-## Authentication
+## Authentication & Security
 
-- [Auth Overview](auth/overview.md): stdio needs no auth, SSE uses OIDC
-- [OIDC](auth/oidc.md): Keycloak, Auth0, Okta, Azure AD setup
+- [Auth Overview](auth/overview.md): Fail-closed security model, stdio vs SSE authentication
+- [OIDC](auth/oidc.md): Keycloak, Auth0, Okta, Azure AD setup with required claims
 - [API Keys](auth/api-keys.md): Service account authentication
 - [OAuth Server](auth/oauth-server.md): Built-in OAuth 2.1 (not recommended for most deployments)
+- [Security Article](https://imti.co/mcp-defense/): MCP Defense - A Case Study in AI Security
 
 ## Personas
 
