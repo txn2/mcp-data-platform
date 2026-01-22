@@ -22,7 +22,7 @@ func NewToolFilter(registry *Registry) *ToolFilter {
 // IsAllowed checks if a tool is allowed for a persona.
 func (f *ToolFilter) IsAllowed(persona *Persona, toolName string) bool {
 	if persona == nil {
-		return true // Allow by default if no persona
+		return false // DENY if no persona - fail closed
 	}
 
 	// Check deny rules first (they take precedence)
@@ -46,7 +46,7 @@ func (f *ToolFilter) IsAllowed(persona *Persona, toolName string) bool {
 // FilterTools filters a list of tools based on persona rules.
 func (f *ToolFilter) FilterTools(persona *Persona, tools []string) []string {
 	if persona == nil {
-		return tools
+		return nil // DENY ALL if no persona - fail closed
 	}
 
 	var allowed []string
@@ -110,7 +110,8 @@ func PersonaMiddleware(mapper RoleMapper) middleware.Middleware {
 		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			pc := middleware.GetPlatformContext(ctx)
 			if pc == nil {
-				return next(ctx, request)
+				// Fail closed: missing platform context is an internal error
+				return middleware.NewToolResultError("internal error: missing platform context"), nil
 			}
 
 			// Get persona for user's roles
