@@ -27,8 +27,9 @@ func FuzzParseToken(f *testing.F) {
 	f.Add("header." + validPayload + ".sig")
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
-		Issuer:                 "https://issuer.example.com",
-		SkipIssuerVerification: true,
+		Issuer:                    "https://issuer.example.com",
+		SkipIssuerVerification:    true,
+		SkipSignatureVerification: true,
 	})
 
 	f.Fuzz(func(t *testing.T, token string) {
