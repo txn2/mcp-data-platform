@@ -127,7 +127,10 @@ func startServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions
 }
 
 func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
-	handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
+	mux := http.NewServeMux()
+
+	// SSE handler for MCP protocol
+	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, nil)
 
@@ -150,17 +153,34 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 		log.Println("WARNING: SSE transport without TLS - credentials may be transmitted in plaintext")
 	}
 
-	// Apply HTTP auth middleware
-	var wrappedHandler http.Handler
+	// Apply HTTP auth middleware to SSE handler
+	var wrappedSSE http.Handler
 	if requireAuth {
-		wrappedHandler = httpauth.RequireAuth()(handler)
+		wrappedSSE = httpauth.RequireAuth()(sseHandler)
 	} else {
-		wrappedHandler = httpauth.OptionalAuth()(handler)
+		wrappedSSE = httpauth.OptionalAuth()(sseHandler)
 	}
+
+	// Mount OAuth server if enabled
+	if p != nil && p.OAuthServer() != nil {
+		oauthServer := p.OAuthServer()
+		// Mount OAuth endpoints (no auth middleware - OAuth handles its own auth)
+		mux.Handle("/.well-known/oauth-authorization-server", oauthServer)
+		mux.Handle("/oauth/authorize", oauthServer)
+		mux.Handle("/oauth/callback", oauthServer)
+		mux.Handle("/oauth/token", oauthServer)
+		mux.Handle("/oauth/register", oauthServer)
+		log.Println("OAuth server enabled")
+	}
+
+	// Mount SSE handler for MCP protocol
+	mux.Handle("/sse", wrappedSSE)
+	mux.Handle("/message", wrappedSSE)
+	mux.Handle("/", wrappedSSE)
 
 	server := &http.Server{
 		Addr:              opts.address,
-		Handler:           wrappedHandler,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

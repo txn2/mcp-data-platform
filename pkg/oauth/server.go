@@ -5,12 +5,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+)
+
+// Errors returned by the OAuth server.
+var (
+	ErrStateNotFound = errors.New("authorization state not found")
 )
 
 // ServerConfig configures the OAuth server.
@@ -29,13 +37,33 @@ type ServerConfig struct {
 
 	// DCR configures Dynamic Client Registration.
 	DCR DCRConfig
+
+	// Upstream configures the upstream identity provider (e.g., Keycloak).
+	Upstream *UpstreamConfig
+}
+
+// UpstreamConfig configures the upstream identity provider.
+type UpstreamConfig struct {
+	// Issuer is the upstream IdP issuer URL (e.g., Keycloak realm URL).
+	Issuer string
+
+	// ClientID is the MCP server's client ID in the upstream IdP.
+	ClientID string
+
+	// ClientSecret is the MCP server's client secret.
+	ClientSecret string
+
+	// RedirectURI is the callback URL for the upstream IdP.
+	RedirectURI string
 }
 
 // Server is an OAuth 2.1 authorization server.
 type Server struct {
-	config  ServerConfig
-	storage Storage
-	dcr     *DCRService
+	config     ServerConfig
+	storage    Storage
+	dcr        *DCRService
+	stateStore StateStore
+	httpClient *http.Client
 }
 
 // NewServer creates a new OAuth server.
@@ -60,9 +88,11 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 	}
 
 	return &Server{
-		config:  config,
-		storage: storage,
-		dcr:     dcr,
+		config:     config,
+		storage:    storage,
+		dcr:        dcr,
+		stateStore: NewMemoryStateStore(),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
 
@@ -344,6 +374,10 @@ func (s *Server) RegisterClient(ctx context.Context, req DCRRequest) (*DCRRespon
 // ServeHTTP implements http.Handler for the OAuth server.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
+	case "/oauth/authorize":
+		s.handleAuthorizeEndpoint(w, r)
+	case "/oauth/callback":
+		s.handleCallbackEndpoint(w, r)
 	case "/oauth/token":
 		s.handleTokenEndpoint(w, r)
 	case "/oauth/register":
@@ -415,6 +449,251 @@ func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.writeJSON(w, http.StatusCreated, resp)
+}
+
+// handleAuthorizeEndpoint handles GET /oauth/authorize.
+// It validates the client request and redirects to the upstream IdP for authentication.
+func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET required")
+		return
+	}
+
+	req := AuthorizationRequest{
+		ResponseType:        r.URL.Query().Get("response_type"),
+		ClientID:            r.URL.Query().Get("client_id"),
+		RedirectURI:         r.URL.Query().Get("redirect_uri"),
+		Scope:               r.URL.Query().Get("scope"),
+		State:               r.URL.Query().Get("state"),
+		CodeChallenge:       r.URL.Query().Get("code_challenge"),
+		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
+	}
+
+	// Validate client request
+	client, err := s.validateAuthorizationRequest(r.Context(), req)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	// Validate PKCE if required
+	if err := s.validatePKCE(client, req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	// Check if upstream IdP is configured
+	if s.config.Upstream == nil {
+		s.writeError(w, http.StatusInternalServerError, "server_error", "upstream IdP not configured")
+		return
+	}
+
+	// Generate state for upstream IdP
+	upstreamState, err := generateSecureToken(16)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "server_error", "failed to generate state")
+		return
+	}
+
+	// Save authorization state to link callback to original request
+	authState := &AuthorizationState{
+		ClientID:            req.ClientID,
+		RedirectURI:         req.RedirectURI,
+		State:               req.State,
+		CodeChallenge:       req.CodeChallenge,
+		CodeChallengeMethod: req.CodeChallengeMethod,
+		Scope:               req.Scope,
+		UpstreamState:       upstreamState,
+		CreatedAt:           time.Now(),
+	}
+	if err := s.stateStore.Save(upstreamState, authState); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "server_error", "failed to save state")
+		return
+	}
+
+	// Build upstream IdP authorization URL
+	upstreamURL := s.buildUpstreamAuthURL(upstreamState)
+	http.Redirect(w, r, upstreamURL, http.StatusFound)
+}
+
+// handleCallbackEndpoint handles GET /oauth/callback.
+// It receives the callback from the upstream IdP and exchanges the code for tokens.
+func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET required")
+		return
+	}
+
+	// Check for error from upstream IdP
+	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		s.writeError(w, http.StatusBadRequest, errParam, errDesc)
+		return
+	}
+
+	upstreamCode := r.URL.Query().Get("code")
+	upstreamState := r.URL.Query().Get("state")
+
+	if upstreamCode == "" || upstreamState == "" {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "missing code or state")
+		return
+	}
+
+	// Retrieve original authorization state
+	authState, err := s.stateStore.Get(upstreamState)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_state", "authorization state not found")
+		return
+	}
+
+	// Delete state to prevent replay
+	_ = s.stateStore.Delete(upstreamState)
+
+	// Exchange code with upstream IdP
+	upstreamToken, err := s.exchangeUpstreamCode(r.Context(), upstreamCode)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "token_exchange_failed", err.Error())
+		return
+	}
+
+	// Extract user info from upstream token
+	userID, userClaims := s.extractUserFromUpstreamToken(upstreamToken)
+
+	// Generate MCP authorization code for the original client
+	mcpCode, err := s.Authorize(r.Context(), AuthorizationRequest{
+		ResponseType:        "code",
+		ClientID:            authState.ClientID,
+		RedirectURI:         authState.RedirectURI,
+		Scope:               authState.Scope,
+		CodeChallenge:       authState.CodeChallenge,
+		CodeChallengeMethod: authState.CodeChallengeMethod,
+	}, userID, userClaims)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+
+	// Redirect back to the original client with the MCP authorization code
+	redirectURL := s.buildClientRedirectURL(authState.RedirectURI, mcpCode, authState.State)
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+// buildUpstreamAuthURL builds the authorization URL for the upstream IdP.
+func (s *Server) buildUpstreamAuthURL(state string) string {
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", s.config.Upstream.ClientID)
+	params.Set("redirect_uri", s.config.Upstream.RedirectURI)
+	params.Set("state", state)
+	params.Set("scope", "openid email profile")
+
+	// Construct the authorization URL
+	authURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/auth"
+	return authURL + "?" + params.Encode()
+}
+
+// upstreamTokenResponse represents the token response from the upstream IdP.
+type upstreamTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
+}
+
+// exchangeUpstreamCode exchanges an authorization code with the upstream IdP.
+func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstreamTokenResponse, error) {
+	tokenURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/token"
+
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("code", code)
+	data.Set("redirect_uri", s.config.Upstream.RedirectURI)
+	data.Set("client_id", s.config.Upstream.ClientID)
+	data.Set("client_secret", s.config.Upstream.ClientSecret)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("creating token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("sending token request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token exchange failed: %s", string(body))
+	}
+
+	var tokenResp upstreamTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("decoding token response: %w", err)
+	}
+
+	return &tokenResp, nil
+}
+
+// extractUserFromUpstreamToken extracts user information from the upstream token.
+func (s *Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (string, map[string]any) {
+	claims := make(map[string]any)
+
+	// If we have an ID token, decode it to get user claims
+	if token.IDToken != "" {
+		if idClaims := decodeJWTClaims(token.IDToken); idClaims != nil {
+			claims = idClaims
+		}
+	}
+
+	// Extract user ID from claims
+	userID := "unknown"
+	if sub, ok := claims["sub"].(string); ok {
+		userID = sub
+	}
+
+	return userID, claims
+}
+
+// decodeJWTClaims decodes the claims from a JWT without verification.
+// This is safe because we received the token directly from the trusted upstream IdP.
+func decodeJWTClaims(token string) map[string]any {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+
+	// Decode the payload (second part)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil
+	}
+
+	return claims
+}
+
+// buildClientRedirectURL builds the redirect URL back to the client.
+func (s *Server) buildClientRedirectURL(redirectURI, code, state string) string {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return redirectURI
+	}
+
+	q := u.Query()
+	q.Set("code", code)
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+
+	return u.String()
 }
 
 // handleMetadata handles GET /.well-known/oauth-authorization-server.

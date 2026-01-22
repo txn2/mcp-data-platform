@@ -1121,3 +1121,118 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 
 	_ = p.Close()
 }
+
+func TestInitOAuth(t *testing.T) {
+	t.Run("OAuth disabled", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled: false,
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.OAuthServer() != nil {
+			t.Error("OAuthServer() should be nil when OAuth is disabled")
+		}
+		_ = p.Close()
+	})
+
+	t.Run("OAuth enabled with pre-registered clients", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled: true,
+				Issuer:  "http://localhost:8080",
+				Clients: []OAuthClientConfig{
+					{
+						ID:           "client-1",
+						Secret:       "secret-1",
+						RedirectURIs: []string{"http://localhost/callback"},
+					},
+					{
+						ID:           "client-2",
+						Secret:       "secret-2",
+						RedirectURIs: []string{"http://localhost/callback2"},
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.OAuthServer() == nil {
+			t.Error("OAuthServer() should not be nil when OAuth is enabled")
+		}
+		_ = p.Close()
+	})
+
+	t.Run("OAuth enabled with upstream IdP", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled: true,
+				Issuer:  "http://localhost:8080",
+				Upstream: &UpstreamIDPConfig{
+					Issuer:       "http://keycloak:8180/realms/test",
+					ClientID:     "mcp-server",
+					ClientSecret: "keycloak-secret",
+					RedirectURI:  "http://localhost:8080/oauth/callback",
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.OAuthServer() == nil {
+			t.Error("OAuthServer() should not be nil when OAuth is enabled")
+		}
+		_ = p.Close()
+	})
+
+	t.Run("OAuth enabled with DCR", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			OAuth: OAuthConfig{
+				Enabled: true,
+				Issuer:  "http://localhost:8080",
+				DCR: DCRConfig{
+					Enabled:                 true,
+					AllowedRedirectPatterns: []string{"^http://localhost.*"},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.OAuthServer() == nil {
+			t.Error("OAuthServer() should not be nil when OAuth is enabled")
+		}
+		_ = p.Close()
+	})
+}

@@ -74,14 +74,32 @@ type APIKeyDef struct {
 
 // OAuthConfig configures the OAuth server.
 type OAuthConfig struct {
-	Enabled bool      `yaml:"enabled"`
-	DCR     DCRConfig `yaml:"dcr"`
+	Enabled  bool                `yaml:"enabled"`
+	Issuer   string              `yaml:"issuer"`
+	Clients  []OAuthClientConfig `yaml:"clients"`
+	DCR      DCRConfig           `yaml:"dcr"`
+	Upstream *UpstreamIDPConfig  `yaml:"upstream,omitempty"`
+}
+
+// OAuthClientConfig defines a pre-registered OAuth client.
+type OAuthClientConfig struct {
+	ID           string   `yaml:"id"`
+	Secret       string   `yaml:"secret"`
+	RedirectURIs []string `yaml:"redirect_uris"`
 }
 
 // DCRConfig configures Dynamic Client Registration.
 type DCRConfig struct {
 	Enabled                 bool     `yaml:"enabled"`
 	AllowedRedirectPatterns []string `yaml:"allowed_redirect_patterns"`
+}
+
+// UpstreamIDPConfig configures the upstream identity provider (e.g., Keycloak).
+type UpstreamIDPConfig struct {
+	Issuer       string `yaml:"issuer"`        // Keycloak issuer URL
+	ClientID     string `yaml:"client_id"`     // MCP Server's client ID in Keycloak
+	ClientSecret string `yaml:"client_secret"` // MCP Server's client secret
+	RedirectURI  string `yaml:"redirect_uri"`  // Callback URL (e.g., http://localhost:8080/oauth/callback)
 }
 
 // DatabaseConfig configures the database connection.
@@ -238,8 +256,22 @@ func (c *Config) Validate() error {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
 
-	if c.OAuth.Enabled && c.Database.DSN == "" {
-		errs = append(errs, "database.dsn is required when OAuth is enabled")
+	if c.OAuth.Enabled {
+		if c.OAuth.Issuer == "" {
+			errs = append(errs, "oauth.issuer is required when OAuth is enabled")
+		}
+		// Upstream IdP is required for the authorization flow
+		if c.OAuth.Upstream != nil {
+			if c.OAuth.Upstream.Issuer == "" {
+				errs = append(errs, "oauth.upstream.issuer is required")
+			}
+			if c.OAuth.Upstream.ClientID == "" {
+				errs = append(errs, "oauth.upstream.client_id is required")
+			}
+			if c.OAuth.Upstream.RedirectURI == "" {
+				errs = append(errs, "oauth.upstream.redirect_uri is required")
+			}
+		}
 	}
 
 	if len(errs) > 0 {
