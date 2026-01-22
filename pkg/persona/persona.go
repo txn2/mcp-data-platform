@@ -50,16 +50,17 @@ type PromptConfig struct {
 	Instructions string `json:"instructions,omitempty" yaml:"instructions,omitempty"`
 }
 
-// DefaultPersona creates a default persona with full access.
+// DefaultPersona creates a default persona that denies all access.
+// This ensures fail-closed behavior - users must be explicitly granted access.
 func DefaultPersona() *Persona {
 	return &Persona{
 		Name:        "default",
-		DisplayName: "Default User",
-		Description: "Default persona with basic access",
+		DisplayName: "Default User (No Access)",
+		Description: "Default persona with no access - configure explicit personas for access",
 		Roles:       []string{},
 		Tools: ToolRules{
-			Allow: []string{"*"},
-			Deny:  []string{},
+			Allow: []string{},    // DENY BY DEFAULT
+			Deny:  []string{"*"}, // EXPLICIT DENY ALL
 		},
 		Prompts: PromptConfig{},
 		Hints:   make(map[string]string),
