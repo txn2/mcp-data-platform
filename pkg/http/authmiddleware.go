@@ -1,0 +1,55 @@
+// Package http provides HTTP middleware for the MCP data platform.
+package http
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/auth"
+)
+
+// AuthMiddleware extracts authentication tokens from HTTP headers and adds them to the request context.
+// This middleware should be applied to SSE handlers to enable HTTP-level authentication.
+func AuthMiddleware(requireAuth bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			var token string
+
+			// Extract Bearer token from Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+
+			// If no Bearer token, try X-API-Key header
+			if token == "" {
+				token = r.Header.Get("X-API-Key")
+			}
+
+			// If auth is required and no token found, return 401
+			if requireAuth && token == "" {
+				http.Error(w, "Unauthorized: missing authentication token", http.StatusUnauthorized)
+				return
+			}
+
+			// Add token to context for downstream authenticators
+			if token != "" {
+				ctx = auth.WithToken(ctx, token)
+				r = r.WithContext(ctx)
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAuth returns middleware that requires authentication.
+func RequireAuth() func(http.Handler) http.Handler {
+	return AuthMiddleware(true)
+}
+
+// OptionalAuth returns middleware that allows anonymous requests.
+func OptionalAuth() func(http.Handler) http.Handler {
+	return AuthMiddleware(false)
+}
