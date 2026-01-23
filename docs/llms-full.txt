@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context—owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
 
 For the security architecture rationale, see: https://imti.co/mcp-defense/
 
@@ -8,9 +8,11 @@ For the security architecture rationale, see: https://imti.co/mcp-defense/
 
 # Overview
 
-An MCP server for data exploration and analysis. Not an API wrapper—a platform for building AI-assisted data workflows with your semantic layer at the center.
+Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.
 
-The only requirement is DataHub (https://datahubproject.io/). Trino and S3 are optional but recommended.
+mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
+
+The only requirement is DataHub (https://datahubproject.io/). Add Trino (https://trino.io/) for SQL queries and S3 for object storage when you're ready.
 
 ## Key Features
 
@@ -23,6 +25,57 @@ The only requirement is DataHub (https://datahubproject.io/). Trino and S3 are o
 - **Built for Customization**: Add custom toolkits, providers, and middleware. The Go library exposes everything. Build the data platform your organization needs.
 
 - **Personas**: Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
+
+---
+
+# The Data Stack: DataHub + Trino + S3
+
+Modern data platforms need three things: meaning (what does the data represent?), access (how do I query it?), and storage (where does it live?). mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage.
+
+## DataHub: The Semantic Layer
+
+DataHub (https://datahubproject.io/) is an open source data catalog from LinkedIn. It stores business context: descriptions, owners, tags, glossary terms, lineage, and quality scores.
+
+**Problem it solves**: Data exists everywhere, but understanding what it means requires tribal knowledge. Column `cid` in one system is `customer_id` in another. That deprecated table still gets queried because nobody knows it's deprecated.
+
+**Why DataHub**: Active community (10k+ GitHub stars), rich GraphQL/REST APIs, 50+ integrations (Trino, Snowflake, dbt, Airflow), real-time ingestion, full-text search, lineage tracking.
+
+**For AI**: Without DataHub, an AI sees columns and types. With DataHub, it sees what the data means, who owns it, and whether it's reliable.
+
+## Trino: Universal SQL Access
+
+Trino (https://trino.io/, formerly PrestoSQL from Facebook) is a distributed SQL query engine. It runs SQL against data where it lives, without moving it first.
+
+**Trino connects to everything**: PostgreSQL, MySQL, Oracle, Snowflake, BigQuery, Elasticsearch, MongoDB, S3, HDFS, Delta Lake, Iceberg, Kafka, and more.
+
+**One SQL dialect**: Query across PostgreSQL, Elasticsearch, and S3 in one statement. The AI doesn't need to know where data lives. It's all SQL.
+
+**Why Trino**: Battle-tested at Meta, Netflix, Uber, LinkedIn. Cost-based optimizer, standard ANSI SQL, federated queries without data movement.
+
+## S3: The Universal Data Lake
+
+S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any data: files, Parquet, JSON, logs, ML models.
+
+**Problem it solves**: Not all data is structured or in databases. Data platforms must handle structured (tables), semi-structured (JSON, Parquet), and unstructured (PDFs, images) data.
+
+**Why S3**: Infinite scale at low cost, any file format, direct querying via Trino, object versioning, S3-compatible (AWS, MinIO, Ceph).
+
+## Cross-injection fills the gaps
+
+| Component | Answers | Limitation Alone |
+|-----------|---------|------------------|
+| DataHub | "What does this mean?" | Can't query the data |
+| Trino | "What's in this table?" | Doesn't know business context |
+| S3 | "What files exist?" | Just storage, no meaning |
+
+Cross-injection wires them together:
+- Trino + DataHub: Query a table → Get schema + owners + tags + deprecation + quality
+- DataHub + Trino: Search DataHub → See which datasets are queryable with sample SQL
+- S3 + DataHub: List objects → Get matching metadata and ownership
+
+This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analytical queries across that data, DataHub adds business context.
+
+---
 
 ## What's Included
 
@@ -247,46 +300,6 @@ oauth:
     redirect_uri: "https://mcp.example.com/oauth/callback"
 ```
 
-### Secure SSE Configuration
-
-```yaml
-server:
-  transport: sse
-  address: ":8443"
-  tls:
-    enabled: true
-    cert_file: /path/to/cert.pem
-    key_file: /path/to/key.pem
-
-auth:
-  allow_anonymous: false  # Default: require authentication
-  oidc:
-    enabled: true
-    issuer: "https://keycloak.example.com/realms/your-realm"
-    client_id: "mcp-data-platform"
-    audience: "mcp-data-platform"
-    role_claim_path: "realm_access.roles"
-    clock_skew_seconds: 30
-    max_token_age: 24h
-
-  api_keys:
-    enabled: true
-    keys:
-      - key: ${API_KEY_ETL}
-        name: "etl-service"
-        roles: ["service"]
-
-personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "datahub_*"]
-        deny: ["*_delete_*"]
-  default_persona: analyst  # Required: no implicit access
-```
-
 ---
 
 # Cross-Injection
@@ -376,30 +389,15 @@ Get the execution plan for a SQL query.
 
 ### trino_list_catalogs
 
-List available catalogs.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `connection` | string | No | first configured | Trino connection name |
+List available catalogs. Parameters: `connection` (optional).
 
 ### trino_list_schemas
 
-List schemas in a catalog.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog name |
-| `connection` | string | No | first configured | Trino connection name |
+List schemas in a catalog. Parameters: `catalog`, `connection` (both optional).
 
 ### trino_list_tables
 
-List tables in a schema.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog name |
-| `schema` | string | No | configured default | Schema name |
-| `connection` | string | No | first configured | Trino connection name |
+List tables in a schema. Parameters: `catalog`, `schema`, `connection` (all optional).
 
 ### trino_describe_table
 
@@ -439,79 +437,35 @@ Get detailed entity information.
 
 ### datahub_get_schema
 
-Get dataset schema.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `connection` | string | No | first configured | DataHub connection name |
+Get dataset schema. Parameters: `urn` (required), `connection` (optional).
 
 ### datahub_get_lineage
 
-Get data lineage.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `direction` | string | No | downstream | upstream or downstream |
-| `depth` | integer | No | 3 | Maximum traversal depth |
-| `connection` | string | No | first configured | DataHub connection name |
+Get data lineage. Parameters: `urn` (required), `direction` (upstream/downstream), `depth`, `connection`.
 
 ### datahub_get_queries
 
-Get popular queries for a dataset.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `limit` | integer | No | 10 | Maximum queries to return |
-| `connection` | string | No | first configured | DataHub connection name |
+Get popular queries for a dataset. Parameters: `urn` (required), `limit`, `connection`.
 
 ### datahub_get_glossary_term
 
-Get glossary term details.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Glossary term URN |
-| `connection` | string | No | first configured | DataHub connection name |
+Get glossary term details. Parameters: `urn` (required), `connection`.
 
 ### datahub_list_tags
 
-List available tags.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum tags to return |
-| `connection` | string | No | first configured | DataHub connection name |
+List available tags. Parameters: `limit`, `connection`.
 
 ### datahub_list_domains
 
-List data domains.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum domains to return |
-| `connection` | string | No | first configured | DataHub connection name |
+List data domains. Parameters: `limit`, `connection`.
 
 ### datahub_list_data_products
 
-List data products.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `domain` | string | No | - | Filter by domain URN |
-| `limit` | integer | No | 100 | Maximum products to return |
-| `connection` | string | No | first configured | DataHub connection name |
+List data products. Parameters: `domain`, `limit`, `connection`.
 
 ### datahub_get_data_product
 
-Get data product details.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Data product URN |
-| `connection` | string | No | first configured | DataHub connection name |
+Get data product details. Parameters: `urn` (required), `connection`.
 
 ### datahub_list_connections
 
@@ -521,11 +475,7 @@ List configured DataHub connections. No parameters.
 
 ### s3_list_buckets
 
-List available S3 buckets.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `connection` | string | No | first configured | S3 connection name |
+List available S3 buckets. Parameters: `connection` (optional).
 
 ### s3_list_objects
 
@@ -541,34 +491,15 @@ List objects in a bucket.
 
 ### s3_get_object
 
-Get object contents.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | first configured | S3 connection name |
+Get object contents. Parameters: `bucket`, `key` (required), `connection`.
 
 ### s3_get_object_metadata
 
-Get object metadata without downloading content.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | first configured | S3 connection name |
+Get object metadata without downloading content. Parameters: `bucket`, `key` (required), `connection`.
 
 ### s3_presign_url
 
-Generate a pre-signed URL.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `expires` | string | No | 15m | URL expiration |
-| `connection` | string | No | first configured | S3 connection name |
+Generate a pre-signed URL. Parameters: `bucket`, `key` (required), `expires`, `connection`.
 
 ### s3_list_connections
 
@@ -576,37 +507,15 @@ List configured S3 connections. No parameters.
 
 ### s3_put_object
 
-Upload an object. Only available when `read_only: false`.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `content` | string | Yes | - | Object content |
-| `content_type` | string | No | application/octet-stream | MIME type |
-| `connection` | string | No | first configured | S3 connection name |
+Upload an object. Only available when `read_only: false`. Parameters: `bucket`, `key`, `content` (required), `content_type`, `connection`.
 
 ### s3_delete_object
 
-Delete an object. Only available when `read_only: false`.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | first configured | S3 connection name |
+Delete an object. Only available when `read_only: false`. Parameters: `bucket`, `key` (required), `connection`.
 
 ### s3_copy_object
 
-Copy an object. Only available when `read_only: false`.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `source_bucket` | string | Yes | - | Source bucket name |
-| `source_key` | string | Yes | - | Source object key |
-| `dest_bucket` | string | Yes | - | Destination bucket name |
-| `dest_key` | string | Yes | - | Destination object key |
-| `connection` | string | No | first configured | S3 connection name |
+Copy an object. Only available when `read_only: false`. Parameters: `source_bucket`, `source_key`, `dest_bucket`, `dest_key` (required), `connection`.
 
 ---
 
@@ -698,8 +607,43 @@ func main() {
 
 ---
 
+# Troubleshooting
+
+## Quick Diagnosis
+
+| Symptom | Likely Cause | Solution |
+|---------|--------------|----------|
+| Server exits immediately | Configuration error | Validate YAML syntax |
+| 401 Unauthorized | Invalid credentials | Check token/key |
+| 403 Forbidden | Persona/tool mismatch | Check persona tool rules |
+| No enrichment data | Injection misconfigured | Enable injection settings |
+| Slow responses | Performance bottleneck | Enable caching |
+| Connection refused | Service unreachable | Check connectivity |
+
+## Common Error Codes
+
+| Code | Meaning | Solution |
+|------|---------|----------|
+| `AUTH_ERROR` | Authentication failed | Check credentials, token expiration |
+| `AUTHZ_ERROR` | Authorization failed | Check persona tool rules |
+| `TOOLKIT_ERROR` | Toolkit operation failed | Check service connectivity |
+| `PROVIDER_ERROR` | Provider operation failed | Check DataHub/Trino config |
+| `CONFIG_ERROR` | Configuration invalid | Validate YAML, check env vars |
+| `TIMEOUT_ERROR` | Operation timed out | Increase timeout, check service |
+
+## Enable Debug Logging
+
+```bash
+export LOG_LEVEL=debug
+mcp-data-platform --config platform.yaml
+```
+
+---
+
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform
+- Documentation: https://txn2.github.io/mcp-data-platform/
 - DataHub: https://datahubproject.io/
 - MCP Specification: https://modelcontextprotocol.io/
+- Security Article: https://imti.co/mcp-defense/

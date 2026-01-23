@@ -1,18 +1,24 @@
 # mcp-data-platform
 
-> MCP server for data exploration and analysis with DataHub as the semantic layer. Combines DataHub (required), Trino (optional), and S3 (optional) into a unified platform with cross-injection—query results automatically include business context from DataHub. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context—owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+
+## Concepts
+
+- [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-injection makes them greater than the sum of parts.
 
 ## Documentation
 
+- [Home](index.md): Introduction, quick start, and key features
 - [Server Overview](server/overview.md): What the platform does, architecture, request flow
 - [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
 - [Configuration](server/configuration.md): YAML configuration with environment variable expansion
 - [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
+- [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
 
 ## Cross-Injection
 
-- [Overview](cross-injection/overview.md): How automatic context enrichment works
+- [Overview](cross-injection/overview.md): How automatic context enrichment works between services
 - [Trino to DataHub](cross-injection/trino-datahub.md): Trino results include DataHub metadata
 - [DataHub to Trino](cross-injection/datahub-trino.md): DataHub results show query availability
 - [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
@@ -33,10 +39,14 @@
 
 ## Go Library
 
-- [Library Overview](library/overview.md): Build custom MCP servers
+- [Library Overview](library/overview.md): Build custom MCP servers using the Go library
 - [Quick Start](library/quickstart.md): Code examples for common patterns
-- [Architecture](library/architecture.md): Package structure and request flow
+- [Architecture](library/architecture.md): Package structure, middleware chain, provider interfaces
 - [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
+
+## Examples
+
+- [Examples Gallery](examples/index.md): Real-world configurations for enterprise governance, data democratization, and AI/ML workflows
 
 ## Reference
 
@@ -45,7 +55,7 @@
 - [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
 - [Middleware](reference/middleware.md): Request processing chain
 
-## Optional
+## Support
 
-- [Troubleshooting](support/troubleshooting.md): Common issues and solutions
+- [Troubleshooting](support/troubleshooting.md): Common issues, error codes, debugging guide
 - [Changelog](support/changelog.md): Version history
