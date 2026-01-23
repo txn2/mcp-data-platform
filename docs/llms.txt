@@ -2,6 +2,10 @@
 
 > MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context—owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
 
+## Concepts
+
+- [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-injection makes them greater than the sum of parts.
+
 ## Documentation
 
 - [Home](index.md): Introduction, quick start, and key features

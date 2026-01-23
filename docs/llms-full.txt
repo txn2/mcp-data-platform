@@ -8,11 +8,11 @@ For the security architecture rationale, see: https://imti.co/mcp-defense/
 
 # Overview
 
-AI tools can query your data. But they don't understand what it means.
+Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.
 
-mcp-data-platform bridges that gap. It connects AI assistants to your data infrastructure while automatically providing business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. No extra lookups. No context switching.
+mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
-The only requirement is DataHub (https://datahubproject.io/). Trino and S3 are optional but recommended.
+The only requirement is DataHub (https://datahubproject.io/). Add Trino (https://trino.io/) for SQL queries and S3 for object storage when you're ready.
 
 ## Key Features
 
@@ -25,6 +25,57 @@ The only requirement is DataHub (https://datahubproject.io/). Trino and S3 are o
 - **Built for Customization**: Add custom toolkits, providers, and middleware. The Go library exposes everything. Build the data platform your organization needs.
 
 - **Personas**: Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
+
+---
+
+# The Data Stack: DataHub + Trino + S3
+
+Modern data platforms need three things: meaning (what does the data represent?), access (how do I query it?), and storage (where does it live?). mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage.
+
+## DataHub: The Semantic Layer
+
+DataHub (https://datahubproject.io/) is an open source data catalog from LinkedIn. It stores business context: descriptions, owners, tags, glossary terms, lineage, and quality scores.
+
+**Problem it solves**: Data exists everywhere, but understanding what it means requires tribal knowledge. Column `cid` in one system is `customer_id` in another. That deprecated table still gets queried because nobody knows it's deprecated.
+
+**Why DataHub**: Active community (10k+ GitHub stars), rich GraphQL/REST APIs, 50+ integrations (Trino, Snowflake, dbt, Airflow), real-time ingestion, full-text search, lineage tracking.
+
+**For AI**: Without DataHub, an AI sees columns and types. With DataHub, it sees what the data means, who owns it, and whether it's reliable.
+
+## Trino: Universal SQL Access
+
+Trino (https://trino.io/, formerly PrestoSQL from Facebook) is a distributed SQL query engine. It runs SQL against data where it lives, without moving it first.
+
+**Trino connects to everything**: PostgreSQL, MySQL, Oracle, Snowflake, BigQuery, Elasticsearch, MongoDB, S3, HDFS, Delta Lake, Iceberg, Kafka, and more.
+
+**One SQL dialect**: Query across PostgreSQL, Elasticsearch, and S3 in one statement. The AI doesn't need to know where data lives. It's all SQL.
+
+**Why Trino**: Battle-tested at Meta, Netflix, Uber, LinkedIn. Cost-based optimizer, standard ANSI SQL, federated queries without data movement.
+
+## S3: The Universal Data Lake
+
+S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any data: files, Parquet, JSON, logs, ML models.
+
+**Problem it solves**: Not all data is structured or in databases. Data platforms must handle structured (tables), semi-structured (JSON, Parquet), and unstructured (PDFs, images) data.
+
+**Why S3**: Infinite scale at low cost, any file format, direct querying via Trino, object versioning, S3-compatible (AWS, MinIO, Ceph).
+
+## Cross-injection fills the gaps
+
+| Component | Answers | Limitation Alone |
+|-----------|---------|------------------|
+| DataHub | "What does this mean?" | Can't query the data |
+| Trino | "What's in this table?" | Doesn't know business context |
+| S3 | "What files exist?" | Just storage, no meaning |
+
+Cross-injection wires them together:
+- Trino + DataHub: Query a table → Get schema + owners + tags + deprecation + quality
+- DataHub + Trino: Search DataHub → See which datasets are queryable with sample SQL
+- S3 + DataHub: List objects → Get matching metadata and ownership
+
+This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analytical queries across that data, DataHub adds business context.
+
+---
 
 ## What's Included
 
