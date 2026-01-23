@@ -7,11 +7,11 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 
-**AI tools can query your data. But they don't understand what it means.**
+**Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
-mcp-data-platform bridges that gap. It connects AI assistants to your data infrastructure while automatically providing business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. No extra lookups. No context switching.
+mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
-The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add Trino for SQL queries and S3 for object storage when you're ready.
+The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](https://txn2.github.io/mcp-data-platform/concepts/components/)
 
 ---
 
