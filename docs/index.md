@@ -4,11 +4,11 @@ description: MCP server for AI-assisted data exploration. DataHub semantic layer
 
 # mcp-data-platform
 
-**AI tools can query your data. But they don't understand what it means.**
+**Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
-mcp-data-platform bridges that gap. Connect AI assistants to your data infrastructure with automatic business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
+mcp-data-platform fixes that. Connect AI assistants to your data infrastructure with automatic business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
-**The only requirement is [DataHub](https://datahubproject.io/).** Trino and S3 are optional but recommended.
+**The only requirement is [DataHub](https://datahubproject.io/).** Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](concepts/components.md)
 
 <div class="grid cards" markdown>
 
