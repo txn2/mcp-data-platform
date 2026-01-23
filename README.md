@@ -7,24 +7,132 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 
-A semantic data platform MCP server that composes multiple data tools with **bidirectional cross-injection** - tool responses automatically include critical context from other services.
+**AI tools can query your data. But they don't understand what it means.**
+
+mcp-data-platform bridges that gap. It connects AI assistants to your data infrastructure while automatically providing business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. No extra lookups. No context switching.
+
+The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add Trino for SQL queries and S3 for object storage when you're ready.
+
+---
+
+## Why mcp-data-platform?
+
+**The Problem**: AI assistants are powerful at querying data, but they're working blind. When Claude asks "What's in the orders table?", it gets column names and types. It doesn't know:
+
+- The `customer_id` column contains PII requiring special handling
+- The table is deprecated in favor of `orders_v2`
+- The data quality score dropped last week
+- Who to contact when something looks wrong
+
+**The Solution**: mcp-data-platform injects semantic context at the protocol level. Your AI assistant gets business meaning automatically—before it even asks.
+
+### Without vs With
+
+```
+# Without mcp-data-platform
+─────────────────────────────────────────────────────────────────────
+User:      "Describe the orders table"
+AI:        Queries Trino → gets columns and types
+User:      "Who owns this data?"
+AI:        Queries DataHub → finds owners
+User:      "Is this table still active?"
+AI:        Queries DataHub again → finds deprecation status
+User:      "What does customer_id actually mean?"
+AI:        Queries DataHub again → finds column descriptions
+─────────────────────────────────────────────────────────────────────
+4 round trips. Context scattered across conversations. Easy to miss warnings.
+```
+
+```
+# With mcp-data-platform
+─────────────────────────────────────────────────────────────────────
+User:      "Describe the orders table"
+AI:        Gets everything in one response:
+           → Schema: columns and types
+           → ⚠️ DEPRECATED: Use orders_v2 instead
+           → Owners: Data Platform Team
+           → Tags: pii, financial
+           → Quality Score: 87%
+           → Column meanings and business definitions
+─────────────────────────────────────────────────────────────────────
+1 call. Complete context. Warnings front and center.
+```
+
+---
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant P as mcp-data-platform
+    participant T as Trino
+    participant D as DataHub
+
+    AI->>P: trino_describe_table "orders"
+    P->>T: DESCRIBE orders
+    T-->>P: columns, types
+    P->>D: Get semantic context
+    D-->>P: description, owners, tags, quality, deprecation
+    P-->>AI: Schema + Full Business Context
+```
+
+The platform intercepts tool responses and enriches them with semantic metadata. This **cross-injection** pattern means:
+
+- **Trino → DataHub**: Query results include owners, tags, glossary terms, deprecation warnings, quality scores
+- **DataHub → Trino**: Search results include query availability (can this dataset be queried? what's the SQL?)
+- **S3 → DataHub**: Object listings include matching dataset metadata
+- **DataHub → S3**: Dataset searches show storage availability
+
+---
 
 ## Features
 
-- **Semantic-First Data Access**: All data queries include business context from DataHub
-- **Bidirectional Cross-Injection**:
-  - Trino results enriched with DataHub metadata (owners, tags, deprecation)
-  - DataHub searches include query availability from Trino
-  - S3 listings enriched with matching DataHub datasets
-  - DataHub S3 searches include storage availability
-- **Enterprise Security**: Fail-closed authentication, TLS enforcement, prompt injection protection
-- **OAuth 2.1 Authentication**: OIDC, API keys, PKCE, Dynamic Client Registration
-- **Role-Based Personas**: Tool filtering with wildcard patterns (allow/deny rules)
-- **Comprehensive Audit Logging**: PostgreSQL-backed audit trail
-- **Middleware Architecture**: Extensible request/response processing
+### Semantic-First Data Access
+Every data query includes business context from DataHub. Table descriptions, column meanings, data quality scores, and ownership information flow automatically. Your AI assistant understands what data means, not just what it contains.
 
-> **Security Architecture**: For a detailed analysis of securing internal MCP servers, see [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/).
- 
+### Bidirectional Cross-Injection
+Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
+
+### Enterprise Security
+Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for SSE transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
+
+### OAuth 2.1 Authentication
+Native support for OIDC providers (Keycloak, Auth0, Okta), API keys for service accounts, PKCE for public clients, and Dynamic Client Registration. Claude Desktop can authenticate through your existing identity provider.
+
+### Role-Based Personas
+Define who can use which tools. Analysts get read access to queries and searches. Admins get everything. Tool filtering uses wildcard patterns (allow/deny rules) mapped from your identity provider's roles.
+
+### Comprehensive Audit Logging
+Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
+
+### Extensible Middleware Architecture
+Add custom authentication, rate limiting, or logging. Swap providers to integrate different semantic layers or query engines. The Go library exposes everything—build the platform your organization needs.
+
+---
+
+## Use Cases
+
+### Enterprise Data Governance
+- **Compliance-Ready Audit Trails**: Every query logged with user identity and business justification
+- **PII Protection**: Tag-based warnings ensure AI assistants acknowledge sensitive data handling requirements
+- **Access Control**: Persona system enforces who can query what, mapped from your IdP
+- **Deprecation Enforcement**: Deprecated tables surface warnings before AI assistants use stale data
+
+### Data Democratization
+- **Self-Service Analytics**: Business users explore data through AI with context they'd otherwise need to ask engineers for
+- **Cross-Team Discovery**: Search finds datasets across all systems with unified metadata
+- **Onboarding Acceleration**: New team members understand data assets immediately—meanings, owners, quality, and lineage included
+- **Glossary-Driven Exploration**: Business terms connect to actual tables and columns automatically
+
+### AI/ML Workflows
+- **Autonomous Data Exploration**: AI agents discover and understand datasets without human guidance
+- **Feature Discovery**: Find and evaluate potential ML features with quality scores and lineage
+- **Pipeline Understanding**: Trace data lineage to understand feature provenance
+- **Quality Gates**: Data quality scores help AI agents avoid problematic datasets
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -44,17 +152,11 @@ graph LR
     Platform --> Client
 ```
 
-**Cross-Injection Flow:**
-- **Trino → DataHub**: Query results include owners, tags, glossary terms, deprecation warnings
-- **DataHub → Trino**: Search results include query availability and sample SQL
-- **S3 → DataHub**: Object listings include matching dataset metadata from DataHub
-- **DataHub → S3**: Search results for S3 datasets include storage availability
+---
 
 ## Security
 
 mcp-data-platform implements a **fail-closed** security model designed for enterprise deployments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
-
-### Security Features
 
 | Feature | Description |
 |---------|-------------|
@@ -73,34 +175,7 @@ mcp-data-platform implements a **fail-closed** security model designed for enter
 | **stdio** | Not required (local execution) | N/A |
 | **SSE** | Required (Bearer token or API key) | Strongly recommended |
 
-### SSE Security Configuration
-
-```yaml
-server:
-  transport: sse
-  address: ":8443"
-  tls:
-    enabled: true
-    cert_file: /path/to/cert.pem
-    key_file: /path/to/key.pem
-
-auth:
-  allow_anonymous: false  # Default: authentication required
-  oidc:
-    enabled: true
-    issuer: "https://auth.example.com/realms/platform"
-    client_id: "mcp-data-platform"
-
-personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "datahub_search"]
-        deny: ["*_delete_*", "*_drop_*"]
-  default_persona: analyst  # Required: no implicit access
-```
+---
 
 ## Installation
 
@@ -117,6 +192,8 @@ git clone https://github.com/txn2/mcp-data-platform.git
 cd mcp-data-platform
 go build -o mcp-data-platform ./cmd/mcp-data-platform
 ```
+
+---
 
 ## Quick Start
 
@@ -190,6 +267,8 @@ When you connect, Claude Desktop will open your browser for Keycloak login, then
 
 See [OAuth 2.1 Server documentation](https://txn2.github.io/mcp-data-platform/auth/oauth-server/) for complete setup instructions.
 
+---
+
 ## Configuration
 
 Create a `platform.yaml` configuration file:
@@ -252,6 +331,8 @@ database:
 | `DATABASE_URL` | PostgreSQL connection string for audit logs | - |
 | `API_KEY_ADMIN` | Admin API key (if using API key auth) | - |
 
+---
+
 ## Core Packages
 
 | Package | Description |
@@ -270,21 +351,7 @@ database:
 | `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3) |
 | `pkg/client` | Platform client utilities |
 
-## Development
-
-```bash
-# Run tests with race detection
-go test -race ./...
-
-# Run linter
-golangci-lint run ./...
-
-# Run security scan
-gosec ./...
-
-# Build
-go build -o mcp-data-platform ./cmd/mcp-data-platform
-```
+---
 
 ## Library Usage
 
@@ -317,6 +384,38 @@ if err := p.Start(ctx); err != nil {
 mcpServer := p.MCPServer()
 ```
 
+---
+
+## Development
+
+```bash
+# Run tests with race detection
+go test -race ./...
+
+# Run linter
+golangci-lint run ./...
+
+# Run security scan
+gosec ./...
+
+# Build
+go build -o mcp-data-platform ./cmd/mcp-data-platform
+```
+
+---
+
+## Documentation
+
+Full documentation is available at [txn2.github.io/mcp-data-platform](https://txn2.github.io/mcp-data-platform/).
+
+- [Server Guide](https://txn2.github.io/mcp-data-platform/server/overview/) - Configuration and deployment
+- [Cross-Injection](https://txn2.github.io/mcp-data-platform/cross-injection/overview/) - How automatic enrichment works
+- [Authentication](https://txn2.github.io/mcp-data-platform/auth/overview/) - OIDC, API keys, and OAuth 2.1
+- [Go Library](https://txn2.github.io/mcp-data-platform/library/overview/) - Build custom MCP servers
+- [API Reference](https://txn2.github.io/mcp-data-platform/reference/tools-api/) - Complete tool documentation
+
+---
+
 ## Contributing
 
 We welcome contributions for bug fixes, tests, and documentation. Please ensure:
@@ -325,6 +424,8 @@ We welcome contributions for bug fixes, tests, and documentation. Please ensure:
 2. Code is formatted (`gofmt`)
 3. Linter passes (`golangci-lint run ./...`)
 4. Security scan passes (`gosec ./...`)
+
+---
 
 ## License
 
