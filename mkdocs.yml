@@ -34,6 +34,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Concepts:
+    - The Data Stack: concepts/components.md
   - MCP Server:
     - Overview: server/overview.md
     - Installation: server/installation.md
