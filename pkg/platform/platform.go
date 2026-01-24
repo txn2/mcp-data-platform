@@ -397,6 +397,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 			MaxLimit:       trinoCfg.MaxLimit,
 			ReadOnly:       trinoCfg.ReadOnly,
 			ConnectionName: trinoCfg.ConnectionName,
+			CatalogMapping: p.config.Query.URNMapping.CatalogMapping,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)

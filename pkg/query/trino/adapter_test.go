@@ -492,5 +492,79 @@ func TestAdapterCloseNilClient(t *testing.T) {
 	}
 }
 
+func TestResolveTableWithCatalogMapping(t *testing.T) {
+	mock := &mockTrinoClient{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		catalogMapping map[string]string
+		urn            string
+		wantCatalog    string
+		wantSchema     string
+		wantTable      string
+	}{
+		{
+			name:           "no mapping - uses original catalog",
+			catalogMapping: nil,
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
+			wantCatalog:    "warehouse",
+			wantSchema:     "public",
+			wantTable:      "users",
+		},
+		{
+			name:           "mapping applied - warehouse to rdbms",
+			catalogMapping: map[string]string{"warehouse": "rdbms"},
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
+			wantCatalog:    "rdbms",
+			wantSchema:     "public",
+			wantTable:      "users",
+		},
+		{
+			name:           "mapping applied - multiple mappings",
+			catalogMapping: map[string]string{"warehouse": "rdbms", "datalake": "iceberg"},
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
+			wantCatalog:    "iceberg",
+			wantSchema:     "analytics",
+			wantTable:      "events",
+		},
+		{
+			name:           "catalog not in mapping - uses original",
+			catalogMapping: map[string]string{"warehouse": "rdbms"},
+			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,other.public.data,PROD)",
+			wantCatalog:    "other",
+			wantSchema:     "public",
+			wantTable:      "data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter, err := NewWithClient(Config{
+				Catalog:        "default",
+				ConnectionName: "test",
+				CatalogMapping: tt.catalogMapping,
+			}, mock)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			result, err := adapter.ResolveTable(ctx, tt.urn)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Catalog != tt.wantCatalog {
+				t.Errorf("expected catalog %q, got %q", tt.wantCatalog, result.Catalog)
+			}
+			if result.Schema != tt.wantSchema {
+				t.Errorf("expected schema %q, got %q", tt.wantSchema, result.Schema)
+			}
+			if result.Table != tt.wantTable {
+				t.Errorf("expected table %q, got %q", tt.wantTable, result.Table)
+			}
+		})
+	}
+}
+
 // Verify Adapter implements Provider interface.
 var _ query.Provider = (*Adapter)(nil)

@@ -158,9 +158,9 @@ type URNMappingConfig struct {
 	// so URNs match DataHub's platform identifier.
 	Platform string `yaml:"platform"`
 
-	// CatalogMapping maps Trino catalog names to DataHub catalog names.
-	// For example: {"rdbms": "warehouse"} means Trino's "rdbms" catalog
-	// corresponds to DataHub's "warehouse" catalog in URNs.
+	// CatalogMapping maps catalog names between systems.
+	// For semantic provider: maps Trino catalogs to DataHub catalogs (rdbms → warehouse)
+	// For query provider: maps DataHub catalogs to Trino catalogs (warehouse → rdbms)
 	CatalogMapping map[string]string `yaml:"catalog_mapping"`
 }
 
@@ -172,8 +172,9 @@ type CacheConfig struct {
 
 // QueryConfig configures the query provider.
 type QueryConfig struct {
-	Provider string `yaml:"provider"` // "trino", "noop"
-	Instance string `yaml:"instance"`
+	Provider   string           `yaml:"provider"` // "trino", "noop"
+	Instance   string           `yaml:"instance"`
+	URNMapping URNMappingConfig `yaml:"urn_mapping"`
 }
 
 // StorageConfig configures the storage provider.
