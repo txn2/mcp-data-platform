@@ -237,6 +237,28 @@ injection:
 | `datahub_query_enrichment` | bool | false | Add Trino availability to DataHub results |
 | `s3_semantic_enrichment` | bool | false | Add DataHub context to S3 results |
 
+## URN Mapping Configuration
+
+When Trino catalog or platform names differ from DataHub metadata, configure URN mapping:
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+  urn_mapping:
+    platform: postgres           # DataHub platform (e.g., postgres, mysql, trino)
+    catalog_mapping:
+      rdbms: warehouse           # Trino "rdbms" → DataHub "warehouse"
+      iceberg: datalake          # Trino "iceberg" → DataHub "datalake"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `semantic.urn_mapping.platform` | string | trino | Platform name in DataHub URNs |
+| `semantic.urn_mapping.catalog_mapping` | map | {} | Map Trino catalogs to DataHub catalogs |
+
+This translates URNs during lookup. Example: Trino `rdbms.public.users` becomes URN `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)`.
+
 ---
 
 # Authentication & Security

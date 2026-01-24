@@ -148,6 +148,26 @@ semantic:
     enabled: true
     ttl: 5m
 
+  # URN mapping translates between query engine names and metadata catalog names.
+  # This is necessary when Trino uses different catalog/platform names than DataHub.
+  #
+  # Example: Trino queries "rdbms.public.users" but DataHub stores metadata as
+  # "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)"
+  #
+  # Configure urn_mapping to bridge this gap:
+  urn_mapping:
+    # Platform name used in DataHub URNs (e.g., "postgres", "mysql", "trino")
+    # If Trino connects to PostgreSQL, set this to "postgres" to match DataHub's platform
+    platform: ""
+
+    # Map Trino catalog names to DataHub catalog names
+    # Keys are Trino catalogs, values are DataHub catalogs
+    catalog_mapping: {}
+    # Example:
+    # catalog_mapping:
+    #   rdbms: warehouse      # Trino "rdbms" → DataHub "warehouse"
+    #   iceberg: datalake     # Trino "iceberg" → DataHub "datalake"
+
 # Query provider
 query:
   provider: noop              # trino, noop

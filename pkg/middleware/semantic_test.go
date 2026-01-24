@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -288,6 +289,117 @@ func TestAppendSemanticContext(t *testing.T) {
 			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
 		}
 	})
+
+	t.Run("includes all fields when populated", func(t *testing.T) {
+		result := NewToolResultText("original")
+		now := new(testing.T) // Use a non-nil time pointer
+		_ = now
+		testTime := new(timePointer)
+		ctx := &semantic.TableContext{
+			URN:         "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
+			Description: "User table",
+			Owners:      []semantic.Owner{{URN: "urn:owner", Name: "Data Team"}},
+			Tags:        []string{"pii", "important"},
+			GlossaryTerms: []semantic.GlossaryTerm{
+				{URN: "urn:li:glossaryTerm:user", Name: "User", Description: "A registered user"},
+			},
+			Domain: &semantic.Domain{URN: "urn:domain", Name: "Core", Description: "Core data"},
+			CustomProperties: map[string]string{
+				"owner_team": "platform",
+				"sla":        "tier1",
+			},
+			LastModified: testTime.getTime(),
+		}
+		enriched, err := appendSemanticContext(result, ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Parse the enrichment JSON to verify all fields
+		if len(enriched.Content) != 2 {
+			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+		}
+
+		textContent, ok := enriched.Content[1].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("expected TextContent")
+		}
+
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse enrichment JSON: %v", err)
+		}
+
+		semanticCtx, ok := data["semantic_context"].(map[string]any)
+		if !ok {
+			t.Fatal("expected semantic_context in enrichment")
+		}
+
+		// Verify all expected fields are present
+		expectedFields := []string{"urn", "description", "owners", "tags", "glossary_terms", "domain", "custom_properties", "last_modified"}
+		for _, field := range expectedFields {
+			if _, exists := semanticCtx[field]; !exists {
+				t.Errorf("expected field %q in semantic_context, but it was missing", field)
+			}
+		}
+
+		// Verify specific values
+		if semanticCtx["urn"] != ctx.URN {
+			t.Errorf("expected urn %q, got %v", ctx.URN, semanticCtx["urn"])
+		}
+		if semanticCtx["description"] != ctx.Description {
+			t.Errorf("expected description %q, got %v", ctx.Description, semanticCtx["description"])
+		}
+	})
+
+	t.Run("omits empty optional fields", func(t *testing.T) {
+		result := NewToolResultText("original")
+		ctx := &semantic.TableContext{
+			Description: "Minimal table",
+			// All other fields are empty/nil
+		}
+		enriched, err := appendSemanticContext(result, ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent, ok := enriched.Content[1].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("expected TextContent")
+		}
+
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse enrichment JSON: %v", err)
+		}
+
+		semanticCtx, ok := data["semantic_context"].(map[string]any)
+		if !ok {
+			t.Fatal("expected semantic_context in enrichment")
+		}
+
+		// URN, glossary_terms, custom_properties, and last_modified should not be present when empty
+		if _, exists := semanticCtx["urn"]; exists {
+			t.Error("urn should be omitted when empty")
+		}
+		if _, exists := semanticCtx["glossary_terms"]; exists {
+			t.Error("glossary_terms should be omitted when empty")
+		}
+		if _, exists := semanticCtx["custom_properties"]; exists {
+			t.Error("custom_properties should be omitted when empty")
+		}
+		if _, exists := semanticCtx["last_modified"]; exists {
+			t.Error("last_modified should be omitted when nil")
+		}
+	})
+}
+
+// timePointer is a helper for creating time.Time pointers in tests.
+type timePointer struct{}
+
+func (tp *timePointer) getTime() *time.Time {
+	t := time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)
+	return &t
 }
 
 func TestAppendQueryContext(t *testing.T) {

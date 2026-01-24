@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -135,6 +136,14 @@ func enrichTrinoResult(
 	// Get semantic context
 	semanticCtx, err := provider.GetTableContext(ctx, table)
 	if err != nil {
+		// Log the failure for debugging - this often indicates URN mapping issues
+		slog.Debug("semantic enrichment failed for Trino result",
+			"table", tableName,
+			"parsed_catalog", table.Catalog,
+			"parsed_schema", table.Schema,
+			"parsed_table", table.Table,
+			"error", err,
+		)
 		// Don't fail the request if enrichment fails
 		return result, nil
 	}
@@ -274,16 +283,38 @@ func appendSemanticContext(result *mcp.CallToolResult, ctx *semantic.TableContex
 		return result, nil
 	}
 
-	// Create enrichment content
+	// Create enrichment content with all available semantic metadata
+	semanticCtx := map[string]any{
+		"description":   ctx.Description,
+		"owners":        ctx.Owners,
+		"tags":          ctx.Tags,
+		"domain":        ctx.Domain,
+		"quality_score": ctx.QualityScore,
+		"deprecation":   ctx.Deprecation,
+	}
+
+	// Add URN if available (useful for cross-referencing)
+	if ctx.URN != "" {
+		semanticCtx["urn"] = ctx.URN
+	}
+
+	// Add glossary terms if available
+	if len(ctx.GlossaryTerms) > 0 {
+		semanticCtx["glossary_terms"] = ctx.GlossaryTerms
+	}
+
+	// Add custom properties if available
+	if len(ctx.CustomProperties) > 0 {
+		semanticCtx["custom_properties"] = ctx.CustomProperties
+	}
+
+	// Add last modified timestamp if available
+	if ctx.LastModified != nil {
+		semanticCtx["last_modified"] = ctx.LastModified
+	}
+
 	enrichment := map[string]any{
-		"semantic_context": map[string]any{
-			"description":   ctx.Description,
-			"owners":        ctx.Owners,
-			"tags":          ctx.Tags,
-			"domain":        ctx.Domain,
-			"quality_score": ctx.QualityScore,
-			"deprecation":   ctx.Deprecation,
-		},
+		"semantic_context": semanticCtx,
 	}
 
 	enrichmentJSON, err := json.Marshal(enrichment)

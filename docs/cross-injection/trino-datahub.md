@@ -140,7 +140,28 @@ Trino: hive.sales.orders
 DataHub URN: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
 ```
 
-For this to work, your DataHub must have ingested metadata from your Trino instance with matching identifiers.
+For this to work, your DataHub must have ingested metadata with matching identifiers.
+
+### URN Mapping for Mismatched Names
+
+When Trino uses different catalog or platform names than DataHub, configure URN mapping:
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+  urn_mapping:
+    platform: postgres           # DataHub uses "postgres" not "trino"
+    catalog_mapping:
+      rdbms: warehouse           # Trino "rdbms" → DataHub "warehouse"
+```
+
+**Example:** Trino queries `rdbms.public.users` but DataHub stores metadata as:
+```
+urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)
+```
+
+With URN mapping configured, the lookup succeeds and enrichment works correctly.
 
 ## Handling Missing Metadata
 
@@ -183,6 +204,21 @@ Cache TTL of 5 minutes works well for most use cases since metadata changes infr
 2. Check that the table exists in DataHub with matching URN
 3. Ensure `trino_semantic_enrichment: true` is set
 4. Check semantic provider instance matches your DataHub config
+5. **Check URN mapping** - If Trino and DataHub use different catalog/platform names, configure `urn_mapping`
+
+**URN mismatch (most common issue):**
+
+Enable debug logging to see URN lookup failures:
+```bash
+export LOG_LEVEL=debug
+```
+
+Then check if URNs match. Common mismatches:
+
+| Issue | Solution |
+|-------|----------|
+| Platform mismatch (`trino` vs `postgres`) | Set `urn_mapping.platform: postgres` |
+| Catalog mismatch (`rdbms` vs `warehouse`) | Add to `urn_mapping.catalog_mapping` |
 
 **Stale metadata:**
 
