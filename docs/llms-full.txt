@@ -239,7 +239,7 @@ injection:
 
 ## URN Mapping Configuration
 
-When Trino catalog or platform names differ from DataHub metadata, configure URN mapping:
+When Trino catalog or platform names differ from DataHub metadata, configure bidirectional URN mapping:
 
 ```yaml
 semantic:
@@ -250,14 +250,25 @@ semantic:
     catalog_mapping:
       rdbms: warehouse           # Trino "rdbms" → DataHub "warehouse"
       iceberg: datalake          # Trino "iceberg" → DataHub "datalake"
+
+query:
+  provider: trino
+  instance: primary
+  urn_mapping:
+    catalog_mapping:
+      warehouse: rdbms           # DataHub "warehouse" → Trino "rdbms"
+      datalake: iceberg          # DataHub "datalake" → Trino "iceberg"
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `semantic.urn_mapping.platform` | string | trino | Platform name in DataHub URNs |
 | `semantic.urn_mapping.catalog_mapping` | map | {} | Map Trino catalogs to DataHub catalogs |
+| `query.urn_mapping.catalog_mapping` | map | {} | Map DataHub catalogs to Trino catalogs (reverse) |
 
-This translates URNs during lookup. Example: Trino `rdbms.public.users` becomes URN `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)`.
+This translates URNs in both directions:
+- **Trino → DataHub**: `rdbms.public.users` becomes `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)`
+- **DataHub → Trino**: URN with `warehouse.public.users` resolves to Trino table `rdbms.public.users`
 
 ---
 
