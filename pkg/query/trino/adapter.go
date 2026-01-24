@@ -27,6 +27,11 @@ type Config struct {
 	MaxLimit       int
 	ReadOnly       bool
 	ConnectionName string
+
+	// CatalogMapping maps DataHub catalog names to Trino catalog names.
+	// This is the reverse of the semantic layer's catalog mapping.
+	// For example: {"warehouse": "rdbms"} means DataHub "warehouse" → Trino "rdbms"
+	CatalogMapping map[string]string
 }
 
 // Client defines the interface for Trino operations.
@@ -119,6 +124,7 @@ func (a *Adapter) Name() string {
 }
 
 // ResolveTable converts a URN to a table identifier.
+// Applies reverse catalog mapping if configured.
 func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdentifier, error) {
 	// Parse URN format: urn:li:dataset:(urn:li:dataPlatform:platform,name,env)
 	if !strings.HasPrefix(urn, "urn:li:dataset:") {
@@ -144,8 +150,13 @@ func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdent
 			Connection: a.cfg.ConnectionName,
 		}, nil
 	case 3:
+		catalog := parts[0]
+		// Apply reverse catalog mapping if configured
+		if mapped, ok := a.cfg.CatalogMapping[catalog]; ok {
+			catalog = mapped
+		}
 		return &query.TableIdentifier{
-			Catalog:    parts[0],
+			Catalog:    catalog,
 			Schema:     parts[1],
 			Table:      parts[2],
 			Connection: a.cfg.ConnectionName,
