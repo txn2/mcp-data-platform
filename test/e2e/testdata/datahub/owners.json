@@ -3,6 +3,7 @@
     "entityUrn": "urn:li:corpuser:alice",
     "entityType": "corpuser",
     "aspectName": "corpUserInfo",
+    "changeType": "UPSERT",
     "aspect": {
       "active": true,
       "displayName": "Alice Johnson",
@@ -15,6 +16,7 @@
     "entityUrn": "urn:li:corpuser:bob",
     "entityType": "corpuser",
     "aspectName": "corpUserInfo",
+    "changeType": "UPSERT",
     "aspect": {
       "active": true,
       "displayName": "Bob Smith",
@@ -27,6 +29,7 @@
     "entityUrn": "urn:li:corpuser:analytics-team",
     "entityType": "corpuser",
     "aspectName": "corpUserInfo",
+    "changeType": "UPSERT",
     "aspect": {
       "active": true,
       "displayName": "Analytics Team",
@@ -39,6 +42,7 @@
     "entityUrn": "urn:li:corpuser:data-engineering",
     "entityType": "corpuser",
     "aspectName": "corpUserInfo",
+    "changeType": "UPSERT",
     "aspect": {
       "active": true,
       "displayName": "Data Engineering Team",
@@ -51,6 +55,7 @@
     "entityUrn": "urn:li:corpuser:admin",
     "entityType": "corpuser",
     "aspectName": "corpUserInfo",
+    "changeType": "UPSERT",
     "aspect": {
       "active": true,
       "displayName": "Platform Admin",
