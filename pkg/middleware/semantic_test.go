@@ -121,6 +121,62 @@ func TestExtractTableFromRequest(t *testing.T) {
 	})
 }
 
+func TestExtractURNFromRequest(t *testing.T) {
+	t.Run("urn present", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,test.public.users,PROD)",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		urn := extractURNFromRequest(request)
+		if urn != "urn:li:dataset:(urn:li:dataPlatform:trino,test.public.users,PROD)" {
+			t.Errorf("expected URN, got %q", urn)
+		}
+	})
+
+	t.Run("no urn field", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"query": "test",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		urn := extractURNFromRequest(request)
+		if urn != "" {
+			t.Errorf("expected empty string, got %q", urn)
+		}
+	})
+
+	t.Run("empty arguments", func(t *testing.T) {
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{},
+		}
+		urn := extractURNFromRequest(request)
+		if urn != "" {
+			t.Errorf("expected empty string, got %q", urn)
+		}
+	})
+
+	t.Run("nil params", func(t *testing.T) {
+		request := mcp.CallToolRequest{}
+		urn := extractURNFromRequest(request)
+		if urn != "" {
+			t.Errorf("expected empty string, got %q", urn)
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: []byte("invalid")},
+		}
+		urn := extractURNFromRequest(request)
+		if urn != "" {
+			t.Errorf("expected empty string, got %q", urn)
+		}
+	})
+}
+
 func TestParseTableIdentifier(t *testing.T) {
 	tests := []struct {
 		name        string
