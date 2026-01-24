@@ -91,10 +91,10 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			"s3": map[string]any{
 				"instances": map[string]any{
 					"e2e": map[string]any{
-						"endpoint":          e2eCfg.MinIOEndpoint,
-						"access_key_id":     e2eCfg.MinIOAccessKey,
-						"secret_access_key": e2eCfg.MinIOSecretKey,
-						"region":            e2eCfg.MinIORegion,
+						"endpoint":          e2eCfg.S3Endpoint,
+						"access_key_id":     e2eCfg.S3AccessKey,
+						"secret_access_key": e2eCfg.S3SecretKey,
+						"region":            e2eCfg.S3Region,
 						"connection_name":   "e2e-s3",
 					},
 				},
