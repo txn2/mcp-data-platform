@@ -242,31 +242,44 @@ Configuration sources are merged in order:
 
 ---
 
-## Middleware Chain
+## MCP Protocol Middleware
 
-The middleware chain implements the decorator pattern for request processing:
+Middleware operates at the MCP protocol level using `server.AddReceivingMiddleware()`. Each middleware intercepts `tools/call` requests before they reach tool handlers and can process responses on the way back.
 
 ```go
-type Chain struct {
-    middlewares []Middleware
-}
-
-type Middleware func(next Handler) Handler
-type Handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+// MCP middleware signature from the go-sdk
+type Middleware func(next MethodHandler) MethodHandler
+type MethodHandler func(ctx context.Context, method string, req Request) (Result, error)
 ```
 
-### Building the Chain
+### Registering Middleware
 
 ```go
-chain := middleware.NewChain()
+// In platform.go finalizeSetup()
 
-// Add in order (first added = outermost)
-chain.Use(AuthMiddleware(authConfig))
-chain.Use(PersonaMiddleware(personaRegistry))
-chain.Use(AuthzMiddleware())
-// ... toolkit handler is innermost ...
-chain.Use(EnrichmentMiddleware(semanticProvider))
-chain.Use(AuditMiddleware(auditLogger))
+// 1. Auth/Authz middleware
+p.mcpServer.AddReceivingMiddleware(
+    middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
+)
+
+// 2. Audit middleware (if enabled)
+if p.config.Audit.Enabled {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPAuditMiddleware(p.auditLogger),
+    )
+}
+
+// 3. Semantic enrichment middleware (if any enrichment enabled)
+if needsEnrichment {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPSemanticEnrichmentMiddleware(
+            p.semanticProvider,
+            p.queryProvider,
+            p.storageProvider,
+            middleware.EnrichmentConfig{...},
+        ),
+    )
+}
 ```
 
 ### Execution Order
@@ -274,47 +287,60 @@ chain.Use(AuditMiddleware(auditLogger))
 ```mermaid
 flowchart TB
     subgraph "Request Path (outside → in)"
-        A1[Auth MW] --> P1[Persona MW]
-        P1 --> Z1[Authz MW]
-        Z1 --> T[Toolkit Handler]
+        A1[MCPToolCall MW] --> U1[MCPAudit MW]
+        U1 --> E1[MCPEnrichment MW]
+        E1 --> T[Tool Handler]
     end
 
     subgraph "Response Path (inside → out)"
-        T --> E1[Enrichment MW]
-        E1 --> U1[Audit MW]
+        T --> E2[MCPEnrichment MW]
+        E2 --> U2[MCPAudit MW]
+        U2 --> A2[MCPToolCall MW]
     end
 ```
 
-Middleware wraps handlers like layers of an onion:
+Middleware wraps handlers using the decorator pattern:
 
 ```go
-func AuthMiddleware(cfg AuthConfig) Middleware {
-    return func(next Handler) Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Pre-processing: validate credentials
-            userCtx, err := validateCredentials(ctx, cfg)
-            if err != nil {
-                return nil, &PlatformError{Code: ErrCodeAuth, Cause: err}
+func MCPToolCallMiddleware(auth Authenticator, authz Authorizer) mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            // Only intercept tools/call
+            if method != "tools/call" {
+                return next(ctx, method, req)
             }
 
-            // Add user context and continue
-            ctx = auth.WithUserContext(ctx, userCtx)
-            return next(ctx, req)
+            // Pre-processing: authenticate and authorize
+            pc := NewPlatformContext(generateRequestID())
+            if err := auth.Authenticate(ctx, pc); err != nil {
+                return mcp.NewToolResultError("unauthorized"), nil
+            }
+            if !authz.IsAuthorized(ctx, pc) {
+                return mcp.NewToolResultError("forbidden"), nil
+            }
+
+            // Add platform context and continue
+            ctx = WithPlatformContext(ctx, pc)
+            return next(ctx, method, req)
         }
     }
 }
 
-func EnrichmentMiddleware(provider semantic.Provider) Middleware {
-    return func(next Handler) Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Execute inner handler first
-            result, err := next(ctx, req)
-            if err != nil {
-                return nil, err
+func MCPSemanticEnrichmentMiddleware(semantic semantic.Provider, ...) mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            if method != "tools/call" {
+                return next(ctx, method, req)
             }
 
-            // Post-processing: enrich result
-            enriched := enrichResult(ctx, provider, result)
+            // Execute tool handler first
+            result, err := next(ctx, method, req)
+            if err != nil {
+                return result, err
+            }
+
+            // Post-processing: enrich result with semantic context
+            enriched := enrichResult(ctx, result, semantic)
             return enriched, nil
         }
     }
