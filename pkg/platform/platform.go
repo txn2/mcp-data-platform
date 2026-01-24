@@ -30,9 +30,8 @@ type Platform struct {
 	config *Config
 
 	// Core components
-	mcpServer       *mcp.Server
-	lifecycle       *Lifecycle
-	middlewareChain *middleware.Chain
+	mcpServer *mcp.Server
+	lifecycle *Lifecycle
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -314,20 +313,48 @@ func (p *Platform) initTuning(opts *Options) {
 
 // finalizeSetup completes platform initialization.
 func (p *Platform) finalizeSetup() {
-	p.buildMiddlewareChain()
-	p.toolkitRegistry.SetMiddleware(p.middlewareChain)
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
 		Version: "1.0.0",
 	}, nil)
 
-	// Add MCP protocol-level middleware for authentication and authorization.
+	// Add MCP protocol-level middleware in order:
+	// 1. Auth/Authz middleware - authenticates and authorizes users
 	// This intercepts all tools/call requests and enforces auth before the
 	// tool handler is invoked, ensuring security even when toolkits register
 	// their tools directly with the MCP server.
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
 	)
+
+	// 2. Audit middleware - logs tool calls (after response)
+	if p.config.Audit.Enabled {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPAuditMiddleware(p.auditLogger),
+		)
+	}
+
+	// 3. Semantic enrichment middleware - enriches responses with cross-service context
+	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
+		p.config.Injection.DataHubQueryEnrichment ||
+		p.config.Injection.S3SemanticEnrichment ||
+		p.config.Injection.DataHubStorageEnrichment
+
+	if needsEnrichment {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPSemanticEnrichmentMiddleware(
+				p.semanticProvider,
+				p.queryProvider,
+				p.storageProvider,
+				middleware.EnrichmentConfig{
+					EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
+					EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
+					EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
+					EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
+				},
+			),
+		)
+	}
 }
 
 // createSemanticProvider creates the semantic provider based on config.
@@ -547,39 +574,6 @@ func (p *Platform) createAuthorizer() middleware.Authorizer {
 	return persona.NewPersonaAuthorizer(p.personaRegistry, mapper)
 }
 
-// buildMiddlewareChain builds the middleware chain.
-func (p *Platform) buildMiddlewareChain() {
-	p.middlewareChain = middleware.NewChain()
-
-	// Before middleware (request processing)
-	p.middlewareChain.UseBefore(middleware.AuthMiddleware(p.authenticator))
-	p.middlewareChain.UseBefore(middleware.AuthzMiddleware(p.authorizer))
-
-	// After middleware (response processing)
-	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
-		p.config.Injection.DataHubQueryEnrichment ||
-		p.config.Injection.S3SemanticEnrichment ||
-		p.config.Injection.DataHubStorageEnrichment
-
-	if needsEnrichment {
-		p.middlewareChain.UseAfter(middleware.SemanticEnrichmentMiddleware(
-			p.semanticProvider,
-			p.queryProvider,
-			p.storageProvider,
-			middleware.EnrichmentConfig{
-				EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
-				EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
-				EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
-				EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
-			},
-		))
-	}
-
-	if p.config.Audit.Enabled {
-		p.middlewareChain.UseAfter(middleware.AuditMiddleware(p.auditLogger))
-	}
-}
-
 // Start starts the platform.
 func (p *Platform) Start(ctx context.Context) error {
 	// Load prompts
@@ -637,11 +631,6 @@ func (p *Platform) PersonaRegistry() *persona.Registry {
 // RuleEngine returns the rule engine.
 func (p *Platform) RuleEngine() *tuning.RuleEngine {
 	return p.ruleEngine
-}
-
-// MiddlewareChain returns the middleware chain.
-func (p *Platform) MiddlewareChain() *middleware.Chain {
-	return p.middlewareChain
 }
 
 // OAuthServer returns the OAuth server, or nil if not enabled.
