@@ -3,7 +3,7 @@
 [![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
 [![codecov](https://codecov.io/gh/txn2/mcp-data-platform/graph/badge.svg)](https://codecov.io/gh/txn2/mcp-data-platform)
-[![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-data-platform)](https://goreportcard.com/report/github.com/txn2/mcp-data-platform)
+[![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-data-platform?v2)](https://goreportcard.com/report/github.com/txn2/mcp-data-platform)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 
