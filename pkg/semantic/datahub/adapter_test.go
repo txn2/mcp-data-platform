@@ -449,6 +449,78 @@ func TestBuildURN(t *testing.T) {
 	}
 }
 
+func TestBuildDatasetURNWithCatalogMapping(t *testing.T) {
+	mock := &mockDataHubClient{}
+
+	tests := []struct {
+		name           string
+		platform       string
+		catalogMapping map[string]string
+		table          semantic.TableIdentifier
+		expectedURN    string
+	}{
+		{
+			name:           "no mapping configured - uses original catalog",
+			platform:       "trino",
+			catalogMapping: nil,
+			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.users,PROD)",
+		},
+		{
+			name:           "catalog mapping applied",
+			platform:       "postgres",
+			catalogMapping: map[string]string{"rdbms": "warehouse"},
+			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
+		},
+		{
+			name:           "catalog not in mapping - uses original",
+			platform:       "postgres",
+			catalogMapping: map[string]string{"iceberg": "datalake"},
+			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,rdbms.public.users,PROD)",
+		},
+		{
+			name:           "empty catalog - schema.table only",
+			platform:       "postgres",
+			catalogMapping: map[string]string{"rdbms": "warehouse"},
+			table:          semantic.TableIdentifier{Schema: "public", Table: "users"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,public.users,PROD)",
+		},
+		{
+			name:           "table only - no catalog or schema",
+			platform:       "postgres",
+			catalogMapping: nil,
+			table:          semantic.TableIdentifier{Table: "users"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,users,PROD)",
+		},
+		{
+			name:           "multiple catalog mappings",
+			platform:       "postgres",
+			catalogMapping: map[string]string{"rdbms": "warehouse", "iceberg": "datalake"},
+			table:          semantic.TableIdentifier{Catalog: "iceberg", Schema: "analytics", Table: "events"},
+			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter, err := NewWithClient(Config{
+				Platform:       tt.platform,
+				CatalogMapping: tt.catalogMapping,
+			}, mock)
+			if err != nil {
+				t.Fatalf("unexpected error creating adapter: %v", err)
+			}
+
+			urn := adapter.buildDatasetURN(tt.table)
+			if urn != tt.expectedURN {
+				t.Errorf("expected URN %q, got %q", tt.expectedURN, urn)
+			}
+		})
+	}
+}
+
 func TestAdapterClose(t *testing.T) {
 	closed := false
 	mock := &mockDataHubClient{
