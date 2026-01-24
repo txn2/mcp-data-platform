@@ -6,7 +6,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -25,7 +24,6 @@ func (m *mockToolkit) RegisterTools(_ *mcp.Server)             {}
 func (m *mockToolkit) Tools() []string                         { return m.tools }
 func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {}
 func (m *mockToolkit) SetQueryProvider(_ query.Provider)       {}
-func (m *mockToolkit) SetMiddleware(_ *middleware.Chain)       {}
 func (m *mockToolkit) Close() error                            { m.closeCalls++; return nil }
 
 // mockToolkitWithCloseError is a toolkit that returns an error on Close.
@@ -141,16 +139,6 @@ func TestRegistry(t *testing.T) {
 		// Just verify it doesn't panic
 	})
 
-	t.Run("SetMiddleware", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
-		_ = reg.Register(toolkit)
-
-		chain := middleware.NewChain()
-		reg.SetMiddleware(chain)
-		// Just verify it doesn't panic
-	})
-
 	t.Run("RegisterAllTools", func(t *testing.T) {
 		reg := NewRegistry()
 		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod", tools: []string{"trino_query"}})
@@ -169,7 +157,6 @@ func TestRegistry(t *testing.T) {
 		// Set providers before registering
 		reg.SetSemanticProvider(semantic.NewNoopProvider())
 		reg.SetQueryProvider(query.NewNoopProvider())
-		reg.SetMiddleware(middleware.NewChain())
 
 		toolkit := &mockToolkit{kind: "trino", name: "prod"}
 		if err := reg.Register(toolkit); err != nil {
