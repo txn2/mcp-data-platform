@@ -301,6 +301,7 @@ storage:
 | `semantic.urn_mapping.catalog_mapping` | map | `{}` | Map Trino catalogs to DataHub catalogs |
 | `query.provider` | string | - | Provider type: `trino`, `noop` |
 | `query.instance` | string | - | Toolkit instance name |
+| `query.urn_mapping.catalog_mapping` | map | `{}` | Map DataHub catalogs to Trino catalogs (reverse) |
 | `storage.provider` | string | - | Provider type: `s3`, `noop` |
 | `storage.instance` | string | - | Toolkit instance name |
 
@@ -319,14 +320,23 @@ semantic:
     catalog_mapping:
       rdbms: warehouse      # Trino "rdbms" → DataHub "warehouse"
       iceberg: datalake     # Trino "iceberg" → DataHub "datalake"
+
+query:
+  provider: trino
+  instance: primary
+  urn_mapping:
+    # Reverse mapping: DataHub catalogs to Trino catalogs
+    catalog_mapping:
+      warehouse: rdbms      # DataHub "warehouse" → Trino "rdbms"
+      datalake: iceberg     # DataHub "datalake" → Trino "iceberg"
 ```
 
 This translates URNs during lookup:
 
-| Trino Table | Generated URN |
-|-------------|---------------|
-| `rdbms.public.users` | `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)` |
-| `iceberg.analytics.events` | `urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)` |
+| Direction | Example |
+|-----------|---------|
+| Trino → DataHub | `rdbms.public.users` → `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)` |
+| DataHub → Trino | `warehouse.public.users` in URN → `rdbms.public.users` for querying |
 
 ## Injection Configuration
 
