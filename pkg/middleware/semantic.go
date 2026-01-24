@@ -180,6 +180,8 @@ func enrichDataHubResult(
 }
 
 // extractTableFromRequest extracts table name from request arguments.
+// Handles both combined format (table="catalog.schema.table") and
+// separate parameters (catalog="x", schema="y", table="z").
 func extractTableFromRequest(request mcp.CallToolRequest) string {
 	if len(request.Params.Arguments) == 0 {
 		return ""
@@ -188,11 +190,31 @@ func extractTableFromRequest(request mcp.CallToolRequest) string {
 	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
 		return ""
 	}
-	if table, ok := args["table"].(string); ok {
+
+	// Check for separate catalog/schema/table parameters first
+	catalog, _ := args["catalog"].(string)
+	schema, _ := args["schema"].(string)
+	table, _ := args["table"].(string)
+
+	// If we have separate parameters, combine them
+	if table != "" && (catalog != "" || schema != "") {
+		var parts []string
+		if catalog != "" {
+			parts = append(parts, catalog)
+		}
+		if schema != "" {
+			parts = append(parts, schema)
+		}
+		parts = append(parts, table)
+		return strings.Join(parts, ".")
+	}
+
+	// Fall back to combined table name
+	if table != "" {
 		return table
 	}
-	if table, ok := args["table_name"].(string); ok {
-		return table
+	if tableName, ok := args["table_name"].(string); ok {
+		return tableName
 	}
 	return ""
 }

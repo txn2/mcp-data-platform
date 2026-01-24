@@ -132,6 +132,48 @@ func TestExtractTableFromRequest(t *testing.T) {
 			t.Errorf("expected empty string, got %q", table)
 		}
 	})
+
+	t.Run("separate catalog/schema/table params", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"catalog": "rdbms",
+			"schema":  "public",
+			"table":   "users",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		table := extractTableFromRequest(request)
+		if table != "rdbms.public.users" {
+			t.Errorf("expected 'rdbms.public.users', got %q", table)
+		}
+	})
+
+	t.Run("separate schema/table params only", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"schema": "public",
+			"table":  "users",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		table := extractTableFromRequest(request)
+		if table != "public.users" {
+			t.Errorf("expected 'public.users', got %q", table)
+		}
+	})
+
+	t.Run("table only without catalog/schema", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"table": "users",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		table := extractTableFromRequest(request)
+		if table != "users" {
+			t.Errorf("expected 'users', got %q", table)
+		}
+	})
 }
 
 func TestParseTableIdentifier(t *testing.T) {
