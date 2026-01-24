@@ -277,6 +277,10 @@ semantic:
   cache:
     enabled: true
     ttl: 5m
+  urn_mapping:
+    platform: postgres
+    catalog_mapping:
+      rdbms: warehouse
 
 query:
   provider: trino
@@ -293,10 +297,36 @@ storage:
 | `semantic.instance` | string | - | Toolkit instance name |
 | `semantic.cache.enabled` | bool | `false` | Enable caching |
 | `semantic.cache.ttl` | duration | `5m` | Cache TTL |
+| `semantic.urn_mapping.platform` | string | `trino` | Platform name for DataHub URNs |
+| `semantic.urn_mapping.catalog_mapping` | map | `{}` | Map Trino catalogs to DataHub catalogs |
 | `query.provider` | string | - | Provider type: `trino`, `noop` |
 | `query.instance` | string | - | Toolkit instance name |
 | `storage.provider` | string | - | Provider type: `s3`, `noop` |
 | `storage.instance` | string | - | Toolkit instance name |
+
+### URN Mapping
+
+When Trino catalog or platform names differ from DataHub metadata, configure URN mapping:
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+  urn_mapping:
+    # DataHub platform (e.g., postgres, mysql, trino)
+    platform: postgres
+    # Map Trino catalogs to DataHub catalogs
+    catalog_mapping:
+      rdbms: warehouse      # Trino "rdbms" → DataHub "warehouse"
+      iceberg: datalake     # Trino "iceberg" → DataHub "datalake"
+```
+
+This translates URNs during lookup:
+
+| Trino Table | Generated URN |
+|-------------|---------------|
+| `rdbms.public.users` | `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)` |
+| `iceberg.analytics.events` | `urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)` |
 
 ## Injection Configuration
 
