@@ -13,6 +13,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+// Note: The mockSemanticProvider and mockQueryProvider types used in these tests
+// are defined in semantic_test.go to avoid duplication.
+
 func TestInferToolkitKind(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -307,83 +310,4 @@ func (m *mockMCPRequest) GetMeta() *mcp.RequestMeta {
 	return nil
 }
 
-// mockSemanticProvider implements semantic.Provider for testing
-type mockSemanticProvider struct {
-	tableContext   *semantic.TableContext
-	columnContext  *semantic.ColumnContext
-	columnsContext map[string]*semantic.ColumnContext
-	lineageInfo    *semantic.LineageInfo
-	glossaryTerm   *semantic.GlossaryTerm
-	searchResults  []semantic.TableSearchResult
-	err            error
-}
-
-func (m *mockSemanticProvider) Name() string {
-	return "mock"
-}
-
-func (m *mockSemanticProvider) GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
-	return m.tableContext, m.err
-}
-
-func (m *mockSemanticProvider) GetColumnContext(ctx context.Context, column semantic.ColumnIdentifier) (*semantic.ColumnContext, error) {
-	return m.columnContext, m.err
-}
-
-func (m *mockSemanticProvider) GetColumnsContext(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
-	return m.columnsContext, m.err
-}
-
-func (m *mockSemanticProvider) GetLineage(ctx context.Context, table semantic.TableIdentifier, direction semantic.LineageDirection, maxDepth int) (*semantic.LineageInfo, error) {
-	return m.lineageInfo, m.err
-}
-
-func (m *mockSemanticProvider) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.GlossaryTerm, error) {
-	return m.glossaryTerm, m.err
-}
-
-func (m *mockSemanticProvider) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
-	return m.searchResults, m.err
-}
-
-func (m *mockSemanticProvider) Close() error {
-	return nil
-}
-
-// mockQueryProvider implements query.Provider for testing
-type mockQueryProvider struct {
-	availability *query.TableAvailability
-	examples     []query.QueryExample
-	execContext  *query.ExecutionContext
-	tableSchema  *query.TableSchema
-	tableID      *query.TableIdentifier
-	err          error
-}
-
-func (m *mockQueryProvider) Name() string {
-	return "mock"
-}
-
-func (m *mockQueryProvider) ResolveTable(ctx context.Context, urn string) (*query.TableIdentifier, error) {
-	return m.tableID, m.err
-}
-
-func (m *mockQueryProvider) GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error) {
-	return m.availability, m.err
-}
-
-func (m *mockQueryProvider) GetQueryExamples(ctx context.Context, urn string) ([]query.QueryExample, error) {
-	return m.examples, m.err
-}
-
-func (m *mockQueryProvider) GetExecutionContext(ctx context.Context, urns []string) (*query.ExecutionContext, error) {
-	return m.execContext, m.err
-}
-
-func (m *mockQueryProvider) GetTableSchema(ctx context.Context, table query.TableIdentifier) (*query.TableSchema, error) {
-	return m.tableSchema, m.err
-}
-
-func (m *mockQueryProvider) Close() error {
-	return nil
-}
+// Note: mockSemanticProvider and mockQueryProvider are defined in semantic_test.go
