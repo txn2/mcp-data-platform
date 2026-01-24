@@ -141,13 +141,12 @@ mcp-data-platform/
 │   │   ├── registry.go            # ToolkitRegistry
 │   │   ├── toolkit.go             # Toolkit interface
 │   │   └── loader.go              # Config-driven loading
-│   ├── middleware/                # Platform middleware chain
-│   │   ├── chain.go               # Middleware chain
+│   ├── middleware/                # MCP protocol middleware
 │   │   ├── context.go             # PlatformContext
-│   │   ├── auth.go                # Authentication
-│   │   ├── authz.go               # Authorization
-│   │   ├── semantic.go            # Semantic enrichment
-│   │   └── audit.go               # Audit logging
+│   │   ├── mcp_toolcall.go        # Auth/authz middleware
+│   │   ├── mcp_enrichment.go      # Semantic enrichment middleware
+│   │   ├── mcp_audit.go           # Audit logging middleware
+│   │   └── semantic.go            # Enrichment functions
 │   ├── audit/                     # Audit logging
 │   │   ├── logger.go              # AuditLogger interface
 │   │   ├── event.go               # Event types
