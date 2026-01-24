@@ -359,13 +359,13 @@ func executeWithMiddleware(t *testing.T, ctx context.Context, tp *helpers.TestPl
 	// Wrap the mock handler with enrichment middleware
 	wrappedHandler := enrichmentMW(mockMCPHandler)
 
-	// Create a mock request that wraps the CallToolRequest
-	mockReq := &helpers.MockMCPRequest{
+	// Create a ServerRequest with the call tool params
+	serverReq := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
 		Params: request.Params,
 	}
 
 	// Execute through the middleware
-	result, err := wrappedHandler(ctx, "tools/call", mockReq)
+	result, err := wrappedHandler(ctx, "tools/call", serverReq)
 	if err != nil {
 		t.Fatalf("middleware execution failed: %v", err)
 	}
