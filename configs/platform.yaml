@@ -173,6 +173,15 @@ query:
   provider: noop              # trino, noop
   instance: production
 
+  # URN mapping for DataHub → Trino direction (reverse of semantic urn_mapping)
+  # Maps DataHub catalog names back to Trino catalog names for query resolution
+  urn_mapping:
+    catalog_mapping: {}
+    # Example (reverse of semantic mapping):
+    # catalog_mapping:
+    #   warehouse: rdbms      # DataHub "warehouse" → Trino "rdbms"
+    #   datalake: iceberg     # DataHub "datalake" → Trino "iceberg"
+
 # Cross-injection
 injection:
   trino_semantic_enrichment: true
