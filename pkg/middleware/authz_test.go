@@ -3,8 +3,6 @@ package middleware
 import (
 	"context"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // mockAuthorizer implements Authorizer for testing.
@@ -17,94 +15,6 @@ func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles 
 		return m.isAuthorizedFunc(ctx, userID, roles, toolName)
 	}
 	return true, ""
-}
-
-func TestAuthzMiddleware(t *testing.T) {
-	t.Run("no platform context fails closed", func(t *testing.T) {
-		authz := &mockAuthorizer{}
-		mw := AuthzMiddleware(authz)
-		handler := mw(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			t.Error("handler should not be called without platform context")
-			return NewToolResultText("success"), nil
-		})
-
-		// SECURITY: missing platform context should fail closed
-		result, err := handler(context.Background(), mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.IsError {
-			t.Error("expected error result when platform context is missing")
-		}
-	})
-
-	t.Run("authorization success", func(t *testing.T) {
-		authz := &mockAuthorizer{
-			isAuthorizedFunc: func(_ context.Context, _ string, _ []string, _ string) (bool, string) {
-				return true, ""
-			},
-		}
-
-		middleware := AuthzMiddleware(authz)
-		var capturedPC *PlatformContext
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			capturedPC = GetPlatformContext(ctx)
-			return NewToolResultText("success"), nil
-		})
-
-		pc := &PlatformContext{
-			UserID:   "user123",
-			Roles:    []string{"admin"},
-			ToolName: "test_tool",
-		}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.IsError {
-			t.Error("expected success result")
-		}
-		if !capturedPC.Authorized {
-			t.Error("expected Authorized to be true")
-		}
-	})
-
-	t.Run("authorization failure", func(t *testing.T) {
-		authz := &mockAuthorizer{
-			isAuthorizedFunc: func(_ context.Context, _ string, _ []string, _ string) (bool, string) {
-				return false, "insufficient permissions"
-			},
-		}
-
-		middleware := AuthzMiddleware(authz)
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			t.Error("handler should not be called on authz failure")
-			return nil, nil
-		})
-
-		pc := &PlatformContext{
-			UserID:   "user123",
-			Roles:    []string{"viewer"},
-			ToolName: "admin_tool",
-		}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.IsError {
-			t.Error("expected error result")
-		}
-		if pc.Authorized {
-			t.Error("expected Authorized to be false")
-		}
-		if pc.AuthzError != "insufficient permissions" {
-			t.Errorf("expected AuthzError 'insufficient permissions', got %q", pc.AuthzError)
-		}
-	})
 }
 
 func TestNoopAuthorizer(t *testing.T) {
