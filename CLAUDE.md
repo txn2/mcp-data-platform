@@ -305,25 +305,23 @@ type Provider interface {
 type Toolkit interface {
     Kind() string
     Name() string
-    RegisterTools(server *server.MCPServer)
+    RegisterTools(server *mcp.Server)
     Tools() []string
     SetSemanticProvider(provider semantic.Provider)
     SetQueryProvider(provider query.Provider)
-    SetMiddleware(chain *middleware.Chain)
     Close() error
 }
 ```
 
-## Middleware Chain
+## MCP Protocol Middleware
 
-Request processing flows through the middleware chain:
+Request processing flows through MCP protocol-level middleware registered via `server.AddReceivingMiddleware()`:
 
-1. **Auth Middleware** - Extracts and validates Bearer token or API key
-2. **Persona Middleware** - Maps user roles to persona, loads tool filters
-3. **Authz Middleware** - Checks if persona allows the requested tool
-4. **Tool Handler** - Executes the actual tool logic
-5. **Semantic Enrichment** - Adds cross-service context to results
-6. **Audit Middleware** - Logs the request asynchronously
+1. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access
+2. **MCPAuditMiddleware** - Logs tool calls asynchronously (after response)
+3. **MCPSemanticEnrichmentMiddleware** - Adds cross-service context to results
+
+All middleware intercepts `tools/call` requests at the MCP protocol level.
 
 ## Testing
 
