@@ -340,11 +340,18 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 			return nil, fmt.Errorf("datahub instance %q not found in toolkits config", p.config.Semantic.Instance)
 		}
 
+		// Determine platform for URN building
+		platform := p.config.Semantic.URNMapping.Platform
+		if platform == "" {
+			platform = "trino" // Default platform if not configured
+		}
+
 		adapter, err := datahubsemantic.New(datahubsemantic.Config{
-			URL:      datahubCfg.URL,
-			Token:    datahubCfg.Token,
-			Platform: "trino",
-			Timeout:  datahubCfg.Timeout,
+			URL:            datahubCfg.URL,
+			Token:          datahubCfg.Token,
+			Platform:       platform,
+			Timeout:        datahubCfg.Timeout,
+			CatalogMapping: p.config.Semantic.URNMapping.CatalogMapping,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)
