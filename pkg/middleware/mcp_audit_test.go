@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestMCPAuditMiddleware_LogsToolCall(t *testing.T) {
 	pc.PersonaName = "analyst"
 	ctx := WithPlatformContext(context.Background(), pc)
 
-	req := createMockToolRequest(t, "trino_query", map[string]any{
+	req := createAuditTestRequest(t, "trino_query", map[string]any{
 		"sql": "SELECT 1",
 	})
 
@@ -98,7 +99,7 @@ func TestMCPAuditMiddleware_LogsToolCallError(t *testing.T) {
 	pc.ToolName = "trino_query"
 	ctx := WithPlatformContext(context.Background(), pc)
 
-	req := createMockToolRequest(t, "trino_query", nil)
+	req := createAuditTestRequest(t, "trino_query", nil)
 
 	result, err := wrapped(ctx, "tools/call", req)
 
@@ -134,7 +135,7 @@ func TestMCPAuditMiddleware_LogsToolResultError(t *testing.T) {
 	pc.ToolName = "trino_query"
 	ctx := WithPlatformContext(context.Background(), pc)
 
-	req := createMockToolRequest(t, "trino_query", nil)
+	req := createAuditTestRequest(t, "trino_query", nil)
 
 	_, err := wrapped(ctx, "tools/call", req)
 
@@ -164,7 +165,7 @@ func TestMCPAuditMiddleware_NoPlatformContext(t *testing.T) {
 	wrapped := mw(mockHandler)
 
 	// No PlatformContext in context
-	req := createMockToolRequest(t, "trino_query", nil)
+	req := createAuditTestRequest(t, "trino_query", nil)
 	result, err := wrapped(context.Background(), "tools/call", req)
 
 	require.NoError(t, err)
@@ -192,7 +193,7 @@ func TestMCPAuditMiddleware_DurationTracking(t *testing.T) {
 	pc.ToolName = "slow_tool"
 	ctx := WithPlatformContext(context.Background(), pc)
 
-	req := createMockToolRequest(t, "slow_tool", nil)
+	req := createAuditTestRequest(t, "slow_tool", nil)
 	_, _ = wrapped(ctx, "tools/call", req)
 
 	// Wait for async logging
@@ -206,29 +207,16 @@ func TestMCPAuditMiddleware_DurationTracking(t *testing.T) {
 }
 
 func TestExtractMCPParameters(t *testing.T) {
-	tests := []struct {
-		name     string
-		req      mcp.Request
-		expected map[string]any
-	}{
-		{
-			name:     "nil request",
-			req:      nil,
-			expected: nil,
-		},
-		{
-			name:     "with arguments",
-			req:      createMockToolRequest(t, "test", map[string]any{"key": "value", "num": float64(42)}),
-			expected: map[string]any{"key": "value", "num": float64(42)},
-		},
-	}
+	t.Run("nil request", func(t *testing.T) {
+		result := extractMCPParameters(nil)
+		assert.Nil(t, result)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractMCPParameters(tt.req)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	t.Run("with arguments", func(t *testing.T) {
+		req := createAuditTestRequest(t, "test", map[string]any{"key": "value", "num": float64(42)})
+		result := extractMCPParameters(req)
+		assert.Equal(t, map[string]any{"key": "value", "num": float64(42)}, result)
+	})
 }
 
 func TestExtractMCPErrorMessage(t *testing.T) {
@@ -289,4 +277,22 @@ func (c *capturingAuditLogger) Events() []AuditEvent {
 	result := make([]AuditEvent, len(c.events))
 	copy(result, c.events)
 	return result
+}
+
+// Helper to create ServerRequest for audit testing
+func createAuditTestRequest(t *testing.T, toolName string, args map[string]any) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
+	t.Helper()
+	var argsJSON json.RawMessage
+	if args != nil {
+		var err error
+		argsJSON, err = json.Marshal(args)
+		require.NoError(t, err)
+	}
+
+	return &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      toolName,
+			Arguments: argsJSON,
+		},
+	}
 }
