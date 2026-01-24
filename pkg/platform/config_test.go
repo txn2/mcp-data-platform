@@ -76,6 +76,40 @@ server:
 			t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "env-platform")
 		}
 	})
+
+	t.Run("URN mapping config parsing", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config.yaml")
+		configContent := `
+server:
+  name: test-platform
+semantic:
+  provider: datahub
+  instance: primary
+  urn_mapping:
+    platform: postgres
+    catalog_mapping:
+      rdbms: warehouse
+      iceberg: datalake
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("failed to write config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if cfg.Semantic.URNMapping.Platform != "postgres" {
+			t.Errorf("Semantic.URNMapping.Platform = %q, want %q", cfg.Semantic.URNMapping.Platform, "postgres")
+		}
+		if cfg.Semantic.URNMapping.CatalogMapping["rdbms"] != "warehouse" {
+			t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping["rdbms"], "warehouse")
+		}
+		if cfg.Semantic.URNMapping.CatalogMapping["iceberg"] != "datalake" {
+			t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping["iceberg"], "datalake")
+		}
+	})
 }
 
 func TestExpandEnvVars(t *testing.T) {
@@ -307,6 +341,49 @@ func TestConfigTypes(t *testing.T) {
 		}
 		if cfg.RetentionDays != 30 {
 			t.Errorf("RetentionDays = %d", cfg.RetentionDays)
+		}
+	})
+
+	t.Run("URNMappingConfig", func(t *testing.T) {
+		cfg := URNMappingConfig{
+			Platform: "postgres",
+			CatalogMapping: map[string]string{
+				"rdbms":   "warehouse",
+				"iceberg": "datalake",
+			},
+		}
+		if cfg.Platform != "postgres" {
+			t.Errorf("Platform = %q, want %q", cfg.Platform, "postgres")
+		}
+		if cfg.CatalogMapping["rdbms"] != "warehouse" {
+			t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.CatalogMapping["rdbms"], "warehouse")
+		}
+		if cfg.CatalogMapping["iceberg"] != "datalake" {
+			t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.CatalogMapping["iceberg"], "datalake")
+		}
+	})
+
+	t.Run("SemanticConfig with URNMapping", func(t *testing.T) {
+		cfg := SemanticConfig{
+			Provider: "datahub",
+			Instance: "primary",
+			Cache: CacheConfig{
+				Enabled: true,
+				TTL:     5 * time.Minute,
+			},
+			URNMapping: URNMappingConfig{
+				Platform:       "postgres",
+				CatalogMapping: map[string]string{"rdbms": "warehouse"},
+			},
+		}
+		if cfg.Provider != "datahub" {
+			t.Errorf("Provider = %q", cfg.Provider)
+		}
+		if cfg.URNMapping.Platform != "postgres" {
+			t.Errorf("URNMapping.Platform = %q", cfg.URNMapping.Platform)
+		}
+		if cfg.URNMapping.CatalogMapping["rdbms"] != "warehouse" {
+			t.Errorf("URNMapping.CatalogMapping[rdbms] = %q", cfg.URNMapping.CatalogMapping["rdbms"])
 		}
 	})
 }

@@ -144,9 +144,24 @@ type RoleMappingConfig struct {
 
 // SemanticConfig configures the semantic layer.
 type SemanticConfig struct {
-	Provider string      `yaml:"provider"` // "datahub", "noop"
-	Instance string      `yaml:"instance"`
-	Cache    CacheConfig `yaml:"cache"`
+	Provider   string           `yaml:"provider"` // "datahub", "noop"
+	Instance   string           `yaml:"instance"`
+	Cache      CacheConfig      `yaml:"cache"`
+	URNMapping URNMappingConfig `yaml:"urn_mapping"`
+}
+
+// URNMappingConfig configures URN translation between query engines and metadata catalogs.
+// This is necessary when Trino catalog/platform names differ from DataHub's metadata catalog names.
+type URNMappingConfig struct {
+	// Platform overrides the platform name used in DataHub URN building.
+	// For example, if Trino queries a PostgreSQL database, set this to "postgres"
+	// so URNs match DataHub's platform identifier.
+	Platform string `yaml:"platform"`
+
+	// CatalogMapping maps Trino catalog names to DataHub catalog names.
+	// For example: {"rdbms": "warehouse"} means Trino's "rdbms" catalog
+	// corresponds to DataHub's "warehouse" catalog in URNs.
+	CatalogMapping map[string]string `yaml:"catalog_mapping"`
 }
 
 // CacheConfig configures caching.
