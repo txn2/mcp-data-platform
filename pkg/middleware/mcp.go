@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -100,4 +102,14 @@ func createErrorResult(errMsg string) mcp.Result {
 			&mcp.TextContent{Text: errMsg},
 		},
 	}
+}
+
+// generateRequestID creates a cryptographically secure request ID.
+func generateRequestID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("req-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("req-%x", b)
 }
