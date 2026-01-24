@@ -161,11 +161,16 @@ func TestDataHubToTrinoEnrichment(t *testing.T) {
 
 // TestS3ToDataHubEnrichment tests that S3 list_objects results
 // include semantic context from DataHub.
+// Note: This test requires DataHub search to be available (OpenSearch must be running).
 func TestS3ToDataHubEnrichment(t *testing.T) {
 	cfg := helpers.DefaultE2EConfig()
 
 	if helpers.SkipIfDataHubUnavailable(cfg) {
 		t.Skip("DataHub not available, skipping test")
+	}
+
+	if helpers.SkipIfDataHubSearchUnavailable(cfg) {
+		t.Skip("DataHub search not available (OpenSearch may not be running), skipping test")
 	}
 
 	ctx, cancel := helpers.TestContext(cfg.Timeout)
