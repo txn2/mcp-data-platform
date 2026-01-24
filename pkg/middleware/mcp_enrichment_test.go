@@ -74,8 +74,8 @@ func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 
 	wrapped := mw(mockHandler)
 
-	// Create mock request
-	req := createMockToolRequest(t, "trino_query", map[string]any{})
+	// Create mock request using ServerRequest
+	req := createServerRequest(t, "trino_query", map[string]any{})
 
 	result, err := wrapped(context.Background(), "tools/call", req)
 
@@ -96,7 +96,7 @@ func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 	}
 
 	wrapped := mw(mockHandler)
-	req := createMockToolRequest(t, "trino_query", map[string]any{})
+	req := createServerRequest(t, "trino_query", map[string]any{})
 
 	result, err := wrapped(context.Background(), "tools/call", req)
 
@@ -109,11 +109,15 @@ func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	// Create mock semantic provider
 	mockProvider := &mockSemanticProvider{
-		tableContext: &semantic.TableContext{
-			URN:         "urn:li:dataset:(urn:li:dataPlatform:postgres,test.public.users,PROD)",
-			Description: "User accounts table",
-			Tags:        []string{"pii", "important"},
-			Owners:      []string{"owner@example.com"},
+		getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			return &semantic.TableContext{
+				URN:         "urn:li:dataset:(urn:li:dataPlatform:postgres,test.public.users,PROD)",
+				Description: "User accounts table",
+				Tags:        []string{"pii", "important"},
+				Owners: []semantic.Owner{
+					{URN: "owner@example.com", Name: "owner@example.com", Type: "user"},
+				},
+			}, nil
 		},
 	}
 
@@ -135,7 +139,7 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	wrapped := mw(mockHandler)
 
 	// Create request for trino_describe_table
-	req := createMockToolRequest(t, "trino_describe_table", map[string]any{
+	req := createServerRequest(t, "trino_describe_table", map[string]any{
 		"catalog": "test",
 		"schema":  "public",
 		"table":   "users",
@@ -156,13 +160,16 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 }
 
 func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
+	rowCount := int64(1000)
 	// Create mock query provider
 	mockProvider := &mockQueryProvider{
-		availability: &query.TableAvailability{
-			QueryExecutor:  "trino",
-			ExecutorConfig: "rdbms",
-			CanQuery:       true,
-			RowCount:       1000,
+		getTableAvailabilityFunc: func(ctx context.Context, urn string) (*query.TableAvailability, error) {
+			return &query.TableAvailability{
+				Available:     true,
+				QueryTable:    "rdbms.public.test",
+				Connection:    "trino",
+				EstimatedRows: &rowCount,
+			}, nil
 		},
 	}
 
@@ -182,7 +189,7 @@ func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
 
 	wrapped := mw(mockHandler)
 
-	req := createMockToolRequest(t, "datahub_search", map[string]any{
+	req := createServerRequest(t, "datahub_search", map[string]any{
 		"query": "test",
 	})
 
@@ -217,7 +224,7 @@ func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 	wrapped := mw(mockHandler)
 
 	// Use unknown tool name
-	req := createMockToolRequest(t, "custom_tool", map[string]any{})
+	req := createServerRequest(t, "custom_tool", map[string]any{})
 
 	result, err := wrapped(context.Background(), "tools/call", req)
 
@@ -228,7 +235,9 @@ func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 	mockProvider := &mockSemanticProvider{
-		tableContext: &semantic.TableContext{Description: "Test"},
+		getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			return &semantic.TableContext{Description: "Test"}, nil
+		},
 	}
 
 	// Create middleware with enrichment DISABLED
@@ -245,7 +254,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 
 	wrapped := mw(mockHandler)
 
-	req := createMockToolRequest(t, "trino_describe_table", map[string]any{
+	req := createServerRequest(t, "trino_describe_table", map[string]any{
 		"catalog": "test",
 		"schema":  "public",
 		"table":   "users",
@@ -259,7 +268,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 }
 
 func TestBuildCallToolRequest(t *testing.T) {
-	req := createMockToolRequest(t, "test_tool", map[string]any{
+	req := createServerRequest(t, "test_tool", map[string]any{
 		"key": "value",
 	})
 
@@ -276,38 +285,23 @@ func TestBuildCallToolRequest(t *testing.T) {
 
 func TestBuildCallToolRequest_NilParams(t *testing.T) {
 	callReq := buildCallToolRequest(nil)
-	assert.Equal(t, "", callReq.Params.Name)
-	assert.Nil(t, callReq.Params.Arguments)
+	assert.Nil(t, callReq.Params)
 }
 
-// Helper to create mock tool requests
-func createMockToolRequest(t *testing.T, toolName string, args map[string]any) *mockMCPRequest {
+// Helper to create ServerRequest for testing
+func createServerRequest(t *testing.T, toolName string, args map[string]any) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
 	t.Helper()
-	argsJSON, err := json.Marshal(args)
-	require.NoError(t, err)
+	var argsJSON json.RawMessage
+	if args != nil {
+		var err error
+		argsJSON, err = json.Marshal(args)
+		require.NoError(t, err)
+	}
 
-	return &mockMCPRequest{
-		params: &mcp.CallToolParamsRaw{
+	return &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: &mcp.CallToolParamsRaw{
 			Name:      toolName,
 			Arguments: argsJSON,
 		},
 	}
 }
-
-// mockMCPRequest implements mcp.Request for testing
-type mockMCPRequest struct {
-	params *mcp.CallToolParamsRaw
-}
-
-func (m *mockMCPRequest) GetParams() mcp.Params {
-	if m == nil || m.params == nil {
-		return nil
-	}
-	return m.params
-}
-
-func (m *mockMCPRequest) GetMeta() *mcp.RequestMeta {
-	return nil
-}
-
-// Note: mockSemanticProvider and mockQueryProvider are defined in semantic_test.go

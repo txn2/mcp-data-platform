@@ -97,6 +97,9 @@ func inferToolkitKind(toolName string) string {
 
 // buildCallToolRequest builds a CallToolRequest from an MCP Request.
 func buildCallToolRequest(req mcp.Request) mcp.CallToolRequest {
+	if req == nil {
+		return mcp.CallToolRequest{}
+	}
 	params := req.GetParams()
 	if params == nil {
 		return mcp.CallToolRequest{}
@@ -108,23 +111,7 @@ func buildCallToolRequest(req mcp.Request) mcp.CallToolRequest {
 	}
 
 	return mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      callParams.Name,
-			Arguments: callParams.Arguments,
-		},
-	}
-}
-
-// convertParamsToCallToolRequest converts CallToolParamsRaw to CallToolRequest.
-func convertParamsToCallToolRequest(params *mcp.CallToolParamsRaw) mcp.CallToolRequest {
-	if params == nil {
-		return mcp.CallToolRequest{}
-	}
-	return mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      params.Name,
-			Arguments: params.Arguments,
-		},
+		Params: callParams,
 	}
 }
 
