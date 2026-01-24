@@ -1,51 +1,50 @@
 # Middleware Reference
 
-Middleware processes requests and responses in a chain. Each middleware can inspect, modify, or short-circuit requests before they reach tool handlers, and can process responses on the way back.
+Middleware processes requests and responses at the MCP protocol level. Each middleware intercepts `tools/call` requests before they reach tool handlers, and can process responses on the way back.
 
-## Middleware Chain
+## Middleware Architecture
 
 ```mermaid
 graph LR
-    Request --> Auth
-    Auth --> Persona
-    Persona --> Authz
-    Authz --> Handler
-    Handler --> Enrichment
-    Enrichment --> Audit
-    Audit --> Response
+    Request --> MCPToolCall
+    MCPToolCall --> MCPAudit
+    MCPAudit --> MCPEnrichment
+    MCPEnrichment --> Handler
+    Handler --> MCPEnrichment
+    MCPEnrichment --> MCPAudit
+    MCPAudit --> MCPToolCall
+    MCPToolCall --> Response
 ```
 
-Requests flow through middleware from outer to inner, and responses flow back from inner to outer.
+Middleware is registered via `server.AddReceivingMiddleware()` and executes in registration order for requests, reverse order for responses.
 
-## Interface
+## MCP Middleware Interface
 
 ```go
-type Middleware func(next Handler) Handler
+// MCP middleware signature from the go-sdk
+type Middleware func(next MethodHandler) MethodHandler
 
-type Handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+type MethodHandler func(ctx context.Context, method string, req Request) (Result, error)
 ```
-
-Middleware wraps a handler and returns a new handler that can:
-
-1. Inspect the request before calling `next`
-2. Short-circuit by returning without calling `next`
-3. Modify the request before passing to `next`
-4. Inspect or modify the response after `next` returns
-5. Handle errors from `next`
 
 ## Platform Context
 
-The platform context carries request-scoped data through the chain:
+The platform context carries request-scoped data through the middleware:
 
 ```go
 type PlatformContext struct {
-    UserContext  *auth.UserContext
-    Persona      *persona.Persona
+    RequestID    string
+    UserID       string
+    UserEmail    string
+    UserClaims   map[string]any
+    Roles        []string
+    PersonaName  string
+    ToolName     string
     ToolkitKind  string
     ToolkitName  string
-    ToolName     string
-    RequestID    string
-    StartTime    time.Time
+    Connection   string
+    Authorized   bool
+    AuthzError   string
 }
 
 // Get context from request context
@@ -57,300 +56,171 @@ ctx = middleware.WithPlatformContext(ctx, pc)
 
 ## Built-in Middleware
 
-### Authentication Middleware
+### MCPToolCallMiddleware
 
-Validates credentials and sets user context.
+Handles authentication and authorization at the MCP protocol level.
 
 ```go
-func AuthMiddleware(
-    oidcValidator *auth.OIDCValidator,
-    apiKeyValidator *auth.APIKeyValidator,
-) Middleware
+func MCPToolCallMiddleware(
+    authenticator Authenticator,
+    authorizer Authorizer,
+) mcp.Middleware
 ```
 
 **Behavior:**
 
-1. Extracts Bearer token from request
-2. Attempts OIDC validation if token looks like JWT
-3. Falls back to API key validation
-4. Sets `UserContext` in platform context
-5. Returns 401 if validation fails
+1. Only intercepts `tools/call` requests (passes through other methods)
+2. Extracts tool name from request parameters
+3. Creates PlatformContext with request ID and tool info
+4. Runs authenticator to identify user
+5. Runs authorizer to check tool access
+6. Returns error result if auth fails, otherwise proceeds
 
-### Persona Middleware
+### MCPAuditMiddleware
 
-Maps user roles to persona.
+Logs tool calls for compliance and debugging.
 
 ```go
-func PersonaMiddleware(
-    registry *persona.Registry,
-    defaultPersona string,
-) Middleware
+func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware
 ```
 
 **Behavior:**
 
-1. Gets user context from platform context
-2. Finds persona matching user roles
-3. Falls back to default persona if no match
-4. Sets `Persona` in platform context
+1. Only intercepts `tools/call` requests
+2. Records start time
+3. Calls next handler
+4. Gets PlatformContext (set by MCPToolCallMiddleware)
+5. Builds audit event with timing, user, tool, parameters
+6. Logs asynchronously (does not block response)
 
-### Authorization Middleware
+### MCPSemanticEnrichmentMiddleware
 
-Checks if persona allows the requested tool.
-
-```go
-func AuthzMiddleware() Middleware
-```
-
-**Behavior:**
-
-1. Gets persona from platform context
-2. Checks tool name against allow/deny patterns
-3. Returns 403 if tool is denied
-
-### Semantic Enrichment Middleware
-
-Adds cross-service context to results.
+Adds cross-service context to tool results.
 
 ```go
-func SemanticEnrichmentMiddleware(
+func MCPSemanticEnrichmentMiddleware(
     semanticProvider semantic.Provider,
     queryProvider query.Provider,
     storageProvider storage.Provider,
     cfg EnrichmentConfig,
-) Middleware
+) mcp.Middleware
 ```
 
 **Behavior:**
 
-1. Calls the tool handler
-2. Checks toolkit kind (trino, datahub, s3)
-3. Fetches relevant context from providers
-4. Appends enrichment to result content
+1. Only intercepts `tools/call` requests
+2. Calls next handler to get result
+3. Skips enrichment if result is error
+4. Determines toolkit kind from tool name prefix (`trino_`, `datahub_`, `s3_`)
+5. Calls appropriate enrichment function based on toolkit
+6. Appends semantic context to result content
 
-### Audit Middleware
-
-Logs tool calls for compliance.
-
-```go
-func AuditMiddleware(logger audit.Logger) Middleware
-```
-
-**Behavior:**
-
-1. Records request start time
-2. Calls the tool handler
-3. Logs request details asynchronously
-4. Does not block the response
-
-## Chain Configuration
+## Enrichment Configuration
 
 ```go
-chain := middleware.NewChain()
-
-// Add middleware in order (outermost first)
-chain.Use(middleware.AuthMiddleware(oidcValidator, apiKeyValidator))
-chain.Use(middleware.PersonaMiddleware(registry, "default"))
-chain.Use(middleware.AuthzMiddleware())
-// ... handler executes here ...
-chain.Use(middleware.SemanticEnrichmentMiddleware(semantic, query, storage, cfg))
-chain.Use(middleware.AuditMiddleware(logger))
-```
-
-## Writing Custom Middleware
-
-### Basic Pattern
-
-```go
-func MyMiddleware() middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Before: inspect or modify request
-            log.Printf("Tool call: %s", req.Params.Name)
-
-            // Call next handler
-            result, err := next(ctx, req)
-
-            // After: inspect or modify response
-            if err != nil {
-                log.Printf("Tool error: %v", err)
-            }
-
-            return result, err
-        }
-    }
+type EnrichmentConfig struct {
+    EnrichTrinoResults          bool  // Add DataHub metadata to Trino results
+    EnrichDataHubResults        bool  // Add Trino query availability to DataHub results
+    EnrichS3Results             bool  // Add DataHub metadata to S3 results
+    EnrichDataHubStorageResults bool  // Add S3 availability to DataHub results
 }
 ```
 
-### Request Modification
+## Middleware Registration
+
+Middleware is registered in the platform during setup:
 
 ```go
-func AddMetadataMiddleware(metadata map[string]string) middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Modify request arguments
-            var args map[string]any
-            json.Unmarshal(req.Params.Arguments, &args)
+// In platform.go finalizeSetup()
 
-            for k, v := range metadata {
-                args[k] = v
-            }
+// 1. Auth/Authz middleware
+p.mcpServer.AddReceivingMiddleware(
+    middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
+)
 
-            modified, _ := json.Marshal(args)
-            req.Params.Arguments = modified
+// 2. Audit middleware (if enabled)
+if p.config.Audit.Enabled {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPAuditMiddleware(p.auditLogger),
+    )
+}
 
-            return next(ctx, req)
-        }
-    }
+// 3. Semantic enrichment middleware (if any enrichment enabled)
+if needsEnrichment {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPSemanticEnrichmentMiddleware(
+            p.semanticProvider,
+            p.queryProvider,
+            p.storageProvider,
+            middleware.EnrichmentConfig{...},
+        ),
+    )
 }
 ```
 
-### Short-Circuit
+## Interfaces
+
+### Authenticator
 
 ```go
-func RateLimitMiddleware(limiter *RateLimiter) middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            pc := middleware.GetPlatformContext(ctx)
+type Authenticator interface {
+    Authenticate(ctx context.Context) (*UserInfo, error)
+}
 
-            if !limiter.Allow(pc.UserContext.Subject) {
-                // Short-circuit: don't call next
-                return mcp.NewToolResultError("rate limit exceeded"), nil
-            }
-
-            return next(ctx, req)
-        }
-    }
+type UserInfo struct {
+    UserID   string
+    Email    string
+    Claims   map[string]any
+    Roles    []string
+    AuthType string // "oidc", "apikey", etc.
 }
 ```
 
-### Response Modification
+### Authorizer
 
 ```go
-func TimingMiddleware() middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            start := time.Now()
-
-            result, err := next(ctx, req)
-
-            if result != nil && !result.IsError {
-                // Append timing to result
-                timing := map[string]any{
-                    "execution_time_ms": time.Since(start).Milliseconds(),
-                }
-                timingJSON, _ := json.Marshal(timing)
-                result.Content = append(result.Content, &mcp.TextContent{
-                    Text: string(timingJSON),
-                })
-            }
-
-            return result, err
-        }
-    }
+type Authorizer interface {
+    IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string)
 }
 ```
 
-### Error Handling
+### AuditLogger
 
 ```go
-func ErrorWrapperMiddleware() middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            result, err := next(ctx, req)
-
-            if err != nil {
-                // Convert Go error to tool error
-                return mcp.NewToolResultError(fmt.Sprintf("Internal error: %v", err)), nil
-            }
-
-            return result, nil
-        }
-    }
-}
-```
-
-### Conditional Middleware
-
-```go
-func ConditionalMiddleware(condition func(req mcp.CallToolRequest) bool, mw middleware.Middleware) middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        wrappedHandler := mw(next)
-
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            if condition(req) {
-                return wrappedHandler(ctx, req)
-            }
-            return next(ctx, req)
-        }
-    }
+type AuditLogger interface {
+    Log(ctx context.Context, event AuditEvent) error
 }
 
-// Usage: only apply logging to trino tools
-chain.Use(ConditionalMiddleware(
-    func(req mcp.CallToolRequest) bool {
-        return strings.HasPrefix(req.Params.Name, "trino_")
-    },
-    LoggingMiddleware(),
-))
-```
-
-## Middleware Order
-
-Order matters. Common patterns:
-
-```go
-// Authentication/Authorization first
-chain.Use(AuthMiddleware(...))
-chain.Use(PersonaMiddleware(...))
-chain.Use(AuthzMiddleware())
-
-// Request validation/transformation
-chain.Use(ValidationMiddleware())
-chain.Use(TransformMiddleware())
-
-// Tool handler executes here
-
-// Response processing
-chain.Use(EnrichmentMiddleware(...))
-chain.Use(TimingMiddleware())
-
-// Logging/audit last
-chain.Use(AuditMiddleware(...))
+type AuditEvent struct {
+    Timestamp    time.Time
+    RequestID    string
+    UserID       string
+    UserEmail    string
+    Persona      string
+    ToolName     string
+    ToolkitKind  string
+    ToolkitName  string
+    Connection   string
+    Parameters   map[string]any
+    Success      bool
+    ErrorMessage string
+    DurationMS   int64
+}
 ```
 
 ## Best Practices
 
-**Keep middleware focused:**
-Each middleware should do one thing. Compose multiple middleware for complex behavior.
+**Use MCP protocol-level middleware:**
+All middleware should implement `mcp.Middleware` and be registered via `AddReceivingMiddleware()`.
 
-**Don't swallow errors:**
-Either return errors or handle them completely. Don't log and ignore.
+**Check method type:**
+Only intercept `tools/call` for tool-specific middleware. Pass through other methods unchanged.
 
-**Use context for data:**
-Pass request-scoped data via context, not global variables.
+**Use PlatformContext:**
+Pass request-scoped data via PlatformContext, not global variables.
 
-**Be careful with modification:**
-Modifying requests or responses can make debugging difficult. Log changes.
+**Log asynchronously:**
+Audit and logging middleware should not block the response.
 
-**Consider performance:**
-Middleware runs on every request. Expensive operations should be asynchronous or cached.
-
-**Handle panics:**
-Consider recovery middleware for production:
-
-```go
-func RecoveryMiddleware() middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (result *mcp.CallToolResult, err error) {
-            defer func() {
-                if r := recover(); r != nil {
-                    err = fmt.Errorf("panic: %v", r)
-                    result = mcp.NewToolResultError("internal error")
-                }
-            }()
-            return next(ctx, req)
-        }
-    }
-}
-```
+**Handle errors gracefully:**
+Return MCP error results rather than Go errors for client-facing failures.
