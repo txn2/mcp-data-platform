@@ -161,17 +161,16 @@ The `Platform` struct is the main orchestrator and entry point:
 
 ```go
 type Platform struct {
-    server     *mcp.Server
-    config     *Config
-    toolkits   *registry.Registry
-    middleware *middleware.Chain
-    providers  struct {
-        semantic semantic.Provider
-        query    query.Provider
-        storage  storage.Provider
-    }
-    audit      audit.Logger
-    closer     []io.Closer
+    mcpServer        *mcp.Server
+    config           *Config
+    toolkitRegistry  *registry.Registry
+    authenticator    middleware.Authenticator
+    authorizer       middleware.Authorizer
+    auditLogger      middleware.AuditLogger
+    semanticProvider semantic.Provider
+    queryProvider    query.Provider
+    storageProvider  storage.Provider
+    closers          []io.Closer
 }
 ```
 
@@ -179,7 +178,7 @@ type Platform struct {
 
 1. Load and validate configuration
 2. Initialize providers and toolkits
-3. Build the middleware chain
+3. Register MCP protocol-level middleware
 4. Register tools with the MCP server
 5. Manage lifecycle (startup, shutdown)
 
@@ -542,7 +541,6 @@ type Toolkit interface {
     // Provider injection (for enrichment)
     SetSemanticProvider(provider semantic.Provider)
     SetQueryProvider(provider query.Provider)
-    SetMiddleware(chain *middleware.Chain)
 
     // Lifecycle
     Close() error
@@ -590,9 +588,8 @@ func (r *Registry) Get(name string) (Toolkit, bool) {
 package mytoolkit
 
 import (
-    "github.com/mark3labs/mcp-go/mcp"
-    "github.com/mark3labs/mcp-go/server"
-    "github.com/txn2/mcp-data-platform/pkg/middleware"
+    "context"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
     "github.com/txn2/mcp-data-platform/pkg/semantic"
     "github.com/txn2/mcp-data-platform/pkg/query"
 )
@@ -604,7 +601,6 @@ type Toolkit struct {
 
     semanticProvider semantic.Provider
     queryProvider    query.Provider
-    middlewareChain  *middleware.Chain
 }
 
 func New(name string, cfg Config) (*Toolkit, error) {
@@ -626,23 +622,40 @@ func (t *Toolkit) Tools() []string {
     return []string{"mytoolkit_operation", "mytoolkit_query"}
 }
 
-func (t *Toolkit) RegisterTools(s *server.MCPServer) {
-    s.AddTool(
-        mcp.NewTool("mytoolkit_operation",
-            mcp.WithDescription("Perform a custom operation"),
-            mcp.WithString("input", mcp.Required(), mcp.Description("Operation input")),
-        ),
-        t.handleOperation,
-    )
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+    s.AddTool(mcp.Tool{
+        Name:        "mytoolkit_operation",
+        Description: "Perform a custom operation",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "input": map[string]any{
+                    "type":        "string",
+                    "description": "Operation input",
+                },
+            },
+            Required: []string{"input"},
+        },
+    }, t.handleOperation)
 
-    s.AddTool(
-        mcp.NewTool("mytoolkit_query",
-            mcp.WithDescription("Query the custom backend"),
-            mcp.WithString("query", mcp.Required(), mcp.Description("Query string")),
-            mcp.WithNumber("limit", mcp.Description("Maximum results")),
-        ),
-        t.handleQuery,
-    )
+    s.AddTool(mcp.Tool{
+        Name:        "mytoolkit_query",
+        Description: "Query the custom backend",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "query": map[string]any{
+                    "type":        "string",
+                    "description": "Query string",
+                },
+                "limit": map[string]any{
+                    "type":        "number",
+                    "description": "Maximum results",
+                },
+            },
+            Required: []string{"query"},
+        },
+    }, t.handleQuery)
 }
 
 func (t *Toolkit) handleOperation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -658,7 +671,6 @@ func (t *Toolkit) handleOperation(ctx context.Context, req mcp.CallToolRequest) 
 
 func (t *Toolkit) SetSemanticProvider(p semantic.Provider) { t.semanticProvider = p }
 func (t *Toolkit) SetQueryProvider(p query.Provider)       { t.queryProvider = p }
-func (t *Toolkit) SetMiddleware(c *middleware.Chain)       { t.middlewareChain = c }
 func (t *Toolkit) Close() error                            { return t.client.Close() }
 ```
 
