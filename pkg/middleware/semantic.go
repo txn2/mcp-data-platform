@@ -86,37 +86,6 @@ func (e *semanticEnricher) enrichDataHubResultWithAll(
 	return enrichedResult, nil
 }
 
-// SemanticEnrichmentMiddleware creates middleware that enriches results with semantic context.
-func SemanticEnrichmentMiddleware(
-	semanticProvider semantic.Provider,
-	queryProvider query.Provider,
-	storageProvider storage.Provider,
-	cfg EnrichmentConfig,
-) Middleware {
-	enricher := &semanticEnricher{
-		semanticProvider: semanticProvider,
-		queryProvider:    queryProvider,
-		storageProvider:  storageProvider,
-		cfg:              cfg,
-	}
-
-	return func(next Handler) Handler {
-		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			result, err := next(ctx, request)
-			if err != nil || result == nil || result.IsError {
-				return result, err
-			}
-
-			pc := GetPlatformContext(ctx)
-			if pc == nil {
-				return result, nil
-			}
-
-			return enricher.enrich(ctx, result, request, pc)
-		}
-	}
-}
-
 // enrichTrinoResult adds semantic context to Trino tool results.
 func enrichTrinoResult(
 	ctx context.Context,

@@ -6,7 +6,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -24,9 +23,6 @@ type Registry struct {
 	// Providers for cross-injection
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
-
-	// Middleware chain
-	middlewareChain *middleware.Chain
 }
 
 // NewRegistry creates a new toolkit registry.
@@ -66,17 +62,6 @@ func (r *Registry) SetQueryProvider(provider query.Provider) {
 	}
 }
 
-// SetMiddleware sets the middleware chain for all toolkits.
-func (r *Registry) SetMiddleware(chain *middleware.Chain) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.middlewareChain = chain
-
-	for _, toolkit := range r.toolkits {
-		toolkit.SetMiddleware(chain)
-	}
-}
-
 // Register adds a toolkit to the registry.
 func (r *Registry) Register(toolkit Toolkit) error {
 	r.mu.Lock()
@@ -87,15 +72,12 @@ func (r *Registry) Register(toolkit Toolkit) error {
 		return fmt.Errorf("toolkit %s already registered", key)
 	}
 
-	// Inject providers
+	// Inject providers for semantic/query context (used by enrichment middleware)
 	if r.semanticProvider != nil {
 		toolkit.SetSemanticProvider(r.semanticProvider)
 	}
 	if r.queryProvider != nil {
 		toolkit.SetQueryProvider(r.queryProvider)
-	}
-	if r.middlewareChain != nil {
-		toolkit.SetMiddleware(r.middlewareChain)
 	}
 
 	r.toolkits[key] = toolkit

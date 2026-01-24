@@ -21,34 +21,6 @@ type UserInfo struct {
 	AuthType string // "oidc", "apikey", etc.
 }
 
-// AuthMiddleware creates authentication middleware.
-func AuthMiddleware(authenticator Authenticator) Middleware {
-	return func(next Handler) Handler {
-		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			pc := GetPlatformContext(ctx)
-			if pc == nil {
-				// Fail closed: missing platform context is an internal error
-				return NewToolResultError("internal error: missing platform context"), nil
-			}
-
-			// Authenticate
-			userInfo, err := authenticator.Authenticate(ctx)
-			if err != nil {
-				return NewToolResultError("authentication failed: " + err.Error()), nil
-			}
-
-			if userInfo != nil {
-				pc.UserID = userInfo.UserID
-				pc.UserEmail = userInfo.Email
-				pc.UserClaims = userInfo.Claims
-				pc.Roles = userInfo.Roles
-			}
-
-			return next(ctx, request)
-		}
-	}
-}
-
 // NewToolResultError creates an error result.
 func NewToolResultError(errMsg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{

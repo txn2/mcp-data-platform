@@ -161,17 +161,16 @@ The `Platform` struct is the main orchestrator and entry point:
 
 ```go
 type Platform struct {
-    server     *mcp.Server
-    config     *Config
-    toolkits   *registry.Registry
-    middleware *middleware.Chain
-    providers  struct {
-        semantic semantic.Provider
-        query    query.Provider
-        storage  storage.Provider
-    }
-    audit      audit.Logger
-    closer     []io.Closer
+    mcpServer        *mcp.Server
+    config           *Config
+    toolkitRegistry  *registry.Registry
+    authenticator    middleware.Authenticator
+    authorizer       middleware.Authorizer
+    auditLogger      middleware.AuditLogger
+    semanticProvider semantic.Provider
+    queryProvider    query.Provider
+    storageProvider  storage.Provider
+    closers          []io.Closer
 }
 ```
 
@@ -179,7 +178,7 @@ type Platform struct {
 
 1. Load and validate configuration
 2. Initialize providers and toolkits
-3. Build the middleware chain
+3. Register MCP protocol-level middleware
 4. Register tools with the MCP server
 5. Manage lifecycle (startup, shutdown)
 
@@ -243,31 +242,44 @@ Configuration sources are merged in order:
 
 ---
 
-## Middleware Chain
+## MCP Protocol Middleware
 
-The middleware chain implements the decorator pattern for request processing:
+Middleware operates at the MCP protocol level using `server.AddReceivingMiddleware()`. Each middleware intercepts `tools/call` requests before they reach tool handlers and can process responses on the way back.
 
 ```go
-type Chain struct {
-    middlewares []Middleware
-}
-
-type Middleware func(next Handler) Handler
-type Handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+// MCP middleware signature from the go-sdk
+type Middleware func(next MethodHandler) MethodHandler
+type MethodHandler func(ctx context.Context, method string, req Request) (Result, error)
 ```
 
-### Building the Chain
+### Registering Middleware
 
 ```go
-chain := middleware.NewChain()
+// In platform.go finalizeSetup()
 
-// Add in order (first added = outermost)
-chain.Use(AuthMiddleware(authConfig))
-chain.Use(PersonaMiddleware(personaRegistry))
-chain.Use(AuthzMiddleware())
-// ... toolkit handler is innermost ...
-chain.Use(EnrichmentMiddleware(semanticProvider))
-chain.Use(AuditMiddleware(auditLogger))
+// 1. Auth/Authz middleware
+p.mcpServer.AddReceivingMiddleware(
+    middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
+)
+
+// 2. Audit middleware (if enabled)
+if p.config.Audit.Enabled {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPAuditMiddleware(p.auditLogger),
+    )
+}
+
+// 3. Semantic enrichment middleware (if any enrichment enabled)
+if needsEnrichment {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPSemanticEnrichmentMiddleware(
+            p.semanticProvider,
+            p.queryProvider,
+            p.storageProvider,
+            middleware.EnrichmentConfig{...},
+        ),
+    )
+}
 ```
 
 ### Execution Order
@@ -275,47 +287,60 @@ chain.Use(AuditMiddleware(auditLogger))
 ```mermaid
 flowchart TB
     subgraph "Request Path (outside → in)"
-        A1[Auth MW] --> P1[Persona MW]
-        P1 --> Z1[Authz MW]
-        Z1 --> T[Toolkit Handler]
+        A1[MCPToolCall MW] --> U1[MCPAudit MW]
+        U1 --> E1[MCPEnrichment MW]
+        E1 --> T[Tool Handler]
     end
 
     subgraph "Response Path (inside → out)"
-        T --> E1[Enrichment MW]
-        E1 --> U1[Audit MW]
+        T --> E2[MCPEnrichment MW]
+        E2 --> U2[MCPAudit MW]
+        U2 --> A2[MCPToolCall MW]
     end
 ```
 
-Middleware wraps handlers like layers of an onion:
+Middleware wraps handlers using the decorator pattern:
 
 ```go
-func AuthMiddleware(cfg AuthConfig) Middleware {
-    return func(next Handler) Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Pre-processing: validate credentials
-            userCtx, err := validateCredentials(ctx, cfg)
-            if err != nil {
-                return nil, &PlatformError{Code: ErrCodeAuth, Cause: err}
+func MCPToolCallMiddleware(auth Authenticator, authz Authorizer) mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            // Only intercept tools/call
+            if method != "tools/call" {
+                return next(ctx, method, req)
             }
 
-            // Add user context and continue
-            ctx = auth.WithUserContext(ctx, userCtx)
-            return next(ctx, req)
+            // Pre-processing: authenticate and authorize
+            pc := NewPlatformContext(generateRequestID())
+            if err := auth.Authenticate(ctx, pc); err != nil {
+                return mcp.NewToolResultError("unauthorized"), nil
+            }
+            if !authz.IsAuthorized(ctx, pc) {
+                return mcp.NewToolResultError("forbidden"), nil
+            }
+
+            // Add platform context and continue
+            ctx = WithPlatformContext(ctx, pc)
+            return next(ctx, method, req)
         }
     }
 }
 
-func EnrichmentMiddleware(provider semantic.Provider) Middleware {
-    return func(next Handler) Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            // Execute inner handler first
-            result, err := next(ctx, req)
-            if err != nil {
-                return nil, err
+func MCPSemanticEnrichmentMiddleware(semantic semantic.Provider, ...) mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            if method != "tools/call" {
+                return next(ctx, method, req)
             }
 
-            // Post-processing: enrich result
-            enriched := enrichResult(ctx, provider, result)
+            // Execute tool handler first
+            result, err := next(ctx, method, req)
+            if err != nil {
+                return result, err
+            }
+
+            // Post-processing: enrich result with semantic context
+            enriched := enrichResult(ctx, result, semantic)
             return enriched, nil
         }
     }
@@ -542,7 +567,6 @@ type Toolkit interface {
     // Provider injection (for enrichment)
     SetSemanticProvider(provider semantic.Provider)
     SetQueryProvider(provider query.Provider)
-    SetMiddleware(chain *middleware.Chain)
 
     // Lifecycle
     Close() error
@@ -590,9 +614,8 @@ func (r *Registry) Get(name string) (Toolkit, bool) {
 package mytoolkit
 
 import (
-    "github.com/mark3labs/mcp-go/mcp"
-    "github.com/mark3labs/mcp-go/server"
-    "github.com/txn2/mcp-data-platform/pkg/middleware"
+    "context"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
     "github.com/txn2/mcp-data-platform/pkg/semantic"
     "github.com/txn2/mcp-data-platform/pkg/query"
 )
@@ -604,7 +627,6 @@ type Toolkit struct {
 
     semanticProvider semantic.Provider
     queryProvider    query.Provider
-    middlewareChain  *middleware.Chain
 }
 
 func New(name string, cfg Config) (*Toolkit, error) {
@@ -626,23 +648,40 @@ func (t *Toolkit) Tools() []string {
     return []string{"mytoolkit_operation", "mytoolkit_query"}
 }
 
-func (t *Toolkit) RegisterTools(s *server.MCPServer) {
-    s.AddTool(
-        mcp.NewTool("mytoolkit_operation",
-            mcp.WithDescription("Perform a custom operation"),
-            mcp.WithString("input", mcp.Required(), mcp.Description("Operation input")),
-        ),
-        t.handleOperation,
-    )
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+    s.AddTool(mcp.Tool{
+        Name:        "mytoolkit_operation",
+        Description: "Perform a custom operation",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "input": map[string]any{
+                    "type":        "string",
+                    "description": "Operation input",
+                },
+            },
+            Required: []string{"input"},
+        },
+    }, t.handleOperation)
 
-    s.AddTool(
-        mcp.NewTool("mytoolkit_query",
-            mcp.WithDescription("Query the custom backend"),
-            mcp.WithString("query", mcp.Required(), mcp.Description("Query string")),
-            mcp.WithNumber("limit", mcp.Description("Maximum results")),
-        ),
-        t.handleQuery,
-    )
+    s.AddTool(mcp.Tool{
+        Name:        "mytoolkit_query",
+        Description: "Query the custom backend",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "query": map[string]any{
+                    "type":        "string",
+                    "description": "Query string",
+                },
+                "limit": map[string]any{
+                    "type":        "number",
+                    "description": "Maximum results",
+                },
+            },
+            Required: []string{"query"},
+        },
+    }, t.handleQuery)
 }
 
 func (t *Toolkit) handleOperation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -658,7 +697,6 @@ func (t *Toolkit) handleOperation(ctx context.Context, req mcp.CallToolRequest) 
 
 func (t *Toolkit) SetSemanticProvider(p semantic.Provider) { t.semanticProvider = p }
 func (t *Toolkit) SetQueryProvider(p query.Provider)       { t.queryProvider = p }
-func (t *Toolkit) SetMiddleware(c *middleware.Chain)       { t.middlewareChain = c }
 func (t *Toolkit) Close() error                            { return t.client.Close() }
 ```
 

@@ -3,6 +3,7 @@
     "entityUrn": "urn:li:tag:e2e-test",
     "entityType": "tag",
     "aspectName": "tagProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "e2e-test",
       "description": "Tag for E2E test datasets"
@@ -12,6 +13,7 @@
     "entityUrn": "urn:li:tag:ecommerce",
     "entityType": "tag",
     "aspectName": "tagProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "ecommerce",
       "description": "E-commerce related data"
@@ -21,6 +23,7 @@
     "entityUrn": "urn:li:tag:pii",
     "entityType": "tag",
     "aspectName": "tagProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "pii",
       "description": "Contains Personally Identifiable Information"
@@ -30,6 +33,7 @@
     "entityUrn": "urn:li:tag:internal",
     "entityType": "tag",
     "aspectName": "tagProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "internal",
       "description": "Internal use only"

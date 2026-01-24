@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -240,82 +238,6 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		if reason != "" {
 			t.Errorf("unexpected reason: %s", reason)
-		}
-	})
-}
-
-func TestPersonaMiddleware(t *testing.T) {
-	t.Run("no platform context fails closed", func(t *testing.T) {
-		mapper := &mockRoleMapper{}
-		mw := PersonaMiddleware(mapper)
-		handler := mw(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return &mcp.CallToolResult{}, nil
-		})
-
-		// SECURITY: missing platform context should fail closed
-		result, err := handler(context.Background(), mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result == nil {
-			t.Error("expected non-nil result")
-		}
-		if !result.IsError {
-			t.Error("expected error result when platform context is missing")
-		}
-	})
-
-	t.Run("sets persona name in context", func(t *testing.T) {
-		persona := &Persona{Name: "analyst"}
-		mapper := &mockRoleMapper{
-			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
-				return persona, nil
-			},
-		}
-		mw := PersonaMiddleware(mapper)
-
-		var capturedPC *middleware.PlatformContext
-		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			capturedPC = middleware.GetPlatformContext(ctx)
-			return &mcp.CallToolResult{}, nil
-		})
-
-		pc := middleware.NewPlatformContext("req-1")
-		pc.Roles = []string{"analyst"}
-		ctx := middleware.WithPlatformContext(context.Background(), pc)
-
-		_, err := handler(ctx, mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if capturedPC.PersonaName != "analyst" {
-			t.Errorf("expected PersonaName 'analyst', got %q", capturedPC.PersonaName)
-		}
-	})
-
-	t.Run("mapper error continues without persona", func(t *testing.T) {
-		mapper := &mockRoleMapper{
-			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
-				return nil, errors.New("mapper error")
-			},
-		}
-		mw := PersonaMiddleware(mapper)
-
-		var capturedPC *middleware.PlatformContext
-		handler := mw(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			capturedPC = middleware.GetPlatformContext(ctx)
-			return &mcp.CallToolResult{}, nil
-		})
-
-		pc := middleware.NewPlatformContext("req-1")
-		ctx := middleware.WithPlatformContext(context.Background(), pc)
-
-		_, err := handler(ctx, mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if capturedPC.PersonaName != "" {
-			t.Errorf("expected empty PersonaName, got %q", capturedPC.PersonaName)
 		}
 	})
 }

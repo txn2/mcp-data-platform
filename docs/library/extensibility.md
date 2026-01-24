@@ -16,7 +16,6 @@ type Toolkit interface {
     Tools() []string
     SetSemanticProvider(provider semantic.Provider)
     SetQueryProvider(provider query.Provider)
-    SetMiddleware(chain *middleware.Chain)
     Close() error
 }
 ```
@@ -28,8 +27,8 @@ package mytoolkit
 
 import (
     "context"
+    "encoding/json"
     "github.com/modelcontextprotocol/go-sdk/mcp"
-    "github.com/txn2/mcp-data-platform/pkg/middleware"
     "github.com/txn2/mcp-data-platform/pkg/query"
     "github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -46,7 +45,6 @@ type Toolkit struct {
 
     semanticProvider semantic.Provider
     queryProvider    query.Provider
-    middlewareChain  *middleware.Chain
 }
 
 func New(name string, cfg Config) (*Toolkit, error) {
@@ -106,7 +104,6 @@ func (t *Toolkit) Tools() []string {
 
 func (t *Toolkit) SetSemanticProvider(p semantic.Provider) { t.semanticProvider = p }
 func (t *Toolkit) SetQueryProvider(p query.Provider)       { t.queryProvider = p }
-func (t *Toolkit) SetMiddleware(c *middleware.Chain)       { t.middlewareChain = c }
 
 func (t *Toolkit) Close() error {
     return t.client.Close()
@@ -236,13 +233,16 @@ func main() {
 
 ## Custom Middleware
 
-Add request processing logic.
+Add request processing logic at the MCP protocol level.
 
 ### Middleware Interface
 
+MCP middleware intercepts requests at the protocol level:
+
 ```go
-type Middleware func(next Handler) Handler
-type Handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+// MCP middleware signature from the go-sdk
+type Middleware func(next MethodHandler) MethodHandler
+type MethodHandler func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error)
 ```
 
 ### Example: Logging Middleware
@@ -259,30 +259,35 @@ import (
     "github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
-func LoggingMiddleware(logger *log.Logger) middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func LoggingMiddleware(logger *log.Logger) mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            // Only log tools/call requests
+            if method != "tools/call" {
+                return next(ctx, method, req)
+            }
+
             start := time.Now()
 
-            // Get platform context
+            // Get platform context (set by MCPToolCallMiddleware)
             pc := middleware.GetPlatformContext(ctx)
 
             logger.Printf("Starting tool call: %s (user: %s)",
-                req.Params.Name,
-                pc.UserContext.Subject,
+                pc.ToolName,
+                pc.UserID,
             )
 
             // Call next handler
-            result, err := next(ctx, req)
+            result, err := next(ctx, method, req)
 
             // Log completion
             duration := time.Since(start)
             if err != nil {
                 logger.Printf("Tool call failed: %s (duration: %v, error: %v)",
-                    req.Params.Name, duration, err)
+                    pc.ToolName, duration, err)
             } else {
                 logger.Printf("Tool call completed: %s (duration: %v)",
-                    req.Params.Name, duration)
+                    pc.ToolName, duration)
             }
 
             return result, err
@@ -298,7 +303,6 @@ package mymiddleware
 
 import (
     "context"
-    "fmt"
     "sync"
     "time"
 
@@ -321,17 +325,22 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
     }
 }
 
-func (r *RateLimiter) Middleware() middleware.Middleware {
-    return func(next middleware.Handler) middleware.Handler {
-        return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-            pc := middleware.GetPlatformContext(ctx)
-            userID := pc.UserContext.Subject
-
-            if !r.allow(userID) {
-                return mcp.NewToolResultError("rate limit exceeded"), nil
+func (r *RateLimiter) Middleware() mcp.Middleware {
+    return func(next mcp.MethodHandler) mcp.MethodHandler {
+        return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+            // Only rate limit tools/call
+            if method != "tools/call" {
+                return next(ctx, method, req)
             }
 
-            return next(ctx, req)
+            pc := middleware.GetPlatformContext(ctx)
+            userID := pc.UserID
+
+            if !r.allow(userID) {
+                return middleware.NewToolResultError("rate limit exceeded"), nil
+            }
+
+            return next(ctx, method, req)
         }
     }
 }
@@ -365,6 +374,8 @@ func (r *RateLimiter) allow(userID string) bool {
 
 ### Register Custom Middleware
 
+Register middleware on the MCP server using `AddReceivingMiddleware()`:
+
 ```go
 import (
     "log"
@@ -382,11 +393,11 @@ func main() {
     p, _ := platform.New(
         platform.WithServerName("custom-platform"),
         platform.WithTrinoToolkit("primary", trinoCfg),
-
-        // Add custom middleware
-        platform.WithMiddleware(mymiddleware.LoggingMiddleware(logger)),
-        platform.WithMiddleware(rateLimiter.Middleware()),
     )
+
+    // Add custom middleware to the MCP server
+    p.Server().AddReceivingMiddleware(mymiddleware.LoggingMiddleware(logger))
+    p.Server().AddReceivingMiddleware(rateLimiter.Middleware())
 
     p.Run()
 }

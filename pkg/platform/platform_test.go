@@ -132,8 +132,8 @@ func TestNew(t *testing.T) {
 			t.Fatalf("New() error = %v", err)
 		}
 
-		if p.MiddlewareChain() == nil {
-			t.Error("MiddlewareChain() is nil")
+		if p.MCPServer() == nil {
+			t.Error("MCPServer() is nil")
 		}
 	})
 
@@ -306,7 +306,7 @@ func TestLoadPersonas(t *testing.T) {
 	}
 }
 
-func TestMiddlewareChainWithEnrichment(t *testing.T) {
+func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: "test"},
 		Semantic: SemanticConfig{Provider: "noop"},
@@ -326,8 +326,9 @@ func TestMiddlewareChainWithEnrichment(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if p.MiddlewareChain() == nil {
-		t.Error("MiddlewareChain() is nil")
+	// Verify MCP server was created with middleware configured
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() is nil")
 	}
 }
 

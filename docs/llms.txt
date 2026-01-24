@@ -41,7 +41,7 @@
 
 - [Library Overview](library/overview.md): Build custom MCP servers using the Go library
 - [Quick Start](library/quickstart.md): Code examples for common patterns
-- [Architecture](library/architecture.md): Package structure, middleware chain, provider interfaces
+- [Architecture](library/architecture.md): Package structure, MCP protocol middleware, provider interfaces
 - [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
 
 ## Examples

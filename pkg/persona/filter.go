@@ -4,8 +4,6 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -103,24 +101,3 @@ func (a *PersonaAuthorizer) IsAuthorized(ctx context.Context, userID string, rol
 
 // Verify interface compliance.
 var _ middleware.Authorizer = (*PersonaAuthorizer)(nil)
-
-// PersonaMiddleware creates middleware that sets persona in context.
-func PersonaMiddleware(mapper RoleMapper) middleware.Middleware {
-	return func(next middleware.Handler) middleware.Handler {
-		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			pc := middleware.GetPlatformContext(ctx)
-			if pc == nil {
-				// Fail closed: missing platform context is an internal error
-				return middleware.NewToolResultError("internal error: missing platform context"), nil
-			}
-
-			// Get persona for user's roles
-			persona, err := mapper.MapToPersona(ctx, pc.Roles)
-			if err == nil && persona != nil {
-				pc.PersonaName = persona.Name
-			}
-
-			return next(ctx, request)
-		}
-	}
-}

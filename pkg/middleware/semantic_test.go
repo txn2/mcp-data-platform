@@ -13,61 +13,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
-func TestSemanticEnrichmentMiddleware(t *testing.T) {
-	t.Run("no platform context", func(t *testing.T) {
-		middleware := SemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return NewToolResultText("success"), nil
-		})
-
-		result, err := handler(context.Background(), mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.IsError {
-			t.Error("expected success result")
-		}
-	})
-
-	t.Run("error result not enriched", func(t *testing.T) {
-		middleware := SemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{
-			EnrichTrinoResults: true,
-		})
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return NewToolResultError("error"), nil
-		})
-
-		pc := &PlatformContext{ToolkitKind: "trino"}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.IsError {
-			t.Error("expected error result")
-		}
-	})
-
-	t.Run("nil result not enriched", func(t *testing.T) {
-		middleware := SemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return nil, nil
-		})
-
-		pc := &PlatformContext{ToolkitKind: "trino"}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result != nil {
-			t.Error("expected nil result")
-		}
-	})
-}
-
 func TestEnrichmentConfig(t *testing.T) {
 	cfg := EnrichmentConfig{
 		EnrichTrinoResults:          true,

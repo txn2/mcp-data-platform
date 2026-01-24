@@ -4,7 +4,6 @@ package registry
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -28,9 +27,6 @@ type Toolkit interface {
 
 	// SetQueryProvider sets the query execution provider for enrichment.
 	SetQueryProvider(provider query.Provider)
-
-	// SetMiddleware sets the middleware chain for tool handlers.
-	SetMiddleware(chain *middleware.Chain)
 
 	// Close releases resources.
 	Close() error

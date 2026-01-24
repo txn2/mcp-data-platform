@@ -22,11 +22,11 @@ type E2EConfig struct {
 	// PostgreSQL configuration
 	PostgresDSN string
 
-	// MinIO (S3) configuration
-	MinIOEndpoint  string
-	MinIOAccessKey string
-	MinIOSecretKey string
-	MinIORegion    string
+	// S3-compatible storage configuration (SeaweedFS)
+	S3Endpoint  string
+	S3AccessKey string
+	S3SecretKey string
+	S3Region    string
 
 	// Test configuration
 	Timeout time.Duration
@@ -46,11 +46,11 @@ func DefaultE2EConfig() *E2EConfig {
 		// PostgreSQL
 		PostgresDSN: getEnv("E2E_POSTGRES_DSN", "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"),
 
-		// MinIO
-		MinIOEndpoint:  getEnv("E2E_MINIO_ENDPOINT", "localhost:9000"),
-		MinIOAccessKey: getEnv("E2E_MINIO_ACCESS_KEY", "minioadmin"),
-		MinIOSecretKey: getEnv("E2E_MINIO_SECRET_KEY", "minioadmin123"),
-		MinIORegion:    getEnv("E2E_MINIO_REGION", "us-east-1"),
+		// S3 (SeaweedFS)
+		S3Endpoint:  getEnv("E2E_S3_ENDPOINT", "localhost:9000"),
+		S3AccessKey: getEnv("E2E_S3_ACCESS_KEY", "admin"),
+		S3SecretKey: getEnv("E2E_S3_SECRET_KEY", "admin_secret"),
+		S3Region:    getEnv("E2E_S3_REGION", "us-east-1"),
 
 		// Test timeouts
 		Timeout: getEnvDuration("E2E_TIMEOUT", 30*time.Second),
@@ -93,4 +93,17 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+// SkipIfDataHubSearchUnavailable checks if DataHub search is working.
+// Returns true if search is unavailable and test should be skipped.
+func SkipIfDataHubSearchUnavailable(cfg *E2EConfig) bool {
+	if !cfg.IsDataHubAvailable() {
+		return true
+	}
+	// Skip if E2E_SKIP_SEARCH_TESTS is set (for when OpenSearch is not running)
+	if os.Getenv("E2E_SKIP_SEARCH_TESTS") == "true" {
+		return true
+	}
+	return false
 }

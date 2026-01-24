@@ -737,8 +737,7 @@ package custom
 import (
     "context"
 
-    "github.com/mark3labs/mcp-go/server"
-    "github.com/txn2/mcp-data-platform/pkg/middleware"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
     "github.com/txn2/mcp-data-platform/pkg/semantic"
     "github.com/txn2/mcp-data-platform/pkg/query"
 )
@@ -749,7 +748,6 @@ type Toolkit struct {
     config           Config
     semanticProvider semantic.Provider
     queryProvider    query.Provider
-    middlewareChain  *middleware.Chain
 }
 
 func (t *Toolkit) Kind() string { return "custom" }
@@ -762,14 +760,21 @@ func (t *Toolkit) Tools() []string {
     }
 }
 
-func (t *Toolkit) RegisterTools(s *server.MCPServer) {
-    s.AddTool(
-        mcp.NewTool("custom_operation_one",
-            mcp.WithDescription("Perform custom operation one"),
-            mcp.WithString("input", mcp.Required(), mcp.Description("Input value")),
-        ),
-        t.handleOperationOne,
-    )
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+    s.AddTool(mcp.Tool{
+        Name:        "custom_operation_one",
+        Description: "Perform custom operation one",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "input": map[string]any{
+                    "type":        "string",
+                    "description": "Input value",
+                },
+            },
+            Required: []string{"input"},
+        },
+    }, t.handleOperationOne)
 }
 
 func (t *Toolkit) SetSemanticProvider(p semantic.Provider) {
@@ -778,10 +783,6 @@ func (t *Toolkit) SetSemanticProvider(p semantic.Provider) {
 
 func (t *Toolkit) SetQueryProvider(p query.Provider) {
     t.queryProvider = p
-}
-
-func (t *Toolkit) SetMiddleware(chain *middleware.Chain) {
-    t.middlewareChain = chain
 }
 
 func (t *Toolkit) Close() error {

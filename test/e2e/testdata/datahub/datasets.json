@@ -3,6 +3,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
     "entityType": "dataset",
     "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "test_orders",
       "description": "E-commerce test orders table for E2E testing",
@@ -16,6 +17,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
     "entityType": "dataset",
     "aspectName": "ownership",
+    "changeType": "UPSERT",
     "aspect": {
       "owners": [
         {
@@ -33,6 +35,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
     "entityType": "dataset",
     "aspectName": "globalTags",
+    "changeType": "UPSERT",
     "aspect": {
       "tags": [
         {
@@ -48,6 +51,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)",
     "entityType": "dataset",
     "aspectName": "domains",
+    "changeType": "UPSERT",
     "aspect": {
       "domains": [
         "urn:li:domain:ecommerce"
@@ -58,6 +62,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.legacy_users,PROD)",
     "entityType": "dataset",
     "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "legacy_users",
       "description": "Legacy user table - DEPRECATED, use user_profiles instead"
@@ -67,6 +72,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.legacy_users,PROD)",
     "entityType": "dataset",
     "aspectName": "deprecation",
+    "changeType": "UPSERT",
     "aspect": {
       "deprecated": true,
       "decommissionTime": 1735689600000,
@@ -78,6 +84,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)",
     "entityType": "dataset",
     "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "customer_metrics",
       "description": "Aggregated customer metrics for analytics"
@@ -87,6 +94,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)",
     "entityType": "dataset",
     "aspectName": "ownership",
+    "changeType": "UPSERT",
     "aspect": {
       "owners": [
         {
@@ -100,6 +108,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
     "entityType": "dataset",
     "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
     "aspect": {
       "name": "raw-data-lake",
       "description": "Raw data landing zone in S3",
@@ -113,6 +122,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
     "entityType": "dataset",
     "aspectName": "ownership",
+    "changeType": "UPSERT",
     "aspect": {
       "owners": [
         {
@@ -126,6 +136,7 @@
     "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)",
     "entityType": "dataset",
     "aspectName": "domains",
+    "changeType": "UPSERT",
     "aspect": {
       "domains": [
         "urn:li:domain:data-platform"

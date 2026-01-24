@@ -9,7 +9,6 @@ import (
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -40,7 +39,6 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
-	middlewareChain  *middleware.Chain
 }
 
 // New creates a new Trino toolkit.
@@ -182,11 +180,6 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 	t.queryProvider = provider
 }
 
-// SetMiddleware sets the middleware chain for tool handlers.
-func (t *Toolkit) SetMiddleware(chain *middleware.Chain) {
-	t.middlewareChain = chain
-}
-
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.client != nil {
@@ -213,6 +206,5 @@ var _ interface {
 	Tools() []string
 	SetSemanticProvider(provider semantic.Provider)
 	SetQueryProvider(provider query.Provider)
-	SetMiddleware(chain *middleware.Chain)
 	Close() error
 } = (*Toolkit)(nil)

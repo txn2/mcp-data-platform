@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,116 +17,6 @@ func (m *mockAuthenticator) Authenticate(ctx context.Context) (*UserInfo, error)
 		return m.authenticateFunc(ctx)
 	}
 	return nil, nil
-}
-
-func TestAuthMiddleware(t *testing.T) {
-	t.Run("no platform context fails closed", func(t *testing.T) {
-		auth := &mockAuthenticator{}
-		mw := AuthMiddleware(auth)
-		handler := mw(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			t.Error("handler should not be called without platform context")
-			return NewToolResultText("success"), nil
-		})
-
-		// SECURITY: missing platform context should fail closed
-		result, err := handler(context.Background(), mcp.CallToolRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.IsError {
-			t.Error("expected error result when platform context is missing")
-		}
-	})
-
-	t.Run("authentication success", func(t *testing.T) {
-		auth := &mockAuthenticator{
-			authenticateFunc: func(_ context.Context) (*UserInfo, error) {
-				return &UserInfo{
-					UserID:   "user123",
-					Email:    "user@test.com",
-					Roles:    []string{"admin"},
-					Claims:   map[string]any{"sub": "user123"},
-					AuthType: "oidc",
-				}, nil
-			},
-		}
-
-		middleware := AuthMiddleware(auth)
-		var capturedPC *PlatformContext
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			capturedPC = GetPlatformContext(ctx)
-			return NewToolResultText("success"), nil
-		})
-
-		pc := &PlatformContext{}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.IsError {
-			t.Error("expected success result")
-		}
-		if capturedPC.UserID != "user123" {
-			t.Errorf("expected UserID 'user123', got %q", capturedPC.UserID)
-		}
-		if capturedPC.UserEmail != "user@test.com" {
-			t.Errorf("expected UserEmail 'user@test.com', got %q", capturedPC.UserEmail)
-		}
-		if len(capturedPC.Roles) != 1 || capturedPC.Roles[0] != "admin" {
-			t.Errorf("expected Roles ['admin'], got %v", capturedPC.Roles)
-		}
-	})
-
-	t.Run("authentication failure", func(t *testing.T) {
-		auth := &mockAuthenticator{
-			authenticateFunc: func(_ context.Context) (*UserInfo, error) {
-				return nil, errors.New("invalid credentials")
-			},
-		}
-
-		middleware := AuthMiddleware(auth)
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			t.Error("handler should not be called on auth failure")
-			return nil, nil
-		})
-
-		pc := &PlatformContext{}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.IsError {
-			t.Error("expected error result")
-		}
-	})
-
-	t.Run("authentication returns nil user info", func(t *testing.T) {
-		auth := &mockAuthenticator{
-			authenticateFunc: func(_ context.Context) (*UserInfo, error) {
-				return nil, nil
-			},
-		}
-
-		middleware := AuthMiddleware(auth)
-		handler := middleware(func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return NewToolResultText("success"), nil
-		})
-
-		pc := &PlatformContext{}
-		ctx := WithPlatformContext(context.Background(), pc)
-		result, err := handler(ctx, mcp.CallToolRequest{})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.IsError {
-			t.Error("expected success result")
-		}
-	})
 }
 
 func TestNoopAuthenticator(t *testing.T) {

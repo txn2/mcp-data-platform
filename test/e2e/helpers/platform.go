@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -89,10 +91,10 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			"s3": map[string]any{
 				"instances": map[string]any{
 					"e2e": map[string]any{
-						"endpoint":          e2eCfg.MinIOEndpoint,
-						"access_key_id":     e2eCfg.MinIOAccessKey,
-						"secret_access_key": e2eCfg.MinIOSecretKey,
-						"region":            e2eCfg.MinIORegion,
+						"endpoint":          e2eCfg.S3Endpoint,
+						"access_key_id":     e2eCfg.S3AccessKey,
+						"secret_access_key": e2eCfg.S3SecretKey,
+						"region":            e2eCfg.S3Region,
 						"connection_name":   "e2e-s3",
 					},
 				},
@@ -127,12 +129,12 @@ func (tp *TestPlatform) StorageProvider() storage.Provider {
 	return tp.Platform.StorageProvider()
 }
 
-// MiddlewareChain returns the middleware chain for direct testing.
-func (tp *TestPlatform) MiddlewareChain() *middleware.Chain {
+// MCPServer returns the MCP server for protocol-level testing.
+func (tp *TestPlatform) MCPServer() *mcp.Server {
 	if tp.Platform == nil {
 		return nil
 	}
-	return tp.Platform.MiddlewareChain()
+	return tp.Platform.MCPServer()
 }
 
 // TestContext creates a test context with timeout.
@@ -143,4 +145,46 @@ func TestContext(timeout time.Duration) (context.Context, context.CancelFunc) {
 // SkipIfDataHubUnavailable skips the test if DataHub is not available.
 func SkipIfDataHubUnavailable(cfg *E2EConfig) bool {
 	return !cfg.IsDataHubAvailable()
+}
+
+// MockMCPRequest implements mcp.Request for E2E testing.
+type MockMCPRequest struct {
+	Params *mcp.CallToolParamsRaw
+}
+
+// GetSession returns nil session (not used in tests).
+func (m *MockMCPRequest) GetSession() mcp.Session {
+	return nil
+}
+
+// GetParams returns the request parameters.
+func (m *MockMCPRequest) GetParams() mcp.Params {
+	if m == nil || m.Params == nil {
+		return nil
+	}
+	return m.Params
+}
+
+// GetExtra returns nil (no extra in tests).
+func (m *MockMCPRequest) GetExtra() *mcp.RequestExtra {
+	return nil
+}
+
+// CreateEnrichmentMiddleware creates the MCP semantic enrichment middleware for testing.
+func CreateEnrichmentMiddleware(
+	semanticProvider semantic.Provider,
+	queryProvider query.Provider,
+	storageProvider storage.Provider,
+) mcp.Middleware {
+	return middleware.MCPSemanticEnrichmentMiddleware(
+		semanticProvider,
+		queryProvider,
+		storageProvider,
+		middleware.EnrichmentConfig{
+			EnrichTrinoResults:          true,
+			EnrichDataHubResults:        true,
+			EnrichS3Results:             true,
+			EnrichDataHubStorageResults: true,
+		},
+	)
 }
