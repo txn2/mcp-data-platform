@@ -23,7 +23,7 @@ The E2E tests validate four cross-injection paths:
 ## Quick Start
 
 ```bash
-# Start platform services (PostgreSQL, Trino, MinIO)
+# Start platform services (PostgreSQL, Trino, SeaweedFS)
 make e2e-up
 
 # For full tests, start DataHub in another terminal
@@ -47,7 +47,7 @@ make e2e-down
 |---------|------|---------|
 | PostgreSQL | 5432 | OAuth/Audit storage |
 | Trino | 8090 | Query execution |
-| MinIO | 9000/9001 | S3-compatible storage |
+| SeaweedFS | 9000 | S3-compatible storage |
 | DataHub GMS | 8080 | Semantic metadata (via quickstart) |
 | DataHub Frontend | 9002 | DataHub UI (via quickstart) |
 
@@ -61,7 +61,7 @@ The test environment includes:
 - `products` - No DataHub metadata
 - `customer_metrics` - Analytics table
 
-**MinIO Buckets**:
+**S3 Buckets** (SeaweedFS):
 - `test-data-lake` - Contains sample data with DataHub metadata
 - `test-analytics` - Empty bucket without metadata
 
@@ -85,6 +85,8 @@ test/e2e/
 ├── init/                        # Service initialization
 │   ├── postgres/
 │   │   └── 01_init.sql          # Database schema
+│   ├── seaweedfs/
+│   │   └── s3.json              # S3 credentials config
 │   └── trino/
 │       ├── catalog/
 │       │   └── memory.properties
@@ -112,9 +114,9 @@ Tests use environment variables for configuration:
 | `E2E_DATAHUB_URL` | `http://localhost:8080` | DataHub GMS URL |
 | `E2E_DATAHUB_TOKEN` | (empty) | DataHub auth token |
 | `E2E_POSTGRES_DSN` | `postgres://...` | PostgreSQL connection |
-| `E2E_MINIO_ENDPOINT` | `localhost:9000` | MinIO endpoint |
-| `E2E_MINIO_ACCESS_KEY` | `minioadmin` | MinIO access key |
-| `E2E_MINIO_SECRET_KEY` | `minioadmin123` | MinIO secret key |
+| `E2E_S3_ENDPOINT` | `localhost:9000` | S3 endpoint (SeaweedFS) |
+| `E2E_S3_ACCESS_KEY` | `admin` | S3 access key |
+| `E2E_S3_SECRET_KEY` | `admin_secret` | S3 secret key |
 | `E2E_TIMEOUT` | `30s` | Test timeout |
 
 ## Running Tests
