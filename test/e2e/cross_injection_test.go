@@ -7,11 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/test/e2e/helpers"
 )
 
@@ -328,20 +326,13 @@ func callS3ListObjects(t *testing.T, ctx context.Context, tp *helpers.TestPlatfo
 	return executeWithMiddleware(t, ctx, tp, request, "s3")
 }
 
-// executeWithMiddleware executes a tool request through the middleware chain.
+// executeWithEnrichment executes a tool request through the semantic enrichment middleware.
+// This tests the enrichment logic directly rather than through the full MCP protocol stack.
 func executeWithMiddleware(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, request mcp.CallToolRequest, toolkitKind string) *mcp.CallToolResult {
 	t.Helper()
 
-	// Create platform context
-	pc := middleware.NewPlatformContext("e2e-test-" + time.Now().Format("20060102150405"))
-	pc.ToolName = request.Params.Name
-	pc.ToolkitKind = toolkitKind
-	pc.UserID = "e2e-test-user"
-
-	ctx = middleware.WithPlatformContext(ctx, pc)
-
-	// Create a mock handler that returns a basic result
-	mockHandler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Create a mock MCP handler that returns a basic result
+	mockMCPHandler := func(_ context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		// Create a mock result with URN for enrichment tests
 		resultData := createMockResult(toolkitKind, request)
 		resultJSON, _ := json.Marshal(resultData)
@@ -353,19 +344,39 @@ func executeWithMiddleware(t *testing.T, ctx context.Context, tp *helpers.TestPl
 		}, nil
 	}
 
-	// Execute through middleware chain
-	chain := tp.MiddlewareChain()
-	if chain == nil {
-		t.Fatal("middleware chain is nil - platform may not be initialized correctly")
-	}
-	wrappedHandler := chain.Wrap(mockHandler)
+	// Get providers from the platform
+	semanticProvider := tp.SemanticProvider()
+	queryProvider := tp.QueryProvider()
+	storageProvider := tp.StorageProvider()
 
-	result, err := wrappedHandler(ctx, request)
+	// Create the enrichment middleware with full config
+	enrichmentMW := helpers.CreateEnrichmentMiddleware(
+		semanticProvider,
+		queryProvider,
+		storageProvider,
+	)
+
+	// Wrap the mock handler with enrichment middleware
+	wrappedHandler := enrichmentMW(mockMCPHandler)
+
+	// Create a mock request that wraps the CallToolRequest
+	mockReq := &helpers.MockMCPRequest{
+		Params: request.Params,
+	}
+
+	// Execute through the middleware
+	result, err := wrappedHandler(ctx, "tools/call", mockReq)
 	if err != nil {
 		t.Fatalf("middleware execution failed: %v", err)
 	}
 
-	return result
+	// Type assert to CallToolResult
+	callResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf("expected *mcp.CallToolResult, got %T", result)
+	}
+
+	return callResult
 }
 
 // createMockResult creates appropriate mock result data for each toolkit.
