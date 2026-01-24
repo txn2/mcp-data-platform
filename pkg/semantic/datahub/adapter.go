@@ -17,8 +17,13 @@ import (
 type Config struct {
 	URL      string
 	Token    string
-	Platform string // Default platform for URN building (e.g., "trino")
+	Platform string // Default platform for URN building (e.g., "trino", "postgres")
 	Timeout  time.Duration
+
+	// CatalogMapping maps query engine catalog names to metadata catalog names.
+	// For example: {"rdbms": "warehouse"} means the Trino "rdbms" catalog
+	// corresponds to the "warehouse" catalog in DataHub URNs.
+	CatalogMapping map[string]string
 }
 
 // Client defines the interface for DataHub operations.
@@ -239,10 +244,28 @@ func (a *Adapter) Close() error {
 }
 
 // buildDatasetURN creates a DataHub URN for a table.
+// It applies catalog mapping to translate query engine catalogs to metadata catalogs.
 func (a *Adapter) buildDatasetURN(table semantic.TableIdentifier) string {
-	// DataHub URN format: urn:li:dataset:(urn:li:dataPlatform:platform,database.schema.table,PROD)
-	name := table.String()
-	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s,PROD)", a.cfg.Platform, name)
+	// DataHub URN format: urn:li:dataset:(urn:li:dataPlatform:platform,catalog.schema.table,PROD)
+
+	catalog := table.Catalog
+
+	// Apply catalog mapping if configured
+	if mapped, ok := a.cfg.CatalogMapping[catalog]; ok {
+		catalog = mapped
+	}
+
+	// Build name from available parts
+	var parts []string
+	if catalog != "" {
+		parts = append(parts, catalog)
+	}
+	if table.Schema != "" {
+		parts = append(parts, table.Schema)
+	}
+	parts = append(parts, table.Table)
+
+	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s,PROD)", a.cfg.Platform, strings.Join(parts, "."))
 }
 
 // ResolveURN converts a DataHub URN to a table identifier.
