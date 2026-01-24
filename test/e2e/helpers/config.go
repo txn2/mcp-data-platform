@@ -94,3 +94,16 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	}
 	return defaultValue
 }
+
+// SkipIfDataHubSearchUnavailable checks if DataHub search is working.
+// Returns true if search is unavailable and test should be skipped.
+func SkipIfDataHubSearchUnavailable(cfg *E2EConfig) bool {
+	if !cfg.IsDataHubAvailable() {
+		return true
+	}
+	// Skip if E2E_SKIP_SEARCH_TESTS is set (for when OpenSearch is not running)
+	if os.Getenv("E2E_SKIP_SEARCH_TESTS") == "true" {
+		return true
+	}
+	return false
+}
