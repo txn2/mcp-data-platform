@@ -152,6 +152,11 @@ type MockMCPRequest struct {
 	Params *mcp.CallToolParamsRaw
 }
 
+// GetSession returns nil session (not used in tests).
+func (m *MockMCPRequest) GetSession() mcp.Session {
+	return nil
+}
+
 // GetParams returns the request parameters.
 func (m *MockMCPRequest) GetParams() mcp.Params {
 	if m == nil || m.Params == nil {
@@ -160,8 +165,8 @@ func (m *MockMCPRequest) GetParams() mcp.Params {
 	return m.Params
 }
 
-// GetMeta returns nil (no meta in tests).
-func (m *MockMCPRequest) GetMeta() *mcp.RequestMeta {
+// GetExtra returns nil (no extra in tests).
+func (m *MockMCPRequest) GetExtra() *mcp.RequestExtra {
 	return nil
 }
 
