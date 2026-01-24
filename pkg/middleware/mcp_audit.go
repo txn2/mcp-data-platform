@@ -93,6 +93,9 @@ func buildMCPAuditEvent(
 
 // extractMCPParameters extracts parameters from an MCP request.
 func extractMCPParameters(req mcp.Request) map[string]any {
+	if req == nil {
+		return nil
+	}
 	params := req.GetParams()
 	if params == nil {
 		return nil
