@@ -6,7 +6,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -337,14 +336,6 @@ func TestToolkit_Methods(t *testing.T) {
 		toolkit.SetQueryProvider(provider)
 		if toolkit.queryProvider != provider {
 			t.Error("queryProvider not set")
-		}
-	})
-
-	t.Run("SetMiddleware", func(t *testing.T) {
-		chain := middleware.NewChain()
-		toolkit.SetMiddleware(chain)
-		if toolkit.middlewareChain != chain {
-			t.Error("middlewareChain not set")
 		}
 	})
 
