@@ -125,11 +125,26 @@ func enrichTrinoResult(
 func enrichDataHubResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
-	_ mcp.CallToolRequest,
+	request mcp.CallToolRequest,
 	provider query.Provider,
 ) (*mcp.CallToolResult, error) {
 	// Extract URNs from result content
 	urns := extractURNsFromResult(result)
+
+	// Also extract URN from request (for tools like datahub_get_schema that take urn param)
+	if reqURN := extractURNFromRequest(request); reqURN != "" {
+		found := false
+		for _, u := range urns {
+			if u == reqURN {
+				found = true
+				break
+			}
+		}
+		if !found {
+			urns = append(urns, reqURN)
+		}
+	}
+
 	if len(urns) == 0 {
 		return result, nil
 	}
@@ -184,6 +199,21 @@ func extractTableFromRequest(request mcp.CallToolRequest) string {
 	}
 	if tableName, ok := args["table_name"].(string); ok {
 		return tableName
+	}
+	return ""
+}
+
+// extractURNFromRequest extracts URN from request arguments.
+func extractURNFromRequest(request mcp.CallToolRequest) string {
+	if request.Params == nil || len(request.Params.Arguments) == 0 {
+		return ""
+	}
+	var args map[string]any
+	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
+		return ""
+	}
+	if urn, ok := args["urn"].(string); ok {
+		return urn
 	}
 	return ""
 }
