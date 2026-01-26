@@ -1,4 +1,4 @@
-# txn2/mcp-data-platform
+![txn2/mcp_data_platform](docs/images/mcp_data_platform_logo.svg)
 
 [![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
@@ -6,6 +6,10 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-data-platform?v2)](https://goreportcard.com/report/github.com/txn2/mcp-data-platform)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
+
+
+
+**[Documentation](https://txn2.github.io/mcp-data-platform/)** | **[Installation](https://txn2.github.io/mcp-data-platform/server/overview/)** | **[Library Docs](https://txn2.github.io/mcp-data-platform/library/overview/)**
 
 **Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
