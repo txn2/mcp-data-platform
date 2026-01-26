@@ -1,4 +1,4 @@
-![txn2/mcp_data_platform](docs/images/mcp_data_platform_logo.svg)
+![txn2/mcp_data_platform](docs/images/mcp_dp_banner.png)
 
 [![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
