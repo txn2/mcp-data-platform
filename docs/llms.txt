@@ -22,6 +22,7 @@
 - [Trino to DataHub](cross-injection/trino-datahub.md): Trino results include DataHub metadata
 - [DataHub to Trino](cross-injection/datahub-trino.md): DataHub results show query availability
 - [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
+- [Lineage Inheritance](cross-injection/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
 
 ## Authentication & Security
 
