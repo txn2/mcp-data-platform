@@ -168,6 +168,26 @@ semantic:
     #   rdbms: warehouse      # Trino "rdbms" → DataHub "warehouse"
     #   iceberg: datalake     # Trino "iceberg" → DataHub "datalake"
 
+  # Lineage-aware semantic enrichment inherits metadata from upstream datasets
+  # when columns lack documentation. See docs/lineage.md for details.
+  lineage:
+    enabled: false            # Enable lineage-aware column inheritance
+    max_hops: 2               # Max upstream traversal depth (1-5)
+    inherit:                  # Metadata types to inherit
+      - glossary_terms
+      - descriptions
+      # - tags                # Uncomment to also inherit tags
+    conflict_resolution: nearest  # nearest, all, skip
+    prefer_column_lineage: true   # Use column-level lineage when available
+    # column_transforms:      # Path normalization rules
+    #   - target_pattern: "*_flattened"
+    #     strip_prefix: "payload."
+    # aliases:                # Explicit source-target mappings
+    #   - source: "warehouse.raw.events"
+    #     targets: ["warehouse.analytics.*"]
+    cache_ttl: 10m
+    timeout: 5s
+
 # Query provider
 query:
   provider: noop              # trino, noop
