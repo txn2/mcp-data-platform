@@ -395,6 +395,114 @@ Five calls to understand one table. With cross-injection, step 1 gives you every
 }
 ```
 
+## Lineage-Aware Column Inheritance
+
+Downstream datasets (Elasticsearch indexes, Kafka topics) often lack documentation even when their upstream sources (Cassandra, PostgreSQL) are well-documented. The platform automatically inherits column metadata from upstream tables via DataHub lineage.
+
+### How It Works
+
+1. Query a table with undocumented columns
+2. Platform checks DataHub lineage for upstream sources
+3. Matches columns using column-level lineage, name matching, or configured aliases
+4. Inherits descriptions, glossary terms, and tags from upstream
+5. Returns enriched response with provenance tracking
+
+### What Gets Inherited
+
+| Metadata | Inherited When |
+|----------|----------------|
+| Descriptions | Target column has no description |
+| Glossary Terms | Target column has no glossary terms |
+| Tags | Target column has no tags |
+
+### Match Methods
+
+| Method | Description |
+|--------|-------------|
+| `column_lineage` | DataHub has explicit column-level lineage edges |
+| `name_exact` | Column names match exactly |
+| `name_transformed` | Names match after applying transforms (strip prefix/suffix) |
+| `alias` | Explicit alias configuration bypasses lineage lookup |
+
+### Configuration
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+
+  lineage:
+    enabled: true              # Enable lineage inheritance
+    max_hops: 2                # Maximum upstream traversal depth (1-5)
+    inherit:                   # Metadata types to inherit
+      - glossary_terms
+      - descriptions
+      - tags
+    conflict_resolution: nearest   # "nearest" (closest wins), "all" (merge), "skip"
+    prefer_column_lineage: true    # Use column-level lineage when available
+
+    # Column transforms for nested JSON paths
+    column_transforms:
+      - strip_prefix: "rxtxmsg.payload."
+      - strip_prefix: "rxtxmsg.header."
+      - strip_suffix: "_v2"
+
+    # Explicit aliases when lineage isn't in DataHub
+    aliases:
+      - source: "cassandra.prod_fuse.system_sale"
+        targets:
+          - "elasticsearch.default.jakes-sale-*"
+          - "elasticsearch.default.pos-sale-*"
+        column_mapping:
+          "rxtxmsg.payload.initial_net": "initial_net"
+
+    cache_ttl: 10m             # Cache lineage graphs
+    timeout: 5s                # Timeout for inheritance operation
+```
+
+### Response Format
+
+When lineage inheritance is active, responses include column context with provenance:
+
+```json
+{
+  "columns": [
+    {"name": "rxtxmsg.payload.amount", "type": "DOUBLE"}
+  ],
+  "semantic_context": {
+    "description": "Elasticsearch index for sales data",
+    "urn": "urn:li:dataset:elasticsearch.default.jakes-sale-2025"
+  },
+  "column_context": {
+    "rxtxmsg.payload.amount": {
+      "description": "Net sale amount before adjustments",
+      "glossary_terms": [
+        {"urn": "urn:li:glossaryTerm:NetSaleAmount", "name": "Net Sale Amount"}
+      ],
+      "tags": ["financial"],
+      "is_pii": false,
+      "inherited_from": {
+        "source_dataset": "urn:li:dataset:cassandra.prod_fuse.system_sale",
+        "source_column": "initial_net",
+        "hops": 1,
+        "match_method": "name_transformed"
+      }
+    }
+  },
+  "inheritance_sources": [
+    "urn:li:dataset:cassandra.prod_fuse.system_sale"
+  ]
+}
+```
+
+### Use Cases
+
+**Elasticsearch indexes**: JSON documents from Cassandra have nested paths like `rxtxmsg.payload.amount`. Configure `strip_prefix: "rxtxmsg.payload."` to match upstream column `amount`.
+
+**Kafka topics**: Event streams derived from source tables. Column-level lineage (if available) provides precise mapping.
+
+**Data lakes**: Parquet files derived from operational databases. Aliases provide explicit mapping when lineage isn't tracked.
+
 ---
 
 # Tools API Reference

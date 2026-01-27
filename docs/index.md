@@ -161,6 +161,85 @@ The enrichment middleware intercepts tool responses and adds semantic context be
 
 ---
 
+## Lineage-Aware Inheritance
+
+Downstream datasets often lack documentation even when their upstream sources are well-documented. The platform automatically inherits column metadata from upstream tables via DataHub lineage.
+
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant P as mcp-data-platform
+    participant D as DataHub
+
+    AI->>P: trino_describe_table "elasticsearch.sales"
+    P->>D: Get schema (no descriptions)
+    P->>D: Get upstream lineage
+    D-->>P: cassandra.system_sale (1 hop)
+    P->>D: Get upstream schema (has descriptions)
+    P-->>AI: Schema + Inherited Column Context
+```
+
+### What Gets Inherited
+
+| Metadata | Example |
+|----------|---------|
+| **Descriptions** | "Net sale amount before adjustments" |
+| **Glossary Terms** | `urn:li:glossaryTerm:NetSaleAmount` |
+| **Tags** | `pii`, `financial` |
+
+### Provenance Tracking
+
+Every inherited field includes its source:
+
+```json
+{
+  "column_context": {
+    "amount": {
+      "description": "Net sale amount before adjustments",
+      "inherited_from": {
+        "source_dataset": "urn:li:dataset:cassandra.system_sale",
+        "source_column": "initial_net",
+        "hops": 1,
+        "match_method": "name_transformed"
+      }
+    }
+  },
+  "inheritance_sources": ["urn:li:dataset:cassandra.system_sale"]
+}
+```
+
+### Configuration
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+
+  lineage:
+    enabled: true
+    max_hops: 2
+    inherit:
+      - glossary_terms
+      - descriptions
+      - tags
+    prefer_column_lineage: true
+
+    # Strip prefixes for nested JSON paths
+    column_transforms:
+      - strip_prefix: "rxtxmsg.payload."
+      - strip_prefix: "rxtxmsg.header."
+
+    # Explicit mappings when lineage isn't in DataHub
+    aliases:
+      - source: "cassandra.prod_fuse.system_sale"
+        targets:
+          - "elasticsearch.default.jakes-sale-*"
+```
+
+[:octicons-arrow-right-24: Lineage inheritance details](cross-injection/lineage.md)
+
+---
+
 ## Quick Start
 
 === "Local (stdio)"
