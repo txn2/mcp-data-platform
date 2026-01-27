@@ -142,8 +142,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/trinodb/trino-go-client v0.333.0 h1:+bsW8/uLFNF00MEL9JZJym94LlUnle25VgDlWGPEZos=
 github.com/trinodb/trino-go-client v0.333.0/go.mod h1:91okdYtRUZoj3XJu/tqdzu11sNliQuN4A+vMFEB8GVE=
-github.com/txn2/mcp-datahub v0.3.1 h1:/iIyUY0FCE2twWieMPTYPUWWssIK8ouxifzWgb2M4Aw=
-github.com/txn2/mcp-datahub v0.3.1/go.mod h1:9YWiNjhmFjmXMK9PX9QmlQgouaZLu/edqJ5hKC5qZUA=
+github.com/txn2/mcp-datahub v0.4.0 h1:6fhk0T4S9h9oZsvIF8a25uykKB/ZuYAw7OpzN6QQl3c=
+github.com/txn2/mcp-datahub v0.4.0/go.mod h1:9YWiNjhmFjmXMK9PX9QmlQgouaZLu/edqJ5hKC5qZUA=
 github.com/txn2/mcp-s3 v0.1.4 h1:73VfwofCNUoVAzWQgh1LoaAsNW42jEUTGfRPe1s7Vkk=
 github.com/txn2/mcp-s3 v0.1.4/go.mod h1:yu2m8DZdsHJEWj+Ktkhz1XUk17jqPdVSa4UcyZWetkc=
 github.com/txn2/mcp-trino v0.2.1 h1:gFaSq2IC+aDlWvFB91fww1yx1110xbaBrkgfZNr9jCc=
