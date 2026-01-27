@@ -99,6 +99,12 @@ func (a *Adapter) Name() string {
 	return "datahub"
 }
 
+// LineageConfig returns the lineage configuration.
+// This allows verifying that configuration was wired correctly.
+func (a *Adapter) LineageConfig() LineageConfig {
+	return a.cfg.Lineage
+}
+
 // GetTableContext retrieves table context from DataHub.
 func (a *Adapter) GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 	urn := a.buildDatasetURN(table)

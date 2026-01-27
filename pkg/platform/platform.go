@@ -379,6 +379,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 			Platform:       platform,
 			Timeout:        datahubCfg.Timeout,
 			CatalogMapping: p.config.Semantic.URNMapping.CatalogMapping,
+			Lineage:        p.config.Semantic.Lineage,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)

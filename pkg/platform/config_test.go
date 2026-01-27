@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -386,4 +388,137 @@ func TestConfigTypes(t *testing.T) {
 			t.Errorf("URNMapping.CatalogMapping[rdbms] = %q", cfg.URNMapping.CatalogMapping["rdbms"])
 		}
 	})
+
+	t.Run("SemanticConfig with Lineage", func(t *testing.T) {
+		cfg := SemanticConfig{
+			Provider: "datahub",
+			Instance: "primary",
+			Lineage: datahubsemantic.LineageConfig{
+				Enabled:             true,
+				MaxHops:             3,
+				Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+				ConflictResolution:  "nearest",
+				PreferColumnLineage: true,
+				CacheTTL:            10 * time.Minute,
+				Timeout:             5 * time.Second,
+			},
+		}
+		if !cfg.Lineage.Enabled {
+			t.Error("Lineage.Enabled = false, want true")
+		}
+		if cfg.Lineage.MaxHops != 3 {
+			t.Errorf("Lineage.MaxHops = %d, want 3", cfg.Lineage.MaxHops)
+		}
+		if len(cfg.Lineage.Inherit) != 3 {
+			t.Errorf("Lineage.Inherit len = %d, want 3", len(cfg.Lineage.Inherit))
+		}
+		if cfg.Lineage.ConflictResolution != "nearest" {
+			t.Errorf("Lineage.ConflictResolution = %q, want %q", cfg.Lineage.ConflictResolution, "nearest")
+		}
+		if !cfg.Lineage.PreferColumnLineage {
+			t.Error("Lineage.PreferColumnLineage = false, want true")
+		}
+		if cfg.Lineage.CacheTTL != 10*time.Minute {
+			t.Errorf("Lineage.CacheTTL = %v, want %v", cfg.Lineage.CacheTTL, 10*time.Minute)
+		}
+		if cfg.Lineage.Timeout != 5*time.Second {
+			t.Errorf("Lineage.Timeout = %v, want %v", cfg.Lineage.Timeout, 5*time.Second)
+		}
+	})
+}
+
+func TestLoadConfig_LineageFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configContent := `
+server:
+  name: test-platform
+semantic:
+  provider: datahub
+  instance: primary
+  lineage:
+    enabled: true
+    max_hops: 3
+    inherit:
+      - glossary_terms
+      - descriptions
+      - tags
+    conflict_resolution: nearest
+    prefer_column_lineage: true
+    cache_ttl: 15m
+    timeout: 10s
+    column_transforms:
+      - target_pattern: "*_flattened"
+        strip_prefix: "payload."
+    aliases:
+      - source: "warehouse.raw.events"
+        targets:
+          - "warehouse.analytics.*"
+        column_mapping:
+          user_id: payload.user_id
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// Verify lineage config was parsed correctly
+	if !cfg.Semantic.Lineage.Enabled {
+		t.Error("Semantic.Lineage.Enabled = false, want true")
+	}
+	if cfg.Semantic.Lineage.MaxHops != 3 {
+		t.Errorf("Semantic.Lineage.MaxHops = %d, want 3", cfg.Semantic.Lineage.MaxHops)
+	}
+	if len(cfg.Semantic.Lineage.Inherit) != 3 {
+		t.Errorf("Semantic.Lineage.Inherit len = %d, want 3", len(cfg.Semantic.Lineage.Inherit))
+	}
+	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
+	for i, want := range expectedInherit {
+		if cfg.Semantic.Lineage.Inherit[i] != want {
+			t.Errorf("Semantic.Lineage.Inherit[%d] = %q, want %q", i, cfg.Semantic.Lineage.Inherit[i], want)
+		}
+	}
+	if cfg.Semantic.Lineage.ConflictResolution != "nearest" {
+		t.Errorf("Semantic.Lineage.ConflictResolution = %q, want %q", cfg.Semantic.Lineage.ConflictResolution, "nearest")
+	}
+	if !cfg.Semantic.Lineage.PreferColumnLineage {
+		t.Error("Semantic.Lineage.PreferColumnLineage = false, want true")
+	}
+	if cfg.Semantic.Lineage.CacheTTL != 15*time.Minute {
+		t.Errorf("Semantic.Lineage.CacheTTL = %v, want %v", cfg.Semantic.Lineage.CacheTTL, 15*time.Minute)
+	}
+	if cfg.Semantic.Lineage.Timeout != 10*time.Second {
+		t.Errorf("Semantic.Lineage.Timeout = %v, want %v", cfg.Semantic.Lineage.Timeout, 10*time.Second)
+	}
+
+	// Verify column transforms
+	if len(cfg.Semantic.Lineage.ColumnTransforms) != 1 {
+		t.Fatalf("Semantic.Lineage.ColumnTransforms len = %d, want 1", len(cfg.Semantic.Lineage.ColumnTransforms))
+	}
+	transform := cfg.Semantic.Lineage.ColumnTransforms[0]
+	if transform.TargetPattern != "*_flattened" {
+		t.Errorf("ColumnTransforms[0].TargetPattern = %q, want %q", transform.TargetPattern, "*_flattened")
+	}
+	if transform.StripPrefix != "payload." {
+		t.Errorf("ColumnTransforms[0].StripPrefix = %q, want %q", transform.StripPrefix, "payload.")
+	}
+
+	// Verify aliases
+	if len(cfg.Semantic.Lineage.Aliases) != 1 {
+		t.Fatalf("Semantic.Lineage.Aliases len = %d, want 1", len(cfg.Semantic.Lineage.Aliases))
+	}
+	alias := cfg.Semantic.Lineage.Aliases[0]
+	if alias.Source != "warehouse.raw.events" {
+		t.Errorf("Aliases[0].Source = %q, want %q", alias.Source, "warehouse.raw.events")
+	}
+	if len(alias.Targets) != 1 || alias.Targets[0] != "warehouse.analytics.*" {
+		t.Errorf("Aliases[0].Targets = %v, want [warehouse.analytics.*]", alias.Targets)
+	}
+	if alias.ColumnMapping["user_id"] != "payload.user_id" {
+		t.Errorf("Aliases[0].ColumnMapping[user_id] = %q, want %q", alias.ColumnMapping["user_id"], "payload.user_id")
+	}
 }

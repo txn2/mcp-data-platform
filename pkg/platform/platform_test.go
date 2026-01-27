@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -1325,4 +1326,92 @@ func TestInitOAuth(t *testing.T) {
 		}
 		_ = p.Close()
 	})
+}
+
+func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
+	// This test verifies that lineage configuration is properly wired
+	// from platform config through to the DataHub semantic adapter.
+	cfg := &Config{
+		Server: ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{
+			Provider: "datahub",
+			Instance: "primary",
+			Lineage: datahubsemantic.LineageConfig{
+				Enabled:             true,
+				MaxHops:             3,
+				Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+				ConflictResolution:  "nearest",
+				PreferColumnLineage: true,
+				CacheTTL:            10 * time.Minute,
+				Timeout:             5 * time.Second,
+			},
+		},
+		Query:   QueryConfig{Provider: "noop"},
+		Storage: StorageConfig{Provider: "noop"},
+		Toolkits: map[string]any{
+			"datahub": map[string]any{
+				"instances": map[string]any{
+					"primary": map[string]any{
+						"url":   "http://datahub.example.com:8080/api/graphql",
+						"token": "test-token",
+					},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Type assert to get the DataHub adapter
+	// The semantic provider should be a datahub.Adapter (or wrapped in a cache)
+	semProvider := p.SemanticProvider()
+	if semProvider == nil {
+		t.Fatal("SemanticProvider() returned nil")
+	}
+
+	// If caching is disabled, we can type assert directly
+	adapter, ok := semProvider.(*datahubsemantic.Adapter)
+	if !ok {
+		// If caching was enabled, we'd need to unwrap
+		t.Fatalf("SemanticProvider() is not a *datahub.Adapter, got %T", semProvider)
+	}
+
+	// Verify lineage config was wired through
+	lineageCfg := adapter.LineageConfig()
+
+	if !lineageCfg.Enabled {
+		t.Error("LineageConfig().Enabled = false, want true - config was not wired through")
+	}
+	if lineageCfg.MaxHops != 3 {
+		t.Errorf("LineageConfig().MaxHops = %d, want 3", lineageCfg.MaxHops)
+	}
+	if len(lineageCfg.Inherit) != 3 {
+		t.Errorf("LineageConfig().Inherit len = %d, want 3", len(lineageCfg.Inherit))
+	}
+	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
+	for i, want := range expectedInherit {
+		if i >= len(lineageCfg.Inherit) {
+			t.Errorf("LineageConfig().Inherit[%d] missing, want %q", i, want)
+			continue
+		}
+		if lineageCfg.Inherit[i] != want {
+			t.Errorf("LineageConfig().Inherit[%d] = %q, want %q", i, lineageCfg.Inherit[i], want)
+		}
+	}
+	if lineageCfg.ConflictResolution != "nearest" {
+		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", lineageCfg.ConflictResolution, "nearest")
+	}
+	if !lineageCfg.PreferColumnLineage {
+		t.Error("LineageConfig().PreferColumnLineage = false, want true")
+	}
+	if lineageCfg.CacheTTL != 10*time.Minute {
+		t.Errorf("LineageConfig().CacheTTL = %v, want %v", lineageCfg.CacheTTL, 10*time.Minute)
+	}
+	if lineageCfg.Timeout != 5*time.Second {
+		t.Errorf("LineageConfig().Timeout = %v, want %v", lineageCfg.Timeout, 5*time.Second)
+	}
 }
