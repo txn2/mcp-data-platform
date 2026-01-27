@@ -70,6 +70,25 @@ type ColumnContext struct {
 
 	// Business metadata
 	BusinessName string `json:"business_name,omitempty"`
+
+	// InheritedFrom is set when metadata was inherited from upstream lineage.
+	InheritedFrom *InheritedMetadata `json:"inherited_from,omitempty"`
+}
+
+// InheritedMetadata tracks the provenance of inherited column metadata.
+type InheritedMetadata struct {
+	// SourceURN is the DataHub URN of the upstream dataset.
+	SourceURN string `json:"source_urn"`
+
+	// SourceColumn is the column name in the upstream dataset.
+	SourceColumn string `json:"source_column"`
+
+	// Hops is the distance from the target dataset (1 = direct upstream).
+	Hops int `json:"hops"`
+
+	// MatchMethod indicates how the column was matched.
+	// Values: "column_lineage", "name_exact", "name_transformed", "alias"
+	MatchMethod string `json:"match_method"`
 }
 
 // Owner represents a data owner.

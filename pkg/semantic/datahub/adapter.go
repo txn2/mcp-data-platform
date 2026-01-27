@@ -24,6 +24,9 @@ type Config struct {
 	// For example: {"rdbms": "warehouse"} means the Trino "rdbms" catalog
 	// corresponds to the "warehouse" catalog in DataHub URNs.
 	CatalogMapping map[string]string
+
+	// Lineage configuration for inheritance-aware column resolution.
+	Lineage LineageConfig
 }
 
 // Client defines the interface for DataHub operations.
@@ -32,7 +35,9 @@ type Client interface {
 	Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	GetEntity(ctx context.Context, urn string) (*types.Entity, error)
 	GetSchema(ctx context.Context, urn string) (*types.SchemaMetadata, error)
+	GetSchemas(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
 	GetLineage(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
+	GetColumnLineage(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	GetGlossaryTerm(ctx context.Context, urn string) (*types.GlossaryTerm, error)
 	Ping(ctx context.Context) error
 	Close() error
@@ -129,9 +134,21 @@ func (a *Adapter) GetColumnContext(ctx context.Context, column semantic.ColumnId
 }
 
 // GetColumnsContext retrieves all columns context from DataHub.
+// When lineage is enabled, it inherits metadata from upstream datasets for undocumented columns.
 func (a *Adapter) GetColumnsContext(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
 	urn := a.buildDatasetURN(table)
 
+	// Use lineage-aware resolution if enabled
+	if a.cfg.Lineage.Enabled {
+		resolver := newLineageResolver(a.client, a.cfg.Lineage, a.sanitizer)
+		columns, err := resolver.resolveColumnsWithLineage(ctx, urn, table.String())
+		if err != nil {
+			return nil, fmt.Errorf("getting columns with lineage from datahub: %w", err)
+		}
+		return columns, nil
+	}
+
+	// Standard resolution without lineage
 	schema, err := a.client.GetSchema(ctx, urn)
 	if err != nil {
 		return nil, fmt.Errorf("getting schema from datahub: %w", err)
