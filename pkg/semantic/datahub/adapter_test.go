@@ -116,6 +116,43 @@ func TestNewWithClient(t *testing.T) {
 			t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
 		}
 	})
+
+	t.Run("lineage config stored correctly", func(t *testing.T) {
+		mock := &mockDataHubClient{}
+		lineageCfg := LineageConfig{
+			Enabled:             true,
+			MaxHops:             3,
+			Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+			ConflictResolution:  "nearest",
+			PreferColumnLineage: true,
+		}
+		cfg := Config{
+			URL:     "http://datahub.example.com",
+			Lineage: lineageCfg,
+		}
+		adapter, err := NewWithClient(cfg, mock)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify lineage config is accessible via the getter
+		gotCfg := adapter.LineageConfig()
+		if !gotCfg.Enabled {
+			t.Error("LineageConfig().Enabled = false, want true")
+		}
+		if gotCfg.MaxHops != 3 {
+			t.Errorf("LineageConfig().MaxHops = %d, want 3", gotCfg.MaxHops)
+		}
+		if len(gotCfg.Inherit) != 3 {
+			t.Errorf("LineageConfig().Inherit len = %d, want 3", len(gotCfg.Inherit))
+		}
+		if gotCfg.ConflictResolution != "nearest" {
+			t.Errorf("LineageConfig().ConflictResolution = %q, want %q", gotCfg.ConflictResolution, "nearest")
+		}
+		if !gotCfg.PreferColumnLineage {
+			t.Error("LineageConfig().PreferColumnLineage = false, want true")
+		}
+	})
 }
 
 func TestAdapterName(t *testing.T) {
