@@ -13,13 +13,15 @@ import (
 
 // mockDataHubClient implements the Client interface for testing.
 type mockDataHubClient struct {
-	searchFunc          func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
-	getEntityFunc       func(ctx context.Context, urn string) (*types.Entity, error)
-	getSchemaFunc       func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
-	getLineageFunc      func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
-	getGlossaryTermFunc func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
-	pingFunc            func(ctx context.Context) error
-	closeFunc           func() error
+	searchFunc           func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	getEntityFunc        func(ctx context.Context, urn string) (*types.Entity, error)
+	getSchemaFunc        func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
+	getSchemasFunc       func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
+	getLineageFunc       func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
+	getColumnLineageFunc func(ctx context.Context, urn string) (*types.ColumnLineage, error)
+	getGlossaryTermFunc  func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
+	pingFunc             func(ctx context.Context) error
+	closeFunc            func() error
 }
 
 func (m *mockDataHubClient) Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
@@ -43,11 +45,25 @@ func (m *mockDataHubClient) GetSchema(ctx context.Context, urn string) (*types.S
 	return &types.SchemaMetadata{}, nil
 }
 
+func (m *mockDataHubClient) GetSchemas(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error) {
+	if m.getSchemasFunc != nil {
+		return m.getSchemasFunc(ctx, urns)
+	}
+	return make(map[string]*types.SchemaMetadata), nil
+}
+
 func (m *mockDataHubClient) GetLineage(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error) {
 	if m.getLineageFunc != nil {
 		return m.getLineageFunc(ctx, urn, opts...)
 	}
 	return &types.LineageResult{}, nil
+}
+
+func (m *mockDataHubClient) GetColumnLineage(ctx context.Context, urn string) (*types.ColumnLineage, error) {
+	if m.getColumnLineageFunc != nil {
+		return m.getColumnLineageFunc(ctx, urn)
+	}
+	return &types.ColumnLineage{DatasetURN: urn}, nil
 }
 
 func (m *mockDataHubClient) GetGlossaryTerm(ctx context.Context, urn string) (*types.GlossaryTerm, error) {

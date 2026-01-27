@@ -102,7 +102,7 @@ func enrichTrinoResult(
 	// Parse table identifier
 	table := parseTableIdentifier(tableName)
 
-	// Get semantic context
+	// Get semantic context for the table
 	semanticCtx, err := provider.GetTableContext(ctx, table)
 	if err != nil {
 		// Log the failure for debugging - this often indicates URN mapping issues
@@ -117,8 +117,18 @@ func enrichTrinoResult(
 		return result, nil
 	}
 
+	// Get column-level semantic context (includes lineage-inherited metadata)
+	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, table)
+	if columnsErr != nil {
+		slog.Debug("column semantic enrichment failed for Trino result",
+			"table", tableName,
+			"error", columnsErr,
+		)
+		// Continue without column context
+	}
+
 	// Append semantic context to result
-	return appendSemanticContext(result, semanticCtx)
+	return appendSemanticContextWithColumns(result, semanticCtx, columnsCtx)
 }
 
 // enrichDataHubResult adds query context to DataHub tool results.
@@ -298,13 +308,8 @@ func extractURNsFromMap(data map[string]any) []string {
 	return urns
 }
 
-// appendSemanticContext appends semantic context to the result.
-func appendSemanticContext(result *mcp.CallToolResult, ctx *semantic.TableContext) (*mcp.CallToolResult, error) {
-	if ctx == nil {
-		return result, nil
-	}
-
-	// Create enrichment content with all available semantic metadata
+// buildTrinoSemanticContext creates the semantic context map from table context for Trino enrichment.
+func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 	semanticCtx := map[string]any{
 		"description":   ctx.Description,
 		"owners":        ctx.Owners,
@@ -314,28 +319,84 @@ func appendSemanticContext(result *mcp.CallToolResult, ctx *semantic.TableContex
 		"deprecation":   ctx.Deprecation,
 	}
 
-	// Add URN if available (useful for cross-referencing)
 	if ctx.URN != "" {
 		semanticCtx["urn"] = ctx.URN
 	}
-
-	// Add glossary terms if available
 	if len(ctx.GlossaryTerms) > 0 {
 		semanticCtx["glossary_terms"] = ctx.GlossaryTerms
 	}
-
-	// Add custom properties if available
 	if len(ctx.CustomProperties) > 0 {
 		semanticCtx["custom_properties"] = ctx.CustomProperties
 	}
-
-	// Add last modified timestamp if available
 	if ctx.LastModified != nil {
 		semanticCtx["last_modified"] = ctx.LastModified
 	}
 
+	return semanticCtx
+}
+
+// buildColumnInfo creates a column info map from column context.
+func buildColumnInfo(col *semantic.ColumnContext) map[string]any {
+	colInfo := map[string]any{
+		"description":    col.Description,
+		"glossary_terms": col.GlossaryTerms,
+		"tags":           col.Tags,
+		"is_pii":         col.IsPII,
+		"is_sensitive":   col.IsSensitive,
+	}
+
+	if col.InheritedFrom != nil {
+		colInfo["inherited_from"] = map[string]any{
+			"source_dataset": col.InheritedFrom.SourceURN,
+			"source_column":  col.InheritedFrom.SourceColumn,
+			"hops":           col.InheritedFrom.Hops,
+			"match_method":   col.InheritedFrom.MatchMethod,
+		}
+	}
+
+	return colInfo
+}
+
+// buildColumnContexts creates column context and collects inheritance sources.
+func buildColumnContexts(columnsCtx map[string]*semantic.ColumnContext) (map[string]any, []string) {
+	columnContext := make(map[string]any)
+	inheritanceSources := make(map[string]bool)
+
+	for name, col := range columnsCtx {
+		columnContext[name] = buildColumnInfo(col)
+		if col.InheritedFrom != nil {
+			inheritanceSources[col.InheritedFrom.SourceURN] = true
+		}
+	}
+
+	sources := make([]string, 0, len(inheritanceSources))
+	for src := range inheritanceSources {
+		sources = append(sources, src)
+	}
+
+	return columnContext, sources
+}
+
+// appendSemanticContextWithColumns appends semantic context including column metadata to the result.
+func appendSemanticContextWithColumns(
+	result *mcp.CallToolResult,
+	ctx *semantic.TableContext,
+	columnsCtx map[string]*semantic.ColumnContext,
+) (*mcp.CallToolResult, error) {
+	if ctx == nil {
+		return result, nil
+	}
+
 	enrichment := map[string]any{
-		"semantic_context": semanticCtx,
+		"semantic_context": buildTrinoSemanticContext(ctx),
+	}
+
+	if len(columnsCtx) > 0 {
+		columnContext, sources := buildColumnContexts(columnsCtx)
+		enrichment["column_context"] = columnContext
+		if len(sources) > 0 {
+			enrichment["inheritance_sources"] = sources
+		}
 	}
 
 	enrichmentJSON, err := json.Marshal(enrichment)
@@ -343,7 +404,6 @@ func appendSemanticContext(result *mcp.CallToolResult, ctx *semantic.TableContex
 		return result, nil
 	}
 
-	// Append to result
 	result.Content = append(result.Content, &mcp.TextContent{
 		Text: string(enrichmentJSON),
 	})

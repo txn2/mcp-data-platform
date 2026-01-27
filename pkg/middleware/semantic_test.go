@@ -309,7 +309,7 @@ func TestExtractURNsFromMap(t *testing.T) {
 func TestAppendSemanticContext(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		result := NewToolResultText("original")
-		enriched, err := appendSemanticContext(result, nil)
+		enriched, err := appendSemanticContextWithColumns(result, nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -324,7 +324,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			Description: "Test table",
 			Tags:        []string{"important"},
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -353,7 +353,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			},
 			LastModified: testTime.getTime(),
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -401,7 +401,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			Description: "Minimal table",
 			// All other fields are empty/nil
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1339,6 +1339,241 @@ func TestExtractS3URNsFromMap(t *testing.T) {
 		urns := extractS3URNsFromMap(data)
 		if len(urns) != 2 {
 			t.Errorf("expected 2 URNs, got %d", len(urns))
+		}
+	})
+}
+
+func TestBuildColumnInfo(t *testing.T) {
+	t.Run("basic column", func(t *testing.T) {
+		col := &semantic.ColumnContext{
+			Description:   "Test description",
+			GlossaryTerms: []semantic.GlossaryTerm{{URN: "urn:term", Name: "Term"}},
+			Tags:          []string{"tag1", "tag2"},
+			IsPII:         true,
+			IsSensitive:   false,
+		}
+
+		info := buildColumnInfo(col)
+
+		if info["description"] != "Test description" {
+			t.Errorf("expected description 'Test description', got %v", info["description"])
+		}
+		if info["is_pii"] != true {
+			t.Error("expected is_pii=true")
+		}
+		if info["is_sensitive"] != false {
+			t.Error("expected is_sensitive=false")
+		}
+		if _, exists := info["inherited_from"]; exists {
+			t.Error("inherited_from should not be present without InheritedFrom")
+		}
+	})
+
+	t.Run("column with inheritance", func(t *testing.T) {
+		col := &semantic.ColumnContext{
+			Description: "Inherited description",
+			InheritedFrom: &semantic.InheritedMetadata{
+				SourceURN:    "urn:li:dataset:source",
+				SourceColumn: "source_col",
+				Hops:         2,
+				MatchMethod:  "name_transformed",
+			},
+		}
+
+		info := buildColumnInfo(col)
+
+		inherited, ok := info["inherited_from"].(map[string]any)
+		if !ok {
+			t.Fatal("expected inherited_from to be a map")
+		}
+		if inherited["source_dataset"] != "urn:li:dataset:source" {
+			t.Errorf("expected source_dataset 'urn:li:dataset:source', got %v", inherited["source_dataset"])
+		}
+		if inherited["source_column"] != "source_col" {
+			t.Errorf("expected source_column 'source_col', got %v", inherited["source_column"])
+		}
+		if inherited["hops"] != 2 {
+			t.Errorf("expected hops=2, got %v", inherited["hops"])
+		}
+		if inherited["match_method"] != "name_transformed" {
+			t.Errorf("expected match_method 'name_transformed', got %v", inherited["match_method"])
+		}
+	})
+}
+
+func TestBuildColumnContexts(t *testing.T) {
+	t.Run("empty columns", func(t *testing.T) {
+		columns := map[string]*semantic.ColumnContext{}
+		ctx, sources := buildColumnContexts(columns)
+
+		if len(ctx) != 0 {
+			t.Errorf("expected empty context, got %d entries", len(ctx))
+		}
+		if len(sources) != 0 {
+			t.Errorf("expected empty sources, got %d entries", len(sources))
+		}
+	})
+
+	t.Run("columns without inheritance", func(t *testing.T) {
+		columns := map[string]*semantic.ColumnContext{
+			"col1": {Description: "Column 1"},
+			"col2": {Description: "Column 2"},
+		}
+
+		ctx, sources := buildColumnContexts(columns)
+
+		if len(ctx) != 2 {
+			t.Errorf("expected 2 columns, got %d", len(ctx))
+		}
+		if len(sources) != 0 {
+			t.Errorf("expected no inheritance sources, got %d", len(sources))
+		}
+	})
+
+	t.Run("columns with inheritance", func(t *testing.T) {
+		columns := map[string]*semantic.ColumnContext{
+			"col1": {
+				Description: "Column 1",
+				InheritedFrom: &semantic.InheritedMetadata{
+					SourceURN:    "urn:li:dataset:source1",
+					SourceColumn: "src1",
+					Hops:         1,
+					MatchMethod:  "name_exact",
+				},
+			},
+			"col2": {
+				Description: "Column 2",
+				InheritedFrom: &semantic.InheritedMetadata{
+					SourceURN:    "urn:li:dataset:source1",
+					SourceColumn: "src2",
+					Hops:         1,
+					MatchMethod:  "name_exact",
+				},
+			},
+			"col3": {
+				Description: "Column 3",
+				InheritedFrom: &semantic.InheritedMetadata{
+					SourceURN:    "urn:li:dataset:source2",
+					SourceColumn: "src3",
+					Hops:         2,
+					MatchMethod:  "column_lineage",
+				},
+			},
+		}
+
+		ctx, sources := buildColumnContexts(columns)
+
+		if len(ctx) != 3 {
+			t.Errorf("expected 3 columns, got %d", len(ctx))
+		}
+		if len(sources) != 2 {
+			t.Errorf("expected 2 unique inheritance sources, got %d", len(sources))
+		}
+
+		sourceSet := make(map[string]bool)
+		for _, s := range sources {
+			sourceSet[s] = true
+		}
+		if !sourceSet["urn:li:dataset:source1"] {
+			t.Error("expected source1 in sources")
+		}
+		if !sourceSet["urn:li:dataset:source2"] {
+			t.Error("expected source2 in sources")
+		}
+	})
+}
+
+func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
+	t.Run("with column context and inheritance", func(t *testing.T) {
+		result := NewToolResultText("original")
+		tableCtx := &semantic.TableContext{
+			Description: "Test table",
+			URN:         "urn:li:dataset:test",
+		}
+		columnsCtx := map[string]*semantic.ColumnContext{
+			"user_id": {
+				Description: "User identifier",
+				IsPII:       true,
+				InheritedFrom: &semantic.InheritedMetadata{
+					SourceURN:    "urn:li:dataset:upstream",
+					SourceColumn: "id",
+					Hops:         1,
+					MatchMethod:  "name_transformed",
+				},
+			},
+			"amount": {
+				Description:   "Transaction amount",
+				GlossaryTerms: []semantic.GlossaryTerm{{URN: "urn:term", Name: "Amount"}},
+			},
+		}
+
+		enriched, err := appendSemanticContextWithColumns(result, tableCtx, columnsCtx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(enriched.Content) != 2 {
+			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+		}
+
+		textContent, ok := enriched.Content[1].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("expected TextContent")
+		}
+
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		colCtx, ok := data["column_context"].(map[string]any)
+		if !ok {
+			t.Fatal("expected column_context in enrichment")
+		}
+		if len(colCtx) != 2 {
+			t.Errorf("expected 2 columns in context, got %d", len(colCtx))
+		}
+
+		sources, ok := data["inheritance_sources"].([]any)
+		if !ok {
+			t.Fatal("expected inheritance_sources in enrichment")
+		}
+		if len(sources) != 1 {
+			t.Errorf("expected 1 inheritance source, got %d", len(sources))
+		}
+
+		userIDCol, ok := colCtx["user_id"].(map[string]any)
+		if !ok {
+			t.Fatal("expected user_id column")
+		}
+		if _, exists := userIDCol["inherited_from"]; !exists {
+			t.Error("expected inherited_from in user_id column")
+		}
+	})
+
+	t.Run("with column context no inheritance", func(t *testing.T) {
+		result := NewToolResultText("original")
+		tableCtx := &semantic.TableContext{Description: "Test table"}
+		columnsCtx := map[string]*semantic.ColumnContext{
+			"name": {Description: "Name field"},
+		}
+
+		enriched, err := appendSemanticContextWithColumns(result, tableCtx, columnsCtx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent := enriched.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		if _, ok := data["column_context"]; !ok {
+			t.Error("expected column_context")
+		}
+		if _, ok := data["inheritance_sources"]; ok {
+			t.Error("inheritance_sources should not exist when no columns have inheritance")
 		}
 	})
 }
