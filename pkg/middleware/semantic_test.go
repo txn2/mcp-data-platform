@@ -309,7 +309,7 @@ func TestExtractURNsFromMap(t *testing.T) {
 func TestAppendSemanticContext(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		result := NewToolResultText("original")
-		enriched, err := appendSemanticContext(result, nil)
+		enriched, err := appendSemanticContextWithColumns(result, nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -324,7 +324,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			Description: "Test table",
 			Tags:        []string{"important"},
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -353,7 +353,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			},
 			LastModified: testTime.getTime(),
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -401,7 +401,7 @@ func TestAppendSemanticContext(t *testing.T) {
 			Description: "Minimal table",
 			// All other fields are empty/nil
 		}
-		enriched, err := appendSemanticContext(result, ctx)
+		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
