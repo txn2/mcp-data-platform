@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
 // Config holds the complete platform configuration.
@@ -144,10 +146,11 @@ type RoleMappingConfig struct {
 
 // SemanticConfig configures the semantic layer.
 type SemanticConfig struct {
-	Provider   string           `yaml:"provider"` // "datahub", "noop"
-	Instance   string           `yaml:"instance"`
-	Cache      CacheConfig      `yaml:"cache"`
-	URNMapping URNMappingConfig `yaml:"urn_mapping"`
+	Provider   string                        `yaml:"provider"` // "datahub", "noop"
+	Instance   string                        `yaml:"instance"`
+	Cache      CacheConfig                   `yaml:"cache"`
+	URNMapping URNMappingConfig              `yaml:"urn_mapping"`
+	Lineage    datahubsemantic.LineageConfig `yaml:"lineage"`
 }
 
 // URNMappingConfig configures URN translation between query engines and metadata catalogs.
