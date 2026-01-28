@@ -250,24 +250,17 @@ func parseTableIdentifier(name string) semantic.TableIdentifier {
 	}
 }
 
-// splitTableName splits a table name by dots.
+// splitTableName splits a table name by dots, filtering empty parts.
 func splitTableName(name string) []string {
-	var parts []string
-	var current string
-	for _, c := range name {
-		if c == '.' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
-			}
-		} else {
-			current += string(c)
+	parts := strings.Split(name, ".")
+	// Filter empty parts (handles leading/trailing/consecutive dots)
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			result = append(result, p)
 		}
 	}
-	if current != "" {
-		parts = append(parts, current)
-	}
-	return parts
+	return result
 }
 
 // extractURNsFromResult extracts URNs from result content.
