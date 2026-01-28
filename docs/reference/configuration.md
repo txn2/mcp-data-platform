@@ -21,6 +21,11 @@ server:
 ```yaml
 server:
   name: mcp-data-platform
+  version: "1.0.0"
+  description: |
+    CloudSent POS Data Platform providing access to retail/POS data across
+    Sales, Loyalty, Inventory, and Products domains. Data is available through
+    Trino and enriched with DataHub semantic metadata.
   transport: stdio
   address: ":8080"
   tls:
@@ -32,6 +37,8 @@ server:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `server.name` | string | `mcp-data-platform` | Server name in MCP handshake |
+| `server.version` | string | `1.0.0` | Server version |
+| `server.description` | string | - | Platform description exposed via `platform_info` tool |
 | `server.transport` | string | `stdio` | Transport: `stdio`, `sse` |
 | `server.address` | string | `:8080` | Listen address for SSE |
 | `server.tls.enabled` | bool | `false` | Enable TLS |
@@ -457,6 +464,10 @@ audit:
 ```yaml
 server:
   name: mcp-data-platform
+  version: "1.0.0"
+  description: |
+    Enterprise data platform providing unified access to analytics data.
+    Includes semantic enrichment from DataHub and query execution via Trino.
   transport: stdio
 
 auth:
