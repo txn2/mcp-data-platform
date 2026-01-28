@@ -315,7 +315,7 @@ func (p *Platform) initTuning(opts *Options) {
 func (p *Platform) finalizeSetup() {
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
-		Version: "1.0.0",
+		Version: p.config.Server.Version,
 	}, nil)
 
 	// Add MCP protocol-level middleware in order:
@@ -585,6 +585,9 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)
+
+	// Register platform info tool
+	p.registerInfoTool()
 
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)
