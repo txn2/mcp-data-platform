@@ -232,3 +232,80 @@ func TestDatahubGetDuration(t *testing.T) {
 		t.Error("expected error for invalid duration")
 	}
 }
+
+func TestDatahubGetBool(t *testing.T) {
+	cfg := map[string]any{
+		"enabled":  true,
+		"disabled": false,
+		"string":   "true",
+		"number":   1,
+	}
+
+	if !getBool(cfg, "enabled", false) {
+		t.Error("expected true for enabled key")
+	}
+	if getBool(cfg, "disabled", true) {
+		t.Error("expected false for disabled key")
+	}
+	if getBool(cfg, "missing", false) {
+		t.Error("expected default false for missing key")
+	}
+	if !getBool(cfg, "missing", true) {
+		t.Error("expected default true for missing key")
+	}
+	if getBool(cfg, "string", false) {
+		t.Error("expected default false for non-bool string value")
+	}
+	if getBool(cfg, "number", false) {
+		t.Error("expected default false for non-bool number value")
+	}
+}
+
+func TestParseConfigDebug(t *testing.T) {
+	t.Run("debug enabled", func(t *testing.T) {
+		cfg := map[string]any{
+			"url":   "http://datahub.example.com:8080",
+			"debug": true,
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !result.Debug {
+			t.Error("expected Debug to be true")
+		}
+	})
+
+	t.Run("debug disabled explicitly", func(t *testing.T) {
+		cfg := map[string]any{
+			"url":   "http://datahub.example.com:8080",
+			"debug": false,
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Debug {
+			t.Error("expected Debug to be false")
+		}
+	})
+
+	t.Run("debug defaults to false", func(t *testing.T) {
+		cfg := map[string]any{
+			"url": "http://datahub.example.com:8080",
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Debug {
+			t.Error("expected Debug to default to false")
+		}
+	})
+}
