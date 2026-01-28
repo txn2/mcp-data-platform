@@ -19,6 +19,7 @@ type Config struct {
 	Token    string
 	Platform string // Default platform for URN building (e.g., "trino", "postgres")
 	Timeout  time.Duration
+	Debug    bool // Enable debug logging
 
 	// CatalogMapping maps query engine catalog names to metadata catalog names.
 	// For example: {"rdbms": "warehouse"} means the Trino "rdbms" catalog
@@ -66,6 +67,7 @@ func New(cfg Config) (*Adapter, error) {
 	clientCfg.URL = cfg.URL
 	clientCfg.Token = cfg.Token
 	clientCfg.Timeout = cfg.Timeout
+	clientCfg.Debug = cfg.Debug
 
 	client, err := dhclient.New(clientCfg)
 	if err != nil {
