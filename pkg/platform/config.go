@@ -31,10 +31,12 @@ type Config struct {
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
-	Name      string    `yaml:"name"`
-	Transport string    `yaml:"transport"` // "stdio", "sse", "http"
-	Address   string    `yaml:"address"`
-	TLS       TLSConfig `yaml:"tls"`
+	Name        string    `yaml:"name"`
+	Version     string    `yaml:"version"`
+	Description string    `yaml:"description"`
+	Transport   string    `yaml:"transport"` // "stdio", "sse", "http"
+	Address     string    `yaml:"address"`
+	TLS         TLSConfig `yaml:"tls"`
 }
 
 // TLSConfig configures TLS.
@@ -250,6 +252,9 @@ func expandEnvVars(s string) string {
 func applyDefaults(cfg *Config) {
 	if cfg.Server.Name == "" {
 		cfg.Server.Name = "mcp-data-platform"
+	}
+	if cfg.Server.Version == "" {
+		cfg.Server.Version = "1.0.0"
 	}
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
