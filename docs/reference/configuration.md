@@ -21,6 +21,11 @@ server:
 ```yaml
 server:
   name: mcp-data-platform
+  version: "1.0.0"
+  description: |
+    CloudSent POS Data Platform providing access to retail/POS data across
+    Sales, Loyalty, Inventory, and Products domains. Data is available through
+    Trino and enriched with DataHub semantic metadata.
   transport: stdio
   address: ":8080"
   tls:
@@ -32,6 +37,8 @@ server:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `server.name` | string | `mcp-data-platform` | Server name in MCP handshake |
+| `server.version` | string | `1.0.0` | Server version |
+| `server.description` | string | - | Platform description exposed via `platform_info` tool |
 | `server.transport` | string | `stdio` | Transport: `stdio`, `sse` |
 | `server.address` | string | `:8080` | Listen address for SSE |
 | `server.tls.enabled` | bool | `false` | Enable TLS |
@@ -217,6 +224,7 @@ toolkits:
       max_limit: 100
       max_lineage_depth: 5
       connection_name: "Primary Catalog"
+      debug: false
 ```
 
 | Option | Type | Default | Description |
@@ -228,6 +236,7 @@ toolkits:
 | `max_limit` | int | `100` | Maximum search limit |
 | `max_lineage_depth` | int | `5` | Maximum lineage depth |
 | `connection_name` | string | instance name | Display name |
+| `debug` | bool | `false` | Enable debug logging for GraphQL operations |
 
 ### S3
 
@@ -277,6 +286,20 @@ semantic:
   cache:
     enabled: true
     ttl: 5m
+  lineage:
+    enabled: true
+    max_hops: 2
+    inherit:
+      - glossary_terms
+      - descriptions
+      - tags
+    prefer_column_lineage: true
+    conflict_resolution: nearest
+    cache_ttl: 10m
+    timeout: 5s
+    column_transforms:
+      - target_pattern: "elasticsearch.*.rxtxmsg.payload.*"
+        strip_prefix: "rxtxmsg.payload."
   urn_mapping:
     platform: postgres
     catalog_mapping:
@@ -297,6 +320,14 @@ storage:
 | `semantic.instance` | string | - | Toolkit instance name |
 | `semantic.cache.enabled` | bool | `false` | Enable caching |
 | `semantic.cache.ttl` | duration | `5m` | Cache TTL |
+| `semantic.lineage.enabled` | bool | `false` | Enable lineage-aware semantic enrichment |
+| `semantic.lineage.max_hops` | int | `2` | Maximum lineage hops to traverse |
+| `semantic.lineage.inherit` | array | `[]` | Metadata to inherit: `glossary_terms`, `descriptions`, `tags` |
+| `semantic.lineage.prefer_column_lineage` | bool | `false` | Use fine-grained column lineage when available |
+| `semantic.lineage.conflict_resolution` | string | `nearest` | Conflict resolution: `nearest`, `all` |
+| `semantic.lineage.cache_ttl` | duration | `10m` | Lineage cache TTL |
+| `semantic.lineage.timeout` | duration | `5s` | Lineage lookup timeout |
+| `semantic.lineage.column_transforms` | array | `[]` | Column path transforms for nested structures |
 | `semantic.urn_mapping.platform` | string | `trino` | Platform name for DataHub URNs |
 | `semantic.urn_mapping.catalog_mapping` | map | `{}` | Map Trino catalogs to DataHub catalogs |
 | `query.provider` | string | - | Provider type: `trino`, `noop` |
@@ -337,6 +368,46 @@ This translates URNs during lookup:
 |-----------|---------|
 | Trino → DataHub | `rdbms.public.users` → `urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)` |
 | DataHub → Trino | `warehouse.public.users` in URN → `rdbms.public.users` for querying |
+
+### Lineage-Aware Semantic Enrichment
+
+When columns lack metadata in the target table, lineage traversal can inherit metadata from upstream sources:
+
+```yaml
+semantic:
+  provider: datahub
+  instance: primary
+  lineage:
+    enabled: true
+    max_hops: 2
+    inherit:
+      - glossary_terms
+      - descriptions
+      - tags
+    prefer_column_lineage: true
+    conflict_resolution: nearest
+    cache_ttl: 10m
+    timeout: 5s
+```
+
+**Inheritance order:**
+1. Column's own metadata (always preferred)
+2. Fine-grained column lineage (if `prefer_column_lineage: true`)
+3. Table-level upstream lineage
+
+**Column transforms** handle nested structures where column paths differ between source and target:
+
+```yaml
+semantic:
+  lineage:
+    column_transforms:
+      - target_pattern: "elasticsearch.*.rxtxmsg.payload.*"
+        strip_prefix: "rxtxmsg.payload."
+      - target_pattern: "elasticsearch.*.rxtxmsg.header.*"
+        strip_prefix: "rxtxmsg.header."
+```
+
+This maps `elasticsearch.index.rxtxmsg.payload.field_name` to lookup `field_name` in upstream sources.
 
 ## Injection Configuration
 
@@ -393,6 +464,10 @@ audit:
 ```yaml
 server:
   name: mcp-data-platform
+  version: "1.0.0"
+  description: |
+    Enterprise data platform providing unified access to analytics data.
+    Includes semantic enrichment from DataHub and query execution via Trino.
   transport: stdio
 
 auth:

@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -135,7 +136,7 @@ func (c *CachedProvider) GetColumnsContext(ctx context.Context, table TableIdent
 
 // GetLineage retrieves lineage with caching.
 func (c *CachedProvider) GetLineage(ctx context.Context, table TableIdentifier, direction LineageDirection, maxDepth int) (*LineageInfo, error) {
-	key := table.String() + ":" + string(direction) + ":" + string(rune(maxDepth+'0'))
+	key := table.String() + ":" + string(direction) + ":" + strconv.Itoa(maxDepth)
 
 	c.mu.RLock()
 	if entry, ok := c.lineageCache[key]; ok && !entry.isExpired() {
