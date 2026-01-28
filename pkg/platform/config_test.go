@@ -427,6 +427,116 @@ func TestConfigTypes(t *testing.T) {
 	})
 }
 
+func TestLoadConfig_DataHubDebugFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configContent := `
+server:
+  name: test-platform
+toolkits:
+  datahub:
+    enabled: true
+    instances:
+      primary:
+        endpoint: "http://datahub.example.com:8080"
+        token: "test-token"
+        debug: true
+    default: primary
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// Verify the datahub toolkit config was loaded
+	datahubCfgAny, ok := cfg.Toolkits["datahub"]
+	if !ok {
+		t.Fatal("expected datahub toolkit config")
+	}
+
+	datahubCfg, ok := datahubCfgAny.(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub toolkit config to be a map")
+	}
+
+	// Verify instances were parsed
+	instances, ok := datahubCfg["instances"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub instances config")
+	}
+
+	primaryInstance, ok := instances["primary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub primary instance config")
+	}
+
+	// Verify debug field was parsed
+	debug, ok := primaryInstance["debug"].(bool)
+	if !ok {
+		t.Fatal("expected debug field in primary instance")
+	}
+	if !debug {
+		t.Error("expected debug to be true")
+	}
+}
+
+func TestLoadConfig_DataHubDebugDefaultsFalse(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configContent := `
+server:
+  name: test-platform
+toolkits:
+  datahub:
+    enabled: true
+    instances:
+      primary:
+        endpoint: "http://datahub.example.com:8080"
+        token: "test-token"
+    default: primary
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// Verify the datahub toolkit config was loaded
+	datahubCfgAny, ok := cfg.Toolkits["datahub"]
+	if !ok {
+		t.Fatal("expected datahub toolkit config")
+	}
+
+	datahubCfg, ok := datahubCfgAny.(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub toolkit config to be a map")
+	}
+
+	// Verify instances were parsed
+	instances, ok := datahubCfg["instances"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub instances config")
+	}
+
+	primaryInstance, ok := instances["primary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub primary instance config")
+	}
+
+	// Verify debug field is not present (defaults to false when not specified)
+	_, hasDebug := primaryInstance["debug"]
+	if hasDebug {
+		t.Error("expected debug field to not be present when not specified")
+	}
+}
+
 func TestLoadConfig_LineageFromYAML(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
