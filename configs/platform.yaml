@@ -125,6 +125,7 @@ toolkits:
       primary:
         endpoint: "https://datahub.example.com/api/graphql"
         token: "${DATAHUB_TOKEN}"
+        debug: false            # Enable debug logging for GraphQL operations
     default: primary
     config:
       search_limit: 50

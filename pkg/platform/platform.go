@@ -378,6 +378,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 			Token:          datahubCfg.Token,
 			Platform:       platform,
 			Timeout:        datahubCfg.Timeout,
+			Debug:          datahubCfg.Debug,
 			CatalogMapping: p.config.Semantic.URNMapping.CatalogMapping,
 			Lineage:        p.config.Semantic.Lineage,
 		})
@@ -644,6 +645,7 @@ type datahubConfig struct {
 	URL     string
 	Token   string
 	Timeout time.Duration
+	Debug   bool
 }
 
 // trinoConfig holds extracted Trino configuration.
@@ -684,6 +686,7 @@ func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
 		URL:     cfgString(instanceCfg, "url"),
 		Token:   cfgString(instanceCfg, "token"),
 		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
+		Debug:   cfgBoolDefault(instanceCfg, "debug", false),
 	}
 
 	// Support both "url" and "endpoint" keys

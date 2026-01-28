@@ -145,6 +145,7 @@ func TestConfig_Fields(t *testing.T) {
 		MaxLimit:        200,
 		MaxLineageDepth: 10,
 		ConnectionName:  "prod-datahub",
+		Debug:           true,
 	}
 
 	if cfg.URL != "http://localhost:8080" {
@@ -168,6 +169,25 @@ func TestConfig_Fields(t *testing.T) {
 	if cfg.ConnectionName != "prod-datahub" {
 		t.Errorf("ConnectionName = %q", cfg.ConnectionName)
 	}
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
+	}
+}
+
+func TestConfig_DebugField(t *testing.T) {
+	t.Run("debug defaults to false", func(t *testing.T) {
+		cfg := Config{URL: "http://localhost:8080"}
+		if cfg.Debug {
+			t.Error("Debug should default to false")
+		}
+	})
+
+	t.Run("debug can be set to true", func(t *testing.T) {
+		cfg := Config{URL: "http://localhost:8080", Debug: true}
+		if !cfg.Debug {
+			t.Error("Debug should be true when set")
+		}
+	})
 }
 
 func TestConfig_Defaults(t *testing.T) {

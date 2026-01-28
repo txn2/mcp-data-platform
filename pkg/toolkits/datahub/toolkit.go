@@ -22,6 +22,7 @@ type Config struct {
 	MaxLimit        int           `yaml:"max_limit"`
 	MaxLineageDepth int           `yaml:"max_lineage_depth"`
 	ConnectionName  string        `yaml:"connection_name"`
+	Debug           bool          `yaml:"debug"` // Enable debug logging
 }
 
 // Toolkit wraps mcp-datahub toolkit for the platform.
@@ -95,6 +96,7 @@ func createClient(cfg Config) (*dhclient.Client, error) {
 	clientCfg.DefaultLimit = cfg.DefaultLimit
 	clientCfg.MaxLimit = cfg.MaxLimit
 	clientCfg.MaxLineageDepth = cfg.MaxLineageDepth
+	clientCfg.Debug = cfg.Debug
 
 	client, err := dhclient.New(clientCfg)
 	if err != nil {
@@ -109,6 +111,7 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 		DefaultLimit:    cfg.DefaultLimit,
 		MaxLimit:        cfg.MaxLimit,
 		MaxLineageDepth: cfg.MaxLineageDepth,
+		Debug:           cfg.Debug,
 	})
 }
 

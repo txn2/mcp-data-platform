@@ -39,6 +39,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		c.Timeout = timeout
 	}
 
+	// Optional bool fields
+	c.Debug = getBool(cfg, "debug", false)
+
 	return c, nil
 }
 
@@ -73,4 +76,12 @@ func getDuration(cfg map[string]any, key string) (time.Duration, error) {
 		return time.Duration(v) * time.Second, nil
 	}
 	return 0, nil
+}
+
+// getBool extracts a bool value from a config map with a default.
+func getBool(cfg map[string]any, key string, defaultVal bool) bool {
+	if v, ok := cfg[key].(bool); ok {
+		return v
+	}
+	return defaultVal
 }

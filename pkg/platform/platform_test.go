@@ -599,6 +599,53 @@ func TestGetDataHubConfig(t *testing.T) {
 			t.Errorf("expected URL 'http://datahub:9080', got %q", result.URL)
 		}
 	})
+
+	t.Run("valid datahub config with debug enabled", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"datahub": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"url":   "http://datahub:8080",
+								"debug": true,
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getDataHubConfig("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if !result.Debug {
+			t.Error("expected Debug to be true")
+		}
+	})
+
+	t.Run("valid datahub config with debug defaults to false", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"datahub": map[string]any{
+						"instances": map[string]any{
+							"default": map[string]any{
+								"url": "http://datahub:8080",
+							},
+						},
+					},
+				},
+			},
+		}
+		result := p.getDataHubConfig("default")
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.Debug {
+			t.Error("expected Debug to default to false")
+		}
+	})
 }
 
 func TestGetTrinoConfig(t *testing.T) {
