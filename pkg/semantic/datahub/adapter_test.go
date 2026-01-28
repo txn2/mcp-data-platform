@@ -117,6 +117,28 @@ func TestNewWithClient(t *testing.T) {
 		}
 	})
 
+	t.Run("debug config stored", func(t *testing.T) {
+		mock := &mockDataHubClient{}
+		adapter, err := NewWithClient(Config{Debug: true}, mock)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !adapter.cfg.Debug {
+			t.Error("expected Debug to be true")
+		}
+	})
+
+	t.Run("debug defaults to false", func(t *testing.T) {
+		mock := &mockDataHubClient{}
+		adapter, err := NewWithClient(Config{}, mock)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if adapter.cfg.Debug {
+			t.Error("expected Debug to default to false")
+		}
+	})
+
 	t.Run("lineage config stored correctly", func(t *testing.T) {
 		mock := &mockDataHubClient{}
 		lineageCfg := LineageConfig{
@@ -905,6 +927,27 @@ func TestFieldToColumnContextEdgeCases(t *testing.T) {
 	if !result.IsPII {
 		t.Error("expected IsPII to be true for pii tag")
 	}
+}
+
+func TestConfig_DebugField(t *testing.T) {
+	t.Run("debug can be set to true", func(t *testing.T) {
+		cfg := Config{
+			URL:   "http://datahub.example.com:8080",
+			Debug: true,
+		}
+		if !cfg.Debug {
+			t.Error("expected Debug to be true when set")
+		}
+	})
+
+	t.Run("debug defaults to false", func(t *testing.T) {
+		cfg := Config{
+			URL: "http://datahub.example.com:8080",
+		}
+		if cfg.Debug {
+			t.Error("expected Debug to default to false")
+		}
+	})
 }
 
 // Verify Adapter implements interfaces.
