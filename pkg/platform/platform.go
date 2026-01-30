@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
+	"github.com/txn2/mcp-data-platform/pkg/mcpapps/queryresults"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -57,6 +59,9 @@ type Platform struct {
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
 	hintManager   *tuning.HintManager
+
+	// MCP Apps
+	mcpAppsRegistry *mcpapps.Registry
 }
 
 // New creates a new platform instance.
@@ -102,6 +107,9 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	p.initTuning(opts)
+	if err := p.initMCPApps(); err != nil {
+		return err
+	}
 	p.finalizeSetup()
 	return nil
 }
@@ -311,6 +319,43 @@ func (p *Platform) initTuning(opts *Options) {
 	p.hintManager.SetHints(tuning.DefaultHints())
 }
 
+// initMCPApps initializes MCP Apps support.
+func (p *Platform) initMCPApps() error {
+	if !p.config.MCPApps.Enabled {
+		return nil
+	}
+
+	p.mcpAppsRegistry = mcpapps.NewRegistry()
+
+	// Register apps based on config
+	for appName, appCfg := range p.config.MCPApps.Apps {
+		if !appCfg.Enabled {
+			continue
+		}
+
+		switch appName {
+		case "query_results":
+			app := queryresults.App(queryresults.Config{
+				ChartCDN:         appCfg.ChartCDN,
+				DefaultChartType: appCfg.DefaultChartType,
+				MaxTableRows:     appCfg.MaxTableRows,
+			})
+			// Override tool names from config if provided
+			if len(appCfg.Tools) > 0 {
+				app.ToolNames = appCfg.Tools
+			}
+			if err := p.mcpAppsRegistry.Register(app); err != nil {
+				return fmt.Errorf("registering %s app: %w", appName, err)
+			}
+		// Future apps can be added here
+		default:
+			slog.Warn("unknown MCP app in config", "app", appName)
+		}
+	}
+
+	return nil
+}
+
 // finalizeSetup completes platform initialization.
 func (p *Platform) finalizeSetup() {
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
@@ -319,7 +364,17 @@ func (p *Platform) finalizeSetup() {
 	}, nil)
 
 	// Add MCP protocol-level middleware in order:
-	// 1. Auth/Authz middleware - authenticates and authorizes users
+	// 1. MCP Apps metadata middleware - injects _meta.ui into tools/list responses
+	// This must be added first so it can intercept tools/list responses.
+	if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
+		p.mcpServer.AddReceivingMiddleware(
+			mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
+		)
+		// Register UI resources for each app
+		p.mcpAppsRegistry.RegisterResources(p.mcpServer)
+	}
+
+	// 2. Auth/Authz middleware - authenticates and authorizes users
 	// This intercepts all tools/call requests and enforces auth before the
 	// tool handler is invoked, ensuring security even when toolkits register
 	// their tools directly with the MCP server.
@@ -327,14 +382,14 @@ func (p *Platform) finalizeSetup() {
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
 	)
 
-	// 2. Audit middleware - logs tool calls (after response)
+	// 3. Audit middleware - logs tool calls (after response)
 	if p.config.Audit.Enabled {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(p.auditLogger),
 		)
 	}
 
-	// 3. Semantic enrichment middleware - enriches responses with cross-service context
+	// 4. Semantic enrichment middleware - enriches responses with cross-service context
 	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
 		p.config.Injection.DataHubQueryEnrichment ||
 		p.config.Injection.S3SemanticEnrichment ||
