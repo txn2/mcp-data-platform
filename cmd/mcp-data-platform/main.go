@@ -126,6 +126,27 @@ func startServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions
 	}
 }
 
+// corsMiddleware adds CORS headers for browser-based MCP clients.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, mcp-protocol-version")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	mux := http.NewServeMux()
 
@@ -174,7 +195,7 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 
 	server := &http.Server{
 		Addr:              opts.address,
-		Handler:           mux,
+		Handler:           corsMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
