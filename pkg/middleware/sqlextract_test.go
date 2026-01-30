@@ -100,6 +100,40 @@ func TestExtractTablesFromSQL(t *testing.T) {
 			},
 		},
 		{
+			name: "ES raw_query with Cassandra JOIN (complex)",
+			sql: `WITH es_response AS (
+    SELECT result
+    FROM TABLE(
+        elasticsearch.system.raw_query(
+            schema => 'default',
+            index => 'jakes-sale-2024,jakes-sale-2025',
+            query => '{}'
+        )
+    )
+),
+parsed_agg AS (
+    SELECT * FROM es_response
+)
+SELECT * FROM parsed_agg agg
+INNER JOIN cassandra.prod_fuse.location loc ON agg.location_id = loc.id`,
+			expected: []TableRef{
+				{Catalog: "elasticsearch", Schema: "default", Table: "jakes-sale-2024", FullPath: "elasticsearch.default.jakes-sale-2024", Source: "TABLE_FUNCTION"},
+				{Catalog: "elasticsearch", Schema: "default", Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: "TABLE_FUNCTION"},
+				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: "FROM"},
+			},
+		},
+		{
+			name: "ES raw_query with multiple JOINs",
+			sql: `SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'events', query => '{}'))
+JOIN catalog1.schema1.dim_user u ON e.user_id = u.id
+LEFT JOIN catalog2.schema2.dim_product p ON e.product_id = p.id`,
+			expected: []TableRef{
+				{Catalog: "elasticsearch", Schema: "default", Table: "events", FullPath: "elasticsearch.default.events", Source: "TABLE_FUNCTION"},
+				{Catalog: "catalog1", Schema: "schema1", Table: "dim_user", FullPath: "catalog1.schema1.dim_user", Source: "FROM"},
+				{Catalog: "catalog2", Schema: "schema2", Table: "dim_product", FullPath: "catalog2.schema2.dim_product", Source: "FROM"},
+			},
+		},
+		{
 			name:     "invalid SQL returns empty",
 			sql:      "NOT VALID SQL AT ALL",
 			expected: nil,
@@ -246,6 +280,69 @@ func TestSplitCatalogSchema(t *testing.T) {
 			}
 			if gotSchema != tt.wantSchema {
 				t.Errorf("schema: expected %q, got %q", tt.wantSchema, gotSchema)
+			}
+		})
+	}
+}
+
+func TestExtractCTENames(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected map[string]bool
+	}{
+		{
+			name:     "no CTEs",
+			sql:      "SELECT * FROM users",
+			expected: map[string]bool{},
+		},
+		{
+			name:     "single CTE",
+			sql:      "WITH temp AS (SELECT 1) SELECT * FROM temp",
+			expected: map[string]bool{"temp": true},
+		},
+		{
+			name: "multiple CTEs",
+			sql:  "WITH cte1 AS (SELECT 1), cte2 AS (SELECT 2) SELECT * FROM cte1 JOIN cte2",
+			expected: map[string]bool{
+				"cte1": true,
+				"cte2": true,
+			},
+		},
+		{
+			name: "nested CTEs with different formatting",
+			sql: `WITH es_response AS (
+				SELECT * FROM elasticsearch
+			),
+			parsed_agg AS (
+				SELECT * FROM es_response
+			)
+			SELECT * FROM parsed_agg`,
+			expected: map[string]bool{
+				"es_response": true,
+				"parsed_agg":  true,
+			},
+		},
+		{
+			name:     "case insensitive WITH",
+			sql:      "with MyData AS (SELECT 1) SELECT * FROM MyData",
+			expected: map[string]bool{"MyData": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractCTENames(tt.sql)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d CTEs, got %d: %v", len(tt.expected), len(result), result)
+				return
+			}
+
+			for name := range tt.expected {
+				if !result[name] {
+					t.Errorf("expected CTE %q to be found", name)
+				}
 			}
 		})
 	}
