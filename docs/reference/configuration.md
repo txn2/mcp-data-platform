@@ -23,9 +23,8 @@ server:
   name: mcp-data-platform
   version: "1.0.0"
   description: |
-    CloudSent POS Data Platform providing access to retail/POS data across
-    Sales, Loyalty, Inventory, and Products domains. Data is available through
-    Trino and enriched with DataHub semantic metadata.
+    Enterprise data platform providing SQL access to analytics data
+    with semantic enrichment from the data catalog.
   transport: stdio
   address: ":8080"
   tls:
