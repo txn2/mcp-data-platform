@@ -18,20 +18,70 @@ type TableRef struct {
 
 // ExtractTablesFromSQL extracts all table references from SQL.
 // Uses SQL parser for standard queries, regex for Trino-specific functions.
+// Combines ES raw_query indices with regular table references (e.g., JOINs).
+// Filters out CTE references to only return physical tables.
 func ExtractTablesFromSQL(sql string) []TableRef {
-	// Try ES raw_query extraction first (non-standard SQL)
-	if esRefs := extractESRawQuery(sql); len(esRefs) > 0 {
-		return esRefs
-	}
+	cteNames := extractCTENames(sql)
+	collector := newTableCollector(cteNames)
 
-	// Try parsing with sqlparser first
-	refs := extractTablesFromAST(sql)
-	if len(refs) > 0 {
-		return refs
-	}
+	// Extract ES raw_query indices (non-standard SQL)
+	collector.addAll(extractESRawQuery(sql))
+
+	// Try parsing with sqlparser for standard table references
+	astRefs := extractTablesFromAST(sql)
+	collector.addAll(astRefs)
 
 	// Fall back to regex for Trino 3-part names that sqlparser can't handle
-	return extractTablesWithRegex(sql)
+	if len(astRefs) == 0 {
+		collector.addAll(extractTablesWithRegex(sql))
+	}
+
+	return collector.refs
+}
+
+// tableCollector deduplicates table refs and filters out CTEs.
+type tableCollector struct {
+	refs     []TableRef
+	seen     map[string]bool
+	cteNames map[string]bool
+}
+
+func newTableCollector(cteNames map[string]bool) *tableCollector {
+	return &tableCollector{
+		seen:     make(map[string]bool),
+		cteNames: cteNames,
+	}
+}
+
+func (c *tableCollector) addAll(refs []TableRef) {
+	for _, ref := range refs {
+		c.add(ref)
+	}
+}
+
+func (c *tableCollector) add(ref TableRef) {
+	if c.isCTE(ref) || c.seen[ref.FullPath] {
+		return
+	}
+	c.seen[ref.FullPath] = true
+	c.refs = append(c.refs, ref)
+}
+
+func (c *tableCollector) isCTE(ref TableRef) bool {
+	return ref.Catalog == "" && ref.Schema == "" && c.cteNames[ref.Table]
+}
+
+// extractCTENames extracts CTE (Common Table Expression) names from SQL.
+// Returns a set of CTE names to filter from table references.
+func extractCTENames(sql string) map[string]bool {
+	names := make(map[string]bool)
+	matches := cteNamePattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range matches {
+		if len(match) >= 2 {
+			names[match[1]] = true
+		}
+	}
+	return names
 }
 
 // extractTablesFromAST uses sqlparser to extract tables from standard SQL.
@@ -110,6 +160,9 @@ var (
 	rawQueryPattern    = regexp.MustCompile(`(?i)TABLE\s*\(\s*elasticsearch\.system\.raw_query\s*\(`)
 	indexParamPattern  = regexp.MustCompile(`(?i)index\s*=>\s*'([^']+)'`)
 	schemaParamPattern = regexp.MustCompile(`(?i)schema\s*=>\s*'([^']+)'`)
+
+	// CTE name pattern - matches "WITH name AS" or ", name AS" for chained CTEs
+	cteNamePattern = regexp.MustCompile(`(?i)(?:WITH|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(`)
 
 	// Table reference patterns for Trino 3-part names
 	// Matches: FROM/JOIN catalog.schema.table or schema.table or table
