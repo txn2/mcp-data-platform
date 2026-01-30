@@ -748,6 +748,50 @@ func main() {
 
 ---
 
+# MCP Apps Development
+
+MCP Apps provide interactive UI components that render alongside tool results in MCP-compatible hosts. This section covers local development setup.
+
+## Prerequisites
+
+- Go 1.21+
+- Docker
+- Node.js 18+
+
+## Architecture
+
+```
+Browser (basic-host:8080) <--MCP--> mcp-data-platform:3001 <--SQL--> Trino:8090
+```
+
+## Quick Start (from project root)
+
+1. Start Trino: `docker run -d --name trino-dev -p 8090:8080 trinodb/trino`
+2. Start MCP: `go run ./cmd/mcp-data-platform --config configs/dev-mcpapps.yaml`
+3. Clone basic-host (one-time): `git clone https://github.com/anthropics/ext-apps.git`
+4. Start basic-host: `cd ext-apps/examples/basic-host && npm install && SERVERS='["http://localhost:3001"]' npm start`
+5. Open http://localhost:8080 and call `trino_query` with the test JSON
+
+## Test Query (call trino_query with this JSON)
+
+```json
+{"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75 UNION ALL SELECT 3, 'Product C', 8500.25"}
+```
+
+## Key Files
+
+- `pkg/mcpapps/queryresults/assets/index.html` - Interactive table UI
+- `configs/dev-mcpapps.yaml` - Development configuration
+
+## MCP Apps Protocol
+
+- App initiates with `ui/initialize` (not host)
+- Communication via `window.parent.postMessage()`
+- Tool results delivered via `ui/context_update`
+- Resources use MIME type `text/html;profile=mcp-app`
+
+---
+
 # Troubleshooting
 
 ## Quick Diagnosis
