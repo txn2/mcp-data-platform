@@ -93,15 +93,20 @@ func enrichTrinoResult(
 	request mcp.CallToolRequest,
 	provider semantic.Provider,
 ) (*mcp.CallToolResult, error) {
-	// Check for SQL query (multi-table support)
+	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
 		tables := ExtractTablesFromSQL(sql)
 		if len(tables) > 0 {
+			slog.Debug("extracted tables from SQL for enrichment",
+				"sql_length", len(sql),
+				"table_count", len(tables),
+				"tables", formatTableRefs(tables),
+			)
 			return enrichTrinoQueryResult(ctx, result, tables, provider)
 		}
 	}
 
-	// Extract table identifier from request arguments (single table)
+	// Fall back to explicit table parameters (single table tools like trino_describe_table)
 	tableName := extractTableFromRequest(request)
 	if tableName == "" {
 		return result, nil
@@ -113,7 +118,6 @@ func enrichTrinoResult(
 	// Get semantic context for the table
 	semanticCtx, err := provider.GetTableContext(ctx, table)
 	if err != nil {
-		// Log the failure for debugging - this often indicates URN mapping issues
 		slog.Debug("semantic enrichment failed for Trino result",
 			"table", tableName,
 			"parsed_catalog", table.Catalog,
@@ -121,25 +125,46 @@ func enrichTrinoResult(
 			"parsed_table", table.Table,
 			"error", err,
 		)
-		// Don't fail the request if enrichment fails
 		return result, nil
 	}
 
-	// Get column-level semantic context (includes lineage-inherited metadata)
+	// Get column-level semantic context
 	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, table)
 	if columnsErr != nil {
 		slog.Debug("column semantic enrichment failed for Trino result",
 			"table", tableName,
 			"error", columnsErr,
 		)
-		// Continue without column context
 	}
 
-	// Append semantic context to result
 	return appendSemanticContextWithColumns(result, semanticCtx, columnsCtx)
 }
 
-// enrichTrinoQueryResult enriches results for SQL queries that may reference multiple tables.
+// extractSQLFromRequest extracts SQL from request arguments.
+func extractSQLFromRequest(request mcp.CallToolRequest) string {
+	if request.Params == nil || len(request.Params.Arguments) == 0 {
+		return ""
+	}
+	var args map[string]any
+	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
+		return ""
+	}
+	if sql, ok := args["sql"].(string); ok {
+		return sql
+	}
+	return ""
+}
+
+// formatTableRefs formats table refs for logging.
+func formatTableRefs(refs []TableRef) []string {
+	result := make([]string, len(refs))
+	for i, r := range refs {
+		result[i] = r.FullPath
+	}
+	return result
+}
+
+// enrichTrinoQueryResult enriches results for SQL queries with multiple tables.
 func enrichTrinoQueryResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
@@ -150,7 +175,7 @@ func enrichTrinoQueryResult(
 		return result, nil
 	}
 
-	// Enrich primary table with full context
+	// Primary table gets full context
 	primary := tables[0]
 	tableID := refToTableIdentifier(primary)
 
@@ -160,20 +185,18 @@ func enrichTrinoQueryResult(
 			"table", primary.FullPath,
 			"error", err,
 		)
-		// Don't fail the request if enrichment fails
 		return result, nil
 	}
 
 	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, tableID)
 	if columnsErr != nil {
-		slog.Debug("column semantic enrichment failed for primary table",
+		slog.Debug("column enrichment failed for primary table",
 			"table", primary.FullPath,
 			"error", columnsErr,
 		)
-		// Continue without column context
 	}
 
-	// Enrich additional tables (summary only)
+	// Additional tables get summary context
 	additionalTables := make([]map[string]any, 0, len(tables)-1)
 	for _, t := range tables[1:] {
 		tID := refToTableIdentifier(t)
@@ -191,13 +214,21 @@ func enrichTrinoQueryResult(
 	return appendSemanticContextWithAdditional(result, tableCtx, columnsCtx, additionalTables)
 }
 
-// buildAdditionalTableContext creates a summary context for additional tables.
+// refToTableIdentifier converts TableRef to semantic.TableIdentifier.
+func refToTableIdentifier(ref TableRef) semantic.TableIdentifier {
+	return semantic.TableIdentifier{
+		Catalog: ref.Catalog,
+		Schema:  ref.Schema,
+		Table:   ref.Table,
+	}
+}
+
+// buildAdditionalTableContext creates summary context for additional tables.
 func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[string]any {
 	summary := map[string]any{
 		"table":       ref.FullPath,
 		"description": ctx.Description,
 	}
-
 	if ctx.URN != "" {
 		summary["urn"] = ctx.URN
 	}
@@ -210,11 +241,10 @@ func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[s
 	if len(ctx.Owners) > 0 {
 		summary["owners"] = ctx.Owners
 	}
-
 	return summary
 }
 
-// appendSemanticContextWithAdditional appends semantic context with additional tables to result.
+// appendSemanticContextWithAdditional appends context with additional tables to result.
 func appendSemanticContextWithAdditional(
 	result *mcp.CallToolResult,
 	ctx *semantic.TableContext,
@@ -371,30 +401,6 @@ func extractTableFromSQL(args map[string]any) string {
 		return tables[0].FullPath
 	}
 	return ""
-}
-
-// extractSQLFromRequest extracts SQL from request arguments.
-func extractSQLFromRequest(request mcp.CallToolRequest) string {
-	if len(request.Params.Arguments) == 0 {
-		return ""
-	}
-	var args map[string]any
-	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
-		return ""
-	}
-	if sql, ok := args["sql"].(string); ok {
-		return sql
-	}
-	return ""
-}
-
-// refToTableIdentifier converts a TableRef to semantic.TableIdentifier.
-func refToTableIdentifier(ref TableRef) semantic.TableIdentifier {
-	return semantic.TableIdentifier{
-		Catalog: ref.Catalog,
-		Schema:  ref.Schema,
-		Table:   ref.Table,
-	}
 }
 
 // extractURNFromRequest extracts URN from request arguments.

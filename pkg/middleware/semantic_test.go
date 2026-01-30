@@ -800,6 +800,78 @@ func TestEnrichTrinoResult(t *testing.T) {
 			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
 		}
 	})
+
+	t.Run("with SQL query parameter extracts tables", func(t *testing.T) {
+		result := NewToolResultText("query results")
+		provider := &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Table: " + table.Table,
+					Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
+				}, nil
+			},
+		}
+		args, _ := json.Marshal(map[string]any{
+			"sql": "SELECT * FROM catalog.schema.users JOIN catalog.schema.orders ON users.id = orders.user_id",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should have original + semantic context
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("with SQL query no tables found falls back to empty", func(t *testing.T) {
+		result := NewToolResultText("query results")
+		provider := &mockSemanticProvider{}
+		args, _ := json.Marshal(map[string]any{
+			"sql": "SELECT 1",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// No tables found, no enrichment
+		if len(enriched.Content) != 1 {
+			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("with column context error continues", func(t *testing.T) {
+		result := NewToolResultText("original")
+		provider := &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Test table",
+				}, nil
+			},
+		}
+		// Override GetColumnsContext to return error
+		args, _ := json.Marshal(map[string]any{"table": "schema.my_table"})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should still have enrichment even if columns fail
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
 }
 
 func TestEnrichDataHubResult(t *testing.T) {
@@ -868,6 +940,73 @@ func TestEnrichDataHubResult(t *testing.T) {
 		// Should return original result (error on GetTableAvailability is skipped)
 		if len(enriched.Content) != 1 {
 			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("URN from request added if not in result", func(t *testing.T) {
+		result := NewToolResultText("no urns here")
+		urnsCalled := make([]string, 0)
+		provider := &mockQueryProvider{
+			getTableAvailabilityFunc: func(_ context.Context, urn string) (*query.TableAvailability, error) {
+				urnsCalled = append(urnsCalled, urn)
+				return &query.TableAvailability{
+					Available:  true,
+					QueryTable: "schema.table",
+				}, nil
+			},
+		}
+		args, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:from_request",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+		if len(urnsCalled) != 1 || urnsCalled[0] != "urn:li:dataset:from_request" {
+			t.Errorf("expected URN from request to be called, got %v", urnsCalled)
+		}
+	})
+
+	t.Run("URN from request not duplicated if already in result", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:same",
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		urnsCalled := make([]string, 0)
+		provider := &mockQueryProvider{
+			getTableAvailabilityFunc: func(_ context.Context, urn string) (*query.TableAvailability, error) {
+				urnsCalled = append(urnsCalled, urn)
+				return &query.TableAvailability{
+					Available:  true,
+					QueryTable: "schema.table",
+				}, nil
+			},
+		}
+		args, _ := json.Marshal(map[string]any{
+			"urn": "urn:li:dataset:same",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		_, err := enrichDataHubResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should only be called once, not twice
+		if len(urnsCalled) != 1 {
+			t.Errorf("expected URN to be called once (not duplicated), got %d calls", len(urnsCalled))
 		}
 	})
 }
@@ -1578,133 +1717,297 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 	})
 }
 
-func TestExtractTableFromRequest_SQL(t *testing.T) {
-	t.Run("extracts table from SQL parameter", func(t *testing.T) {
-		args, _ := json.Marshal(map[string]any{
-			"sql": "SELECT * FROM catalog.schema.my_table",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
+func TestExtractSQLFromRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]any
+		expected string
+	}{
+		{
+			name:     "with sql parameter",
+			args:     map[string]any{"sql": "SELECT * FROM users"},
+			expected: "SELECT * FROM users",
+		},
+		{
+			name:     "without sql parameter",
+			args:     map[string]any{"table": "users"},
+			expected: "",
+		},
+		{
+			name:     "empty args",
+			args:     map[string]any{},
+			expected: "",
+		},
+	}
 
-		table := extractTableFromRequest(request)
-		if table != "catalog.schema.my_table" {
-			t.Errorf("expected 'catalog.schema.my_table', got %q", table)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			argsJSON, _ := json.Marshal(tt.args)
+			req := mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{
+					Arguments: argsJSON,
+				},
+			}
+			result := extractSQLFromRequest(req)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestExtractTableFromSQL(t *testing.T) {
+	t.Run("with sql containing table", func(t *testing.T) {
+		args := map[string]any{"sql": "SELECT * FROM schema.table"}
+		result := extractTableFromSQL(args)
+		if result != "schema.table" {
+			t.Errorf("expected schema.table, got %s", result)
 		}
 	})
 
-	t.Run("explicit table takes precedence over SQL", func(t *testing.T) {
-		args, _ := json.Marshal(map[string]any{
-			"table": "explicit_table",
-			"sql":   "SELECT * FROM sql_table",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
-
-		table := extractTableFromRequest(request)
-		if table != "explicit_table" {
-			t.Errorf("expected 'explicit_table', got %q", table)
+	t.Run("no sql key", func(t *testing.T) {
+		args := map[string]any{"other": "value"}
+		result := extractTableFromSQL(args)
+		if result != "" {
+			t.Errorf("expected empty, got %s", result)
 		}
 	})
 
-	t.Run("returns empty for invalid SQL", func(t *testing.T) {
-		args, _ := json.Marshal(map[string]any{
-			"sql": "NOT VALID SQL",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
+	t.Run("empty sql", func(t *testing.T) {
+		args := map[string]any{"sql": ""}
+		result := extractTableFromSQL(args)
+		if result != "" {
+			t.Errorf("expected empty, got %s", result)
 		}
+	})
 
-		table := extractTableFromRequest(request)
-		if table != "" {
-			t.Errorf("expected empty string, got %q", table)
+	t.Run("sql with no tables", func(t *testing.T) {
+		args := map[string]any{"sql": "SELECT 1"}
+		result := extractTableFromSQL(args)
+		if result != "" {
+			t.Errorf("expected empty, got %s", result)
+		}
+	})
+
+	t.Run("sql with three-part table name", func(t *testing.T) {
+		args := map[string]any{"sql": "SELECT * FROM catalog.schema.table"}
+		result := extractTableFromSQL(args)
+		if result != "catalog.schema.table" {
+			t.Errorf("expected catalog.schema.table, got %s", result)
 		}
 	})
 }
 
-func TestExtractSQLFromRequest(t *testing.T) {
-	t.Run("extracts SQL", func(t *testing.T) {
-		args, _ := json.Marshal(map[string]any{
-			"sql": "SELECT * FROM users",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
+func TestFormatTableRefs(t *testing.T) {
+	refs := []TableRef{
+		{FullPath: "catalog.schema.table1"},
+		{FullPath: "catalog.schema.table2"},
+	}
+	result := formatTableRefs(refs)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	if result[0] != "catalog.schema.table1" {
+		t.Errorf("expected catalog.schema.table1, got %s", result[0])
+	}
+	if result[1] != "catalog.schema.table2" {
+		t.Errorf("expected catalog.schema.table2, got %s", result[1])
+	}
+}
 
-		sql := extractSQLFromRequest(request)
-		if sql != "SELECT * FROM users" {
-			t.Errorf("expected 'SELECT * FROM users', got %q", sql)
+func TestRefToTableIdentifier(t *testing.T) {
+	ref := TableRef{
+		Catalog: "my_catalog",
+		Schema:  "my_schema",
+		Table:   "my_table",
+	}
+	result := refToTableIdentifier(ref)
+	if result.Catalog != "my_catalog" {
+		t.Errorf("expected catalog my_catalog, got %s", result.Catalog)
+	}
+	if result.Schema != "my_schema" {
+		t.Errorf("expected schema my_schema, got %s", result.Schema)
+	}
+	if result.Table != "my_table" {
+		t.Errorf("expected table my_table, got %s", result.Table)
+	}
+}
+
+func TestBuildAdditionalTableContext(t *testing.T) {
+	ref := TableRef{FullPath: "catalog.schema.table"}
+	ctx := &semantic.TableContext{
+		URN:         "urn:li:dataset:test",
+		Description: "Test table",
+		Tags:        []string{"tag1", "tag2"},
+		Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
+		Deprecation: &semantic.Deprecation{Deprecated: true, Note: "Use new_table"},
+	}
+
+	result := buildAdditionalTableContext(ref, ctx)
+
+	if result["table"] != "catalog.schema.table" {
+		t.Errorf("expected table catalog.schema.table, got %v", result["table"])
+	}
+	if result["description"] != "Test table" {
+		t.Errorf("expected description Test table, got %v", result["description"])
+	}
+	if result["urn"] != "urn:li:dataset:test" {
+		t.Errorf("expected urn, got %v", result["urn"])
+	}
+	if result["deprecation"] == nil {
+		t.Error("expected deprecation to be set")
+	}
+	if len(result["tags"].([]string)) != 2 {
+		t.Errorf("expected 2 tags, got %v", result["tags"])
+	}
+	if len(result["owners"].([]semantic.Owner)) != 1 {
+		t.Errorf("expected 1 owner, got %v", result["owners"])
+	}
+}
+
+func TestAppendSemanticContextWithAdditional(t *testing.T) {
+	t.Run("nil context returns original", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{}}
+		enriched, err := appendSemanticContextWithAdditional(result, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 0 {
+			t.Errorf("expected no content added, got %d", len(enriched.Content))
 		}
 	})
 
-	t.Run("returns empty when no SQL", func(t *testing.T) {
-		args, _ := json.Marshal(map[string]any{
-			"table": "users",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
+	t.Run("adds semantic context with additional tables", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "original"},
+		}}
+		tableCtx := &semantic.TableContext{
+			Description: "Primary table",
+			Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
+		}
+		additionalTables := []map[string]any{
+			{"table": "second.table", "description": "Second table"},
 		}
 
-		sql := extractSQLFromRequest(request)
-		if sql != "" {
-			t.Errorf("expected empty string, got %q", sql)
+		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, nil, additionalTables)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+		}
+
+		textContent := enriched.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		if _, ok := data["semantic_context"]; !ok {
+			t.Error("expected semantic_context")
+		}
+		if _, ok := data["additional_tables"]; !ok {
+			t.Error("expected additional_tables")
 		}
 	})
 
-	t.Run("returns empty for empty arguments", func(t *testing.T) {
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{},
+	t.Run("adds column context with inheritance sources", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "original"},
+		}}
+		tableCtx := &semantic.TableContext{
+			Description: "Primary table",
+		}
+		columnsCtx := map[string]*semantic.ColumnContext{
+			"user_id": {
+				Description: "User identifier",
+				IsPII:       true,
+				InheritedFrom: &semantic.InheritedMetadata{
+					SourceURN:    "urn:li:dataset:upstream",
+					SourceColumn: "id",
+					Hops:         1,
+					MatchMethod:  "name_transformed",
+				},
+			},
 		}
 
-		sql := extractSQLFromRequest(request)
-		if sql != "" {
-			t.Errorf("expected empty string, got %q", sql)
+		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, columnsCtx, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(enriched.Content) != 2 {
+			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+		}
+
+		textContent := enriched.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		if _, ok := data["column_context"]; !ok {
+			t.Error("expected column_context")
+		}
+		if _, ok := data["inheritance_sources"]; !ok {
+			t.Error("expected inheritance_sources")
+		}
+	})
+
+	t.Run("no additional tables omits additional_tables key", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "original"},
+		}}
+		tableCtx := &semantic.TableContext{
+			Description: "Primary table",
+		}
+
+		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent := enriched.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		if _, ok := data["additional_tables"]; ok {
+			t.Error("additional_tables should not exist when empty")
 		}
 	})
 }
 
 func TestEnrichTrinoQueryResult(t *testing.T) {
-	t.Run("single table enrichment", func(t *testing.T) {
-		result := NewToolResultText("original")
-		tables := []TableRef{
-			{Catalog: "cat", Schema: "sch", Table: "tbl", FullPath: "cat.sch.tbl", Source: "FROM"},
-		}
-		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
-				if table.Table != "tbl" {
-					t.Errorf("expected table 'tbl', got %q", table.Table)
-				}
-				return &semantic.TableContext{
-					Description: "Primary table",
-					Tags:        []string{"important"},
-				}, nil
-			},
-		}
+	t.Run("empty tables returns original", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{}}
+		provider := &mockSemanticProvider{}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
+		enriched, err := enrichTrinoQueryResult(context.Background(), result, []TableRef{}, provider)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		if len(enriched.Content) != 0 {
+			t.Errorf("expected no content, got %d", len(enriched.Content))
 		}
 	})
 
-	t.Run("multi-table enrichment", func(t *testing.T) {
-		result := NewToolResultText("original")
-		tables := []TableRef{
-			{Catalog: "cat", Schema: "sch", Table: "primary", FullPath: "cat.sch.primary", Source: "FROM"},
-			{Catalog: "cat", Schema: "sch", Table: "secondary", FullPath: "cat.sch.secondary", Source: "FROM"},
-		}
+	t.Run("enriches with semantic context", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "query results"},
+		}}
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return &semantic.TableContext{
-					URN:         "urn:li:dataset:" + table.Table,
-					Description: "Description for " + table.Table,
-					Tags:        []string{"tag-" + table.Table},
+					Description: "Table: " + table.Table,
+					Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
 				}, nil
 			},
+		}
+
+		tables := []TableRef{
+			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
+			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
@@ -1721,354 +2024,70 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			t.Fatalf("failed to parse JSON: %v", err)
 		}
 
-		// Check primary table context
 		if _, ok := data["semantic_context"]; !ok {
 			t.Error("expected semantic_context")
 		}
-
-		// Check additional tables
-		additional, ok := data["additional_tables"].([]any)
-		if !ok {
-			t.Fatal("expected additional_tables")
-		}
-		if len(additional) != 1 {
-			t.Errorf("expected 1 additional table, got %d", len(additional))
-		}
-
-		secondaryTable := additional[0].(map[string]any)
-		if secondaryTable["table"] != "cat.sch.secondary" {
-			t.Errorf("expected table 'cat.sch.secondary', got %v", secondaryTable["table"])
+		if _, ok := data["additional_tables"]; !ok {
+			t.Error("expected additional_tables for multi-table query")
 		}
 	})
 
-	t.Run("empty tables returns original", func(t *testing.T) {
-		result := NewToolResultText("original")
-		provider := &mockSemanticProvider{}
-
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, nil, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
-	})
-
-	t.Run("primary table error returns original", func(t *testing.T) {
-		result := NewToolResultText("original")
-		tables := []TableRef{
-			{Table: "tbl", FullPath: "tbl", Source: "FROM"},
-		}
+	t.Run("primary table GetTableContext fails returns original", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "query results"},
+		}}
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return nil, context.Canceled
 			},
+		}
+
+		tables := []TableRef{
+			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		// Should return original result without enrichment when primary table fails
 		if len(enriched.Content) != 1 {
 			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
 		}
 	})
 
-	t.Run("additional table error continues gracefully", func(t *testing.T) {
-		result := NewToolResultText("original")
-		tables := []TableRef{
-			{Table: "primary", FullPath: "primary", Source: "FROM"},
-			{Table: "failing", FullPath: "failing", Source: "FROM"},
-			{Table: "succeeding", FullPath: "succeeding", Source: "FROM"},
-		}
+	t.Run("additional table GetTableContext fails continues", func(t *testing.T) {
+		result := &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: "query results"},
+		}}
 		callCount := 0
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 				callCount++
-				if table.Table == "failing" {
-					return nil, context.Canceled
+				if callCount == 1 {
+					// Primary table succeeds
+					return &semantic.TableContext{
+						Description: "Primary table",
+						Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
+					}, nil
 				}
-				return &semantic.TableContext{
-					Description: "Description for " + table.Table,
-				}, nil
+				// Additional tables fail
+				return nil, context.Canceled
 			},
+		}
+
+		tables := []TableRef{
+			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
+			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if callCount != 3 {
-			t.Errorf("expected 3 calls, got %d", callCount)
-		}
-
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		// Should have 1 additional table (failing one skipped)
-		additional, ok := data["additional_tables"].([]any)
-		if !ok {
-			t.Fatal("expected additional_tables")
-		}
-		if len(additional) != 1 {
-			t.Errorf("expected 1 additional table (failing skipped), got %d", len(additional))
-		}
-	})
-}
-
-func TestBuildAdditionalTableContext(t *testing.T) {
-	t.Run("includes deprecation when deprecated", func(t *testing.T) {
-		ref := TableRef{FullPath: "cat.sch.tbl"}
-		ctx := &semantic.TableContext{
-			URN:         "urn:dataset",
-			Description: "Test",
-			Deprecation: &semantic.Deprecation{Deprecated: true, Note: "Use new_table"},
-			Tags:        []string{"deprecated"},
-			Owners:      []semantic.Owner{{Name: "Team"}},
-		}
-
-		result := buildAdditionalTableContext(ref, ctx)
-
-		if result["table"] != "cat.sch.tbl" {
-			t.Errorf("expected table 'cat.sch.tbl', got %v", result["table"])
-		}
-		if result["description"] != "Test" {
-			t.Errorf("expected description 'Test', got %v", result["description"])
-		}
-		if result["urn"] != "urn:dataset" {
-			t.Errorf("expected urn 'urn:dataset', got %v", result["urn"])
-		}
-		if _, ok := result["deprecation"]; !ok {
-			t.Error("expected deprecation to be included")
-		}
-		if _, ok := result["tags"]; !ok {
-			t.Error("expected tags to be included")
-		}
-		if _, ok := result["owners"]; !ok {
-			t.Error("expected owners to be included")
-		}
-	})
-
-	t.Run("omits deprecation when not deprecated", func(t *testing.T) {
-		ref := TableRef{FullPath: "tbl"}
-		ctx := &semantic.TableContext{
-			Description: "Active table",
-			Deprecation: &semantic.Deprecation{Deprecated: false},
-		}
-
-		result := buildAdditionalTableContext(ref, ctx)
-
-		if _, ok := result["deprecation"]; ok {
-			t.Error("deprecation should be omitted when not deprecated")
-		}
-	})
-
-	t.Run("omits empty fields", func(t *testing.T) {
-		ref := TableRef{FullPath: "tbl"}
-		ctx := &semantic.TableContext{
-			Description: "Minimal",
-		}
-
-		result := buildAdditionalTableContext(ref, ctx)
-
-		if _, ok := result["urn"]; ok {
-			t.Error("urn should be omitted when empty")
-		}
-		if _, ok := result["tags"]; ok {
-			t.Error("tags should be omitted when empty")
-		}
-		if _, ok := result["owners"]; ok {
-			t.Error("owners should be omitted when empty")
-		}
-	})
-}
-
-func TestAppendSemanticContextWithAdditional(t *testing.T) {
-	t.Run("nil context returns original", func(t *testing.T) {
-		result := NewToolResultText("original")
-		enriched, err := appendSemanticContextWithAdditional(result, nil, nil, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
-	})
-
-	t.Run("includes additional tables when present", func(t *testing.T) {
-		result := NewToolResultText("original")
-		ctx := &semantic.TableContext{Description: "Primary"}
-		additional := []map[string]any{
-			{"table": "t1", "description": "Table 1"},
-			{"table": "t2", "description": "Table 2"},
-		}
-
-		enriched, err := appendSemanticContextWithAdditional(result, ctx, nil, additional)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		addl, ok := data["additional_tables"].([]any)
-		if !ok {
-			t.Fatal("expected additional_tables")
-		}
-		if len(addl) != 2 {
-			t.Errorf("expected 2 additional tables, got %d", len(addl))
-		}
-	})
-
-	t.Run("omits additional tables when empty", func(t *testing.T) {
-		result := NewToolResultText("original")
-		ctx := &semantic.TableContext{Description: "Primary"}
-
-		enriched, err := appendSemanticContextWithAdditional(result, ctx, nil, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		if _, ok := data["additional_tables"]; ok {
-			t.Error("additional_tables should be omitted when empty")
-		}
-	})
-}
-
-func TestEnrichTrinoResult_WithSQL(t *testing.T) {
-	t.Run("enriches SQL query with single table", func(t *testing.T) {
-		result := NewToolResultText("original")
-		args, _ := json.Marshal(map[string]any{
-			"sql": "SELECT * FROM catalog.schema.my_table",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
-		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
-				if table.Catalog != "catalog" || table.Schema != "schema" || table.Table != "my_table" {
-					t.Errorf("unexpected table: %+v", table)
-				}
-				return &semantic.TableContext{
-					Description: "My table",
-				}, nil
-			},
-		}
-
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		// Should still have enrichment from primary table
 		if len(enriched.Content) != 2 {
 			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
 		}
 	})
-
-	t.Run("enriches SQL query with JOIN", func(t *testing.T) {
-		result := NewToolResultText("original")
-		args, _ := json.Marshal(map[string]any{
-			"sql": "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
-		callCount := 0
-		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
-				callCount++
-				return &semantic.TableContext{
-					Description: "Table " + table.Table,
-				}, nil
-			},
-		}
-
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if callCount != 2 {
-			t.Errorf("expected 2 calls for JOIN query, got %d", callCount)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
-
-		// Verify additional_tables is present
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-		if _, ok := data["additional_tables"]; !ok {
-			t.Error("expected additional_tables for JOIN query")
-		}
-	})
-
-	t.Run("enriches ES raw_query", func(t *testing.T) {
-		result := NewToolResultText("original")
-		args, _ := json.Marshal(map[string]any{
-			"sql": "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', index => 'my-index', query => '{}'))",
-		})
-		request := mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Arguments: args},
-		}
-		provider := &mockSemanticProvider{
-			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
-				if table.Catalog != "elasticsearch" {
-					t.Errorf("expected catalog 'elasticsearch', got %q", table.Catalog)
-				}
-				if table.Schema != "default" {
-					t.Errorf("expected schema 'default', got %q", table.Schema)
-				}
-				if table.Table != "my-index" {
-					t.Errorf("expected table 'my-index', got %q", table.Table)
-				}
-				return &semantic.TableContext{
-					Description: "ES index",
-				}, nil
-			},
-		}
-
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
-	})
-}
-
-func TestRefToTableIdentifier(t *testing.T) {
-	ref := TableRef{
-		Catalog:  "cat",
-		Schema:   "sch",
-		Table:    "tbl",
-		FullPath: "cat.sch.tbl",
-		Source:   "FROM",
-	}
-
-	id := refToTableIdentifier(ref)
-
-	if id.Catalog != "cat" {
-		t.Errorf("catalog: expected 'cat', got %q", id.Catalog)
-	}
-	if id.Schema != "sch" {
-		t.Errorf("schema: expected 'sch', got %q", id.Schema)
-	}
-	if id.Table != "tbl" {
-		t.Errorf("table: expected 'tbl', got %q", id.Table)
-	}
 }

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="600" viewBox="0 0 1600 600" fill="none">
+  <defs>
+    <linearGradient id="g-ring" x1="220" y1="120" x2="420" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#27D7D7"/>
+      <stop offset="0.45" stop-color="#3AA0FF"/>
+      <stop offset="0.75" stop-color="#FFB000"/>
+      <stop offset="1" stop-color="#FF3B5C"/>
+    </linearGradient>
+    <linearGradient id="g-text" x1="900" y1="260" x2="1320" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Icon -->
+  <g transform="translate(120 80)" filter="url(#softShadow)">
+    <!-- Ring -->
+    <circle cx="220" cy="220" r="160" stroke="url(#g-ring)" stroke-width="26" stroke-linecap="round"/>
+    <!-- Inner circuit -->
+    <g stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M150 290 L150 210 Q150 175 185 175 L220 175"/>
+      <path d="M220 175 L255 175 Q290 175 290 210 L290 265"/>
+      <path d="M290 265 L255 265 Q220 265 220 230 L220 175"/>
+      <path d="M150 210 L220 210"/>
+    </g>
+    <!-- Nodes -->
+    <g fill="#FFFFFF">
+      <circle cx="150" cy="290" r="16"/>
+      <circle cx="150" cy="210" r="16"/>
+      <circle cx="220" cy="175" r="16"/>
+      <circle cx="290" cy="265" r="16"/>
+      <circle cx="220" cy="210" r="16"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial" text-rendering="geometricPrecision">
+    <text x="640" y="330" font-size="170" font-weight="800" fill="#FFFFFF">MCP</text>
+    <text x="640" y="420" font-size="72" font-weight="700" fill="url(#g-text)" letter-spacing="2">DATA PLATFORM</text>
+    <text x="640" y="492" font-size="54" font-weight="700" fill="#93C5FD" letter-spacing="3">MCPDP</text>
+  </g>
+</svg>
