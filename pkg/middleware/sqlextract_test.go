@@ -211,6 +211,19 @@ func TestExtractESRawQuery(t *testing.T) {
 			sql:      "SELECT * FROM regular_table",
 			expected: nil,
 		},
+		{
+			name:     "raw_query without index parameter",
+			sql:      "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', query => '{}'))",
+			expected: nil,
+		},
+		{
+			name: "indices with empty entries after split",
+			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'idx1, , idx2', query => '{}'))",
+			expected: []TableRef{
+				{Catalog: "elasticsearch", Schema: "default", Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: "TABLE_FUNCTION"},
+				{Catalog: "elasticsearch", Schema: "default", Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: "TABLE_FUNCTION"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -236,4 +249,26 @@ func TestExtractESRawQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractTablesWithRegex(t *testing.T) {
+	t.Run("duplicate tables deduplicated", func(t *testing.T) {
+		sql := "SELECT * FROM users u1 JOIN users u2 ON u1.id = u2.id"
+		result := extractTablesWithRegex(sql)
+		// Should only have one entry for "users"
+		if len(result) != 1 {
+			t.Errorf("expected 1 table (deduplicated), got %d: %+v", len(result), result)
+		}
+		if len(result) > 0 && result[0].Table != "users" {
+			t.Errorf("expected users, got %s", result[0].Table)
+		}
+	})
+
+	t.Run("no matches returns nil", func(t *testing.T) {
+		sql := "SELECT 1 + 1"
+		result := extractTablesWithRegex(sql)
+		if result != nil {
+			t.Errorf("expected nil, got %+v", result)
+		}
+	})
 }
