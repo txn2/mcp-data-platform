@@ -800,6 +800,78 @@ func TestEnrichTrinoResult(t *testing.T) {
 			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
 		}
 	})
+
+	t.Run("with SQL query parameter extracts tables", func(t *testing.T) {
+		result := NewToolResultText("query results")
+		provider := &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Table: " + table.Table,
+					Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
+				}, nil
+			},
+		}
+		args, _ := json.Marshal(map[string]any{
+			"sql": "SELECT * FROM catalog.schema.users JOIN catalog.schema.orders ON users.id = orders.user_id",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should have original + semantic context
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("with SQL query no tables found falls back to empty", func(t *testing.T) {
+		result := NewToolResultText("query results")
+		provider := &mockSemanticProvider{}
+		args, _ := json.Marshal(map[string]any{
+			"sql": "SELECT 1",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// No tables found, no enrichment
+		if len(enriched.Content) != 1 {
+			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
+		}
+	})
+
+	t.Run("with column context error continues", func(t *testing.T) {
+		result := NewToolResultText("original")
+		provider := &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Test table",
+				}, nil
+			},
+		}
+		// Override GetColumnsContext to return error
+		args, _ := json.Marshal(map[string]any{"table": "schema.my_table"})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should still have enrichment even if columns fail
+		if len(enriched.Content) != 2 {
+			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
+		}
+	})
 }
 
 func TestEnrichDataHubResult(t *testing.T) {
