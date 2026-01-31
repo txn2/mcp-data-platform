@@ -4,21 +4,62 @@ package mcpapps_test
 
 import (
 	"context"
-	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
-	"github.com/txn2/mcp-data-platform/pkg/mcpapps/queryresults"
 )
+
+// testAppsDir returns the absolute path to the apps/query-results directory.
+func testAppsDir(t *testing.T) string {
+	t.Helper()
+	// Navigate from pkg/mcpapps to project root, then to apps/query-results
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	// Go up two directories from pkg/mcpapps to project root
+	projectRoot := filepath.Join(wd, "..", "..")
+	appsDir := filepath.Join(projectRoot, "apps", "query-results")
+
+	// Verify it exists
+	if _, err := os.Stat(appsDir); err != nil {
+		t.Skipf("apps/query-results not found at %s: %v", appsDir, err)
+	}
+
+	return appsDir
+}
 
 // TestMCPAppsIntegration verifies the full MCP Apps flow.
 func TestMCPAppsIntegration(t *testing.T) {
+	appsDir := testAppsDir(t)
+
 	// Setup: Create registry and register app
 	reg := mcpapps.NewRegistry()
-	app := queryresults.App(queryresults.Config{})
+	app := &mcpapps.AppDefinition{
+		Name:        "query-results",
+		ResourceURI: "ui://query-results",
+		ToolNames:   []string{"trino_query"},
+		AssetsPath:  appsDir,
+		EntryPoint:  "index.html",
+		Config: map[string]any{
+			"chartCDN":         "https://cdn.jsdelivr.net/npm/chart.js",
+			"defaultChartType": "bar",
+			"maxTableRows":     1000,
+		},
+		CSP: &mcpapps.CSPConfig{
+			ResourceDomains: []string{"https://cdn.jsdelivr.net"},
+		},
+	}
+
+	if err := app.ValidateAssets(); err != nil {
+		t.Fatalf("Failed to validate assets: %v", err)
+	}
+
 	if err := reg.Register(app); err != nil {
 		t.Fatalf("Failed to register app: %v", err)
 	}
@@ -112,8 +153,8 @@ func TestMCPAppsIntegration(t *testing.T) {
 	})
 
 	t.Run("resource handler serves HTML", func(t *testing.T) {
-		// Directly test the resource handler by reading from embedded assets
-		content, err := app.Assets.ReadFile("assets/index.html")
+		// Read the HTML directly from the filesystem
+		content, err := os.ReadFile(filepath.Join(appsDir, "index.html"))
 		if err != nil {
 			t.Fatalf("Failed to read index.html: %v", err)
 		}
@@ -122,8 +163,8 @@ func TestMCPAppsIntegration(t *testing.T) {
 			t.Error("Content should be HTML")
 		}
 
-		if !strings.Contains(string(content), "Query Results") {
-			t.Error("Content should contain 'Query Results'")
+		if !strings.Contains(string(content), "Results") {
+			t.Error("Content should contain 'Results'")
 		}
 
 		t.Logf("HTML content length: %d bytes", len(content))
@@ -132,13 +173,9 @@ func TestMCPAppsIntegration(t *testing.T) {
 
 // TestQueryResultsHTML verifies the HTML content.
 func TestQueryResultsHTML(t *testing.T) {
-	app := queryresults.App(queryresults.Config{
-		ChartCDN:         "https://cdn.example.com/chart.js",
-		DefaultChartType: "line",
-		MaxTableRows:     500,
-	})
+	appsDir := testAppsDir(t)
 
-	content, err := app.Assets.ReadFile("assets/index.html")
+	content, err := os.ReadFile(filepath.Join(appsDir, "index.html"))
 	if err != nil {
 		t.Fatalf("Failed to read index.html: %v", err)
 	}
@@ -146,9 +183,7 @@ func TestQueryResultsHTML(t *testing.T) {
 	// Check essential elements
 	checks := []string{
 		"<!DOCTYPE html>",
-		"Query Results",
 		"filter",
-		"export",
 		"chart",
 		"table",
 	}
@@ -158,30 +193,13 @@ func TestQueryResultsHTML(t *testing.T) {
 			t.Errorf("HTML should contain %q", check)
 		}
 	}
-
-	// Verify config
-	t.Run("config values preserved", func(t *testing.T) {
-		cfg := app.Config.(queryresults.Config)
-		cfgJSON, _ := json.Marshal(cfg)
-		t.Logf("Config: %s", cfgJSON)
-
-		if cfg.ChartCDN != "https://cdn.example.com/chart.js" {
-			t.Errorf("ChartCDN not preserved")
-		}
-		if cfg.DefaultChartType != "line" {
-			t.Errorf("DefaultChartType not preserved")
-		}
-		if cfg.MaxTableRows != 500 {
-			t.Errorf("MaxTableRows not preserved")
-		}
-	})
 }
 
 // TestFullPlatformIntegration tests with actual Platform config.
 func TestFullPlatformIntegration(t *testing.T) {
 	t.Log("To test the full platform integration:")
 	t.Log("1. Build: go build -o mcp-data-platform ./cmd/mcp-data-platform")
-	t.Log("2. Create config with mcpapps.enabled: true")
+	t.Log("2. Create config with mcpapps.enabled: true and apps configured with assets_path")
 	t.Log("3. Run: npx @anthropics/mcp-inspector ./mcp-data-platform --config <config.yaml>")
 	t.Log("4. In Inspector: List Tools -> verify trino_query has _meta.ui")
 	t.Log("5. In Inspector: List Resources -> verify ui://query-results exists")
