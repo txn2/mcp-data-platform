@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -1463,6 +1465,17 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 	}
 }
 
+// createTestAppDir creates a temporary directory with test app files.
+func createTestAppDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), 0600); err != nil {
+		t.Fatalf("Failed to create test index.html: %v", err)
+	}
+	return dir
+}
+
 func TestInitMCPApps(t *testing.T) {
 	t.Run("disabled by default", func(t *testing.T) {
 		cfg := &Config{
@@ -1483,7 +1496,9 @@ func TestInitMCPApps(t *testing.T) {
 		}
 	})
 
-	t.Run("enabled with query_results app", func(t *testing.T) {
+	t.Run("enabled with filesystem app", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1493,11 +1508,15 @@ func TestInitMCPApps(t *testing.T) {
 				Enabled: true,
 				Apps: map[string]AppConfig{
 					"query_results": {
-						Enabled:          true,
-						Tools:            []string{"trino_query"},
-						ChartCDN:         "https://cdn.example.com/chart.js",
-						DefaultChartType: "bar",
-						MaxTableRows:     500,
+						Enabled:    true,
+						Tools:      []string{"trino_query"},
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
+						Config: map[string]any{
+							"chartCDN":         "https://cdn.example.com/chart.js",
+							"defaultChartType": "bar",
+							"maxTableRows":     500,
+						},
 					},
 				},
 			},
@@ -1516,9 +1535,9 @@ func TestInitMCPApps(t *testing.T) {
 			t.Error("Registry should have apps")
 		}
 
-		app := p.mcpAppsRegistry.Get("query-results")
+		app := p.mcpAppsRegistry.Get("query_results")
 		if app == nil {
-			t.Fatal("query-results app should be registered")
+			t.Fatal("query_results app should be registered")
 		}
 
 		if len(app.ToolNames) != 1 || app.ToolNames[0] != "trino_query" {
@@ -1526,7 +1545,7 @@ func TestInitMCPApps(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown app logs warning", func(t *testing.T) {
+	t.Run("app with missing assets fails", func(t *testing.T) {
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1535,21 +1554,26 @@ func TestInitMCPApps(t *testing.T) {
 			MCPApps: MCPAppsConfig{
 				Enabled: true,
 				Apps: map[string]AppConfig{
-					"unknown_app": {
-						Enabled: true,
+					"missing_app": {
+						Enabled:    true,
+						Tools:      []string{"test_tool"},
+						AssetsPath: "/nonexistent/path",
+						EntryPoint: "index.html",
 					},
 				},
 			},
 		}
 
-		// Should not error, just warn
+		// Should error because assets don't exist
 		_, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
+		if err == nil {
+			t.Fatal("New() should fail with missing assets")
 		}
 	})
 
 	t.Run("disabled app not registered", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1559,7 +1583,9 @@ func TestInitMCPApps(t *testing.T) {
 				Enabled: true,
 				Apps: map[string]AppConfig{
 					"query_results": {
-						Enabled: false,
+						Enabled:    false,
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
 					},
 				},
 			},
