@@ -66,6 +66,7 @@ nav:
     - Overview: mcpapps/overview.md
     - Configuration: mcpapps/configuration.md
     - Development: mcpapps/development.md
+    - Tutorial: mcpapps/tutorial.md
   - Examples:
     - Gallery: examples/index.md
   - Reference:
