@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #1a1a1a;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+            --header-bg: #f9fafb;
+            --row-hover: #f3f4f6;
+            --accent-color: #3b82f6;
+            --accent-light: #eff6ff;
+            --warning-color: #f59e0b;
+            --chart-bg: #ffffff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #111827;
+                --text-color: #f9fafb;
+                --text-muted: #9ca3af;
+                --border-color: #374151;
+                --header-bg: #1f2937;
+                --row-hover: #1f2937;
+                --accent-light: #1e3a5f;
+                --chart-bg: #111827;
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--text-color);
+            background: var(--bg-color);
+            padding: 20px;
+        }
+
+        .container { max-width: 100%; }
+
+        /* Loading & Empty States */
+        .loading, .empty-state {
+            text-align: center;
+            padding: 60px 24px;
+            color: var(--text-muted);
+        }
+
+        /* Primary: Chart Section (insight first) */
+        .chart-section {
+            margin-bottom: 24px;
+            padding: 20px;
+            background: var(--chart-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .chart-controls select {
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            cursor: pointer;
+        }
+
+        .chart-controls select:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        /* Secondary: Data Table */
+        .data-section {
+            margin-bottom: 16px;
+        }
+
+        .data-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .data-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .data-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .filter-input {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            width: 180px;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .filter-input::placeholder { color: var(--text-muted); }
+
+        .btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-color);
+            color: var(--text-muted);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+            background: var(--header-bg);
+            color: var(--text-color);
+        }
+
+        .btn-icon {
+            padding: 6px 8px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--header-bg);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        th:hover { background: var(--row-hover); color: var(--text-color); }
+
+        th .sort-indicator {
+            margin-left: 4px;
+            opacity: 0.4;
+            font-size: 10px;
+        }
+
+        th.sorted { color: var(--accent-color); }
+        th.sorted .sort-indicator { opacity: 1; }
+
+        tr:hover td { background: var(--row-hover); }
+        tr:last-child td { border-bottom: none; }
+
+        .null-value {
+            color: var(--text-muted);
+            font-style: italic;
+            font-size: 12px;
+        }
+
+        .number-value {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            text-align: right;
+        }
+
+        /* Tertiary: Footer Stats (subtle, credibility) */
+        .footer-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .footer-stats .meta {
+            display: flex;
+            gap: 12px;
+        }
+
+        .footer-stats .meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .truncation-warning {
+            color: var(--warning-color);
+        }
+
+        .query-id {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            cursor: help;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">Loading...</div>
+
+        <div id="content" class="hidden">
+            <!-- Primary: Chart (insight first) -->
+            <div id="chart-section" class="chart-section hidden">
+                <div class="chart-header">
+                    <div class="chart-title" id="chart-title">Overview</div>
+                    <div class="chart-controls">
+                        <select id="chart-type" title="Chart type">
+                            <option value="bar">Bar</option>
+                            <option value="line">Line</option>
+                            <option value="pie">Pie</option>
+                            <option value="doughnut">Doughnut</option>
+                        </select>
+                        <select id="chart-label" title="Labels"></select>
+                        <select id="chart-value" title="Values"></select>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-canvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Secondary: Data Table -->
+            <div class="data-section">
+                <div class="data-header">
+                    <div class="data-title" id="data-title">Data</div>
+                    <div class="data-actions">
+                        <input type="text" id="filter" class="filter-input" placeholder="Search...">
+                        <button id="btn-toggle-chart" class="btn" title="Toggle chart">Chart</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead id="table-head"></thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tertiary: Footer Stats (subtle credibility) -->
+            <div class="footer-stats">
+                <div class="meta" id="stats-meta"></div>
+                <div id="row-info"></div>
+            </div>
+        </div>
+
+        <div id="empty-state" class="empty-state hidden">
+            No results to display.
+        </div>
+    </div>
+
+    <script id="app-config" type="application/json">{}</script>
+
+    <script>
+        // Request ID counter
+        let requestId = 1;
+
+        function sendToHost(message) {
+            window.parent.postMessage(message, '*');
+        }
+
+        function handleMessage(msg) {
+            try {
+                if (!msg || typeof msg !== 'object') return;
+
+                if (msg.id && msg.result !== undefined) {
+                    if (msg.id === 1) {
+                        sendToHost({
+                            jsonrpc: '2.0',
+                            method: 'ui/notifications/initialized',
+                            params: {}
+                        });
+                    }
+                    return;
+                }
+
+                if (msg.method === 'ui/notifications/tool-result' && msg.params) {
+                    handleToolResult(msg.params);
+                }
+            } catch (e) {
+                // Silent error handling for message parsing
+            }
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data) handleMessage(event.data);
+        });
+
+        sendToHost({
+            jsonrpc: '2.0',
+            id: requestId++,
+            method: 'ui/initialize',
+            params: {
+                protocolVersion: '2025-01-09',
+                appInfo: { name: 'Data Insights', version: '1.0.0' },
+                appCapabilities: {
+                    availableDisplayModes: ['inline', 'fullscreen', 'pip']
+                }
+            }
+        });
+
+        const configEl = document.getElementById('app-config');
+        const config = JSON.parse(configEl?.textContent || '{}');
+
+        let columns = [];
+        let rows = [];
+        let filteredRows = [];
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        let chart = null;
+        let hasNumericData = false;
+
+        const loadingEl = document.getElementById('loading');
+        const contentEl = document.getElementById('content');
+        const emptyStateEl = document.getElementById('empty-state');
+        const chartSectionEl = document.getElementById('chart-section');
+        const chartTitleEl = document.getElementById('chart-title');
+        const dataTitleEl = document.getElementById('data-title');
+        const filterEl = document.getElementById('filter');
+        const tableHeadEl = document.getElementById('table-head');
+        const tableBodyEl = document.getElementById('table-body');
+        const statsMetaEl = document.getElementById('stats-meta');
+        const rowInfoEl = document.getElementById('row-info');
+        const chartTypeEl = document.getElementById('chart-type');
+        const chartLabelEl = document.getElementById('chart-label');
+        const chartValueEl = document.getElementById('chart-value');
+
+        function init() {
+            console.log('[MCP-APP] init() called, Chart.js loaded:', typeof Chart !== 'undefined');
+
+            if (config.defaultChartType) {
+                chartTypeEl.value = config.defaultChartType;
+            }
+
+            filterEl.addEventListener('input', handleFilter);
+            document.getElementById('btn-toggle-chart').addEventListener('click', toggleChart);
+            chartTypeEl.addEventListener('change', renderChart);
+            chartLabelEl.addEventListener('change', renderChart);
+            chartValueEl.addEventListener('change', renderChart);
+
+            if (window.queryResultData) {
+                handleToolResult({ content: [{ text: JSON.stringify(window.queryResultData) }] });
+            }
+        }
+
+        function handleToolResult(result) {
+            try {
+                const text = result.content?.[0]?.text;
+                if (!text) {
+                    showEmpty();
+                    return;
+                }
+                const data = JSON.parse(text);
+                displayResults(data);
+            } catch (e) {
+                showEmpty();
+            }
+        }
+
+        function displayResults(data) {
+            loadingEl.classList.add('hidden');
+
+            if (!data.columns || !data.rows || data.rows.length === 0) {
+                showEmpty();
+                return;
+            }
+
+            columns = data.columns;
+            rows = data.rows;
+
+            const maxRows = config.maxTableRows || 1000;
+            if (rows.length > maxRows) {
+                rows = rows.slice(0, maxRows);
+            }
+
+            filteredRows = [...rows];
+
+            // Detect chartable data
+            const labelCol = findLabelColumn();
+            const valueCol = findValueColumn();
+            hasNumericData = labelCol && valueCol;
+
+            // Setup chart controls
+            setupChartControls();
+
+            // Update titles based on data
+            updateTitles();
+
+            renderTable();
+            renderStats(data.stats);
+
+            contentEl.classList.remove('hidden');
+
+            // Notify host of our preferred size
+            notifySizeChanged();
+        }
+
+        function notifySizeChanged() {
+            sendToHost({
+                jsonrpc: '2.0',
+                method: 'ui/notifications/size-changed',
+                params: {
+                    width: document.body.scrollWidth,
+                    height: document.body.scrollHeight
+                }
+            });
+        }
+
+        function showEmpty() {
+            loadingEl.classList.add('hidden');
+            emptyStateEl.classList.remove('hidden');
+        }
+
+        function findLabelColumn() {
+            // Find first non-numeric column for labels
+            return columns.find(col => {
+                const sampleVal = rows[0]?.[col.name];
+                return typeof sampleVal === 'string' || !isNumericType(col.type);
+            });
+        }
+
+        function findValueColumn() {
+            // Find best numeric column for values (prefer non-ID columns)
+            const numericCols = columns.filter(col => {
+                const sampleVal = rows[0]?.[col.name];
+                return typeof sampleVal === 'number' || isNumericType(col.type);
+            });
+            // Prefer columns that aren't IDs
+            const nonIdCol = numericCols.find(col => {
+                const name = col.name.toLowerCase();
+                return name !== 'id' && !name.endsWith('_id');
+            });
+            return nonIdCol || numericCols[0];
+        }
+
+        function updateTitles() {
+            const valueCol = findValueColumn();
+            const labelCol = findLabelColumn();
+
+            if (valueCol && labelCol) {
+                chartTitleEl.textContent = `${formatColumnName(valueCol.name)} by ${formatColumnName(labelCol.name)}`;
+            }
+
+            dataTitleEl.textContent = `${rows.length} result${rows.length !== 1 ? 's' : ''}`;
+        }
+
+        function formatColumnName(name) {
+            // Convert snake_case or camelCase to Title Case
+            return name
+                .replace(/_/g, ' ')
+                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                .replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function updateChartTitle() {
+            const labelCol = chartLabelEl.value;
+            const valueCol = chartValueEl.value;
+            if (labelCol && valueCol) {
+                chartTitleEl.textContent = `${formatColumnName(valueCol)} by ${formatColumnName(labelCol)}`;
+            }
+        }
+
+        function renderStats(stats) {
+            if (!stats) {
+                statsMetaEl.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            const rowCount = stats.row_count ?? stats.rowCount;
+            const durationMs = stats.duration_ms ?? stats.durationMs;
+            const queryId = stats.query_id ?? stats.queryId;
+            const truncated = stats.truncated;
+
+            if (durationMs !== undefined) {
+                const ms = Number(durationMs);
+                const formatted = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms/1000).toFixed(1)}s`;
+                html += `<span>${formatted}</span>`;
+            }
+
+            if (queryId) {
+                html += `<span class="query-id" title="${queryId}">${queryId.substring(0, 20)}...</span>`;
+            }
+
+            if (truncated) {
+                html += `<span class="truncation-warning">Results limited</span>`;
+            }
+
+            statsMetaEl.innerHTML = html;
+            rowInfoEl.textContent = filteredRows.length === rows.length
+                ? `${rows.length} row${rows.length !== 1 ? 's' : ''}`
+                : `${filteredRows.length} of ${rows.length}`;
+        }
+
+        function renderTable() {
+            let headerHtml = '<tr>';
+            for (const col of columns) {
+                const sorted = sortColumn === col.name;
+                const indicator = sorted ? (sortDirection === 'asc' ? '▲' : '▼') : '';
+                headerHtml += `<th class="${sorted ? 'sorted' : ''}" data-column="${col.name}">
+                    ${escapeHtml(col.name)}
+                    <span class="sort-indicator">${indicator}</span>
+                </th>`;
+            }
+            headerHtml += '</tr>';
+            tableHeadEl.innerHTML = headerHtml;
+
+            tableHeadEl.querySelectorAll('th').forEach(th => {
+                th.addEventListener('click', () => handleSort(th.dataset.column));
+            });
+
+            let bodyHtml = '';
+            for (const row of filteredRows) {
+                bodyHtml += '<tr>';
+                for (const col of columns) {
+                    const value = row[col.name];
+                    bodyHtml += `<td class="${getValueClass(value)}">${formatValue(value)}</td>`;
+                }
+                bodyHtml += '</tr>';
+            }
+            tableBodyEl.innerHTML = bodyHtml;
+
+            rowInfoEl.textContent = filteredRows.length === rows.length
+                ? `${rows.length} row${rows.length !== 1 ? 's' : ''}`
+                : `${filteredRows.length} of ${rows.length}`;
+        }
+
+        function handleSort(columnName) {
+            if (sortColumn === columnName) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = columnName;
+                sortDirection = 'asc';
+            }
+
+            filteredRows.sort((a, b) => {
+                let valA = a[columnName];
+                let valB = b[columnName];
+
+                if (valA === null || valA === undefined) return 1;
+                if (valB === null || valB === undefined) return -1;
+
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return sortDirection === 'asc' ? valA - valB : valB - valA;
+                }
+
+                const strA = String(valA).toLowerCase();
+                const strB = String(valB).toLowerCase();
+                return sortDirection === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
+            });
+
+            renderTable();
+        }
+
+        function handleFilter() {
+            const query = filterEl.value.toLowerCase().trim();
+
+            if (!query) {
+                filteredRows = [...rows];
+            } else {
+                filteredRows = rows.filter(row => {
+                    return columns.some(col => {
+                        const value = row[col.name];
+                        if (value === null || value === undefined) return false;
+                        return String(value).toLowerCase().includes(query);
+                    });
+                });
+            }
+
+            renderTable();
+            if (!chartSectionEl.classList.contains('hidden')) {
+                renderChart();
+            }
+            notifySizeChanged();
+        }
+
+        function setupChartControls() {
+            const labelCol = findLabelColumn();
+            const valueCol = findValueColumn();
+
+            chartLabelEl.innerHTML = columns.map(col =>
+                `<option value="${col.name}" ${col.name === labelCol?.name ? 'selected' : ''}>${escapeHtml(col.name)}</option>`
+            ).join('');
+
+            const numericCols = columns.filter(col => isNumericType(col.type) || typeof rows[0]?.[col.name] === 'number');
+            const valueCols = numericCols.length > 0 ? numericCols : columns;
+            chartValueEl.innerHTML = valueCols.map(col =>
+                `<option value="${col.name}" ${col.name === valueCol?.name ? 'selected' : ''}>${escapeHtml(col.name)}</option>`
+            ).join('');
+
+            chartLabelEl.addEventListener('change', updateChartTitle);
+            chartValueEl.addEventListener('change', updateChartTitle);
+        }
+
+        function toggleChart() {
+            if (chartSectionEl.classList.contains('hidden')) {
+                chartSectionEl.classList.remove('hidden');
+                if (!chart) renderChart();
+            } else {
+                chartSectionEl.classList.add('hidden');
+            }
+            // Notify host of size change after DOM update
+            setTimeout(notifySizeChanged, 50);
+        }
+
+        function renderChart() {
+            if (typeof Chart === 'undefined') {
+                return;
+            }
+
+            const labelCol = chartLabelEl.value;
+            const valueCol = chartValueEl.value;
+            const chartType = chartTypeEl.value;
+
+            const chartData = filteredRows.slice(0, 30);
+            const labels = chartData.map(row => String(row[labelCol] ?? 'N/A'));
+            const values = chartData.map(row => {
+                const val = row[valueCol];
+                return typeof val === 'number' ? val : parseFloat(val) || 0;
+            });
+
+            if (chart) chart.destroy();
+
+            const ctx = document.getElementById('chart-canvas').getContext('2d');
+            const isPie = chartType === 'pie' || chartType === 'doughnut';
+
+            chart = new Chart(ctx, {
+                type: chartType,
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: formatColumnName(valueCol),
+                        data: values,
+                        backgroundColor: isPie ? generateColors(values.length, 0.8) : 'rgba(59, 130, 246, 0.8)',
+                        borderColor: isPie ? generateColors(values.length, 1) : 'rgba(59, 130, 246, 1)',
+                        borderWidth: 1,
+                        borderRadius: isPie ? 0 : 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: isPie, position: 'right' },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.label}: ${ctx.parsed.y?.toLocaleString() ?? ctx.parsed?.toLocaleString()}`
+                            }
+                        }
+                    },
+                    scales: isPie ? {} : {
+                        y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString() } },
+                        x: { ticks: { maxRotation: 45 } }
+                    }
+                }
+            });
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) {
+                return '<span class="null-value">—</span>';
+            }
+            if (typeof value === 'number') {
+                return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+            }
+            if (typeof value === 'boolean') {
+                return value ? 'Yes' : 'No';
+            }
+            return escapeHtml(String(value));
+        }
+
+        function getValueClass(value) {
+            if (typeof value === 'number') return 'number-value';
+            return '';
+        }
+
+        function isNumericType(type) {
+            if (!type) return false;
+            const t = type.toUpperCase();
+            return t.includes('INT') || t.includes('FLOAT') || t.includes('DOUBLE') ||
+                   t.includes('DECIMAL') || t.includes('NUMERIC') || t.includes('REAL');
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function generateColors(count, alpha) {
+            const palette = [
+                [59, 130, 246],   // blue
+                [16, 185, 129],   // green
+                [245, 158, 11],   // amber
+                [239, 68, 68],    // red
+                [139, 92, 246],   // purple
+                [236, 72, 153],   // pink
+                [20, 184, 166],   // teal
+                [249, 115, 22],   // orange
+            ];
+            return Array.from({ length: count }, (_, i) => {
+                const [r, g, b] = palette[i % palette.length];
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>
