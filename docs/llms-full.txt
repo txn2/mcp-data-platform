@@ -768,8 +768,8 @@ Browser (basic-host:8080) <--MCP--> mcp-data-platform:3001 <--SQL--> Trino:8090
 
 1. Start Trino: `docker run -d --name trino-dev -p 8090:8080 trinodb/trino`
 2. Start MCP: `go run ./cmd/mcp-data-platform --config configs/dev-mcpapps.yaml`
-3. Clone basic-host (one-time): `git clone https://github.com/anthropics/ext-apps.git`
-4. Start basic-host: `cd ext-apps/examples/basic-host && npm install && SERVERS='["http://localhost:3001"]' npm start`
+3. Clone and install (one-time): `git clone https://github.com/modelcontextprotocol/ext-apps.git && cd ext-apps && npm install`
+4. Start basic-host: `cd ext-apps/examples/basic-host && SERVERS='["http://localhost:3001"]' npm start`
 5. Open http://localhost:8080 and call `trino_query` with the test JSON
 
 ## Test Query (call trino_query with this JSON)

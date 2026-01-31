@@ -66,12 +66,12 @@ Starting SSE server on :3001
 
 One-time setup (from project root):
 ```bash
-git clone https://github.com/anthropics/ext-apps.git
-cd ext-apps/examples/basic-host
-npm install
+git clone https://github.com/modelcontextprotocol/ext-apps.git
+cd ext-apps && npm install
+cd ..
 ```
 
-Start basic-host:
+Start basic-host (from project root):
 ```bash
 cd ext-apps/examples/basic-host
 SERVERS='["http://localhost:3001"]' npm start
