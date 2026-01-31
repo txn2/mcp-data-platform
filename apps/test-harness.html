@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Apps Test Harness</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .toolbar {
+            padding: 12px;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .toolbar label { font-size: 14px; }
+        .toolbar select, .toolbar button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #0f3460;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
+        }
+        .toolbar button {
+            background: #e94560;
+            border-color: #e94560;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .toolbar button:hover { background: #ff6b6b; }
+        .main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .editor-panel {
+            width: 400px;
+            background: #16213e;
+            border-right: 1px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+        }
+        .editor-panel h3 {
+            padding: 12px;
+            background: #0f3460;
+            font-size: 14px;
+        }
+        .editor-panel textarea {
+            flex: 1;
+            padding: 12px;
+            background: #1a1a2e;
+            color: #eee;
+            border: none;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            resize: none;
+        }
+        .preview-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .preview-panel h3 {
+            padding: 12px;
+            background: #0f3460;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .preview-panel h3 button {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        .iframe-container {
+            flex: 1;
+            background: #fff;
+        }
+        .iframe-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .status {
+            padding: 8px 12px;
+            background: #0f3460;
+            font-size: 12px;
+            color: #888;
+        }
+        .status.success { color: #4ade80; }
+        .status.error { color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <label>App:</label>
+        <select id="appSelect">
+            <option value="query-results">query-results</option>
+        </select>
+        <button onclick="sendTestData()">Send Test Data</button>
+        <button onclick="reloadApp()">Reload App</button>
+    </div>
+    <div class="main">
+        <div class="editor-panel">
+            <h3>Test Data (JSON) - Edit and click "Send Test Data"</h3>
+            <textarea id="testData">{
+  "columns": [
+    {"name": "id", "type": "integer"},
+    {"name": "name", "type": "varchar"},
+    {"name": "revenue", "type": "double"},
+    {"name": "region", "type": "varchar"}
+  ],
+  "rows": [
+    {"id": 1, "name": "Product A", "revenue": 15000.50, "region": "North"},
+    {"id": 2, "name": "Product B", "revenue": 23000.75, "region": "South"},
+    {"id": 3, "name": "Product C", "revenue": 8500.00, "region": "East"},
+    {"id": 4, "name": "Product D", "revenue": 42000.00, "region": "West"},
+    {"id": 5, "name": "Product E", "revenue": 31500.25, "region": "North"}
+  ],
+  "stats": {
+    "row_count": 5,
+    "duration_ms": 127,
+    "query_id": "test_query_123"
+  }
+}</textarea>
+        </div>
+        <div class="preview-panel">
+            <h3>
+                App Preview
+            </h3>
+            <div class="iframe-container">
+                <iframe id="appFrame" src="/query-results/index.html"></iframe>
+            </div>
+            <div class="status" id="status">Loading app...</div>
+        </div>
+    </div>
+
+    <script>
+        const appFrame = document.getElementById('appFrame');
+        const testDataEl = document.getElementById('testData');
+        const statusEl = document.getElementById('status');
+        const appSelectEl = document.getElementById('appSelect');
+
+        function log(msg, type = '') {
+            statusEl.textContent = msg;
+            statusEl.className = 'status ' + type;
+        }
+
+        function reloadApp() {
+            const app = appSelectEl.value;
+            appFrame.src = `/${app}/index.html?t=${Date.now()}`;
+            log('Reloading app...');
+        }
+
+        function sendTestData() {
+            try {
+                const data = JSON.parse(testDataEl.value);
+                const message = {
+                    jsonrpc: '2.0',
+                    method: 'ui/notifications/tool-result',
+                    params: {
+                        toolName: 'trino_query',
+                        content: [{ type: 'text', text: JSON.stringify(data) }]
+                    }
+                };
+                appFrame.contentWindow.postMessage(message, '*');
+                log('Test data sent to app', 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+            }
+        }
+
+        // Listen for messages from the app
+        window.addEventListener('message', (e) => {
+            if (e.data?.method === 'ui/initialize') {
+                log('App ready - click "Send Test Data"', 'success');
+            }
+        });
+
+        // Update iframe when app selection changes
+        appSelectEl.addEventListener('change', reloadApp);
+
+        // Initial load status
+        appFrame.addEventListener('load', () => {
+            log('App loaded - click "Send Test Data"', 'success');
+        });
+
+        appFrame.addEventListener('error', () => {
+            log('Failed to load app', 'error');
+        });
+    </script>
+</body>
+</html>
