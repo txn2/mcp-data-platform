@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Info</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #1a1a1a;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+            --header-bg: #f9fafb;
+            --accent-color: #3b82f6;
+            --success-color: #10b981;
+            --badge-bg: #eff6ff;
+            --badge-text: #1e40af;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #111827;
+                --text-color: #f9fafb;
+                --text-muted: #9ca3af;
+                --border-color: #374151;
+                --header-bg: #1f2937;
+                --accent-color: #60a5fa;
+                --success-color: #34d399;
+                --badge-bg: #1e3a5f;
+                --badge-text: #93c5fd;
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--text-color);
+            background: var(--bg-color);
+            padding: 20px;
+        }
+
+        .container { max-width: 600px; }
+
+        .loading {
+            text-align: center;
+            padding: 40px 24px;
+            color: var(--text-muted);
+        }
+
+        .platform-card {
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .platform-header {
+            padding: 20px;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .platform-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .platform-name {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .platform-version {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            background: var(--bg-color);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .platform-description {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .section {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .badge-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background: var(--badge-bg);
+            color: var(--badge-text);
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .feature-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .feature-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .feature-enabled .feature-icon {
+            color: var(--success-color);
+        }
+
+        .feature-disabled .feature-icon {
+            color: var(--text-muted);
+        }
+
+        .feature-disabled .feature-name {
+            color: var(--text-muted);
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">Loading platform info...</div>
+
+        <div id="content" class="platform-card hidden">
+            <div class="platform-header">
+                <div class="platform-title">
+                    <span id="platform-name" class="platform-name">—</span>
+                    <span id="platform-version" class="platform-version">—</span>
+                </div>
+                <div id="platform-description" class="platform-description">—</div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Toolkits</div>
+                <div id="toolkits" class="badge-list"></div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Features</div>
+                <div id="features" class="feature-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // MCP Apps Protocol Implementation
+        let requestId = 1;
+
+        function sendToHost(message) {
+            window.parent.postMessage(message, '*');
+        }
+
+        function handleMessage(msg) {
+            try {
+                if (!msg || typeof msg !== 'object') return;
+
+                // Handle initialization response
+                if (msg.id && msg.result !== undefined) {
+                    if (msg.id === 1) {
+                        sendToHost({
+                            jsonrpc: '2.0',
+                            method: 'ui/notifications/initialized',
+                            params: {}
+                        });
+                    }
+                    return;
+                }
+
+                // Handle tool result
+                if (msg.method === 'ui/notifications/tool-result' && msg.params) {
+                    handleToolResult(msg.params);
+                }
+            } catch (e) {
+                console.error('[MCP-APP] Message handling error:', e);
+            }
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data) handleMessage(event.data);
+        });
+
+        // Send initialization request
+        sendToHost({
+            jsonrpc: '2.0',
+            id: requestId++,
+            method: 'ui/initialize',
+            params: {
+                protocolVersion: '2025-01-09',
+                appInfo: { name: 'Platform Info', version: '1.0.0' },
+                appCapabilities: {
+                    availableDisplayModes: ['inline', 'pip']
+                }
+            }
+        });
+
+        // DOM elements
+        const loadingEl = document.getElementById('loading');
+        const contentEl = document.getElementById('content');
+        const platformNameEl = document.getElementById('platform-name');
+        const platformVersionEl = document.getElementById('platform-version');
+        const platformDescriptionEl = document.getElementById('platform-description');
+        const toolkitsEl = document.getElementById('toolkits');
+        const featuresEl = document.getElementById('features');
+
+        function handleToolResult(result) {
+            try {
+                const text = result.content?.[0]?.text;
+                if (!text) {
+                    showError('No data received');
+                    return;
+                }
+                const data = JSON.parse(text);
+                displayPlatformInfo(data);
+            } catch (e) {
+                console.error('[MCP-APP] Error parsing tool result:', e);
+                showError('Failed to parse platform info');
+            }
+        }
+
+        function displayPlatformInfo(data) {
+            loadingEl.classList.add('hidden');
+
+            // Platform header
+            platformNameEl.textContent = data.name || 'Unknown Platform';
+            platformVersionEl.textContent = data.version ? `v${data.version}` : '—';
+            platformDescriptionEl.textContent = data.description || '';
+
+            // Toolkits
+            if (data.toolkits && Array.isArray(data.toolkits)) {
+                toolkitsEl.innerHTML = data.toolkits
+                    .map(toolkit => `<span class="badge">${escapeHtml(toolkit)}</span>`)
+                    .join('');
+            } else {
+                toolkitsEl.innerHTML = '<span class="badge">none</span>';
+            }
+
+            // Features
+            if (data.features && typeof data.features === 'object') {
+                featuresEl.innerHTML = Object.entries(data.features)
+                    .map(([name, enabled]) => {
+                        const displayName = formatFeatureName(name);
+                        const icon = enabled ? '&#10003;' : '&#10005;';
+                        const stateClass = enabled ? 'feature-enabled' : 'feature-disabled';
+                        return `
+                            <div class="feature-item ${stateClass}">
+                                <span class="feature-icon">${icon}</span>
+                                <span class="feature-name">${escapeHtml(displayName)}</span>
+                            </div>
+                        `;
+                    })
+                    .join('');
+            } else {
+                featuresEl.innerHTML = '<div class="feature-item">No features configured</div>';
+            }
+
+            contentEl.classList.remove('hidden');
+            notifySizeChanged();
+        }
+
+        function formatFeatureName(name) {
+            return name
+                .replace(/_/g, ' ')
+                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                .replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function showError(message) {
+            loadingEl.textContent = message;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function notifySizeChanged() {
+            sendToHost({
+                jsonrpc: '2.0',
+                method: 'ui/notifications/size-changed',
+                params: {
+                    width: document.body.scrollWidth,
+                    height: document.body.scrollHeight
+                }
+            });
+        }
+    </script>
+</body>
+</html>
