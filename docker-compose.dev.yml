@@ -5,15 +5,29 @@
 # Quick Start:
 #   docker compose -f docker-compose.dev.yml up
 #
-# Then open: http://localhost:6274 (MCP Inspector)
+# Development Workflow:
+#   1. Open Test Harness: http://localhost:8000/test-harness.html
+#   2. Edit apps in ./apps/ directory
+#   3. Click "Reload App" to see changes, "Send Test Data" to test
 #
-# Test Query (in Inspector):
-#   Tool: trino_query
-#   Input: {"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75"}
-#
-# Edit apps locally in ./apps/ - changes are served immediately.
+# MCP Protocol Testing (optional):
+#   1. Open MCP Inspector: http://localhost:6274
+#   2. Connect to: http://mcp-server:3001/sse
+#   3. Test tools directly against Trino
 
 services:
+  # Test Harness for MCP Apps development
+  # Open http://localhost:8000/test-harness.html
+  test-harness:
+    image: python:3.12-alpine
+    container_name: mcp-dev-harness
+    working_dir: /apps
+    command: python -m http.server 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps:/apps:ro
+
   # MCP Data Platform Server
   mcp-server:
     build:
@@ -31,11 +45,11 @@ services:
       trino:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3001/health"]
+      test: ["CMD-SHELL", "nc -z localhost 3001"]
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 5s
+      start_period: 10s
 
   # Trino SQL Engine
   trino:
@@ -55,13 +69,18 @@ services:
     image: node:22-alpine
     container_name: mcp-dev-inspector
     working_dir: /app
+    environment:
+      - HOST=0.0.0.0
+      - PORT=6274
+      - DANGEROUSLY_OMIT_AUTH=true
     command: >
       sh -c "
-        npm install -g @anthropic-ai/mcp-inspector@latest &&
-        npx @anthropic-ai/mcp-inspector http://mcp-server:3001/sse --host 0.0.0.0 --port 6274
+        npm install -g @modelcontextprotocol/inspector@latest &&
+        npx @modelcontextprotocol/inspector
       "
     ports:
       - "6274:6274"
+      - "6277:6277"
     depends_on:
       mcp-server:
         condition: service_healthy
