@@ -16,6 +16,18 @@ var (
 	// ErrMissingEntryPoint is returned when AppDefinition.EntryPoint is empty.
 	ErrMissingEntryPoint = errors.New("entry point is required")
 
+	// ErrMissingAssetsPath is returned when AppDefinition.AssetsPath is empty.
+	ErrMissingAssetsPath = errors.New("assets_path is required")
+
+	// ErrAssetsPathNotAbsolute is returned when AssetsPath is not an absolute path.
+	ErrAssetsPathNotAbsolute = errors.New("assets_path must be absolute")
+
+	// ErrEntryPointNotFound is returned when the entry point file doesn't exist.
+	ErrEntryPointNotFound = errors.New("entry point not found")
+
+	// ErrPathTraversal is returned when a path traversal attack is detected.
+	ErrPathTraversal = errors.New("path traversal detected")
+
 	// ErrAppAlreadyRegistered is returned when trying to register an app
 	// with a name that's already registered.
 	ErrAppAlreadyRegistered = errors.New("app already registered")
