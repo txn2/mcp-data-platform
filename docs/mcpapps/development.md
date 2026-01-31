@@ -53,7 +53,7 @@ curl -s http://localhost:8090/v1/info | jq .starting
 ### Step 2: Start MCP Data Platform
 
 ```bash
-go run ./cmd/mcp-data-platform --config configs/dev-mcpapps.yaml
+go run ./cmd/mcp-data-platform/. --config configs/dev-mcpapps.yaml
 ```
 
 You should see:
