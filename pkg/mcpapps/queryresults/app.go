@@ -56,5 +56,8 @@ func App(cfg Config) *mcpapps.AppDefinition {
 		AssetsRoot:  "assets",
 		EntryPoint:  "index.html",
 		Config:      cfg,
+		CSP: &mcpapps.CSPConfig{
+			ResourceDomains: []string{"https://cdn.jsdelivr.net"},
+		},
 	}
 }
