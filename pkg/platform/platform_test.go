@@ -1462,3 +1462,121 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 		t.Errorf("LineageConfig().Timeout = %v, want %v", lineageCfg.Timeout, 5*time.Second)
 	}
 }
+
+func TestInitMCPApps(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		// mcpAppsRegistry should be nil when disabled
+		if p.mcpAppsRegistry != nil {
+			t.Error("mcpAppsRegistry should be nil when MCPApps disabled")
+		}
+	})
+
+	t.Run("enabled with query_results app", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"query_results": {
+						Enabled:          true,
+						Tools:            []string{"trino_query"},
+						ChartCDN:         "https://cdn.example.com/chart.js",
+						DefaultChartType: "bar",
+						MaxTableRows:     500,
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.mcpAppsRegistry == nil {
+			t.Fatal("mcpAppsRegistry should not be nil when MCPApps enabled")
+		}
+
+		if !p.mcpAppsRegistry.HasApps() {
+			t.Error("Registry should have apps")
+		}
+
+		app := p.mcpAppsRegistry.Get("query-results")
+		if app == nil {
+			t.Fatal("query-results app should be registered")
+		}
+
+		if len(app.ToolNames) != 1 || app.ToolNames[0] != "trino_query" {
+			t.Errorf("ToolNames = %v, want [trino_query]", app.ToolNames)
+		}
+	})
+
+	t.Run("unknown app logs warning", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"unknown_app": {
+						Enabled: true,
+					},
+				},
+			},
+		}
+
+		// Should not error, just warn
+		_, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+	})
+
+	t.Run("disabled app not registered", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"query_results": {
+						Enabled: false,
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.mcpAppsRegistry == nil {
+			t.Fatal("mcpAppsRegistry should not be nil")
+		}
+
+		// Registry should exist but have no apps
+		if p.mcpAppsRegistry.HasApps() {
+			t.Error("Registry should have no apps when all disabled")
+		}
+	})
+}
