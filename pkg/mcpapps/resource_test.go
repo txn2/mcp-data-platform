@@ -9,12 +9,12 @@ import (
 )
 
 func TestCreateResourceHandler(t *testing.T) {
+	testdata := testdataDir(t)
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
-		Assets:      testAssets,
-		AssetsRoot:  "testdata",
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -84,6 +84,7 @@ func TestCreateResourceHandler(t *testing.T) {
 }
 
 func TestCreateResourceHandler_ConfigInjection(t *testing.T) {
+	testdata := testdataDir(t)
 	type testConfig struct {
 		ChartCDN string `json:"chartCDN"`
 		MaxRows  int    `json:"maxRows"`
@@ -93,8 +94,7 @@ func TestCreateResourceHandler_ConfigInjection(t *testing.T) {
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
-		Assets:      testAssets,
-		AssetsRoot:  "testdata",
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 		Config: testConfig{
 			ChartCDN: "https://cdn.example.com/chart.js",
@@ -276,13 +276,13 @@ func TestIsBinaryMIME(t *testing.T) {
 }
 
 func TestRegisterResources(t *testing.T) {
+	testdata := testdataDir(t)
 	registry := NewRegistry()
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
-		Assets:      testAssets,
-		AssetsRoot:  "testdata",
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 	_ = registry.Register(app)
@@ -482,6 +482,46 @@ func TestResolveFilename(t *testing.T) {
 		got := resolveFilename("ui://test-app/style.css", app)
 		if got != "style.css" {
 			t.Errorf("Expected style.css, got %q", got)
+		}
+	})
+}
+
+func TestReadAsset(t *testing.T) {
+	testdata := testdataDir(t)
+	app := &AppDefinition{
+		AssetsPath: testdata,
+		EntryPoint: "index.html",
+	}
+
+	t.Run("reads existing file", func(t *testing.T) {
+		content, err := readAsset(app, "index.html")
+		if err != nil {
+			t.Fatalf("readAsset returned error: %v", err)
+		}
+		if len(content) == 0 {
+			t.Error("Content should not be empty")
+		}
+	})
+
+	t.Run("returns error for missing file", func(t *testing.T) {
+		_, err := readAsset(app, "nonexistent.html")
+		if err != ErrAssetNotFound {
+			t.Errorf("Expected ErrAssetNotFound, got %v", err)
+		}
+	})
+
+	t.Run("prevents path traversal", func(t *testing.T) {
+		_, err := readAsset(app, "../errors.go")
+		if err != ErrPathTraversal {
+			t.Errorf("Expected ErrPathTraversal, got %v", err)
+		}
+	})
+
+	t.Run("prevents nested traversal", func(t *testing.T) {
+		// Try accessing file with nested path traversal
+		_, err := readAsset(app, "subdir/../../errors.go")
+		if err != ErrPathTraversal {
+			t.Errorf("Expected ErrPathTraversal, got %v", err)
 		}
 	})
 }
