@@ -244,6 +244,13 @@
             color: var(--warning-color);
         }
 
+        .query-id {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            cursor: help;
+        }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -507,13 +514,17 @@
             let html = '';
             const rowCount = stats.row_count ?? stats.rowCount;
             const durationMs = stats.duration_ms ?? stats.durationMs;
+            const queryId = stats.query_id ?? stats.queryId;
             const truncated = stats.truncated;
 
             if (durationMs !== undefined) {
-                let ms = Number(durationMs);
-                if (ms > 1000000) ms = ms / 1000000;
+                const ms = Number(durationMs);
                 const formatted = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms/1000).toFixed(1)}s`;
                 html += `<span>${formatted}</span>`;
+            }
+
+            if (queryId) {
+                html += `<span class="query-id" title="${queryId}">${queryId.substring(0, 20)}...</span>`;
             }
 
             if (truncated) {
