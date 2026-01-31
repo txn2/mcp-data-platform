@@ -14,15 +14,15 @@ var assets embed.FS
 type Config struct {
 	// ChartCDN is the URL for the Chart.js library.
 	// Defaults to jsDelivr CDN.
-	ChartCDN string `yaml:"chart_cdn"`
+	ChartCDN string `yaml:"chart_cdn" json:"chartCDN"`
 
 	// DefaultChartType is the default chart type when creating visualizations.
 	// Valid values: "bar", "line", "pie".
-	DefaultChartType string `yaml:"default_chart_type"`
+	DefaultChartType string `yaml:"default_chart_type" json:"defaultChartType"`
 
 	// MaxTableRows is the maximum number of rows to render in the table.
 	// This is a performance limit to prevent browser slowdown.
-	MaxTableRows int `yaml:"max_table_rows"`
+	MaxTableRows int `yaml:"max_table_rows" json:"maxTableRows"`
 }
 
 // DefaultConfig returns sensible defaults for the query results app.
@@ -56,5 +56,10 @@ func App(cfg Config) *mcpapps.AppDefinition {
 		AssetsRoot:  "assets",
 		EntryPoint:  "index.html",
 		Config:      cfg,
+		CSP: &mcpapps.CSPConfig{
+			Permissions: &mcpapps.PermissionsConfig{
+				ClipboardWrite: &struct{}{},
+			},
+		},
 	}
 }
