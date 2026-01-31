@@ -1,0 +1,91 @@
+# Kubernetes ConfigMap for Custom MCP Apps
+#
+# This example shows how to deploy custom MCP Apps using ConfigMaps.
+#
+# Usage:
+#   kubectl apply -f mcpapps-configmap.yaml
+#   kubectl apply -f mcpapps-deployment.yaml
+#
+# For larger apps or frequent updates, consider:
+#   - Baking apps into a custom image
+#   - Using a sidecar to sync from git
+#   - Using a PersistentVolume
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-apps-query-results
+  labels:
+    app: mcp-data-platform
+    component: mcpapps
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Query Results</title>
+        <!-- Your custom HTML here -->
+        <!-- See apps/query-results/index.html for the full implementation -->
+    </head>
+    <body>
+        <div id="app">Loading...</div>
+        <script>
+            // Your custom JavaScript here
+        </script>
+    </body>
+    </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-data-platform-config
+  labels:
+    app: mcp-data-platform
+data:
+  config.yaml: |
+    server:
+      name: mcp-data-platform
+      transport: sse
+      address: ":8080"
+
+    auth:
+      allow_anonymous: true
+
+    personas:
+      analyst:
+        display_name: "Data Analyst"
+        roles: ["analyst"]
+        tools:
+          allow: ["*"]
+          deny: []
+      default_persona: analyst
+
+    toolkits:
+      trino:
+        enabled: true
+        instances:
+          default:
+            host: trino
+            port: 8080
+            ssl: false
+            user: mcp
+            catalog: memory
+            schema: default
+
+    mcpapps:
+      enabled: true
+      apps:
+        query_results:
+          enabled: true
+          # Mounted from ConfigMap
+          assets_path: "/etc/mcp-apps/query-results"
+          entry_point: "index.html"
+          tools:
+            - trino_query
+          csp:
+            resource_domains:
+              - "https://cdn.jsdelivr.net"
+          config:
+            chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
