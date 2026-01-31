@@ -27,8 +27,8 @@ RUN CGO_ENABLED=0 go build -o /mcp-data-platform ./cmd/mcp-data-platform
 # Runtime stage
 FROM alpine:3.21
 
-# Install ca-certificates for TLS connections and wget for healthcheck
-RUN apk add --no-cache ca-certificates wget
+# Install ca-certificates for TLS and netcat for healthcheck
+RUN apk add --no-cache ca-certificates netcat-openbsd
 
 # Copy binary from builder
 COPY --from=builder /mcp-data-platform /usr/local/bin/mcp-data-platform
