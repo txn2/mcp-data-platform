@@ -52,3 +52,9 @@ mcpapps:
         chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
         defaultChartType: "bar"
         maxTableRows: 1000
+    platform_info:
+      enabled: true
+      assets_path: "${MCP_APPS_PATH}/platform-info"
+      entry_point: "index.html"
+      tools:
+        - platform_info
