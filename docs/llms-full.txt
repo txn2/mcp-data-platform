@@ -809,6 +809,59 @@ Workflow:
 - Tool results delivered via `ui/notifications/tool-result`
 - Resources use MIME type `text/html;profile=mcp-app`
 
+### Protocol Messages
+
+1. **ui/initialize** (Request): App sends on load to establish connection
+   ```javascript
+   window.parent.postMessage({
+       jsonrpc: '2.0',
+       id: 1,
+       method: 'ui/initialize',
+       params: {
+           protocolVersion: '2025-01-09',
+           appInfo: { name: 'My App', version: '1.0.0' },
+           appCapabilities: {
+               availableDisplayModes: ['inline', 'fullscreen', 'pip']
+           }
+       }
+   }, '*');
+   ```
+
+2. **ui/notifications/initialized**: App confirms ready after receiving init response
+
+3. **ui/notifications/tool-result**: Host sends tool results to app
+   ```javascript
+   // Structure:
+   {
+       method: 'ui/notifications/tool-result',
+       params: {
+           toolName: 'platform_info',
+           content: [{ type: 'text', text: '{"name":"mcp-data-platform",...}' }]
+       }
+   }
+   // Note: Tool output is JSON-encoded inside params.content[0].text
+   ```
+
+4. **ui/notifications/size-changed**: App tells host preferred dimensions
+
+### Display Modes
+
+| Mode | Description |
+|------|-------------|
+| `inline` | Rendered within chat flow (default) |
+| `fullscreen` | Takes over entire viewport |
+| `pip` | Picture-in-picture floating window |
+
+## Tutorial
+
+For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tutorial](mcpapps/tutorial.md). The tutorial walks through building a `platform-info` app and covers:
+
+- MCP Apps protocol and message flow
+- Understanding tool result structure
+- Using the test harness for development
+- Styling with mock data and dark mode support
+- Connecting to real MCP tools
+
 ---
 
 # Troubleshooting
