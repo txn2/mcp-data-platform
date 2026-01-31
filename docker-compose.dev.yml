@@ -1,0 +1,67 @@
+# MCP Apps Development Environment
+#
+# Fully containerized development setup - no local dependencies needed.
+#
+# Quick Start:
+#   docker compose -f docker-compose.dev.yml up
+#
+# Then open: http://localhost:6274 (MCP Inspector)
+#
+# Test Query (in Inspector):
+#   Tool: trino_query
+#   Input: {"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75"}
+#
+# Edit apps locally in ./apps/ - changes are served immediately.
+
+services:
+  # MCP Data Platform Server
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: mcp-dev-server
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount local apps for live editing
+      - ./apps:/apps:ro
+    environment:
+      - MCP_APPS_PATH=/apps
+    depends_on:
+      trino:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # Trino SQL Engine
+  trino:
+    image: trinodb/trino:462
+    container_name: mcp-dev-trino
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD", "trino", "--execute", "SELECT 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # MCP Inspector (Web UI for testing)
+  inspector:
+    image: node:22-alpine
+    container_name: mcp-dev-inspector
+    working_dir: /app
+    command: >
+      sh -c "
+        npm install -g @anthropic-ai/mcp-inspector@latest &&
+        npx @anthropic-ai/mcp-inspector http://mcp-server:3001/sse --host 0.0.0.0 --port 6274
+      "
+    ports:
+      - "6274:6274"
+    depends_on:
+      mcp-server:
+        condition: service_healthy
