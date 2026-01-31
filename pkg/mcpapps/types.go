@@ -36,6 +36,35 @@ type AppDefinition struct {
 	// into the HTML as JSON. This can be used to configure CDN URLs,
 	// feature flags, or other runtime parameters.
 	Config any
+
+	// CSP defines Content Security Policy requirements for the app.
+	// The host uses this to enforce appropriate CSP headers.
+	CSP *CSPConfig
+}
+
+// CSPConfig defines Content Security Policy requirements for an MCP App.
+type CSPConfig struct {
+	// ResourceDomains lists origins for static resources (scripts, images, styles, fonts).
+	// Maps to CSP script-src, img-src, style-src, font-src, media-src directives.
+	ResourceDomains []string `json:"resourceDomains,omitempty"`
+
+	// ConnectDomains lists origins for network requests (fetch/XHR/WebSocket).
+	// Maps to CSP connect-src directive.
+	ConnectDomains []string `json:"connectDomains,omitempty"`
+
+	// FrameDomains lists origins for nested iframes.
+	// Maps to CSP frame-src directive.
+	FrameDomains []string `json:"frameDomains,omitempty"`
+
+	// Permissions lists browser capabilities the app needs.
+	// Hosts MAY honor these by setting appropriate iframe allow attributes.
+	Permissions *PermissionsConfig `json:"permissions,omitempty"`
+}
+
+// PermissionsConfig defines browser permissions requested by an MCP App.
+type PermissionsConfig struct {
+	// ClipboardWrite requests write access to the clipboard.
+	ClipboardWrite *struct{} `json:"clipboardWrite,omitempty"`
 }
 
 // UIMetadata represents the _meta.ui field injected into tool definitions.
