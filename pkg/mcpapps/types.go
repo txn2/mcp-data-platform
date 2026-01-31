@@ -3,10 +3,13 @@
 // MCP Apps allow tool responses to include interactive UI elements that hosts
 // can render for enhanced user experiences. This package implements the
 // infrastructure for registering apps, injecting metadata into tool responses,
-// and serving embedded HTML/JS/CSS assets.
+// and serving filesystem-based HTML/JS/CSS assets.
 package mcpapps
 
-import "embed"
+import (
+	"os"
+	"path/filepath"
+)
 
 // AppDefinition defines an MCP App that provides interactive UI for tool results.
 type AppDefinition struct {
@@ -22,14 +25,11 @@ type AppDefinition struct {
 	// _meta.ui metadata pointing to this app.
 	ToolNames []string
 
-	// Assets contains the embedded filesystem with HTML/JS/CSS files.
-	Assets embed.FS
+	// AssetsPath is the absolute filesystem path to the directory
+	// containing the app's HTML/JS/CSS files.
+	AssetsPath string
 
-	// AssetsRoot is the root directory within Assets to serve from
-	// (e.g., "assets").
-	AssetsRoot string
-
-	// EntryPoint is the main HTML file within AssetsRoot (e.g., "index.html").
+	// EntryPoint is the main HTML file within AssetsPath (e.g., "index.html").
 	EntryPoint string
 
 	// Config holds app-specific configuration that will be injected
@@ -91,8 +91,29 @@ func (a *AppDefinition) Validate() error {
 	if len(a.ToolNames) == 0 {
 		return ErrMissingToolNames
 	}
+	if a.AssetsPath == "" {
+		return ErrMissingAssetsPath
+	}
 	if a.EntryPoint == "" {
 		return ErrMissingEntryPoint
 	}
+	return nil
+}
+
+// ValidateAssets verifies that the assets path exists and contains the entry point.
+// This should be called after Validate to ensure the filesystem is ready.
+func (a *AppDefinition) ValidateAssets() error {
+	if !filepath.IsAbs(a.AssetsPath) {
+		return ErrAssetsPathNotAbsolute
+	}
+
+	entryPath := filepath.Join(a.AssetsPath, a.EntryPoint)
+	if _, err := os.Stat(entryPath); err != nil {
+		if os.IsNotExist(err) {
+			return ErrEntryPointNotFound
+		}
+		return err
+	}
+
 	return nil
 }
