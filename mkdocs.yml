@@ -62,6 +62,8 @@ nav:
     - Quick Start: library/quickstart.md
     - Architecture: library/architecture.md
     - Extensibility: library/extensibility.md
+  - MCP Apps:
+    - Development Guide: mcpapps/development.md
   - Examples:
     - Gallery: examples/index.md
   - Reference:

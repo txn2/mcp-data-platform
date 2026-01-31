@@ -81,7 +81,7 @@ func run() error {
 		return nil
 	}
 
-	_ = setupSignalHandler()
+	ctx := setupSignalHandler()
 
 	result, err := createServer(opts)
 	if err != nil {
@@ -91,7 +91,7 @@ func run() error {
 
 	applyConfigOverrides(result.platform, &opts)
 
-	return startServer(result.mcpServer, result.platform, opts)
+	return startServer(ctx, result.mcpServer, result.platform, opts)
 }
 
 func closeServer(result *serverResult) {
@@ -115,18 +115,39 @@ func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
 	}
 }
 
-func startServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	switch opts.transport {
 	case "stdio":
-		return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
+		return mcpServer.Run(ctx, &mcp.StdioTransport{})
 	case "sse":
-		return startSSEServer(mcpServer, p, opts)
+		return startSSEServer(ctx, mcpServer, p, opts)
 	default:
 		return fmt.Errorf("unknown transport: %s", opts.transport)
 	}
 }
 
-func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+// corsMiddleware adds CORS headers for browser-based MCP clients.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, mcp-protocol-version")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func startSSEServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	mux := http.NewServeMux()
 
 	// SSE handler for MCP protocol
@@ -174,18 +195,32 @@ func startSSEServer(mcpServer *mcp.Server, p *platform.Platform, opts serverOpti
 
 	server := &http.Server{
 		Addr:              opts.address,
-		Handler:           mux,
+		Handler:           corsMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Graceful shutdown on context cancellation
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
 
 	// Use TLS if configured
 	if tlsEnabled {
 		log.Printf("Starting SSE server with TLS on %s\n", opts.address)
-		return server.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
+		if err := server.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != http.ErrServerClosed {
+			return err
+		}
+		return nil
 	}
 
 	log.Printf("Starting SSE server on %s\n", opts.address)
-	return server.ListenAndServe()
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 // registerOAuthRoutes registers OAuth endpoints on the given mux.

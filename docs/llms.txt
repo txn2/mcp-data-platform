@@ -45,6 +45,10 @@
 - [Architecture](library/architecture.md): Package structure, MCP protocol middleware, provider interfaces
 - [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
 
+## MCP Apps
+
+- [Development Guide](mcpapps/development.md): Local development setup for building interactive MCP App UIs with Docker Trino, SSE transport, and basic-host test harness
+
 ## Examples
 
 - [Examples Gallery](examples/index.md): Real-world configurations for enterprise governance, data democratization, and AI/ML workflows

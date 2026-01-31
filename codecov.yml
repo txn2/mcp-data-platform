@@ -1,0 +1,17 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 82%
+        threshold: 2%
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        # Allow some uncovered defensive error handling in new code
+        informational: false
+
+# Ignore test files in coverage reports
+ignore:
+  - "**/*_test.go"
+  - "**/testdata/**"

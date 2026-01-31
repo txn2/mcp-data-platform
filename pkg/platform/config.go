@@ -27,6 +27,7 @@ type Config struct {
 	Injection InjectionConfig `yaml:"injection"`
 	Tuning    TuningConfig    `yaml:"tuning"`
 	Audit     AuditConfig     `yaml:"audit"`
+	MCPApps   MCPAppsConfig   `yaml:"mcpapps"`
 }
 
 // ServerConfig configures the MCP server.
@@ -214,6 +215,34 @@ type AuditConfig struct {
 	Enabled       bool `yaml:"enabled"`
 	LogToolCalls  bool `yaml:"log_tool_calls"`
 	RetentionDays int  `yaml:"retention_days"`
+}
+
+// MCPAppsConfig configures MCP Apps support for interactive UI components.
+type MCPAppsConfig struct {
+	// Enabled is the master switch for MCP Apps support.
+	Enabled bool `yaml:"enabled"`
+
+	// Apps configures individual MCP Apps.
+	Apps map[string]AppConfig `yaml:"apps"`
+}
+
+// AppConfig configures an individual MCP App.
+type AppConfig struct {
+	// Enabled controls whether this app is active.
+	Enabled bool `yaml:"enabled"`
+
+	// Tools overrides the default tool names this app attaches to.
+	Tools []string `yaml:"tools"`
+
+	// ChartCDN is the CDN URL for Chart.js (query_results app).
+	ChartCDN string `yaml:"chart_cdn"`
+
+	// DefaultChartType is the default chart type (query_results app).
+	// Valid values: "bar", "line", "pie".
+	DefaultChartType string `yaml:"default_chart_type"`
+
+	// MaxTableRows is the max rows to render (query_results app).
+	MaxTableRows int `yaml:"max_table_rows"`
 }
 
 // LoadConfig loads configuration from a file.

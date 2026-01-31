@@ -9,8 +9,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/txn2/mcp-datahub v0.4.4
 	github.com/txn2/mcp-s3 v0.1.4
-	github.com/txn2/mcp-trino v0.2.1
-	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
+	github.com/txn2/mcp-trino v0.3.0
 	golang.org/x/crypto v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )

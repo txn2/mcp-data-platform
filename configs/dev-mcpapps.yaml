@@ -1,0 +1,55 @@
+# MCP Apps Development Config
+#
+# Self-contained setup for developing and debugging MCP Apps.
+# Uses local Docker Trino - no external dependencies required.
+#
+# Quick Start (from project root):
+#   1. Start Trino:  docker run -d --name trino-dev -p 8090:8080 trinodb/trino
+#   2. Start MCP:    go run ./cmd/mcp-data-platform --config configs/dev-mcpapps.yaml
+#   3. Start Host:   cd ext-apps/examples/basic-host && SERVERS='["http://localhost:3001"]' npm start
+#   4. Open:         http://localhost:8080
+#
+# Test (call trino_query with this JSON):
+#   {"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75"}
+
+server:
+  name: mcp-data-platform-dev
+  transport: sse
+  address: ":3001"
+
+auth:
+  allow_anonymous: true
+
+personas:
+  admin:
+    display_name: "Developer"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+      deny: []
+  default_persona: admin
+
+toolkits:
+  trino:
+    enabled: true
+    instances:
+      default:
+        host: localhost
+        port: 8090
+        ssl: false
+        user: dev
+        catalog: memory
+        schema: default
+        default_limit: 100
+        max_limit: 1000
+
+mcpapps:
+  enabled: true
+  apps:
+    query_results:
+      enabled: true
+      tools:
+        - trino_query
+      chart_cdn: "https://cdn.jsdelivr.net/npm/chart.js"
+      default_chart_type: "bar"
+      max_table_rows: 1000

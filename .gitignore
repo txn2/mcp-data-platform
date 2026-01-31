@@ -48,3 +48,6 @@ NOTES_*
 # E2E test artifacts
 e2e-test-output.log
 test/e2e/**/*.log
+
+# MCP Apps test host
+ext-apps/
