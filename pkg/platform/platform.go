@@ -13,7 +13,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
-	"github.com/txn2/mcp-data-platform/pkg/mcpapps/queryresults"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -333,27 +332,71 @@ func (p *Platform) initMCPApps() error {
 			continue
 		}
 
-		switch appName {
-		case "query_results":
-			app := queryresults.App(queryresults.Config{
-				ChartCDN:         appCfg.ChartCDN,
-				DefaultChartType: appCfg.DefaultChartType,
-				MaxTableRows:     appCfg.MaxTableRows,
-			})
-			// Override tool names from config if provided
-			if len(appCfg.Tools) > 0 {
-				app.ToolNames = appCfg.Tools
-			}
-			if err := p.mcpAppsRegistry.Register(app); err != nil {
-				return fmt.Errorf("registering %s app: %w", appName, err)
-			}
-		// Future apps can be added here
-		default:
-			slog.Warn("unknown MCP app in config", "app", appName)
+		// Create app definition directly from config
+		app := &mcpapps.AppDefinition{
+			Name:       appName,
+			ToolNames:  appCfg.Tools,
+			AssetsPath: appCfg.AssetsPath,
+			EntryPoint: appCfg.EntryPoint,
+			Config:     appCfg.Config,
 		}
+
+		// Apply defaults
+		if app.EntryPoint == "" {
+			app.EntryPoint = "index.html"
+		}
+
+		// Set ResourceURI from config or generate default
+		if appCfg.ResourceURI != "" {
+			app.ResourceURI = appCfg.ResourceURI
+		} else {
+			app.ResourceURI = fmt.Sprintf("ui://%s", appName)
+		}
+
+		// Convert CSP config
+		if appCfg.CSP != nil {
+			app.CSP = convertCSP(appCfg.CSP)
+		}
+
+		// Validate basic fields first
+		if err := app.Validate(); err != nil {
+			return fmt.Errorf("app %s: %w", appName, err)
+		}
+
+		// Validate assets exist on filesystem
+		if err := app.ValidateAssets(); err != nil {
+			return fmt.Errorf("app %s: %w", appName, err)
+		}
+
+		if err := p.mcpAppsRegistry.Register(app); err != nil {
+			return fmt.Errorf("registering %s app: %w", appName, err)
+		}
+
+		slog.Info("registered MCP app", "app", appName, "resource_uri", app.ResourceURI)
 	}
 
 	return nil
+}
+
+// convertCSP converts platform CSPAppConfig to mcpapps.CSPConfig.
+func convertCSP(cfg *CSPAppConfig) *mcpapps.CSPConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	csp := &mcpapps.CSPConfig{
+		ResourceDomains: cfg.ResourceDomains,
+		ConnectDomains:  cfg.ConnectDomains,
+		FrameDomains:    cfg.FrameDomains,
+	}
+
+	if cfg.ClipboardWrite {
+		csp.Permissions = &mcpapps.PermissionsConfig{
+			ClipboardWrite: &struct{}{},
+		}
+	}
+
+	return csp
 }
 
 // finalizeSetup completes platform initialization.
