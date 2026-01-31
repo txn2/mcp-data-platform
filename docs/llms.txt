@@ -47,7 +47,9 @@
 
 ## MCP Apps
 
-- [Development Guide](mcpapps/development.md): Local development setup for building interactive MCP App UIs with Docker Trino, SSE transport, and basic-host test harness
+- [Overview](mcpapps/overview.md): Interactive UI components for tool results. Platform provides infrastructure, you provide HTML/JS/CSS apps.
+- [Configuration](mcpapps/configuration.md): Enable MCP Apps, configure apps with assets paths and CSP settings, Kubernetes deployment
+- [Development](mcpapps/development.md): Docker-based development with test harness, creating new apps, MCP Apps protocol
 
 ## Examples
 
