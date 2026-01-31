@@ -42,53 +42,99 @@ func registerAppResource(server *mcp.Server, app *AppDefinition) {
 // createResourceHandler creates a ResourceHandler for an app.
 func createResourceHandler(app *AppDefinition) mcp.ResourceHandler {
 	return func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		// Determine which file to serve
-		filename := app.EntryPoint
+		filename := resolveFilename(req.Params.URI, app)
 
-		// Check if a specific file is requested via query params or path
-		// The URI format is: ui://app-name or ui://app-name/path/to/file
-		requestedPath := extractPath(req.Params.URI, app.ResourceURI)
-		if requestedPath != "" && requestedPath != "/" {
-			filename = strings.TrimPrefix(requestedPath, "/")
-		}
-
-		// Read the file from embedded assets
 		content, err := readAsset(app, filename)
 		if err != nil {
 			return nil, mcp.ResourceNotFoundError(req.Params.URI)
 		}
 
-		// If it's the entry point HTML, inject config
+		// Inject config for entry point
 		if filename == app.EntryPoint && app.Config != nil {
 			content = injectConfig(content, app.Config)
 		}
 
-		mimeType := MIMEType(filename)
-
-		// Use MCP App profile MIME type for entry point HTML
-		if filename == app.EntryPoint {
-			mimeType = mcpAppMIMEType
-		}
-
-		// For binary content, use Blob; for text, use Text
-		var resourceContents *mcp.ResourceContents
-		if isBinaryMIME(mimeType) {
-			resourceContents = &mcp.ResourceContents{
-				URI:      req.Params.URI,
-				MIMEType: mimeType,
-				Blob:     content,
-			}
-		} else {
-			resourceContents = &mcp.ResourceContents{
-				URI:      req.Params.URI,
-				MIMEType: mimeType,
-				Text:     string(content),
-			}
-		}
+		mimeType := resolveMIMEType(filename, app.EntryPoint)
+		meta := buildResourceMeta(filename, app)
 
 		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{resourceContents},
+			Contents: []*mcp.ResourceContents{
+				buildResourceContents(req.Params.URI, mimeType, content, meta),
+			},
 		}, nil
+	}
+}
+
+// resolveFilename determines the filename to serve based on the request.
+func resolveFilename(requestURI string, app *AppDefinition) string {
+	filename := app.EntryPoint
+	requestedPath := extractPath(requestURI, app.ResourceURI)
+	if requestedPath != "" && requestedPath != "/" {
+		filename = strings.TrimPrefix(requestedPath, "/")
+	}
+	return filename
+}
+
+// resolveMIMEType returns the MIME type for a file, using MCP App profile for entry points.
+func resolveMIMEType(filename, entryPoint string) string {
+	if filename == entryPoint {
+		return mcpAppMIMEType
+	}
+	return MIMEType(filename)
+}
+
+// buildResourceMeta builds the resource metadata including CSP and permissions.
+func buildResourceMeta(filename string, app *AppDefinition) mcp.Meta {
+	if filename != app.EntryPoint || app.CSP == nil {
+		return nil
+	}
+
+	uiMeta := map[string]any{}
+
+	// Build CSP domains
+	cspMeta := buildCSPMeta(app.CSP)
+	if len(cspMeta) > 0 {
+		uiMeta["csp"] = cspMeta
+	}
+
+	// Add permissions at ui level (per MCP Apps spec)
+	if app.CSP.Permissions != nil {
+		uiMeta["permissions"] = app.CSP.Permissions
+	}
+
+	return mcp.Meta{"ui": uiMeta}
+}
+
+// buildCSPMeta builds the CSP domains portion of metadata.
+func buildCSPMeta(csp *CSPConfig) map[string]any {
+	cspMeta := map[string]any{}
+	if len(csp.ResourceDomains) > 0 {
+		cspMeta["resourceDomains"] = csp.ResourceDomains
+	}
+	if len(csp.ConnectDomains) > 0 {
+		cspMeta["connectDomains"] = csp.ConnectDomains
+	}
+	if len(csp.FrameDomains) > 0 {
+		cspMeta["frameDomains"] = csp.FrameDomains
+	}
+	return cspMeta
+}
+
+// buildResourceContents creates the appropriate ResourceContents based on MIME type.
+func buildResourceContents(uri, mimeType string, content []byte, meta mcp.Meta) *mcp.ResourceContents {
+	if isBinaryMIME(mimeType) {
+		return &mcp.ResourceContents{
+			URI:      uri,
+			MIMEType: mimeType,
+			Blob:     content,
+			Meta:     meta,
+		}
+	}
+	return &mcp.ResourceContents{
+		URI:      uri,
+		MIMEType: mimeType,
+		Text:     string(content),
+		Meta:     meta,
 	}
 }
 
@@ -132,6 +178,9 @@ func injectConfig(content []byte, config any) []byte {
 	if err != nil {
 		return content
 	}
+
+	// Debug: log injected config
+	fmt.Printf("[mcpapps] Injecting config: %s\n", string(configJSON))
 
 	configScript := fmt.Sprintf(`<script id="app-config" type="application/json">%s</script>`, configJSON)
 
