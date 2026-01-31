@@ -107,6 +107,7 @@
         <label>App:</label>
         <select id="appSelect">
             <option value="query-results">query-results</option>
+            <option value="platform-info">platform-info</option>
         </select>
         <button onclick="sendTestData()">Send Test Data</button>
         <button onclick="reloadApp()">Reload App</button>
@@ -114,26 +115,7 @@
     <div class="main">
         <div class="editor-panel">
             <h3>Test Data (JSON) - Edit and click "Send Test Data"</h3>
-            <textarea id="testData">{
-  "columns": [
-    {"name": "id", "type": "integer"},
-    {"name": "name", "type": "varchar"},
-    {"name": "revenue", "type": "double"},
-    {"name": "region", "type": "varchar"}
-  ],
-  "rows": [
-    {"id": 1, "name": "Product A", "revenue": 15000.50, "region": "North"},
-    {"id": 2, "name": "Product B", "revenue": 23000.75, "region": "South"},
-    {"id": 3, "name": "Product C", "revenue": 8500.00, "region": "East"},
-    {"id": 4, "name": "Product D", "revenue": 42000.00, "region": "West"},
-    {"id": 5, "name": "Product E", "revenue": 31500.25, "region": "North"}
-  ],
-  "stats": {
-    "row_count": 5,
-    "duration_ms": 127,
-    "query_id": "test_query_123"
-  }
-}</textarea>
+            <textarea id="testData"></textarea>
         </div>
         <div class="preview-panel">
             <h3>
@@ -152,25 +134,75 @@
         const statusEl = document.getElementById('status');
         const appSelectEl = document.getElementById('appSelect');
 
+        // Default test data for each app type
+        const appTestData = {
+            'query-results': {
+                toolName: 'trino_query',
+                data: {
+                    columns: [
+                        { name: 'id', type: 'integer' },
+                        { name: 'name', type: 'varchar' },
+                        { name: 'revenue', type: 'double' },
+                        { name: 'region', type: 'varchar' }
+                    ],
+                    rows: [
+                        { id: 1, name: 'Product A', revenue: 15000.50, region: 'North' },
+                        { id: 2, name: 'Product B', revenue: 23000.75, region: 'South' },
+                        { id: 3, name: 'Product C', revenue: 8500.00, region: 'East' },
+                        { id: 4, name: 'Product D', revenue: 42000.00, region: 'West' },
+                        { id: 5, name: 'Product E', revenue: 31500.25, region: 'North' }
+                    ],
+                    stats: {
+                        row_count: 5,
+                        duration_ms: 127,
+                        query_id: 'test_query_123'
+                    }
+                }
+            },
+            'platform-info': {
+                toolName: 'platform_info',
+                data: {
+                    name: 'mcp-data-platform',
+                    version: '1.0.0',
+                    description: 'Semantic data platform MCP server with bidirectional cross-injection',
+                    toolkits: ['trino', 'datahub', 's3'],
+                    features: {
+                        semantic_enrichment: true,
+                        query_enrichment: true,
+                        storage_enrichment: true,
+                        audit_logging: true
+                    }
+                }
+            }
+        };
+
         function log(msg, type = '') {
             statusEl.textContent = msg;
             statusEl.className = 'status ' + type;
         }
 
+        function loadTestData(appName) {
+            const appConfig = appTestData[appName] || appTestData['query-results'];
+            testDataEl.value = JSON.stringify(appConfig.data, null, 2);
+        }
+
         function reloadApp() {
             const app = appSelectEl.value;
             appFrame.src = `/${app}/index.html?t=${Date.now()}`;
+            loadTestData(app);
             log('Reloading app...');
         }
 
         function sendTestData() {
             try {
+                const app = appSelectEl.value;
+                const appConfig = appTestData[app] || appTestData['query-results'];
                 const data = JSON.parse(testDataEl.value);
                 const message = {
                     jsonrpc: '2.0',
                     method: 'ui/notifications/tool-result',
                     params: {
-                        toolName: 'trino_query',
+                        toolName: appConfig.toolName,
                         content: [{ type: 'text', text: JSON.stringify(data) }]
                     }
                 };
@@ -188,7 +220,7 @@
             }
         });
 
-        // Update iframe when app selection changes
+        // Update iframe and test data when app selection changes
         appSelectEl.addEventListener('change', reloadApp);
 
         // Initial load status
@@ -199,6 +231,9 @@
         appFrame.addEventListener('error', () => {
             log('Failed to load app', 'error');
         });
+
+        // Initialize test data for default app
+        loadTestData(appSelectEl.value);
     </script>
 </body>
 </html>
