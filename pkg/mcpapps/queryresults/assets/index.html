@@ -738,15 +738,6 @@
             return div.innerHTML;
         }
 
-        function escapeCsvValue(value) {
-            if (value === null || value === undefined) return '';
-            const str = String(value);
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-                return '"' + str.replace(/"/g, '""') + '"';
-            }
-            return str;
-        }
-
         function generateColors(count, alpha) {
             const palette = [
                 [59, 130, 246],   // blue
