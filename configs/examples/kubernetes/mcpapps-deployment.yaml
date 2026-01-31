@@ -1,0 +1,83 @@
+# Kubernetes Deployment for MCP Data Platform with Custom Apps
+#
+# Mounts ConfigMaps containing custom MCP Apps.
+#
+# Prerequisites:
+#   kubectl apply -f mcpapps-configmap.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-data-platform
+  labels:
+    app: mcp-data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-data-platform
+  template:
+    metadata:
+      labels:
+        app: mcp-data-platform
+    spec:
+      containers:
+        - name: mcp-data-platform
+          image: ghcr.io/txn2/mcp-data-platform:latest
+          args:
+            - "--config"
+            - "/etc/mcp-data-platform/config.yaml"
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            # Platform configuration
+            - name: config
+              mountPath: /etc/mcp-data-platform
+              readOnly: true
+            # Custom MCP Apps
+            - name: app-query-results
+              mountPath: /etc/mcp-apps/query-results
+              readOnly: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: mcp-data-platform-config
+        - name: app-query-results
+          configMap:
+            name: mcp-apps-query-results
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-data-platform
+  labels:
+    app: mcp-data-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: mcp-data-platform
