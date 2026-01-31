@@ -9,6 +9,10 @@ RUN apk add --no-cache ca-certificates
 ARG TARGETARCH
 COPY linux/${TARGETARCH}/mcp-data-platform /usr/local/bin/mcp-data-platform
 
+# Copy bundled MCP Apps (default apps shipped with the image)
+# Users can override by mounting their own apps to /etc/mcp-apps/
+COPY apps/ /usr/share/mcp-data-platform/apps/
+
 # Run as non-root user
 RUN adduser -D -u 1000 mcp
 USER mcp
