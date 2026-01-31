@@ -9,12 +9,15 @@ import (
 )
 
 func TestToolMetadataMiddleware(t *testing.T) {
+	testdata := testdataDir(t)
+
 	// Setup registry with an app
 	reg := NewRegistry()
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 	if err := reg.Register(app); err != nil {
