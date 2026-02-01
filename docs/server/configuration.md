@@ -362,9 +362,39 @@ personas:
 !!! warning "Default-Deny Security"
     Users without a resolved persona have **no tool access**. The built-in default persona denies all tools. You must define explicit personas with tool access for your users.
 
+## MCP Apps Configuration
+
+MCP Apps provide interactive UI components that enhance tool results. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
+
+```yaml
+mcpapps:
+  enabled: true
+  apps:
+    query_results:
+      enabled: true
+      assets_path: "/etc/mcp-apps/query-results"
+      tools:
+        - trino_query
+      csp:
+        resource_domains:
+          - "https://cdn.jsdelivr.net"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable MCP Apps infrastructure |
+| `apps` | map | - | Named app configurations |
+| `apps.<name>.enabled` | bool | `true` | Enable this app |
+| `apps.<name>.assets_path` | string | **required** | Absolute path to app directory |
+| `apps.<name>.tools` | array | **required** | Tools this app enhances |
+| `apps.<name>.csp.resource_domains` | array | - | Allowed CDN origins |
+
+See [MCP Apps Configuration](../mcpapps/configuration.md) for complete options.
+
 ## Next Steps
 
 - [Tools](tools.md) - Available tools and parameters
 - [Multi-Provider](multi-provider.md) - Configure multiple instances
 - [Authentication](../auth/overview.md) - Add authentication
 - [Personas](../personas/overview.md) - Role-based access control
+- [MCP Apps](../mcpapps/overview.md) - Interactive UI for tool results

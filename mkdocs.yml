@@ -63,7 +63,10 @@ nav:
     - Architecture: library/architecture.md
     - Extensibility: library/extensibility.md
   - MCP Apps:
-    - Development Guide: mcpapps/development.md
+    - Overview: mcpapps/overview.md
+    - Configuration: mcpapps/configuration.md
+    - Development: mcpapps/development.md
+    - Tutorial: mcpapps/tutorial.md
   - Examples:
     - Gallery: examples/index.md
   - Reference:

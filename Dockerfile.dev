@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+
+# MCP Data Platform Development Dockerfile
+#
+# Builds the Go binary from source for local development.
+# Used by docker-compose.dev.yml
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up
+
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apk add --no-cache git
+
+# Cache Go modules
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build
+COPY . .
+RUN CGO_ENABLED=0 go build -o /mcp-data-platform ./cmd/mcp-data-platform
+
+# Runtime stage
+FROM alpine:3.21
+
+# Install ca-certificates for TLS and netcat for healthcheck
+RUN apk add --no-cache ca-certificates netcat-openbsd
+
+# Copy binary from builder
+COPY --from=builder /mcp-data-platform /usr/local/bin/mcp-data-platform
+
+# Copy default config for container environment
+COPY configs/mcpapps-container.yaml /etc/mcp-data-platform/config.yaml
+
+# Run as non-root user
+RUN adduser -D -u 1000 mcp
+USER mcp
+
+# Default command uses container config
+# Apps are mounted at /apps via docker-compose volume
+ENTRYPOINT ["/usr/local/bin/mcp-data-platform"]
+CMD ["--config", "/etc/mcp-data-platform/config.yaml"]

@@ -1,0 +1,86 @@
+# MCP Apps Development Environment
+#
+# Fully containerized development setup - no local dependencies needed.
+#
+# Quick Start:
+#   docker compose -f docker-compose.dev.yml up
+#
+# Development Workflow:
+#   1. Open Test Harness: http://localhost:8000/test-harness.html
+#   2. Edit apps in ./apps/ directory
+#   3. Click "Reload App" to see changes, "Send Test Data" to test
+#
+# MCP Protocol Testing (optional):
+#   1. Open MCP Inspector: http://localhost:6274
+#   2. Connect to: http://mcp-server:3001/sse
+#   3. Test tools directly against Trino
+
+services:
+  # Test Harness for MCP Apps development
+  # Open http://localhost:8000/test-harness.html
+  test-harness:
+    image: python:3.12-alpine
+    container_name: mcp-dev-harness
+    working_dir: /apps
+    command: python -m http.server 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps:/apps:ro
+
+  # MCP Data Platform Server
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: mcp-dev-server
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount local apps for live editing
+      - ./apps:/apps:ro
+    environment:
+      - MCP_APPS_PATH=/apps
+    depends_on:
+      trino:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 3001"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Trino SQL Engine
+  trino:
+    image: trinodb/trino:462
+    container_name: mcp-dev-trino
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD", "trino", "--execute", "SELECT 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # MCP Inspector (Web UI for testing)
+  inspector:
+    image: node:22-alpine
+    container_name: mcp-dev-inspector
+    working_dir: /app
+    environment:
+      - HOST=0.0.0.0
+      - PORT=6274
+      - DANGEROUSLY_OMIT_AUTH=true
+    command: >
+      sh -c "
+        npm install -g @modelcontextprotocol/inspector@latest &&
+        npx @modelcontextprotocol/inspector
+      "
+    ports:
+      - "6274:6274"
+      - "6277:6277"
+    depends_on:
+      mcp-server:
+        condition: service_healthy

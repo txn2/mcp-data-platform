@@ -748,47 +748,119 @@ func main() {
 
 ---
 
-# MCP Apps Development
+# MCP Apps
 
-MCP Apps provide interactive UI components that render alongside tool results in MCP-compatible hosts. This section covers local development setup.
+MCP Apps provide interactive UI components that enhance tool results. Instead of raw JSON, users see sortable tables, charts, and filters. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
 
-## Prerequisites
+## Overview
 
-- Go 1.21+
-- Docker
-- Node.js 18+
+1. User calls a tool (e.g., `trino_query`)
+2. MCP server returns results with a UI resource reference
+3. Host fetches the HTML app and renders it in an iframe
+4. App receives tool results via `postMessage` and displays interactive UI
 
-## Architecture
+## Configuration
 
-```
-Browser (basic-host:8080) <--MCP--> mcp-data-platform:3001 <--SQL--> Trino:8090
-```
-
-## Quick Start (from project root)
-
-1. Start Trino: `docker run -d --name trino-dev -p 8090:8080 trinodb/trino`
-2. Start MCP: `go run ./cmd/mcp-data-platform --config configs/dev-mcpapps.yaml`
-3. Clone and install (one-time): `git clone https://github.com/modelcontextprotocol/ext-apps.git && cd ext-apps && npm install`
-4. Start basic-host: `cd ext-apps/examples/basic-host && SERVERS='["http://localhost:3001"]' npm start`
-5. Open http://localhost:8080 and call `trino_query` with the test JSON
-
-## Test Query (call trino_query with this JSON)
-
-```json
-{"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75 UNION ALL SELECT 3, 'Product C', 8500.25"}
+```yaml
+mcpapps:
+  enabled: true
+  apps:
+    query_results:
+      enabled: true
+      assets_path: "/etc/mcp-apps/query-results"
+      tools:
+        - trino_query
+      csp:
+        resource_domains:
+          - "https://cdn.jsdelivr.net"
 ```
 
-## Key Files
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | bool | No | Enable MCP Apps infrastructure (default: false) |
+| `apps.<name>.assets_path` | string | Yes | Absolute path to app directory |
+| `apps.<name>.tools` | array | Yes | Tools this app enhances |
+| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins |
 
-- `pkg/mcpapps/queryresults/assets/index.html` - Interactive table UI
-- `configs/dev-mcpapps.yaml` - Development configuration
+## Example App
+
+The repository includes an example app at `apps/query-results/` demonstrating sortable tables, charts, dark mode, and search/filter. Use it as-is, customize it, or write your own.
+
+## Development
+
+Prerequisites: Docker (only)
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+This starts: Test Harness (localhost:8000), MCP Server (localhost:3001), MCP Inspector (localhost:6274), Trino (localhost:8090).
+
+Workflow:
+1. Open http://localhost:8000/test-harness.html
+2. Edit `./apps/query-results/index.html`
+3. Click Reload App, then Send Test Data
+4. Changes appear immediately
 
 ## MCP Apps Protocol
 
 - App initiates with `ui/initialize` (not host)
 - Communication via `window.parent.postMessage()`
-- Tool results delivered via `ui/context_update`
+- Tool results delivered via `ui/notifications/tool-result`
 - Resources use MIME type `text/html;profile=mcp-app`
+
+### Protocol Messages
+
+1. **ui/initialize** (Request): App sends on load to establish connection
+   ```javascript
+   window.parent.postMessage({
+       jsonrpc: '2.0',
+       id: 1,
+       method: 'ui/initialize',
+       params: {
+           protocolVersion: '2025-01-09',
+           appInfo: { name: 'My App', version: '1.0.0' },
+           appCapabilities: {
+               availableDisplayModes: ['inline', 'fullscreen', 'pip']
+           }
+       }
+   }, '*');
+   ```
+
+2. **ui/notifications/initialized**: App confirms ready after receiving init response
+
+3. **ui/notifications/tool-result**: Host sends tool results to app
+   ```javascript
+   // Structure:
+   {
+       method: 'ui/notifications/tool-result',
+       params: {
+           toolName: 'platform_info',
+           content: [{ type: 'text', text: '{"name":"mcp-data-platform",...}' }]
+       }
+   }
+   // Note: Tool output is JSON-encoded inside params.content[0].text
+   ```
+
+4. **ui/notifications/size-changed**: App tells host preferred dimensions
+
+### Display Modes
+
+| Mode | Description |
+|------|-------------|
+| `inline` | Rendered within chat flow (default) |
+| `fullscreen` | Takes over entire viewport |
+| `pip` | Picture-in-picture floating window |
+
+## Tutorial
+
+For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tutorial](mcpapps/tutorial.md). The tutorial walks through building a `platform-info` app and covers:
+
+- MCP Apps protocol and message flow
+- Understanding tool result structure
+- Using the test harness for development
+- Styling with mock data and dark mode support
+- Connecting to real MCP tools
 
 ---
 

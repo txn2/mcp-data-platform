@@ -5,6 +5,8 @@ import (
 )
 
 func TestRegistry_Register(t *testing.T) {
+	testdata := testdataDir(t)
+
 	tests := []struct {
 		name    string
 		app     *AppDefinition
@@ -16,6 +18,7 @@ func TestRegistry_Register(t *testing.T) {
 				Name:        "test-app",
 				ResourceURI: "ui://test-app",
 				ToolNames:   []string{"test_tool"},
+				AssetsPath:  testdata,
 				EntryPoint:  "index.html",
 			},
 			wantErr: nil,
@@ -25,9 +28,20 @@ func TestRegistry_Register(t *testing.T) {
 			app: &AppDefinition{
 				ResourceURI: "ui://test-app",
 				ToolNames:   []string{"test_tool"},
+				AssetsPath:  testdata,
 				EntryPoint:  "index.html",
 			},
 			wantErr: ErrMissingName,
+		},
+		{
+			name: "invalid app - missing assets path",
+			app: &AppDefinition{
+				Name:        "test-app",
+				ResourceURI: "ui://test-app",
+				ToolNames:   []string{"test_tool"},
+				EntryPoint:  "index.html",
+			},
+			wantErr: ErrMissingAssetsPath,
 		},
 	}
 
@@ -43,12 +57,14 @@ func TestRegistry_Register(t *testing.T) {
 }
 
 func TestRegistry_RegisterDuplicate(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -65,12 +81,14 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 }
 
 func TestRegistry_Get(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -95,12 +113,14 @@ func TestRegistry_Get(t *testing.T) {
 }
 
 func TestRegistry_GetForTool(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"tool_a", "tool_b"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -130,6 +150,7 @@ func TestRegistry_GetForTool(t *testing.T) {
 }
 
 func TestRegistry_HasApps(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	// Empty registry
@@ -142,6 +163,7 @@ func TestRegistry_HasApps(t *testing.T) {
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"test_tool"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -155,6 +177,7 @@ func TestRegistry_HasApps(t *testing.T) {
 }
 
 func TestRegistry_Apps(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	// Empty registry
@@ -168,12 +191,14 @@ func TestRegistry_Apps(t *testing.T) {
 		Name:        "app-1",
 		ResourceURI: "ui://app-1",
 		ToolNames:   []string{"tool_1"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 	app2 := &AppDefinition{
 		Name:        "app-2",
 		ResourceURI: "ui://app-2",
 		ToolNames:   []string{"tool_2"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 
@@ -191,12 +216,14 @@ func TestRegistry_Apps(t *testing.T) {
 }
 
 func TestRegistry_ToolNames(t *testing.T) {
+	testdata := testdataDir(t)
 	reg := NewRegistry()
 
 	app := &AppDefinition{
 		Name:        "test-app",
 		ResourceURI: "ui://test-app",
 		ToolNames:   []string{"tool_a", "tool_b", "tool_c"},
+		AssetsPath:  testdata,
 		EntryPoint:  "index.html",
 	}
 

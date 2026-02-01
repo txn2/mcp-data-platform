@@ -231,18 +231,42 @@ type AppConfig struct {
 	// Enabled controls whether this app is active.
 	Enabled bool `yaml:"enabled"`
 
-	// Tools overrides the default tool names this app attaches to.
+	// Tools lists the tool names this app attaches to.
 	Tools []string `yaml:"tools"`
 
-	// ChartCDN is the CDN URL for Chart.js (query_results app).
-	ChartCDN string `yaml:"chart_cdn"`
+	// AssetsPath is the absolute filesystem path to the app's assets directory.
+	// This should point to a directory containing the app's HTML/JS/CSS files.
+	AssetsPath string `yaml:"assets_path"`
 
-	// DefaultChartType is the default chart type (query_results app).
-	// Valid values: "bar", "line", "pie".
-	DefaultChartType string `yaml:"default_chart_type"`
+	// ResourceURI is the MCP resource URI for this app (e.g., "ui://query-results").
+	// If not specified, defaults to "ui://<app-name>".
+	ResourceURI string `yaml:"resource_uri"`
 
-	// MaxTableRows is the max rows to render (query_results app).
-	MaxTableRows int `yaml:"max_table_rows"`
+	// EntryPoint is the main HTML file within AssetsPath (e.g., "index.html").
+	// Defaults to "index.html" if not specified.
+	EntryPoint string `yaml:"entry_point"`
+
+	// CSP defines Content Security Policy requirements for the app.
+	CSP *CSPAppConfig `yaml:"csp"`
+
+	// Config holds app-specific configuration that will be injected
+	// into the HTML as JSON.
+	Config map[string]any `yaml:"config"`
+}
+
+// CSPAppConfig defines Content Security Policy requirements for an MCP App.
+type CSPAppConfig struct {
+	// ResourceDomains lists origins for static resources (scripts, images, styles, fonts).
+	ResourceDomains []string `yaml:"resource_domains"`
+
+	// ConnectDomains lists origins for network requests (fetch/XHR/WebSocket).
+	ConnectDomains []string `yaml:"connect_domains"`
+
+	// FrameDomains lists origins for nested iframes.
+	FrameDomains []string `yaml:"frame_domains"`
+
+	// ClipboardWrite requests write access to the clipboard.
+	ClipboardWrite bool `yaml:"clipboard_write"`
 }
 
 // LoadConfig loads configuration from a file.

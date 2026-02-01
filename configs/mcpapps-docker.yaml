@@ -1,0 +1,64 @@
+# MCP Apps Docker Configuration
+#
+# Example configuration for running MCP Apps in Docker.
+# Uses bundled apps from the Docker image.
+#
+# Usage:
+#   docker run -v $(pwd)/mcpapps-docker.yaml:/config.yaml \
+#     ghcr.io/txn2/mcp-data-platform --config /config.yaml
+#
+# To use custom apps, mount your own directory:
+#   docker run \
+#     -v $(pwd)/my-apps:/etc/mcp-apps \
+#     -v $(pwd)/mcpapps-custom.yaml:/config.yaml \
+#     ghcr.io/txn2/mcp-data-platform --config /config.yaml
+
+server:
+  name: mcp-data-platform
+  transport: sse
+  address: ":8080"
+
+auth:
+  allow_anonymous: true
+
+personas:
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: []
+  default_persona: analyst
+
+toolkits:
+  trino:
+    enabled: true
+    instances:
+      default:
+        host: ${TRINO_HOST:-trino}
+        port: ${TRINO_PORT:-8080}
+        ssl: false
+        user: ${TRINO_USER:-mcp}
+        catalog: ${TRINO_CATALOG:-memory}
+        schema: ${TRINO_SCHEMA:-default}
+        default_limit: 1000
+        max_limit: 10000
+
+# MCP Apps - Using bundled apps from Docker image
+mcpapps:
+  enabled: true
+  apps:
+    query_results:
+      enabled: true
+      # Bundled apps path in Docker image
+      assets_path: "/usr/share/mcp-data-platform/apps/query-results"
+      entry_point: "index.html"
+      tools:
+        - trino_query
+      csp:
+        resource_domains:
+          - "https://cdn.jsdelivr.net"
+      config:
+        chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
+        defaultChartType: "bar"
+        maxTableRows: 1000

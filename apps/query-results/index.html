@@ -353,7 +353,7 @@
                 protocolVersion: '2025-01-09',
                 appInfo: { name: 'Data Insights', version: '1.0.0' },
                 appCapabilities: {
-                    availableDisplayModes: ['inline']
+                    availableDisplayModes: ['inline', 'fullscreen', 'pip']
                 }
             }
         });
@@ -449,6 +449,20 @@
             renderStats(data.stats);
 
             contentEl.classList.remove('hidden');
+
+            // Notify host of our preferred size
+            notifySizeChanged();
+        }
+
+        function notifySizeChanged() {
+            sendToHost({
+                jsonrpc: '2.0',
+                method: 'ui/notifications/size-changed',
+                params: {
+                    width: document.body.scrollWidth,
+                    height: document.body.scrollHeight
+                }
+            });
         }
 
         function showEmpty() {
@@ -616,6 +630,7 @@
             if (!chartSectionEl.classList.contains('hidden')) {
                 renderChart();
             }
+            notifySizeChanged();
         }
 
         function setupChartControls() {
@@ -643,6 +658,8 @@
             } else {
                 chartSectionEl.classList.add('hidden');
             }
+            // Notify host of size change after DOM update
+            setTimeout(notifySizeChanged, 50);
         }
 
         function renderChart() {

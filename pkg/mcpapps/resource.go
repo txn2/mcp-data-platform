@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"path"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -148,16 +148,29 @@ func extractPath(requestURI, baseURI string) string {
 	return strings.TrimPrefix(requestURI, baseURI)
 }
 
-// readAsset reads a file from the app's embedded assets.
+// readAsset reads a file from the app's filesystem assets with path traversal protection.
 func readAsset(app *AppDefinition, filename string) ([]byte, error) {
-	// Build the full path within the embedded FS
-	filepath := filename
-	if app.AssetsRoot != "" {
-		filepath = path.Join(app.AssetsRoot, filename)
+	// Build the full path
+	fullPath := filepath.Join(app.AssetsPath, filename)
+
+	// Get absolute paths for comparison
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return nil, ErrAssetNotFound
+	}
+	basePath, err := filepath.Abs(app.AssetsPath)
+	if err != nil {
+		return nil, ErrAssetNotFound
 	}
 
-	// Read from embedded filesystem
-	content, err := fs.ReadFile(app.Assets, filepath)
+	// Security: prevent path traversal by ensuring resolved path stays within base
+	if !strings.HasPrefix(absPath, basePath+string(filepath.Separator)) && absPath != basePath {
+		return nil, ErrPathTraversal
+	}
+
+	// Read from filesystem
+	// #nosec G304 -- path is validated above to prevent traversal
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, ErrAssetNotFound
 	}
@@ -178,9 +191,6 @@ func injectConfig(content []byte, config any) []byte {
 	if err != nil {
 		return content
 	}
-
-	// Debug: log injected config
-	fmt.Printf("[mcpapps] Injecting config: %s\n", string(configJSON))
 
 	configScript := fmt.Sprintf(`<script id="app-config" type="application/json">%s</script>`, configJSON)
 

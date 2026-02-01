@@ -1,0 +1,60 @@
+# MCP Apps Container Configuration
+#
+# Used by Dockerfile.dev and docker-compose.dev.yml
+# Configured for Docker internal networking.
+
+server:
+  name: mcp-data-platform-dev
+  transport: sse
+  address: ":3001"
+
+auth:
+  allow_anonymous: true
+
+personas:
+  admin:
+    display_name: "Developer"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+      deny: []
+  default_persona: admin
+
+# Trino connection - uses Docker internal hostname
+toolkits:
+  trino:
+    enabled: true
+    instances:
+      default:
+        host: trino
+        port: 8080
+        ssl: false
+        user: dev
+        catalog: memory
+        schema: default
+        default_limit: 100
+        max_limit: 1000
+
+# MCP Apps - uses MCP_APPS_PATH env var set in docker-compose.dev.yml
+mcpapps:
+  enabled: true
+  apps:
+    query_results:
+      enabled: true
+      assets_path: "${MCP_APPS_PATH}/query-results"
+      entry_point: "index.html"
+      tools:
+        - trino_query
+      csp:
+        resource_domains:
+          - "https://cdn.jsdelivr.net"
+      config:
+        chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
+        defaultChartType: "bar"
+        maxTableRows: 1000
+    platform_info:
+      enabled: true
+      assets_path: "${MCP_APPS_PATH}/platform-info"
+      entry_point: "index.html"
+      tools:
+        - platform_info

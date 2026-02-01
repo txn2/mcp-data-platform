@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -1463,6 +1465,122 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 	}
 }
 
+// createTestAppDir creates a temporary directory with test app files.
+func createTestAppDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), 0600); err != nil {
+		t.Fatalf("Failed to create test index.html: %v", err)
+	}
+	return dir
+}
+
+func TestConvertCSP(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		result := convertCSP(nil)
+		if result != nil {
+			t.Error("convertCSP(nil) should return nil")
+		}
+	})
+
+	t.Run("converts resource domains", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			ResourceDomains: []string{"https://cdn.example.com", "https://fonts.googleapis.com"},
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if len(result.ResourceDomains) != 2 {
+			t.Errorf("ResourceDomains len = %d, want 2", len(result.ResourceDomains))
+		}
+		if result.ResourceDomains[0] != "https://cdn.example.com" {
+			t.Errorf("ResourceDomains[0] = %q", result.ResourceDomains[0])
+		}
+	})
+
+	t.Run("converts connect domains", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			ConnectDomains: []string{"https://api.example.com"},
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if len(result.ConnectDomains) != 1 {
+			t.Errorf("ConnectDomains len = %d, want 1", len(result.ConnectDomains))
+		}
+	})
+
+	t.Run("converts frame domains", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			FrameDomains: []string{"https://embed.example.com"},
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if len(result.FrameDomains) != 1 {
+			t.Errorf("FrameDomains len = %d, want 1", len(result.FrameDomains))
+		}
+	})
+
+	t.Run("converts clipboard write permission", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			ClipboardWrite: true,
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if result.Permissions == nil {
+			t.Fatal("Permissions should not be nil when ClipboardWrite is true")
+		}
+		if result.Permissions.ClipboardWrite == nil {
+			t.Error("ClipboardWrite should not be nil")
+		}
+	})
+
+	t.Run("no permissions when clipboard write false", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			ClipboardWrite: false,
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if result.Permissions != nil {
+			t.Error("Permissions should be nil when ClipboardWrite is false")
+		}
+	})
+
+	t.Run("full CSP config", func(t *testing.T) {
+		cfg := &CSPAppConfig{
+			ResourceDomains: []string{"https://cdn.example.com"},
+			ConnectDomains:  []string{"https://api.example.com"},
+			FrameDomains:    []string{"https://embed.example.com"},
+			ClipboardWrite:  true,
+		}
+		result := convertCSP(cfg)
+		if result == nil {
+			t.Fatal("convertCSP returned nil")
+		}
+		if len(result.ResourceDomains) != 1 {
+			t.Errorf("ResourceDomains len = %d", len(result.ResourceDomains))
+		}
+		if len(result.ConnectDomains) != 1 {
+			t.Errorf("ConnectDomains len = %d", len(result.ConnectDomains))
+		}
+		if len(result.FrameDomains) != 1 {
+			t.Errorf("FrameDomains len = %d", len(result.FrameDomains))
+		}
+		if result.Permissions == nil || result.Permissions.ClipboardWrite == nil {
+			t.Error("ClipboardWrite permission not set")
+		}
+	})
+}
+
 func TestInitMCPApps(t *testing.T) {
 	t.Run("disabled by default", func(t *testing.T) {
 		cfg := &Config{
@@ -1483,7 +1601,9 @@ func TestInitMCPApps(t *testing.T) {
 		}
 	})
 
-	t.Run("enabled with query_results app", func(t *testing.T) {
+	t.Run("enabled with filesystem app", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1493,11 +1613,15 @@ func TestInitMCPApps(t *testing.T) {
 				Enabled: true,
 				Apps: map[string]AppConfig{
 					"query_results": {
-						Enabled:          true,
-						Tools:            []string{"trino_query"},
-						ChartCDN:         "https://cdn.example.com/chart.js",
-						DefaultChartType: "bar",
-						MaxTableRows:     500,
+						Enabled:    true,
+						Tools:      []string{"trino_query"},
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
+						Config: map[string]any{
+							"chartCDN":         "https://cdn.example.com/chart.js",
+							"defaultChartType": "bar",
+							"maxTableRows":     500,
+						},
 					},
 				},
 			},
@@ -1516,9 +1640,9 @@ func TestInitMCPApps(t *testing.T) {
 			t.Error("Registry should have apps")
 		}
 
-		app := p.mcpAppsRegistry.Get("query-results")
+		app := p.mcpAppsRegistry.Get("query_results")
 		if app == nil {
-			t.Fatal("query-results app should be registered")
+			t.Fatal("query_results app should be registered")
 		}
 
 		if len(app.ToolNames) != 1 || app.ToolNames[0] != "trino_query" {
@@ -1526,7 +1650,7 @@ func TestInitMCPApps(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown app logs warning", func(t *testing.T) {
+	t.Run("app with missing assets fails", func(t *testing.T) {
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1535,21 +1659,26 @@ func TestInitMCPApps(t *testing.T) {
 			MCPApps: MCPAppsConfig{
 				Enabled: true,
 				Apps: map[string]AppConfig{
-					"unknown_app": {
-						Enabled: true,
+					"missing_app": {
+						Enabled:    true,
+						Tools:      []string{"test_tool"},
+						AssetsPath: "/nonexistent/path",
+						EntryPoint: "index.html",
 					},
 				},
 			},
 		}
 
-		// Should not error, just warn
+		// Should error because assets don't exist
 		_, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
+		if err == nil {
+			t.Fatal("New() should fail with missing assets")
 		}
 	})
 
 	t.Run("disabled app not registered", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
 		cfg := &Config{
 			Server:   ServerConfig{Name: "test"},
 			Semantic: SemanticConfig{Provider: "noop"},
@@ -1559,7 +1688,9 @@ func TestInitMCPApps(t *testing.T) {
 				Enabled: true,
 				Apps: map[string]AppConfig{
 					"query_results": {
-						Enabled: false,
+						Enabled:    false,
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
 					},
 				},
 			},
@@ -1577,6 +1708,156 @@ func TestInitMCPApps(t *testing.T) {
 		// Registry should exist but have no apps
 		if p.mcpAppsRegistry.HasApps() {
 			t.Error("Registry should have no apps when all disabled")
+		}
+	})
+
+	t.Run("app with CSP config", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"test_app": {
+						Enabled:    true,
+						Tools:      []string{"test_tool"},
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
+						CSP: &CSPAppConfig{
+							ResourceDomains: []string{"https://cdn.example.com"},
+							ConnectDomains:  []string{"https://api.example.com"},
+							FrameDomains:    []string{"https://embed.example.com"},
+							ClipboardWrite:  true,
+						},
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		if p.mcpAppsRegistry == nil {
+			t.Fatal("mcpAppsRegistry should not be nil")
+		}
+
+		app := p.mcpAppsRegistry.Get("test_app")
+		if app == nil {
+			t.Fatal("test_app should be registered")
+		}
+
+		if app.CSP == nil {
+			t.Fatal("CSP should not be nil")
+		}
+
+		if len(app.CSP.ResourceDomains) != 1 {
+			t.Errorf("CSP.ResourceDomains len = %d, want 1", len(app.CSP.ResourceDomains))
+		}
+	})
+
+	t.Run("app with custom resource URI", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"custom_app": {
+						Enabled:     true,
+						Tools:       []string{"test_tool"},
+						AssetsPath:  testAppDir,
+						EntryPoint:  "index.html",
+						ResourceURI: "ui://custom-resource",
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		app := p.mcpAppsRegistry.Get("custom_app")
+		if app == nil {
+			t.Fatal("custom_app should be registered")
+		}
+
+		if app.ResourceURI != "ui://custom-resource" {
+			t.Errorf("ResourceURI = %q, want ui://custom-resource", app.ResourceURI)
+		}
+	})
+
+	t.Run("app with default entry point", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"default_entry": {
+						Enabled:    true,
+						Tools:      []string{"test_tool"},
+						AssetsPath: testAppDir,
+						// EntryPoint omitted - should default to index.html
+					},
+				},
+			},
+		}
+
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		app := p.mcpAppsRegistry.Get("default_entry")
+		if app == nil {
+			t.Fatal("default_entry should be registered")
+		}
+
+		if app.EntryPoint != "index.html" {
+			t.Errorf("EntryPoint = %q, want index.html", app.EntryPoint)
+		}
+	})
+
+	t.Run("app validation error", func(t *testing.T) {
+		testAppDir := createTestAppDir(t)
+
+		cfg := &Config{
+			Server:   ServerConfig{Name: "test"},
+			Semantic: SemanticConfig{Provider: "noop"},
+			Query:    QueryConfig{Provider: "noop"},
+			Storage:  StorageConfig{Provider: "noop"},
+			MCPApps: MCPAppsConfig{
+				Enabled: true,
+				Apps: map[string]AppConfig{
+					"invalid_app": {
+						Enabled:    true,
+						Tools:      []string{}, // Empty tools - validation should fail
+						AssetsPath: testAppDir,
+						EntryPoint: "index.html",
+					},
+				},
+			},
+		}
+
+		_, err := New(WithConfig(cfg))
+		if err == nil {
+			t.Error("New() should fail with empty tools list")
 		}
 	})
 }

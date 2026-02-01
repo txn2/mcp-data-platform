@@ -1,125 +1,152 @@
-# MCP Apps Development Guide
+# MCP Apps Development
 
-Local development environment for building and debugging MCP Apps.
+Create and test MCP Apps using the included development environment.
 
 ## Prerequisites
 
-- Go 1.21+
-- Docker
-- Node.js 18+
-
-## Architecture
-
-```mermaid
-graph LR
-    subgraph "Browser"
-        BH[basic-host<br/>:8080]
-    end
-
-    subgraph "MCP Data Platform"
-        MCP[SSE Server<br/>:3001]
-    end
-
-    subgraph "Docker"
-        T[Trino<br/>:8090]
-    end
-
-    BH <-->|MCP Protocol| MCP
-    MCP <-->|SQL| T
-```
-
-| Component | Port | Purpose |
-|-----------|------|---------|
-| basic-host | 8080 | MCP Apps test harness |
-| mcp-data-platform | 3001 | MCP server (SSE) |
-| Trino | 8090 | Query engine |
+- Docker (only dependency needed)
 
 ## Quick Start
 
-Run all commands from the project root.
-
-### Step 1: Start Trino
-
 ```bash
-docker run -d --name trino-dev -p 8090:8080 trinodb/trino
+git clone https://github.com/txn2/mcp-data-platform
+cd mcp-data-platform
+
+docker compose -f docker-compose.dev.yml up
 ```
 
-Verify it's ready:
-```bash
-curl -s http://localhost:8090/v1/info | jq .starting
-# Returns: false (when ready)
-```
+This starts:
 
-### Step 2: Start MCP Data Platform
-
-```bash
-go run ./cmd/mcp-data-platform/. --config configs/dev-mcpapps.yaml
-```
-
-You should see:
-```
-WARNING: SSE transport without TLS - credentials may be transmitted in plaintext
-Starting SSE server on :3001
-```
-
-### Step 3: Start the MCP Apps Test Host
-
-One-time setup (from project root):
-```bash
-git clone https://github.com/modelcontextprotocol/ext-apps.git
-cd ext-apps && npm install
-cd ..
-```
-
-Start basic-host (from project root):
-```bash
-cd ext-apps/examples/basic-host
-SERVERS='["http://localhost:3001"]' npm start
-```
-
-### Step 4: Test
-
-1. Open http://localhost:8080
-2. In the basic-host interface, call the `trino_query` tool with this JSON:
-
-```json
-{"sql": "SELECT 1 as id, 'Product A' as name, 15000.50 as revenue UNION ALL SELECT 2, 'Product B', 23000.75 UNION ALL SELECT 3, 'Product C', 8500.25"}
-```
-
-You should see an interactive table with chart visualization.
+| Component | URL | Purpose |
+|-----------|-----|---------|
+| Test Harness | http://localhost:8000 | App development and testing |
+| MCP Server | http://localhost:3001 | MCP protocol (SSE) |
+| MCP Inspector | http://localhost:6274 | Protocol debugging |
+| Trino | http://localhost:8090 | Query engine |
 
 ## Development Workflow
 
-### Editing MCP App HTML
+### 1. Open Test Harness
 
-Source files:
+Open http://localhost:8000/test-harness.html
+
+The test harness provides:
+
+- **Left panel**: Editable JSON test data
+- **Right panel**: Live app preview
+- **Send Test Data**: Sends data to the app
+- **Reload App**: Reloads after editing source files
+
+### 2. Edit and Test
+
+1. Edit `./apps/query-results/index.html`
+2. Click **Reload App** in the test harness
+3. Click **Send Test Data**
+4. See changes immediately
+
+Changes are served instantly - no restart needed.
+
+### 3. Test with Real Queries
+
+To test with actual Trino queries:
+
+1. Open http://localhost:6274 (MCP Inspector)
+2. Connect to: `http://mcp-server:3001/sse`
+3. Run `trino_query`:
+   ```json
+   {"sql": "SELECT 1 as id, 'Test' as name, 100.50 as value"}
+   ```
+
+## Creating New Apps
+
+### App Structure
+
 ```
-pkg/mcpapps/queryresults/assets/index.html
+my-app/
+├── index.html    # Entry point (required)
+├── styles.css    # Optional
+├── app.js        # Optional
+└── assets/       # Optional
 ```
 
-After editing, restart the MCP server (Ctrl+C, then `go run` again) and hard refresh the browser (Cmd+Shift+R).
+### MCP Apps Protocol
 
-### Debugging
+Apps communicate with the host via `postMessage`:
 
-1. Open DevTools (F12)
-2. Console tab shows `[MCP-APP]` prefixed logs
-3. Network tab shows MCP protocol messages
+```javascript
+// Initialize on load
+window.parent.postMessage({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'ui/initialize',
+  params: {
+    protocolVersion: '2025-01-09',
+    appInfo: { name: 'My App', version: '1.0.0' }
+  }
+}, '*');
 
-### Common Issues
-
-**Port already in use**
-
-```bash
-lsof -ti:3001 | xargs kill -9  # MCP server
-lsof -ti:8080 | xargs kill -9  # basic-host
-docker stop trino-dev          # Trino
+// Listen for tool results
+window.addEventListener('message', (event) => {
+  if (event.data?.method === 'ui/notifications/tool-result') {
+    const data = JSON.parse(event.data.params.content[0].text);
+    // Render your UI
+  }
+});
 ```
 
-**"No results to display"**
+### Minimal Example
 
-1. Check browser console for errors
-2. Verify Trino is running: `curl http://localhost:8090/v1/info`
-3. Check MCP server terminal for errors
+```html
+<!DOCTYPE html>
+<html>
+<head><title>My App</title></head>
+<body>
+  <div id="results"></div>
+  <script>
+    window.addEventListener('message', (event) => {
+      if (event.data?.method === 'ui/notifications/tool-result') {
+        const data = JSON.parse(event.data.params.content[0].text);
+        document.getElementById('results').innerHTML =
+          `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      }
+    });
+
+    window.parent.postMessage({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'ui/initialize',
+      params: { protocolVersion: '2025-01-09' }
+    }, '*');
+  </script>
+</body>
+</html>
+```
+
+### Add to Development Environment
+
+1. Create your app directory under `apps/`:
+   ```
+   apps/
+   ├── query-results/
+   └── my-new-app/
+       └── index.html
+   ```
+
+2. Add configuration to `configs/dev-mcpapps.yaml`:
+   ```yaml
+   mcpapps:
+     apps:
+       my_new_app:
+         enabled: true
+         assets_path: "/apps/my-new-app"
+         tools:
+           - some_tool
+   ```
+
+3. Restart the dev environment:
+   ```bash
+   docker compose -f docker-compose.dev.yml up
+   ```
 
 ## Test Queries
 
@@ -140,31 +167,42 @@ All queries use Trino's memory catalog (no database setup needed).
 {"sql": "SELECT DATE '2024-01-01' + INTERVAL '1' DAY * n as date, ROUND(RANDOM() * 1000, 2) as sales FROM UNNEST(SEQUENCE(0, 29)) AS t(n)"}
 ```
 
-## File Structure
+## Architecture
 
+```mermaid
+graph LR
+    subgraph "Browser"
+        TH[Test Harness<br/>:8000]
+        MI[MCP Inspector<br/>:6274]
+    end
+
+    subgraph "Docker"
+        MCP[MCP Server<br/>:3001]
+        T[Trino<br/>:8090]
+    end
+
+    TH <-->|postMessage| MCP
+    MI <-->|MCP Protocol| MCP
+    MCP <-->|SQL| T
 ```
-pkg/mcpapps/
-├── types.go              # AppDefinition, UIMetadata
-├── registry.go           # App registry
-├── middleware.go         # Injects _meta.ui into tools/list
-├── resource.go           # Serves embedded HTML
-└── queryresults/
-    ├── app.go            # App definition
-    └── assets/
-        └── index.html    # Interactive table + charts
-```
 
-## MCP Apps Protocol
+## Debugging
 
-- **App initiates**: Send `ui/initialize`, don't wait for host
-- **Communication**: `window.parent.postMessage()`
-- **Tool results**: Delivered via `ui/context_update`
-- **MIME type**: `text/html;profile=mcp-app`
+1. Open browser DevTools (F12)
+2. Console tab shows `[MCP-APP]` prefixed logs
+3. Network tab shows MCP protocol messages
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Changes not appearing | Click Reload App, or hard refresh (Cmd+Shift+R) |
+| "No results to display" | Check browser console for errors |
+| Trino not responding | Wait for startup: `curl http://localhost:8090/v1/info` |
+| Port already in use | `docker compose -f docker-compose.dev.yml down` |
 
 ## Cleanup
 
 ```bash
-pkill -f mcp-data-platform  # Stop MCP server
-# Ctrl+C in basic-host terminal
-docker stop trino-dev && docker rm trino-dev
+docker compose -f docker-compose.dev.yml down
 ```
