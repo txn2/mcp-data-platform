@@ -12,11 +12,13 @@ import (
 
 func TestHandlePlatformInfo(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   Config
-		wantName string
-		wantVer  string
-		wantDesc string
+		name                  string
+		config                Config
+		wantName              string
+		wantVer               string
+		wantDesc              string
+		wantTags              []string
+		wantAgentInstructions string
 	}{
 		{
 			name: "returns configured values",
@@ -54,6 +56,21 @@ func TestHandlePlatformInfo(t *testing.T) {
 			wantVer:  "1.0.0",
 			wantDesc: "",
 		},
+		{
+			name: "returns tags and agent instructions",
+			config: Config{
+				Server: ServerConfig{
+					Name:              "tagged-platform",
+					Version:           "1.0.0",
+					Tags:              []string{"ACME Corp", "XWidget", "analytics"},
+					AgentInstructions: "Prices are in cents - divide by 100.",
+				},
+			},
+			wantName:              "tagged-platform",
+			wantVer:               "1.0.0",
+			wantTags:              []string{"ACME Corp", "XWidget", "analytics"},
+			wantAgentInstructions: "Prices are in cents - divide by 100.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -77,6 +94,8 @@ func TestHandlePlatformInfo(t *testing.T) {
 			assert.Equal(t, tt.wantName, info.Name)
 			assert.Equal(t, tt.wantVer, info.Version)
 			assert.Equal(t, tt.wantDesc, info.Description)
+			assert.Equal(t, tt.wantTags, info.Tags)
+			assert.Equal(t, tt.wantAgentInstructions, info.AgentInstructions)
 		})
 	}
 }
@@ -112,6 +131,71 @@ func TestPlatformInfoFeatures(t *testing.T) {
 	assert.True(t, info.Features.QueryEnrichment, "query enrichment should be enabled")
 	assert.True(t, info.Features.StorageEnrichment, "storage enrichment should be enabled")
 	assert.True(t, info.Features.AuditLogging, "audit logging should be enabled")
+}
+
+func TestBuildInfoToolDescription(t *testing.T) {
+	tests := []struct {
+		name         string
+		serverConfig ServerConfig
+		wantContains []string
+	}{
+		{
+			name: "default name uses generic description",
+			serverConfig: ServerConfig{
+				Name: "mcp-data-platform",
+			},
+			wantContains: []string{
+				"Get information about this MCP data platform",
+				"including its purpose",
+			},
+		},
+		{
+			name: "custom name appears in description",
+			serverConfig: ServerConfig{
+				Name: "ACME Data Platform",
+			},
+			wantContains: []string{
+				"Get information about ACME Data Platform",
+			},
+		},
+		{
+			name: "tags appear in parentheses",
+			serverConfig: ServerConfig{
+				Name: "ACME Data Platform",
+				Tags: []string{"analytics", "sales"},
+			},
+			wantContains: []string{
+				"Get information about ACME Data Platform",
+				"(analytics, sales)",
+			},
+		},
+		{
+			name: "empty tags omits parentheses",
+			serverConfig: ServerConfig{
+				Name: "ACME Data Platform",
+				Tags: []string{},
+			},
+			wantContains: []string{
+				"Get information about ACME Data Platform",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Platform{
+				config: &Config{
+					Server: tt.serverConfig,
+				},
+			}
+
+			desc := p.buildInfoToolDescription()
+
+			for _, want := range tt.wantContains {
+				assert.Contains(t, desc, want)
+			}
+		})
+	}
 }
 
 func TestPlatformInfoToolkits(t *testing.T) {
