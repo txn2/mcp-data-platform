@@ -89,6 +89,15 @@
             font-size: 14px;
         }
 
+        .platform-header .badge-list {
+            margin: 8px 0;
+        }
+
+        .platform-header .badge {
+            font-size: 12px;
+            padding: 4px 8px;
+        }
+
         .section {
             padding: 16px 20px;
             border-bottom: 1px solid var(--border-color);
@@ -170,6 +179,7 @@
                     <span id="platform-name" class="platform-name">—</span>
                     <span id="platform-version" class="platform-version">—</span>
                 </div>
+                <div id="platform-tags" class="badge-list hidden"></div>
                 <div id="platform-description" class="platform-description">—</div>
             </div>
 
@@ -241,6 +251,7 @@
         const contentEl = document.getElementById('content');
         const platformNameEl = document.getElementById('platform-name');
         const platformVersionEl = document.getElementById('platform-version');
+        const platformTagsEl = document.getElementById('platform-tags');
         const platformDescriptionEl = document.getElementById('platform-description');
         const toolkitsEl = document.getElementById('toolkits');
         const featuresEl = document.getElementById('features');
@@ -266,6 +277,17 @@
             // Platform header
             platformNameEl.textContent = data.name || 'Unknown Platform';
             platformVersionEl.textContent = data.version ? `v${data.version}` : '—';
+
+            // Platform tags
+            if (data.tags && data.tags.length > 0) {
+                platformTagsEl.innerHTML = data.tags
+                    .map(tag => `<span class="badge">${escapeHtml(tag)}</span>`)
+                    .join('');
+                platformTagsEl.classList.remove('hidden');
+            } else {
+                platformTagsEl.classList.add('hidden');
+            }
+
             platformDescriptionEl.textContent = data.description || '';
 
             // Toolkits
