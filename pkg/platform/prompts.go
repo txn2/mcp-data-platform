@@ -23,15 +23,20 @@ func (p *Platform) registerPrompt(cfg PromptConfig) {
 		Name:        cfg.Name,
 		Description: cfg.Description,
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		return &mcp.GetPromptResult{
-			Messages: []*mcp.PromptMessage{
-				{
-					Role: "user",
-					Content: &mcp.TextContent{
-						Text: promptContent,
-					},
+		return buildPromptResult(promptContent), nil
+	})
+}
+
+// buildPromptResult creates a GetPromptResult with the given content.
+func buildPromptResult(content string) *mcp.GetPromptResult {
+	return &mcp.GetPromptResult{
+		Messages: []*mcp.PromptMessage{
+			{
+				Role: "user",
+				Content: &mcp.TextContent{
+					Text: content,
 				},
 			},
-		}, nil
-	})
+		},
+	}
 }

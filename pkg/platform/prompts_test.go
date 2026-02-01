@@ -117,3 +117,41 @@ func TestPromptConfigFields(t *testing.T) {
 	assert.Equal(t, "My prompt description", cfg.Description)
 	assert.Equal(t, "Prompt content here", cfg.Content)
 }
+
+func TestBuildPromptResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "simple content",
+			content: "This is a simple prompt.",
+		},
+		{
+			name:    "multiline content",
+			content: "Line 1\nLine 2\nLine 3",
+		},
+		{
+			name:    "empty content",
+			content: "",
+		},
+		{
+			name:    "content with special characters",
+			content: "Use `code` and **bold** formatting.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildPromptResult(tt.content)
+
+			assert.NotNil(t, result)
+			assert.Len(t, result.Messages, 1)
+			assert.Equal(t, mcp.Role("user"), result.Messages[0].Role)
+
+			textContent, ok := result.Messages[0].Content.(*mcp.TextContent)
+			assert.True(t, ok, "expected TextContent")
+			assert.Equal(t, tt.content, textContent.Text)
+		})
+	}
+}
