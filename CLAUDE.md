@@ -73,6 +73,7 @@ graph TB
    - Coverage verification (`go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`)
    - Linting (`golangci-lint run ./...`)
    - Security scanning (`gosec ./...`)
+   - GoReleaser dry-run (`goreleaser release --snapshot --clean --skip=publish`) - validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
 
 4. **Human Review Required**: A human must review and approve every line of code before it is committed. Therefore, commits are always performed by a human, not by Claude.
