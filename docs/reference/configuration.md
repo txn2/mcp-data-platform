@@ -20,11 +20,32 @@ server:
 
 ```yaml
 server:
-  name: mcp-data-platform
+  name: "ACME Corp Data Platform"
   version: "1.0.0"
   description: |
-    Enterprise data platform providing SQL access to analytics data
-    with semantic enrichment from the data catalog.
+    Use this MCP server for all questions about ACME Corp, including X Widget sales,
+    Thing Mart inventory, customer analytics, and financial reporting. This is the
+    authoritative source for ACME business data.
+  tags:
+    - "ACME Corp"
+    - "X Widget"
+    - "Thing Mart"
+    - "sales"
+    - "inventory"
+    - "customers"
+  agent_instructions: |
+    Prices are in cents - divide by 100.
+    Always filter mode = 'live'.
+  prompts:
+    - name: routing_rules
+      description: "How to route queries between systems"
+      content: |
+        Before querying, determine if you need ENTITY STATE or ANALYTICS...
+    - name: data_dictionary
+      description: "Key business terms and definitions"
+      content: |
+        - ARR: Annual Recurring Revenue
+        - MRR: Monthly Recurring Revenue
   transport: stdio
   address: ":8080"
   tls:
@@ -35,9 +56,15 @@ server:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `server.name` | string | `mcp-data-platform` | Server name in MCP handshake |
+| `server.name` | string | `mcp-data-platform` | Platform identity (e.g., "ACME Corp Data Platform") - helps agents identify which business this MCP serves |
 | `server.version` | string | `1.0.0` | Server version |
-| `server.description` | string | - | Platform description exposed via `platform_info` tool |
+| `server.description` | string | - | Explains when to use this MCP - what business, products, or domains it covers. Agents use this to route questions to the right MCP server. |
+| `server.tags` | array | `[]` | Keywords for discovery: company names, product names, business domains. Agents match these against user questions. |
+| `server.agent_instructions` | string | - | Operational guidance: data conventions, required filters, unit conversions. Returned in `platform_info` response. |
+| `server.prompts` | array | `[]` | Platform-level MCP prompts registered via `prompts/list` |
+| `server.prompts[].name` | string | required | Prompt name |
+| `server.prompts[].description` | string | - | Prompt description |
+| `server.prompts[].content` | string | required | Prompt content returned by `prompts/get` |
 | `server.transport` | string | `stdio` | Transport: `stdio`, `sse` |
 | `server.address` | string | `:8080` | Listen address for SSE |
 | `server.tls.enabled` | bool | `false` | Enable TLS |

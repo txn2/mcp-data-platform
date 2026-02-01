@@ -32,12 +32,22 @@ type Config struct {
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
-	Name        string    `yaml:"name"`
-	Version     string    `yaml:"version"`
-	Description string    `yaml:"description"`
-	Transport   string    `yaml:"transport"` // "stdio", "sse", "http"
-	Address     string    `yaml:"address"`
-	TLS         TLSConfig `yaml:"tls"`
+	Name              string         `yaml:"name"`
+	Version           string         `yaml:"version"`
+	Description       string         `yaml:"description"`
+	Tags              []string       `yaml:"tags"`               // Discovery keywords for routing
+	AgentInstructions string         `yaml:"agent_instructions"` // Inline operational guidance for AI agents
+	Prompts           []PromptConfig `yaml:"prompts"`            // Platform-level MCP prompts
+	Transport         string         `yaml:"transport"`          // "stdio", "sse", "http"
+	Address           string         `yaml:"address"`
+	TLS               TLSConfig      `yaml:"tls"`
+}
+
+// PromptConfig defines a platform-level MCP prompt.
+type PromptConfig struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Content     string `yaml:"content"`
 }
 
 // TLSConfig configures TLS.

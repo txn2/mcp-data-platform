@@ -676,7 +676,7 @@ func (p *Platform) createAuthorizer() middleware.Authorizer {
 
 // Start starts the platform.
 func (p *Platform) Start(ctx context.Context) error {
-	// Load prompts
+	// Load prompts from prompts_dir
 	if err := p.promptManager.LoadPrompts(); err != nil {
 		return fmt.Errorf("loading prompts: %w", err)
 	}
@@ -686,6 +686,9 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// Register platform info tool
 	p.registerInfoTool()
+
+	// Register platform-level prompts from config
+	p.registerPlatformPrompts()
 
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)

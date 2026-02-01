@@ -187,7 +187,11 @@ injection:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `server.name` | string | `mcp-data-platform` | Server name in MCP handshake |
+| `server.name` | string | `mcp-data-platform` | Platform identity (e.g., "ACME Corp Data Platform") - helps agents identify which business this MCP serves |
+| `server.description` | string | - | Explains when to use this MCP - what business, products, or domains it covers. Agents use this to route questions to the right MCP server. |
+| `server.tags` | array | `[]` | Keywords for discovery: company names, product names, business domains. Agents match these against user questions. |
+| `server.agent_instructions` | string | - | Operational guidance: data conventions, required filters, unit conversions. Returned in `platform_info` response. |
+| `server.prompts` | array | `[]` | Platform-level MCP prompts (name, description, content) registered via `prompts/list` |
 | `server.transport` | string | `stdio` | Transport: `stdio` or `sse` |
 | `server.address` | string | `:8080` | Listen address for SSE |
 
