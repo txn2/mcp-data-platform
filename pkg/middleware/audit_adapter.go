@@ -7,13 +7,26 @@ import (
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 )
 
-// auditStoreAdapter adapts the PostgreSQL audit store to the middleware.AuditLogger interface.
+// auditStore defines the interface for audit event storage.
+// This allows for easier testing with mock implementations.
+type auditStore interface {
+	Log(ctx context.Context, event audit.Event) error
+}
+
+// auditStoreAdapter adapts an audit store to the middleware.AuditLogger interface.
 type auditStoreAdapter struct {
-	store *auditpostgres.Store
+	store auditStore
 }
 
 // NewAuditStoreAdapter creates an AuditLogger that logs to a PostgreSQL audit store.
 func NewAuditStoreAdapter(store *auditpostgres.Store) AuditLogger {
+	return &auditStoreAdapter{store: store}
+}
+
+// newAuditStoreAdapterWithStore creates an AuditLogger with a custom store (for testing).
+//
+//nolint:unused // Used in tests only
+func newAuditStoreAdapterWithStore(store auditStore) AuditLogger {
 	return &auditStoreAdapter{store: store}
 }
 
