@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
 func TestHandlePlatformInfo(t *testing.T) {
@@ -75,7 +76,10 @@ func TestHandlePlatformInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Platform{config: &tt.config}
+			p := &Platform{
+				config:          &tt.config,
+				personaRegistry: persona.NewRegistry(),
+			}
 
 			result, extra, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -117,7 +121,10 @@ func TestPlatformInfoFeatures(t *testing.T) {
 		},
 	}
 
-	p := &Platform{config: &config}
+	p := &Platform{
+		config:          &config,
+		personaRegistry: persona.NewRegistry(),
+	}
 	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
@@ -211,7 +218,10 @@ func TestPlatformInfoToolkits(t *testing.T) {
 		},
 	}
 
-	p := &Platform{config: &config}
+	p := &Platform{
+		config:          &config,
+		personaRegistry: persona.NewRegistry(),
+	}
 	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
@@ -225,4 +235,51 @@ func TestPlatformInfoToolkits(t *testing.T) {
 	assert.Contains(t, info.Toolkits, "trino")
 	assert.Contains(t, info.Toolkits, "datahub")
 	assert.Contains(t, info.Toolkits, "s3")
+}
+
+func TestPlatformInfoPersonas(t *testing.T) {
+	config := Config{
+		Server: ServerConfig{
+			Name:    "persona-test",
+			Version: "1.0.0",
+		},
+	}
+
+	registry := persona.NewRegistry()
+	_ = registry.Register(&persona.Persona{
+		Name:        "analyst",
+		DisplayName: "Data Analyst",
+		Description: "Analyze data and run queries",
+	})
+	_ = registry.Register(&persona.Persona{
+		Name:        "admin",
+		DisplayName: "Administrator",
+		Description: "Full access to all features",
+	})
+
+	p := &Platform{
+		config:          &config,
+		personaRegistry: registry,
+	}
+	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	textContent := result.Content[0].(*mcp.TextContent)
+
+	var info PlatformInfo
+	err = json.Unmarshal([]byte(textContent.Text), &info)
+	require.NoError(t, err)
+
+	assert.Len(t, info.Personas, 2)
+
+	// Find analyst persona
+	var foundAnalyst bool
+	for _, p := range info.Personas {
+		if p.Name == "analyst" {
+			foundAnalyst = true
+			assert.Equal(t, "Data Analyst", p.DisplayName)
+			assert.Equal(t, "Analyze data and run queries", p.Description)
+		}
+	}
+	assert.True(t, foundAnalyst, "expected analyst persona in output")
 }

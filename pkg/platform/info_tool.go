@@ -12,13 +12,21 @@ import (
 
 // PlatformInfo contains information about the platform deployment.
 type PlatformInfo struct {
-	Name              string   `json:"name"`
-	Version           string   `json:"version"`
-	Description       string   `json:"description,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
-	AgentInstructions string   `json:"agent_instructions,omitempty"`
-	Toolkits          []string `json:"toolkits"`
-	Features          Features `json:"features"`
+	Name              string        `json:"name"`
+	Version           string        `json:"version"`
+	Description       string        `json:"description,omitempty"`
+	Tags              []string      `json:"tags,omitempty"`
+	AgentInstructions string        `json:"agent_instructions,omitempty"`
+	Toolkits          []string      `json:"toolkits"`
+	Personas          []PersonaInfo `json:"personas,omitempty"`
+	Features          Features      `json:"features"`
+}
+
+// PersonaInfo provides summary information about a persona.
+type PersonaInfo struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description,omitempty"`
 }
 
 // Features describes enabled platform features.
@@ -65,6 +73,17 @@ func (p *Platform) handlePlatformInfo(_ context.Context, _ *mcp.CallToolRequest)
 		}
 	}
 
+	// Collect persona information
+	allPersonas := p.personaRegistry.All()
+	personas := make([]PersonaInfo, 0, len(allPersonas))
+	for _, pers := range allPersonas {
+		personas = append(personas, PersonaInfo{
+			Name:        pers.Name,
+			DisplayName: pers.DisplayName,
+			Description: pers.Description,
+		})
+	}
+
 	info := PlatformInfo{
 		Name:              p.config.Server.Name,
 		Version:           p.config.Server.Version,
@@ -72,6 +91,7 @@ func (p *Platform) handlePlatformInfo(_ context.Context, _ *mcp.CallToolRequest)
 		Tags:              p.config.Server.Tags,
 		AgentInstructions: p.config.Server.AgentInstructions,
 		Toolkits:          toolkits,
+		Personas:          personas,
 		Features: Features{
 			SemanticEnrichment: p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.S3SemanticEnrichment,
 			QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
