@@ -38,7 +38,7 @@ type ServerConfig struct {
 	Tags              []string       `yaml:"tags"`               // Discovery keywords for routing
 	AgentInstructions string         `yaml:"agent_instructions"` // Inline operational guidance for AI agents
 	Prompts           []PromptConfig `yaml:"prompts"`            // Platform-level MCP prompts
-	Transport         string         `yaml:"transport"`          // "stdio", "sse", "http"
+	Transport         string         `yaml:"transport"`          // "stdio", "sse"
 	Address           string         `yaml:"address"`
 	TLS               TLSConfig      `yaml:"tls"`
 }
@@ -134,10 +134,12 @@ type PersonasConfig struct {
 // PersonaDef defines a persona.
 type PersonaDef struct {
 	DisplayName string            `yaml:"display_name"`
+	Description string            `yaml:"description,omitempty"`
 	Roles       []string          `yaml:"roles"`
 	Tools       ToolRulesDef      `yaml:"tools"`
 	Prompts     PromptsDef        `yaml:"prompts"`
 	Hints       map[string]string `yaml:"hints,omitempty"`
+	Priority    int               `yaml:"priority,omitempty"`
 }
 
 // ToolRulesDef defines tool access rules.
@@ -149,6 +151,8 @@ type ToolRulesDef struct {
 // PromptsDef defines prompt customizations.
 type PromptsDef struct {
 	SystemPrefix string `yaml:"system_prefix,omitempty"`
+	SystemSuffix string `yaml:"system_suffix,omitempty"`
+	Instructions string `yaml:"instructions,omitempty"`
 }
 
 // RoleMappingConfig configures role mapping.
