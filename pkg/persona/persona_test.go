@@ -33,3 +33,66 @@ func TestAdminPersona(t *testing.T) {
 		t.Error("expected Roles to contain \"admin\"")
 	}
 }
+
+func TestGetFullSystemPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		prompts  PromptConfig
+		expected string
+	}{
+		{
+			name:     "empty prompts",
+			prompts:  PromptConfig{},
+			expected: "",
+		},
+		{
+			name: "only prefix",
+			prompts: PromptConfig{
+				SystemPrefix: "You are a helpful assistant.",
+			},
+			expected: "You are a helpful assistant.",
+		},
+		{
+			name: "prefix and suffix",
+			prompts: PromptConfig{
+				SystemPrefix: "You are a helpful assistant.",
+				SystemSuffix: "Be concise.",
+			},
+			expected: "You are a helpful assistant.\n\nBe concise.",
+		},
+		{
+			name: "all three parts",
+			prompts: PromptConfig{
+				SystemPrefix: "You are a data analyst.",
+				Instructions: "Always check DataHub first.",
+				SystemSuffix: "Format output as JSON.",
+			},
+			expected: "You are a data analyst.\n\nAlways check DataHub first.\n\nFormat output as JSON.",
+		},
+		{
+			name: "only instructions",
+			prompts: PromptConfig{
+				Instructions: "Check metadata before queries.",
+			},
+			expected: "Check metadata before queries.",
+		},
+		{
+			name: "instructions and suffix",
+			prompts: PromptConfig{
+				Instructions: "Check metadata before queries.",
+				SystemSuffix: "Return structured data.",
+			},
+			expected: "Check metadata before queries.\n\nReturn structured data.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Persona{Prompts: tt.prompts}
+			result := p.GetFullSystemPrompt()
+			if result != tt.expected {
+				t.Errorf("GetFullSystemPrompt() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
