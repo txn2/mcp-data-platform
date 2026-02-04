@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/crypto/bcrypt"
 
+	// PostgreSQL driver for database/sql
+	_ "github.com/lib/pq"
+
+	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -33,6 +38,10 @@ type Platform struct {
 	// Core components
 	mcpServer *mcp.Server
 	lifecycle *Lifecycle
+
+	// Database
+	db         *sql.DB
+	auditStore *auditpostgres.Store
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -89,6 +98,10 @@ func New(opts ...Option) (*Platform, error) {
 
 // initializeComponents initializes all platform components.
 func (p *Platform) initializeComponents(opts *Options) error {
+	// Initialize database first (required for audit logging)
+	if err := p.initDatabase(); err != nil {
+		return err
+	}
 	if err := p.initProviders(opts); err != nil {
 		return err
 	}
@@ -102,6 +115,10 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	if err := p.initAuth(opts); err != nil {
 		return err
 	}
+	// Initialize audit logging after auth
+	if err := p.initAudit(opts); err != nil {
+		return err
+	}
 	if err := p.initOAuth(); err != nil {
 		return err
 	}
@@ -110,6 +127,31 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	p.finalizeSetup()
+	return nil
+}
+
+// initDatabase initializes the database connection if configured.
+func (p *Platform) initDatabase() error {
+	if p.config.Database.DSN == "" {
+		return nil
+	}
+
+	db, err := sql.Open("postgres", p.config.Database.DSN)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+
+	db.SetMaxOpenConns(p.config.Database.MaxOpenConns)
+	if p.config.Database.MaxOpenConns == 0 {
+		db.SetMaxOpenConns(25)
+	}
+
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+
+	p.db = db
+	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
 	return nil
 }
 
@@ -203,11 +245,45 @@ func (p *Platform) initAuth(opts *Options) error {
 		p.authorizer = p.createAuthorizer()
 	}
 
+	return nil
+}
+
+// initAudit initializes audit logging.
+func (p *Platform) initAudit(opts *Options) error {
+	// Use provided audit logger if available
 	if opts.AuditLogger != nil {
 		p.auditLogger = opts.AuditLogger
-	} else {
-		p.auditLogger = &middleware.NoopAuditLogger{}
+		return nil
 	}
+
+	// If audit logging is disabled, use noop logger
+	if !p.config.Audit.Enabled {
+		p.auditLogger = &middleware.NoopAuditLogger{}
+		return nil
+	}
+
+	// Audit logging requires a database connection
+	if p.db == nil {
+		slog.Warn("audit logging enabled but no database configured, using noop logger")
+		p.auditLogger = &middleware.NoopAuditLogger{}
+		return nil
+	}
+
+	// Create PostgreSQL audit store
+	store := auditpostgres.New(p.db, auditpostgres.Config{
+		RetentionDays: p.config.Audit.RetentionDays,
+	})
+
+	// Start background cleanup routine
+	store.StartCleanupRoutine(context.Background(), 24*time.Hour)
+
+	p.auditStore = store
+	p.auditLogger = middleware.NewAuditStoreAdapter(store)
+
+	slog.Info("audit logging enabled",
+		"retention_days", p.config.Audit.RetentionDays,
+		"log_tool_calls", p.config.Audit.LogToolCalls,
+	)
 	return nil
 }
 
@@ -314,8 +390,17 @@ func (p *Platform) initTuning(opts *Options) {
 	p.promptManager = tuning.NewPromptManager(tuning.PromptConfig{
 		PromptsDir: p.config.Tuning.PromptsDir,
 	})
+
+	// Initialize hint manager with defaults
 	p.hintManager = tuning.NewHintManager()
 	p.hintManager.SetHints(tuning.DefaultHints())
+
+	// Load persona-specific hints
+	for _, pers := range p.personaRegistry.All() {
+		if pers.Hints != nil {
+			p.hintManager.SetHints(pers.Hints)
+		}
+	}
 }
 
 // initMCPApps initializes MCP Apps support.
@@ -426,13 +511,20 @@ func (p *Platform) finalizeSetup() {
 	)
 
 	// 3. Audit middleware - logs tool calls (after response)
-	if p.config.Audit.Enabled {
+	if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(p.auditLogger),
 		)
 	}
 
-	// 4. Semantic enrichment middleware - enriches responses with cross-service context
+	// 4. Rule enforcement middleware - adds operational guidance to responses
+	if p.ruleEngine != nil {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
+		)
+	}
+
+	// 5. Semantic enrichment middleware - enriches responses with cross-service context
 	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
 		p.config.Injection.DataHubQueryEnrichment ||
 		p.config.Injection.S3SemanticEnrichment ||
@@ -576,6 +668,7 @@ func (p *Platform) loadPersonas() error {
 		persona := &persona.Persona{
 			Name:        name,
 			DisplayName: def.DisplayName,
+			Description: def.Description,
 			Roles:       def.Roles,
 			Tools: persona.ToolRules{
 				Allow: def.Tools.Allow,
@@ -583,8 +676,11 @@ func (p *Platform) loadPersonas() error {
 			},
 			Prompts: persona.PromptConfig{
 				SystemPrefix: def.Prompts.SystemPrefix,
+				SystemSuffix: def.Prompts.SystemSuffix,
+				Instructions: def.Prompts.Instructions,
 			},
-			Hints: def.Hints,
+			Hints:    def.Hints,
+			Priority: def.Priority,
 		}
 		if err := p.personaRegistry.Register(persona); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)
@@ -690,6 +786,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register platform-level prompts from config
 	p.registerPlatformPrompts()
 
+	// Register hints resource
+	p.registerHintsResource()
+
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)
 }
@@ -737,6 +836,11 @@ func (p *Platform) PersonaRegistry() *persona.Registry {
 // RuleEngine returns the rule engine.
 func (p *Platform) RuleEngine() *tuning.RuleEngine {
 	return p.ruleEngine
+}
+
+// HintManager returns the hint manager.
+func (p *Platform) HintManager() *tuning.HintManager {
+	return p.hintManager
 }
 
 // OAuthServer returns the OAuth server, or nil if not enabled.
@@ -959,6 +1063,18 @@ func (p *Platform) Close() error {
 
 	if closer, ok := p.auditLogger.(Closer); ok {
 		closeResource(&errs, closer)
+	}
+
+	// Close audit store
+	if p.auditStore != nil {
+		closeResource(&errs, p.auditStore)
+	}
+
+	// Close database connection
+	if p.db != nil {
+		if err := p.db.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("closing database: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {

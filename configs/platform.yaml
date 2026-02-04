@@ -3,7 +3,7 @@
 
 server:
   name: mcp-data-platform
-  transport: stdio              # stdio, sse, http
+  transport: stdio              # stdio, sse
   address: ":8080"
   tls:
     enabled: false

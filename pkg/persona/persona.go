@@ -83,3 +83,29 @@ func AdminPersona() *Persona {
 		Priority: 100,
 	}
 }
+
+// GetFullSystemPrompt returns the complete system prompt by combining
+// SystemPrefix, Instructions, and SystemSuffix.
+func (p *Persona) GetFullSystemPrompt() string {
+	var parts []string
+
+	if p.Prompts.SystemPrefix != "" {
+		parts = append(parts, p.Prompts.SystemPrefix)
+	}
+	if p.Prompts.Instructions != "" {
+		parts = append(parts, p.Prompts.Instructions)
+	}
+	if p.Prompts.SystemSuffix != "" {
+		parts = append(parts, p.Prompts.SystemSuffix)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result += "\n\n" + parts[i]
+	}
+	return result
+}
