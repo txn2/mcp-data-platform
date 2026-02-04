@@ -17,6 +17,7 @@ import (
 
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
@@ -130,7 +131,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	return nil
 }
 
-// initDatabase initializes the database connection if configured.
+// initDatabase initializes the database connection and runs migrations if configured.
 func (p *Platform) initDatabase() error {
 	if p.config.Database.DSN == "" {
 		return nil
@@ -152,6 +153,12 @@ func (p *Platform) initDatabase() error {
 
 	p.db = db
 	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
+
+	// Run database migrations
+	if err := migrate.Run(db); err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+
 	return nil
 }
 
