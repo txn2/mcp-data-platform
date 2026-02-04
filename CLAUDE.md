@@ -157,6 +157,14 @@ mcp-data-platform/
 │   │   ├── event.go               # Event types
 │   │   └── postgres/
 │   │       └── store.go           # PostgreSQL implementation
+│   ├── database/                  # Database utilities
+│   │   └── migrate/               # Database migrations (golang-migrate)
+│   │       ├── migrate.go         # Migration runner
+│   │       └── migrations/        # Embedded SQL migrations
+│   │           ├── 000001_oauth_clients.up.sql
+│   │           ├── 000001_oauth_clients.down.sql
+│   │           ├── 000002_audit_logs.up.sql
+│   │           └── 000002_audit_logs.down.sql
 │   ├── tuning/                    # Tuning layer
 │   │   ├── prompts.go             # Prompt resources
 │   │   ├── hints.go               # Tool hints
@@ -167,9 +175,6 @@ mcp-data-platform/
 │   └── server.go
 ├── configs/                       # Example configurations
 │   └── platform.yaml
-├── migrations/                    # SQL migrations
-│   ├── 001_oauth_clients.sql
-│   └── 002_audit_logs.sql
 ├── go.mod
 ├── LICENSE
 └── README.md
