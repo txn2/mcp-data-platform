@@ -1861,3 +1861,203 @@ func TestInitMCPApps(t *testing.T) {
 		}
 	})
 }
+
+func TestHintManager(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	hm := p.HintManager()
+	if hm == nil {
+		t.Fatal("HintManager() returned nil")
+	}
+
+	// Check that default hints were loaded
+	hint, ok := hm.GetHint("datahub_search")
+	if !ok {
+		t.Error("Expected datahub_search hint to be loaded")
+	}
+	if hint == "" {
+		t.Error("datahub_search hint should not be empty")
+	}
+}
+
+func TestPersonaHintsLoadedToHintManager(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Personas: PersonasConfig{
+			Definitions: map[string]PersonaDef{
+				"analyst": {
+					DisplayName: "Data Analyst",
+					Roles:       []string{"analyst"},
+					Hints: map[string]string{
+						"custom_tool": "This is a custom hint from persona",
+					},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	hm := p.HintManager()
+
+	// Check persona hint was loaded
+	hint, ok := hm.GetHint("custom_tool")
+	if !ok {
+		t.Error("Expected custom_tool hint from persona to be loaded")
+	}
+	if hint != "This is a custom hint from persona" {
+		t.Errorf("Unexpected hint value: %q", hint)
+	}
+}
+
+func TestInitAuditNoopWhenDisabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Audit: AuditConfig{
+			Enabled: false,
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Platform should have been created without error
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() should not be nil")
+	}
+}
+
+func TestInitAuditNoopWithoutDatabase(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Audit: AuditConfig{
+			Enabled:       true,
+			LogToolCalls:  true,
+			RetentionDays: 30,
+		},
+		// Database DSN intentionally left empty
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Should succeed with noop logger when DB not configured
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() should not be nil")
+	}
+}
+
+func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		Personas: PersonasConfig{
+			Definitions: map[string]PersonaDef{
+				"analyst": {
+					DisplayName: "Data Analyst",
+					Description: "Analyzes data and runs queries",
+					Roles:       []string{"analyst"},
+					Tools: ToolRulesDef{
+						Allow: []string{"trino_*"},
+					},
+					Prompts: PromptsDef{
+						SystemPrefix: "You are a data analyst.",
+						SystemSuffix: "Be concise.",
+						Instructions: "Check DataHub first.",
+					},
+					Priority: 10,
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	pr := p.PersonaRegistry()
+	analyst, ok := pr.Get("analyst")
+	if !ok {
+		t.Fatal("analyst persona not found")
+	}
+
+	if analyst.Description != "Analyzes data and runs queries" {
+		t.Errorf("Description = %q", analyst.Description)
+	}
+	if analyst.Priority != 10 {
+		t.Errorf("Priority = %d, want 10", analyst.Priority)
+	}
+	if analyst.Prompts.SystemPrefix != "You are a data analyst." {
+		t.Errorf("SystemPrefix = %q", analyst.Prompts.SystemPrefix)
+	}
+	if analyst.Prompts.SystemSuffix != "Be concise." {
+		t.Errorf("SystemSuffix = %q", analyst.Prompts.SystemSuffix)
+	}
+	if analyst.Prompts.Instructions != "Check DataHub first." {
+		t.Errorf("Instructions = %q", analyst.Prompts.Instructions)
+	}
+
+	// Test GetFullSystemPrompt
+	fullPrompt := analyst.GetFullSystemPrompt()
+	if fullPrompt == "" {
+		t.Error("GetFullSystemPrompt() returned empty string")
+	}
+	// Should contain all three parts
+	if !contains(fullPrompt, "You are a data analyst.") {
+		t.Error("fullPrompt missing SystemPrefix")
+	}
+	if !contains(fullPrompt, "Check DataHub first.") {
+		t.Error("fullPrompt missing Instructions")
+	}
+	if !contains(fullPrompt, "Be concise.") {
+		t.Error("fullPrompt missing SystemSuffix")
+	}
+}
+
+// contains checks if s contains substr.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
