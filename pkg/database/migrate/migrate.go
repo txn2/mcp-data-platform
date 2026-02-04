@@ -16,22 +16,45 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-// Run executes all pending database migrations.
-// It applies migrations in order and is idempotent - already applied migrations are skipped.
-func Run(db *sql.DB) error {
+// migrator defines the interface for database migrations.
+// This allows for mocking in tests.
+type migrator interface {
+	Up() error
+	Down() error
+	Steps(n int) error
+	Version() (uint, bool, error)
+}
+
+// migratorFactory creates a migrator instance.
+// This is overridden in tests to return a mock.
+var migratorFactory = newMigrator
+
+// newMigrator creates a real migrate.Migrate instance.
+func newMigrator(db *sql.DB) (migrator, error) {
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
-		return fmt.Errorf("creating postgres driver: %w", err)
+		return nil, fmt.Errorf("creating postgres driver: %w", err)
 	}
 
 	source, err := iofs.New(migrations, "migrations")
 	if err != nil {
-		return fmt.Errorf("creating migration source: %w", err)
+		return nil, fmt.Errorf("creating migration source: %w", err)
 	}
 
 	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
 	if err != nil {
-		return fmt.Errorf("creating migrator: %w", err)
+		return nil, fmt.Errorf("creating migrator: %w", err)
+	}
+
+	return m, nil
+}
+
+// Run executes all pending database migrations.
+// It applies migrations in order and is idempotent - already applied migrations are skipped.
+func Run(db *sql.DB) error {
+	m, err := migratorFactory(db)
+	if err != nil {
+		return err
 	}
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
@@ -54,19 +77,9 @@ func Run(db *sql.DB) error {
 
 // Version returns the current migration version.
 func Version(db *sql.DB) (uint, bool, error) {
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	m, err := migratorFactory(db)
 	if err != nil {
-		return 0, false, fmt.Errorf("creating postgres driver: %w", err)
-	}
-
-	source, err := iofs.New(migrations, "migrations")
-	if err != nil {
-		return 0, false, fmt.Errorf("creating migration source: %w", err)
-	}
-
-	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
-	if err != nil {
-		return 0, false, fmt.Errorf("creating migrator: %w", err)
+		return 0, false, err
 	}
 
 	return m.Version()
@@ -75,19 +88,9 @@ func Version(db *sql.DB) (uint, bool, error) {
 // Down rolls back all migrations.
 // Use with caution - this will destroy all data.
 func Down(db *sql.DB) error {
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	m, err := migratorFactory(db)
 	if err != nil {
-		return fmt.Errorf("creating postgres driver: %w", err)
-	}
-
-	source, err := iofs.New(migrations, "migrations")
-	if err != nil {
-		return fmt.Errorf("creating migration source: %w", err)
-	}
-
-	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
-	if err != nil {
-		return fmt.Errorf("creating migrator: %w", err)
+		return err
 	}
 
 	if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
@@ -99,19 +102,9 @@ func Down(db *sql.DB) error {
 
 // Steps applies n migrations (positive = up, negative = down).
 func Steps(db *sql.DB, n int) error {
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	m, err := migratorFactory(db)
 	if err != nil {
-		return fmt.Errorf("creating postgres driver: %w", err)
-	}
-
-	source, err := iofs.New(migrations, "migrations")
-	if err != nil {
-		return fmt.Errorf("creating migration source: %w", err)
-	}
-
-	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
-	if err != nil {
-		return fmt.Errorf("creating migrator: %w", err)
+		return err
 	}
 
 	if err := m.Steps(n); err != nil && !errors.Is(err, migrate.ErrNoChange) {
