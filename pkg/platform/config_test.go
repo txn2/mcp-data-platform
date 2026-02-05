@@ -161,6 +161,9 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Tuning.Rules.QualityThreshold != 0.7 {
 		t.Errorf("Tuning.Rules.QualityThreshold = %f, want %f", cfg.Tuning.Rules.QualityThreshold, 0.7)
 	}
+	if cfg.Server.Streamable.SessionTimeout != 30*time.Minute {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, 30*time.Minute)
+	}
 }
 
 func TestApplyDefaults_PreservesExisting(t *testing.T) {
@@ -168,6 +171,10 @@ func TestApplyDefaults_PreservesExisting(t *testing.T) {
 		Server: ServerConfig{
 			Name:      "custom-name",
 			Transport: "sse",
+			Streamable: StreamableConfig{
+				SessionTimeout: 10 * time.Minute,
+				Stateless:      true,
+			},
 		},
 		Database: DatabaseConfig{
 			MaxOpenConns: 50,
@@ -183,6 +190,12 @@ func TestApplyDefaults_PreservesExisting(t *testing.T) {
 	}
 	if cfg.Database.MaxOpenConns != 50 {
 		t.Errorf("Database.MaxOpenConns = %d, want %d (should preserve existing)", cfg.Database.MaxOpenConns, 50)
+	}
+	if cfg.Server.Streamable.SessionTimeout != 10*time.Minute {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v (should preserve existing)", cfg.Server.Streamable.SessionTimeout, 10*time.Minute)
+	}
+	if !cfg.Server.Streamable.Stateless {
+		t.Error("Server.Streamable.Stateless = false, want true (should preserve existing)")
 	}
 }
 
@@ -246,16 +259,50 @@ func TestConfigValidate(t *testing.T) {
 	})
 }
 
+func TestLoadConfig_StreamableFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configContent := `
+server:
+  name: test-platform
+  transport: http
+  streamable:
+    session_timeout: 15m
+    stateless: true
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Server.Transport != "http" {
+		t.Errorf("Server.Transport = %q, want %q", cfg.Server.Transport, "http")
+	}
+	if cfg.Server.Streamable.SessionTimeout != 15*time.Minute {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, 15*time.Minute)
+	}
+	if !cfg.Server.Streamable.Stateless {
+		t.Error("Server.Streamable.Stateless = false, want true")
+	}
+}
+
 func TestConfigTypes(t *testing.T) {
 	t.Run("ServerConfig", func(t *testing.T) {
 		cfg := ServerConfig{
 			Name:      "test",
-			Transport: "sse",
+			Transport: "http",
 			Address:   ":8080",
 			TLS: TLSConfig{
 				Enabled:  true,
 				CertFile: "/path/cert.pem",
 				KeyFile:  "/path/key.pem",
+			},
+			Streamable: StreamableConfig{
+				SessionTimeout: 15 * time.Minute,
+				Stateless:      true,
 			},
 		}
 		if cfg.Name != "test" {
@@ -263,6 +310,12 @@ func TestConfigTypes(t *testing.T) {
 		}
 		if !cfg.TLS.Enabled {
 			t.Error("TLS.Enabled = false")
+		}
+		if cfg.Streamable.SessionTimeout != 15*time.Minute {
+			t.Errorf("Streamable.SessionTimeout = %v, want %v", cfg.Streamable.SessionTimeout, 15*time.Minute)
+		}
+		if !cfg.Streamable.Stateless {
+			t.Error("Streamable.Stateless = false, want true")
 		}
 	})
 
