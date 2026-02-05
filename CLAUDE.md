@@ -83,9 +83,23 @@ graph TB
    - This is a BLOCKING requirement - do not tell the user the work is complete until all new code has adequate test coverage
    - The CI/CD pipeline includes Codecov patch coverage checks that will fail if new code lacks tests
 
-5. **Human Review Required**: A human must review and approve every line of code before it is committed. Therefore, commits are always performed by a human, not by Claude.
+5. **CRITICAL - Integration Tests for Cross-Component Behavior**: Unit tests are NOT sufficient for features that span multiple components (middleware chains, provider pipelines, context propagation). Before declaring such work complete:
+   - **Write an integration test that exercises the real assembled system**, not just individual functions with hand-crafted inputs
+   - For middleware: wire up the actual `mcp.Server` with all middleware via `AddReceivingMiddleware`, send a real request, and assert the end-to-end result (e.g., audit store received a complete event with non-empty fields)
+   - For context propagation: verify that values set by one component are actually readable by downstream components through the real call chain
+   - For provider injection: verify that cross-service enrichment actually produces enriched output, not just that the enrichment function works in isolation
+   - **A unit test that passes because it manually constructs the correct input does NOT prove the system works.** The integration test must prove that component A's output actually reaches component B through the real wiring.
+   - If you cannot write a full integration test (e.g., requires external services), document exactly what manual verification steps the human should perform before release, with expected outputs
 
-6. **Go Report Card**: The project MUST always maintain 100% across all categories on [Go Report Card](https://goreportcard.com/). This includes:
+6. **CRITICAL - Acceptance Criteria Before Implementation**: Before writing code for any feature or fix:
+   - State the specific, observable acceptance criteria (e.g., "a tool call produces an audit_logs row with non-null user_id, duration_ms, and tool_name")
+   - Write the test assertions FIRST, then implement the code to make them pass
+   - The acceptance criteria must test the actual user-visible behavior, not internal implementation details
+   - If you find yourself testing that "function X returns Y when given Z" but never testing that "Z actually arrives from the real system," the test is incomplete
+
+7. **Human Review Required**: A human must review and approve every line of code before it is committed. Therefore, commits are always performed by a human, not by Claude.
+
+8. **Go Report Card**: The project MUST always maintain 100% across all categories on [Go Report Card](https://goreportcard.com/). This includes:
    - **gofmt**: All code must be formatted with `gofmt`
    - **go vet**: No issues from `go vet`
    - **gocyclo**: All functions must have cyclomatic complexity ≤10
@@ -94,17 +108,17 @@ graph TB
    - **license**: Valid license file present
    - **misspell**: No spelling errors in comments/strings
 
-7. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
+9. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
 
-8. **Pinned Dependencies**: All external dependencies must be pinned to specific versions with SHA digests for reproducibility and security:
-   - Docker base images: `alpine:3.21@sha256:...`
-   - GitHub Actions: `actions/checkout@sha256:...`
-   - Go modules are pinned via `go.sum`
+10. **Pinned Dependencies**: All external dependencies must be pinned to specific versions with SHA digests for reproducibility and security:
+    - Docker base images: `alpine:3.21@sha256:...`
+    - GitHub Actions: `actions/checkout@sha256:...`
+    - Go modules are pinned via `go.sum`
 
-9. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
-   - `docs/llms.txt` - Index of documentation with brief descriptions
-   - `docs/llms-full.txt` - Full documentation content for AI consumption
-   These files follow the [llmstxt.org](https://llmstxt.org/) specification.
+11. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
+    - `docs/llms.txt` - Index of documentation with brief descriptions
+    - `docs/llms-full.txt` - Full documentation content for AI consumption
+    These files follow the [llmstxt.org](https://llmstxt.org/) specification.
 
 ## Project Structure
 
@@ -331,13 +345,18 @@ type Toolkit interface {
 
 ## MCP Protocol Middleware
 
-Request processing flows through MCP protocol-level middleware registered via `server.AddReceivingMiddleware()`:
+Request processing flows through MCP protocol-level middleware registered via `server.AddReceivingMiddleware()`.
 
-1. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access
-2. **MCPAuditMiddleware** - Logs tool calls asynchronously (after response)
-3. **MCPSemanticEnrichmentMiddleware** - Adds cross-service context to results
+**IMPORTANT**: `AddReceivingMiddleware` wraps the current handler — each call makes the new middleware the **outermost** layer. The LAST middleware added runs FIRST. In `finalizeSetup()`, middleware is added innermost-first:
 
-All middleware intercepts `tools/call` requests at the MCP protocol level.
+Execution order (outermost to innermost):
+1. **MCPAppsMetadataMiddleware** - Injects `_meta.ui` into tools/list responses
+2. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access, creates PlatformContext
+3. **MCPAuditMiddleware** - Logs tool calls asynchronously (reads PlatformContext from ctx)
+4. **MCPRuleEnforcementMiddleware** - Adds operational guidance to responses
+5. **MCPSemanticEnrichmentMiddleware** - Adds cross-service context to results
+
+All middleware intercepts `tools/call` requests at the MCP protocol level. MCPToolCallMiddleware must be **outer** to MCPAuditMiddleware so that `PlatformContext` (set via `context.WithValue`) is present in the `ctx` that MCPAuditMiddleware receives.
 
 ## Testing
 
