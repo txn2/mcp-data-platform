@@ -36,6 +36,18 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
 
+-   :material-text-box-search-outline: **Audit Logging**
+
+    ---
+
+    Every tool call logged to PostgreSQL—who called what, when, how long, success or failure. Automatic retention cleanup and parameter sanitization.
+
+-   :material-monitor-dashboard: **MCP Apps**
+
+    ---
+
+    Interactive UI components for tool results. Tables, charts, filters—rendered in iframes alongside AI responses.
+
 </div>
 
 ---

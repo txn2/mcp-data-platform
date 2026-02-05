@@ -34,40 +34,41 @@ theme:
 
 nav:
   - Home: index.md
-  - Concepts:
-    - The Data Stack: concepts/components.md
-  - MCP Server:
+  - Getting Started:
     - Overview: server/overview.md
+    - The Data Stack: concepts/components.md
     - Installation: server/installation.md
     - Configuration: server/configuration.md
-    - Tools: server/tools.md
-    - Multi-Provider: server/multi-provider.md
-    - Audit Logging: server/audit.md
     - Deployment: server/deployment.md
-  - Cross-Injection:
-    - Overview: cross-injection/overview.md
-    - Trino to DataHub: cross-injection/trino-datahub.md
-    - DataHub to Trino: cross-injection/datahub-trino.md
-    - S3 Enrichment: cross-injection/s3.md
-  - Authentication:
-    - Overview: auth/overview.md
-    - OIDC: auth/oidc.md
-    - API Keys: auth/api-keys.md
-    - OAuth 2.1 Server: auth/oauth-server.md
-  - Personas:
-    - Overview: personas/overview.md
-    - Tool Filtering: personas/tool-filtering.md
-    - Role Mapping: personas/role-mapping.md
+  - Features:
+    - Tools: server/tools.md
+    - Cross-Injection:
+      - Overview: cross-injection/overview.md
+      - Trino to DataHub: cross-injection/trino-datahub.md
+      - DataHub to Trino: cross-injection/datahub-trino.md
+      - S3 Enrichment: cross-injection/s3.md
+      - Lineage Inheritance: cross-injection/lineage.md
+    - Multi-Provider: server/multi-provider.md
+    - Authentication:
+      - Overview: auth/overview.md
+      - OIDC: auth/oidc.md
+      - API Keys: auth/api-keys.md
+      - OAuth 2.1 Server: auth/oauth-server.md
+    - Personas:
+      - Overview: personas/overview.md
+      - Tool Filtering: personas/tool-filtering.md
+      - Role Mapping: personas/role-mapping.md
+    - Audit Logging: server/audit.md
+    - MCP Apps:
+      - Overview: mcpapps/overview.md
+      - Configuration: mcpapps/configuration.md
+      - Development: mcpapps/development.md
+      - Tutorial: mcpapps/tutorial.md
   - Go Library:
     - Overview: library/overview.md
     - Quick Start: library/quickstart.md
     - Architecture: library/architecture.md
     - Extensibility: library/extensibility.md
-  - MCP Apps:
-    - Overview: mcpapps/overview.md
-    - Configuration: mcpapps/configuration.md
-    - Development: mcpapps/development.md
-    - Tutorial: mcpapps/tutorial.md
   - Examples:
     - Gallery: examples/index.md
   - Reference:
