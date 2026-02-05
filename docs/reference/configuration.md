@@ -472,7 +472,12 @@ tuning:
 
 ## Audit Configuration
 
+Audit logging requires a PostgreSQL database. See [Audit Logging](../server/audit.md) for full documentation including schema, query examples, and troubleshooting.
+
 ```yaml
+database:
+  dsn: "postgres://user:pass@localhost/platform"
+
 audit:
   enabled: true
   log_tool_calls: true
@@ -481,9 +486,12 @@ audit:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `audit.enabled` | bool | `false` | Enable audit logging |
-| `audit.log_tool_calls` | bool | `false` | Log all tool calls |
-| `audit.retention_days` | int | `90` | Log retention period |
+| `database.dsn` | string | - | PostgreSQL connection string. Required for audit logging. |
+| `audit.enabled` | bool | `false` | Master switch for audit logging. |
+| `audit.log_tool_calls` | bool | `false` | Log every `tools/call` request. Both this and `enabled` must be `true`. |
+| `audit.retention_days` | int | `90` | Days to keep audit logs before automatic cleanup. |
+
+If `audit.enabled` is `true` but no database is configured, the platform logs a warning and falls back to a no-op logger.
 
 ## Complete Example
 
