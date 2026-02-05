@@ -16,6 +16,10 @@ type Toolkit interface {
 	// Name returns the instance name from config.
 	Name() string
 
+	// Connection returns the connection name for audit logging.
+	// This identifies the specific backend connection (e.g., "prod-trino", "main-datahub").
+	Connection() string
+
 	// RegisterTools registers all tools with the MCP server.
 	RegisterTools(s *mcp.Server)
 

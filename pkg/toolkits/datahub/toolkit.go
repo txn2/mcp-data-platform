@@ -125,6 +125,11 @@ func (t *Toolkit) Name() string {
 	return t.name
 }
 
+// Connection returns the connection name for audit logging.
+func (t *Toolkit) Connection() string {
+	return t.config.ConnectionName
+}
+
 // RegisterTools registers DataHub tools with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.datahubToolkit != nil {
@@ -181,6 +186,7 @@ func (t *Toolkit) Config() Config {
 var _ interface {
 	Kind() string
 	Name() string
+	Connection() string
 	RegisterTools(s *mcp.Server)
 	Tools() []string
 	SetSemanticProvider(provider semantic.Provider)
