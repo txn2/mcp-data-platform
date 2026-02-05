@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context—owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
 
 For the security architecture rationale, see: https://imti.co/mcp-defense/
 
@@ -16,7 +16,7 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 ## Key Features
 
-- **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically—owners, tags, quality scores, deprecation warnings. No separate lookups.
+- **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups.
 
 - **Cross-Injection**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
@@ -278,7 +278,7 @@ This translates URNs in both directions:
 
 # Authentication & Security
 
-mcp-data-platform implements a **fail-closed** security model. Missing or invalid credentials deny access—never bypass. For the security architecture rationale, see: https://imti.co/mcp-defense/
+mcp-data-platform implements a **fail-closed** security model. Missing or invalid credentials deny access, never bypass. For the security architecture rationale, see: https://imti.co/mcp-defense/
 
 ## Transport Security
 
