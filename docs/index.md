@@ -16,7 +16,7 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     ---
 
-    DataHub is the foundation. Query a table, get its business context automatically—owners, tags, quality scores, deprecation warnings. No separate lookups needed.
+    DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups needed.
 
 -   :material-swap-horizontal: **Cross-Injection**
 
@@ -40,13 +40,13 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     ---
 
-    Every tool call logged to PostgreSQL—who called what, when, how long, success or failure. Automatic retention cleanup and parameter sanitization.
+    Every tool call logged to PostgreSQL: who called what, when, how long, success or failure. Automatic retention cleanup and parameter sanitization.
 
 -   :material-monitor-dashboard: **MCP Apps**
 
     ---
 
-    Interactive UI components for tool results. Tables, charts, filters—rendered in iframes alongside AI responses.
+    Interactive UI components for tool results. Tables, charts, and filters rendered in iframes alongside AI responses.
 
 </div>
 
@@ -266,7 +266,7 @@ semantic:
     claude mcp add mcp-data-platform -- mcp-data-platform --config platform.yaml
     ```
 
-    No MCP authentication needed—uses your configured DataHub/Trino/S3 credentials.
+    No MCP authentication needed. Uses your configured DataHub/Trino/S3 credentials.
 
 === "Remote (SSE)"
 
@@ -320,7 +320,7 @@ semantic:
 | **Trino** | 7 tools | SQL queries, schema exploration, catalogs |
 | **S3** | 6-9 tools | Bucket/object operations, presigned URLs |
 
-DataHub is the foundation—your semantic layer. Add Trino for SQL queries, S3 for object storage. Use what you have.
+DataHub is the foundation and serves as your semantic layer. Add Trino for SQL queries, S3 for object storage. Use what you have.
 
 [:octicons-arrow-right-24: Tools reference](reference/tools-api.md)
 
@@ -353,7 +353,7 @@ DataHub is the foundation—your semantic layer. Add Trino for SQL queries, S3 f
 
 ## Security
 
-Built with a **fail-closed** security model. Missing credentials deny access—never bypass.
+Built with a **fail-closed** security model. Missing credentials deny access, never bypass.
 
 | Feature | Description |
 |---------|-------------|
