@@ -135,29 +135,66 @@ The platform checks authentication in order:
 
 ## Client Configuration
 
-### Claude Code
+API keys are used when connecting to a **remote SSE server**. Local stdio connections run on your machine with your own credentials and don't need API key auth.
+
+### Claude Code (Remote SSE)
 
 ```bash
-# Set environment variable
-export MCP_API_KEY="your-api-key"
-
-# Add server with API key
-claude mcp add mcp-data-platform -- \
-  mcp-data-platform --config platform.yaml
+claude mcp add --transport sse --scope user my-data-platform \
+  https://mcp.example.com/sse \
+  --header "Authorization: Bearer YOUR_API_KEY"
 ```
 
-The platform reads the API key from the request headers set by the MCP client.
+Use `--scope user` to make the server available in all sessions regardless of working directory. Without it, the server is scoped to the current project and only visible when Claude Code runs from that directory.
 
-### Claude Desktop
+Pick a name that identifies the deployment, not the software. If you run mcp-data-platform for multiple clients, each gets its own name:
+
+```bash
+# Client A
+claude mcp add --transport sse --scope user clienta-data-platform \
+  https://mcp.client-a.example.com/sse \
+  --header "Authorization: Bearer CLIENTA_KEY"
+
+# Client B
+claude mcp add --transport sse --scope user clientb-data-platform \
+  https://mcp.client-b.example.com/sse \
+  --header "Authorization: Bearer CLIENTB_KEY"
+```
+
+To verify the connection:
+
+```bash
+claude mcp list
+```
+
+To remove it:
+
+```bash
+claude mcp remove my-data-platform
+```
+
+!!! note "SSE transport is deprecated"
+    The MCP specification has deprecated SSE in favor of streamable HTTP. If your server supports it, use `--transport http` instead of `--transport sse`.
+
+### Claude Desktop (Remote SSE)
+
+Add to your Claude Desktop configuration file:
+
+=== "macOS"
+
+    `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+=== "Windows"
+
+    `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "mcp-data-platform": {
-      "command": "mcp-data-platform",
-      "args": ["--config", "platform.yaml"],
-      "env": {
-        "MCP_API_KEY": "your-api-key"
+    "my-data-platform": {
+      "url": "https://mcp.example.com/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
       }
     }
   }
@@ -167,12 +204,21 @@ The platform reads the API key from the request headers set by the MCP client.
 ### HTTP Clients
 
 ```bash
-# SSE transport with API key header
-curl -H "Authorization: Bearer your-api-key" \
-  http://localhost:8080/sse
+# SSE connection with Authorization header
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://mcp.example.com/sse
 
-# Or as query parameter
-curl "http://localhost:8080/sse?api_key=your-api-key"
+# Or as a query parameter (when headers aren't supported)
+curl "https://mcp.example.com/sse?api_key=YOUR_API_KEY"
+```
+
+### Local stdio (No API Key Needed)
+
+When running the server locally via stdio, authentication is not required. The server uses whatever credentials you configured in the YAML file:
+
+```bash
+claude mcp add my-data-platform -- \
+  mcp-data-platform --config platform.yaml
 ```
 
 ## Security Best Practices
