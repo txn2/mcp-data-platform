@@ -14,12 +14,14 @@ import (
 type mockToolkit struct {
 	kind       string
 	name       string
+	connection string
 	tools      []string
 	closeCalls int
 }
 
 func (m *mockToolkit) Kind() string                            { return m.kind }
 func (m *mockToolkit) Name() string                            { return m.name }
+func (m *mockToolkit) Connection() string                      { return m.connection }
 func (m *mockToolkit) RegisterTools(_ *mcp.Server)             {}
 func (m *mockToolkit) Tools() []string                         { return m.tools }
 func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {}
@@ -296,4 +298,102 @@ func TestS3Factory(t *testing.T) {
 	// S3Factory may succeed with AWS SDK defaults (env vars, IAM role, etc.)
 	// Just verify it can be called
 	_, _ = S3Factory("test", map[string]any{})
+}
+
+func TestGetToolkitForTool(t *testing.T) {
+	t.Run("found tool in toolkit", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&mockToolkit{
+			kind:       "trino",
+			name:       "production",
+			connection: "prod-trino",
+			tools:      []string{"trino_query", "trino_describe"},
+		})
+
+		kind, name, connection, found := reg.GetToolkitForTool("trino_query")
+		if !found {
+			t.Error("expected to find tool")
+		}
+		if kind != "trino" {
+			t.Errorf("expected kind 'trino', got %q", kind)
+		}
+		if name != "production" {
+			t.Errorf("expected name 'production', got %q", name)
+		}
+		if connection != "prod-trino" {
+			t.Errorf("expected connection 'prod-trino', got %q", connection)
+		}
+	})
+
+	t.Run("tool not found", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&mockToolkit{
+			kind:       "trino",
+			name:       "production",
+			connection: "prod-trino",
+			tools:      []string{"trino_query"},
+		})
+
+		kind, name, connection, found := reg.GetToolkitForTool("unknown_tool")
+		if found {
+			t.Error("expected tool not to be found")
+		}
+		if kind != "" || name != "" || connection != "" {
+			t.Error("expected empty strings when not found")
+		}
+	})
+
+	t.Run("multiple toolkits", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&mockToolkit{
+			kind:       "trino",
+			name:       "production",
+			connection: "prod-trino",
+			tools:      []string{"trino_query", "trino_describe"},
+		})
+		_ = reg.Register(&mockToolkit{
+			kind:       "datahub",
+			name:       "main",
+			connection: "main-datahub",
+			tools:      []string{"datahub_search", "datahub_get_entity"},
+		})
+		_ = reg.Register(&mockToolkit{
+			kind:       "s3",
+			name:       "storage",
+			connection: "s3-storage",
+			tools:      []string{"s3_list_buckets", "s3_get_object"},
+		})
+
+		// Test finding tool in each toolkit
+		tests := []struct {
+			tool       string
+			wantKind   string
+			wantName   string
+			wantConn   string
+			wantFound  bool
+		}{
+			{"trino_query", "trino", "production", "prod-trino", true},
+			{"datahub_search", "datahub", "main", "main-datahub", true},
+			{"s3_list_buckets", "s3", "storage", "s3-storage", true},
+			{"unknown", "", "", "", false},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.tool, func(t *testing.T) {
+				kind, name, conn, found := reg.GetToolkitForTool(tt.tool)
+				if found != tt.wantFound {
+					t.Errorf("found = %v, want %v", found, tt.wantFound)
+				}
+				if kind != tt.wantKind {
+					t.Errorf("kind = %q, want %q", kind, tt.wantKind)
+				}
+				if name != tt.wantName {
+					t.Errorf("name = %q, want %q", name, tt.wantName)
+				}
+				if conn != tt.wantConn {
+					t.Errorf("connection = %q, want %q", conn, tt.wantConn)
+				}
+			})
+		}
+	})
 }
