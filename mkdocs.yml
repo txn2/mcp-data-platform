@@ -42,6 +42,7 @@ nav:
     - Configuration: server/configuration.md
     - Tools: server/tools.md
     - Multi-Provider: server/multi-provider.md
+    - Audit Logging: server/audit.md
     - Deployment: server/deployment.md
   - Cross-Injection:
     - Overview: cross-injection/overview.md
