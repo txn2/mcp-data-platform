@@ -148,6 +148,22 @@ func (r *Registry) AllTools() []string {
 	return tools
 }
 
+// GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
+// Returns found=false if the tool is not found in any registered toolkit.
+func (r *Registry) GetToolkitForTool(toolName string) (kind, name, connection string, found bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, toolkit := range r.toolkits {
+		for _, tool := range toolkit.Tools() {
+			if tool == toolName {
+				return toolkit.Kind(), toolkit.Name(), toolkit.Connection(), true
+			}
+		}
+	}
+	return "", "", "", false
+}
+
 // RegisterAllTools registers all tools from all toolkits with the MCP server.
 func (r *Registry) RegisterAllTools(s *mcp.Server) {
 	r.mu.RLock()

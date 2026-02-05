@@ -12,6 +12,13 @@ type Authenticator interface {
 	Authenticate(ctx context.Context) (*UserInfo, error)
 }
 
+// ToolkitLookup provides toolkit metadata for a given tool name.
+type ToolkitLookup interface {
+	// GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
+	// Returns found=false if the tool is not found in any registered toolkit.
+	GetToolkitForTool(toolName string) (kind, name, connection string, found bool)
+}
+
 // UserInfo holds authenticated user information.
 type UserInfo struct {
 	UserID   string

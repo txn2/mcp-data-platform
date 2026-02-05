@@ -253,6 +253,12 @@ func TestToolkit_Methods(t *testing.T) {
 		}
 	})
 
+	t.Run("Connection", func(t *testing.T) {
+		if toolkit.Connection() != "test" {
+			t.Errorf("Connection() = %q, want 'test'", toolkit.Connection())
+		}
+	})
+
 	t.Run("Tools non-readonly", func(t *testing.T) {
 		tools := toolkit.Tools()
 		if len(tools) == 0 {

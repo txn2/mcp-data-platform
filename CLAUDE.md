@@ -76,9 +76,16 @@ graph TB
    - GoReleaser dry-run (`goreleaser release --snapshot --clean --skip=publish,sign,sbom`) - validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
 
-4. **Human Review Required**: A human must review and approve every line of code before it is committed. Therefore, commits are always performed by a human, not by Claude.
+4. **CRITICAL - Coverage Verification Before Completion**: Before declaring ANY implementation task complete:
+   - Run `go test -coverprofile=coverage.out ./pkg/...`
+   - For EVERY new function or method added, run: `go tool cover -func=coverage.out | grep <function_name>`
+   - **If ANY new function shows less than 80% coverage (or 0.0%), you MUST add tests before declaring done**
+   - This is a BLOCKING requirement - do not tell the user the work is complete until all new code has adequate test coverage
+   - The CI/CD pipeline includes Codecov patch coverage checks that will fail if new code lacks tests
 
-5. **Go Report Card**: The project MUST always maintain 100% across all categories on [Go Report Card](https://goreportcard.com/). This includes:
+5. **Human Review Required**: A human must review and approve every line of code before it is committed. Therefore, commits are always performed by a human, not by Claude.
+
+6. **Go Report Card**: The project MUST always maintain 100% across all categories on [Go Report Card](https://goreportcard.com/). This includes:
    - **gofmt**: All code must be formatted with `gofmt`
    - **go vet**: No issues from `go vet`
    - **gocyclo**: All functions must have cyclomatic complexity ≤10
@@ -87,14 +94,14 @@ graph TB
    - **license**: Valid license file present
    - **misspell**: No spelling errors in comments/strings
 
-6. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
+7. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
 
-7. **Pinned Dependencies**: All external dependencies must be pinned to specific versions with SHA digests for reproducibility and security:
+8. **Pinned Dependencies**: All external dependencies must be pinned to specific versions with SHA digests for reproducibility and security:
    - Docker base images: `alpine:3.21@sha256:...`
    - GitHub Actions: `actions/checkout@sha256:...`
    - Go modules are pinned via `go.sum`
 
-8. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
+9. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
    - `docs/llms.txt` - Index of documentation with brief descriptions
    - `docs/llms-full.txt` - Full documentation content for AI consumption
    These files follow the [llmstxt.org](https://llmstxt.org/) specification.

@@ -190,9 +190,12 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		auth := NewPersonaAuthorizer(reg, mapper)
 
-		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
+		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
 		if authorized {
 			t.Error("expected not authorized on mapper error")
+		}
+		if personaName != "" {
+			t.Errorf("expected empty persona name on mapper error, got %q", personaName)
 		}
 		if reason != "failed to determine persona" {
 			t.Errorf("unexpected reason: %s", reason)
@@ -211,9 +214,12 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		auth := NewPersonaAuthorizer(reg, mapper)
 
-		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"analyst"}, "s3_list_buckets")
+		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"analyst"}, "s3_list_buckets")
 		if authorized {
 			t.Error("expected not authorized for disallowed tool")
+		}
+		if personaName != "analyst" {
+			t.Errorf("expected persona name 'analyst', got %q", personaName)
 		}
 		if reason != "tool not allowed for persona: analyst" {
 			t.Errorf("unexpected reason: %s", reason)
@@ -232,9 +238,12 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		auth := NewPersonaAuthorizer(reg, mapper)
 
-		authorized, reason := auth.IsAuthorized(context.Background(), "user1", []string{"admin"}, "any_tool")
+		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"admin"}, "any_tool")
 		if !authorized {
 			t.Error("expected authorized for admin persona")
+		}
+		if personaName != "admin" {
+			t.Errorf("expected persona name 'admin', got %q", personaName)
 		}
 		if reason != "" {
 			t.Errorf("unexpected reason: %s", reason)

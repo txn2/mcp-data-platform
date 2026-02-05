@@ -84,19 +84,25 @@ func NewPersonaAuthorizer(registry *Registry, mapper RoleMapper) *PersonaAuthori
 }
 
 // IsAuthorized checks if the user is authorized for the tool.
-func (a *PersonaAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string) {
+// Returns the resolved persona name for audit logging.
+func (a *PersonaAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string, string) {
 	// Get persona for roles
 	persona, err := a.roleMapper.MapToPersona(ctx, roles)
 	if err != nil {
-		return false, "failed to determine persona"
+		return false, "", "failed to determine persona"
+	}
+
+	personaName := ""
+	if persona != nil {
+		personaName = persona.Name
 	}
 
 	// Check if tool is allowed
 	if !a.filter.IsAllowed(persona, toolName) {
-		return false, "tool not allowed for persona: " + persona.Name
+		return false, personaName, "tool not allowed for persona: " + personaName
 	}
 
-	return true, ""
+	return true, personaName, ""
 }
 
 // Verify interface compliance.

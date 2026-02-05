@@ -514,7 +514,7 @@ func (p *Platform) finalizeSetup() {
 	// tool handler is invoked, ensuring security even when toolkits register
 	// their tools directly with the MCP server.
 	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
 	)
 
 	// 3. Audit middleware - logs tool calls (after response)
