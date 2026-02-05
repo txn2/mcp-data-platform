@@ -22,12 +22,25 @@ func (m *mcpTestAuthenticator) Authenticate(_ context.Context) (*UserInfo, error
 
 // mcpTestAuthorizer implements Authorizer for MCP middleware testing.
 type mcpTestAuthorizer struct {
-	authorized bool
-	reason     string
+	authorized  bool
+	personaName string
+	reason      string
 }
 
-func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string) {
-	return m.authorized, m.reason
+func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string, string) {
+	return m.authorized, m.personaName, m.reason
+}
+
+// mcpTestToolkitLookup implements ToolkitLookup for MCP middleware testing.
+type mcpTestToolkitLookup struct {
+	kind       string
+	name       string
+	connection string
+	found      bool
+}
+
+func (m *mcpTestToolkitLookup) GetToolkitForTool(_ string) (string, string, string, bool) {
+	return m.kind, m.name, m.connection, m.found
 }
 
 // mcpTestRequest wraps ServerRequest for testing
@@ -51,7 +64,7 @@ func TestMCPToolCallMiddleware_AuthenticationFailure(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on auth failure")
@@ -84,11 +97,12 @@ func TestMCPToolCallMiddleware_AuthorizationFailure(t *testing.T) {
 		},
 	}
 	authorizer := &mcpTestAuthorizer{
-		authorized: false,
-		reason:     "tool not allowed for persona",
+		authorized:  false,
+		personaName: "viewer",
+		reason:      "tool not allowed for persona",
 	}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on authz failure")
@@ -132,9 +146,9 @@ func TestMCPToolCallMiddleware_Success(t *testing.T) {
 			Roles:  []string{"analyst"},
 		},
 	}
-	authorizer := &mcpTestAuthorizer{authorized: true}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "analyst"}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -188,7 +202,7 @@ func TestMCPToolCallMiddleware_NonToolsCallPassthrough(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: false}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -227,7 +241,7 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with missing tool name")
@@ -259,7 +273,7 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with nil params")
@@ -293,7 +307,7 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with wrong params type")
@@ -318,5 +332,128 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true for wrong params type")
+	}
+}
+
+func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: "user1",
+			Email:  "user1@example.com",
+			Roles:  []string{"analyst"},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{
+		authorized:  true,
+		personaName: "analyst",
+	}
+	toolkitLookup := &mcpTestToolkitLookup{
+		kind:       "trino",
+		name:       "production",
+		connection: "prod-trino",
+		found:      true,
+	}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup)
+
+	expectedResult := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "success"},
+		},
+	}
+
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		// Verify platform context has all fields populated
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal("expected platform context to be set")
+		}
+		if pc.ToolName != "trino_query" {
+			t.Errorf("expected ToolName 'trino_query', got %q", pc.ToolName)
+		}
+		if pc.ToolkitKind != "trino" {
+			t.Errorf("expected ToolkitKind 'trino', got %q", pc.ToolkitKind)
+		}
+		if pc.ToolkitName != "production" {
+			t.Errorf("expected ToolkitName 'production', got %q", pc.ToolkitName)
+		}
+		if pc.Connection != "prod-trino" {
+			t.Errorf("expected Connection 'prod-trino', got %q", pc.Connection)
+		}
+		if pc.PersonaName != "analyst" {
+			t.Errorf("expected PersonaName 'analyst', got %q", pc.PersonaName)
+		}
+		if pc.UserID != "user1" {
+			t.Errorf("expected UserID 'user1', got %q", pc.UserID)
+		}
+
+		return expectedResult, nil
+	}
+
+	handler := middleware(next)
+	req := newMCPTestRequest("trino_query")
+
+	result, err := handler(context.Background(), "tools/call", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != expectedResult {
+		t.Error("expected result to be passed through")
+	}
+}
+
+func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: "user1",
+			Roles:  []string{"analyst"},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{
+		authorized:  true,
+		personaName: "analyst",
+	}
+	toolkitLookup := &mcpTestToolkitLookup{
+		found: false, // Tool not found in any toolkit
+	}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup)
+
+	expectedResult := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "success"},
+		},
+	}
+
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		// Verify platform context - toolkit fields should be empty
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal("expected platform context to be set")
+		}
+		if pc.ToolkitKind != "" {
+			t.Errorf("expected empty ToolkitKind, got %q", pc.ToolkitKind)
+		}
+		if pc.ToolkitName != "" {
+			t.Errorf("expected empty ToolkitName, got %q", pc.ToolkitName)
+		}
+		if pc.Connection != "" {
+			t.Errorf("expected empty Connection, got %q", pc.Connection)
+		}
+		// PersonaName should still be populated
+		if pc.PersonaName != "analyst" {
+			t.Errorf("expected PersonaName 'analyst', got %q", pc.PersonaName)
+		}
+
+		return expectedResult, nil
+	}
+
+	handler := middleware(next)
+	req := newMCPTestRequest("unknown_tool")
+
+	_, err := handler(context.Background(), "tools/call", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

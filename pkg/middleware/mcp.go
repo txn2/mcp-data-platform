@@ -16,10 +16,13 @@ import (
 // requests before they reach tool handlers. For tools/call requests, it:
 // 1. Extracts the tool name from the request
 // 2. Creates a PlatformContext with the tool information
-// 3. Runs authentication to identify the user
-// 4. Runs authorization to check if the user can access the tool
-// 5. Either proceeds with the call or returns an access denied error
-func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer) mcp.Middleware {
+// 3. Looks up toolkit metadata (kind, name, connection)
+// 4. Runs authentication to identify the user
+// 5. Runs authorization to check if the user can access the tool
+// 6. Either proceeds with the call or returns an access denied error
+//
+// The toolkitLookup parameter is optional; if nil, toolkit metadata won't be populated.
+func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
@@ -39,6 +42,16 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer) m
 			pc.ToolName = toolName
 			ctx = WithPlatformContext(ctx, pc)
 
+			// Look up toolkit metadata
+			if toolkitLookup != nil {
+				kind, name, connection, found := toolkitLookup.GetToolkitForTool(toolName)
+				if found {
+					pc.ToolkitKind = kind
+					pc.ToolkitName = name
+					pc.Connection = connection
+				}
+			}
+
 			// Authenticate
 			userInfo, err := authenticator.Authenticate(ctx)
 			if err != nil {
@@ -53,8 +66,9 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer) m
 			}
 
 			// Authorize
-			authorized, reason := authorizer.IsAuthorized(ctx, pc.UserID, pc.Roles, toolName)
+			authorized, personaName, reason := authorizer.IsAuthorized(ctx, pc.UserID, pc.Roles, toolName)
 			pc.Authorized = authorized
+			pc.PersonaName = personaName
 			if !authorized {
 				pc.AuthzError = reason
 				return createErrorResult("not authorized: " + reason), nil
