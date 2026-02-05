@@ -27,7 +27,7 @@ toolkits:
       token: ${DATAHUB_TOKEN}    # Your token
 ```
 
-You're authenticated implicitly—it's your machine, your config, your credentials.
+You're authenticated implicitly. It's your machine, your config, your credentials.
 
 ## SSE Transport (Remote/Shared)
 
