@@ -498,40 +498,18 @@ func (p *Platform) finalizeSetup() {
 		Version: p.config.Server.Version,
 	}, nil)
 
-	// Add MCP protocol-level middleware in order:
-	// 1. MCP Apps metadata middleware - injects _meta.ui into tools/list responses
-	// This must be added first so it can intercept tools/list responses.
-	if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
-		p.mcpServer.AddReceivingMiddleware(
-			mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
-		)
-		// Register UI resources for each app
-		p.mcpAppsRegistry.RegisterResources(p.mcpServer)
-	}
+	// Add MCP protocol-level middleware.
+	//
+	// IMPORTANT: AddReceivingMiddleware wraps the current handler, so each
+	// call makes its middleware the new outermost layer. The LAST middleware
+	// added runs FIRST. We add innermost middleware first and outermost last.
+	//
+	// Desired execution order (outermost → innermost → handler):
+	//   Apps metadata → Auth/Authz → Audit → Rules → Enrichment → handler
+	//
+	// Therefore we add in reverse (innermost first):
 
-	// 2. Auth/Authz middleware - authenticates and authorizes users
-	// This intercepts all tools/call requests and enforces auth before the
-	// tool handler is invoked, ensuring security even when toolkits register
-	// their tools directly with the MCP server.
-	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
-	)
-
-	// 3. Audit middleware - logs tool calls (after response)
-	if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPAuditMiddleware(p.auditLogger),
-		)
-	}
-
-	// 4. Rule enforcement middleware - adds operational guidance to responses
-	if p.ruleEngine != nil {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
-		)
-	}
-
-	// 5. Semantic enrichment middleware - enriches responses with cross-service context
+	// 1. Semantic enrichment (innermost) - enriches responses with cross-service context
 	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
 		p.config.Injection.DataHubQueryEnrichment ||
 		p.config.Injection.S3SemanticEnrichment ||
@@ -551,6 +529,36 @@ func (p *Platform) finalizeSetup() {
 				},
 			),
 		)
+	}
+
+	// 2. Rule enforcement - adds operational guidance to responses
+	if p.ruleEngine != nil {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
+		)
+	}
+
+	// 3. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
+	if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPAuditMiddleware(p.auditLogger),
+		)
+	}
+
+	// 4. Auth/Authz (outermost for tools/call) - authenticates and authorizes
+	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
+	// is available in the ctx that Audit receives.
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
+	)
+
+	// 5. MCP Apps metadata (overall outermost) - injects _meta.ui into tools/list
+	if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
+		p.mcpServer.AddReceivingMiddleware(
+			mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
+		)
+		// Register UI resources for each app
+		p.mcpAppsRegistry.RegisterResources(p.mcpServer)
 	}
 }
 
