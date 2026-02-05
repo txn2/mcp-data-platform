@@ -339,6 +339,80 @@ oauth:
 
 ---
 
+# Audit Logging
+
+Every tool call flows through the audit logging middleware, which records who called what, when, how long it took, and whether it succeeded. Audit logs are stored in PostgreSQL and automatically cleaned up based on a configurable retention period.
+
+## Prerequisites
+
+Audit logging requires:
+1. A PostgreSQL database (version 13+)
+2. The `database.dsn` configuration set
+3. Both `audit.enabled` and `audit.log_tool_calls` set to `true`
+
+## Configuration
+
+```yaml
+database:
+  dsn: "${DATABASE_DSN}"
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  retention_days: 90
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `database.dsn` | string | - | PostgreSQL connection string. Required for audit logging. |
+| `audit.enabled` | bool | `false` | Master switch for audit logging. |
+| `audit.log_tool_calls` | bool | `false` | Log every `tools/call` request. Both this and `enabled` must be `true`. |
+| `audit.retention_days` | int | `90` | Days to keep audit logs before automatic cleanup. |
+
+## What Gets Logged
+
+Every tool call produces one row in `audit_logs` with these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | VARCHAR(32) | Cryptographically random event ID (base64url, 16 bytes). |
+| `timestamp` | TIMESTAMPTZ | When the tool call started. |
+| `duration_ms` | INTEGER | Wall-clock time in milliseconds. |
+| `request_id` | VARCHAR(255) | Request ID from auth middleware. |
+| `user_id` | VARCHAR(255) | Authenticated user identity. |
+| `user_email` | VARCHAR(255) | User email from OIDC claims. |
+| `persona` | VARCHAR(100) | Resolved persona name. |
+| `tool_name` | VARCHAR(255) | MCP tool name. |
+| `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, or `s3`. |
+| `toolkit_name` | VARCHAR(100) | Toolkit instance name from config. |
+| `connection` | VARCHAR(100) | Connection name from toolkit config. |
+| `parameters` | JSONB | Tool call arguments with sensitive values redacted. |
+| `success` | BOOLEAN | `true` if tool handler succeeded. |
+| `error_message` | TEXT | Error description if `success` is `false`. |
+| `created_date` | DATE | Partition key derived from `timestamp`. |
+
+## Parameter Sanitization
+
+Sensitive parameter keys are replaced with `[REDACTED]`: `password`, `secret`, `token`, `api_key`, `authorization`, `credentials`. Matching is case-sensitive and exact.
+
+## Middleware Chain
+
+The audit middleware sits inside the auth middleware in the execution chain:
+
+```
+Auth/Authz → Audit → Rules → Enrichment → Tool Handler
+```
+
+Auth creates the `PlatformContext` (user identity, persona, toolkit metadata). Audit reads it to build the audit event. Unauthorized requests are rejected before reaching audit, so only authenticated tool calls appear in audit logs.
+
+Audit events are written **asynchronously** in a goroutine to avoid blocking tool responses. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
+
+## Retention
+
+A background goroutine runs every 24 hours and deletes rows older than `retention_days`. The table is partitioned by `created_date` for efficient cleanup.
+
+---
+
 # Cross-Injection
 
 When you query a Trino table, you get DataHub context in the response. When you search DataHub, you see which datasets are queryable. No extra calls.

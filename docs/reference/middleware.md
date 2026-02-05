@@ -6,17 +6,21 @@ Middleware processes requests and responses at the MCP protocol level. Each midd
 
 ```mermaid
 graph LR
-    Request --> MCPToolCall
+    Request --> AppsMetadata
+    AppsMetadata --> MCPToolCall
     MCPToolCall --> MCPAudit
-    MCPAudit --> MCPEnrichment
+    MCPAudit --> MCPRules
+    MCPRules --> MCPEnrichment
     MCPEnrichment --> Handler
     Handler --> MCPEnrichment
-    MCPEnrichment --> MCPAudit
+    MCPEnrichment --> MCPRules
+    MCPRules --> MCPAudit
     MCPAudit --> MCPToolCall
-    MCPToolCall --> Response
+    MCPToolCall --> AppsMetadata
+    AppsMetadata --> Response
 ```
 
-Middleware is registered via `server.AddReceivingMiddleware()` and executes in registration order for requests, reverse order for responses.
+The platform registers five middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
 
 ## MCP Middleware Interface
 
@@ -27,24 +31,55 @@ type Middleware func(next MethodHandler) MethodHandler
 type MethodHandler func(ctx context.Context, method string, req Request) (Result, error)
 ```
 
+## AddReceivingMiddleware Ordering
+
+`server.AddReceivingMiddleware()` wraps the current handler, making each newly-added middleware the **outermost** layer. The **last** middleware added runs **first**.
+
+To achieve the desired execution order, middleware must be added innermost-first:
+
+```go
+// Desired execution: Apps → Auth → Audit → Rules → Enrichment → handler
+// Add order (innermost first):
+server.AddReceivingMiddleware(enrichment)  // innermost
+server.AddReceivingMiddleware(rules)
+server.AddReceivingMiddleware(audit)
+server.AddReceivingMiddleware(auth)        // outermost for tools/call
+server.AddReceivingMiddleware(apps)        // overall outermost
+```
+
+This ordering is critical for context propagation. Go's `context.WithValue` creates a new context — values set in an outer middleware (like `PlatformContext` set by Auth) are visible to inner middleware (like Audit), but not the other way around.
+
 ## Platform Context
 
 The platform context carries request-scoped data through the middleware:
 
 ```go
 type PlatformContext struct {
-    RequestID    string
-    UserID       string
-    UserEmail    string
-    UserClaims   map[string]any
-    Roles        []string
-    PersonaName  string
-    ToolName     string
-    ToolkitKind  string
-    ToolkitName  string
-    Connection   string
-    Authorized   bool
-    AuthzError   string
+    // Request identification
+    RequestID   string
+    StartTime   time.Time
+
+    // User information
+    UserID      string
+    UserEmail   string
+    UserClaims  map[string]any
+    Roles       []string
+    PersonaName string
+
+    // Tool information
+    ToolName    string
+    ToolkitKind string
+    ToolkitName string
+    Connection  string
+
+    // Authorization
+    Authorized  bool
+    AuthzError  string
+
+    // Results (populated after handler)
+    Success      bool
+    ErrorMessage string
+    Duration     time.Duration
 }
 
 // Get context from request context
@@ -58,12 +93,13 @@ ctx = middleware.WithPlatformContext(ctx, pc)
 
 ### MCPToolCallMiddleware
 
-Handles authentication and authorization at the MCP protocol level.
+Handles authentication, authorization, and toolkit metadata lookup at the MCP protocol level. Creates the `PlatformContext` that all inner middleware depends on.
 
 ```go
 func MCPToolCallMiddleware(
     authenticator Authenticator,
     authorizer Authorizer,
+    toolkitLookup ToolkitLookup,
 ) mcp.Middleware
 ```
 
@@ -71,14 +107,17 @@ func MCPToolCallMiddleware(
 
 1. Only intercepts `tools/call` requests (passes through other methods)
 2. Extracts tool name from request parameters
-3. Creates PlatformContext with request ID and tool info
-4. Runs authenticator to identify user
-5. Runs authorizer to check tool access
-6. Returns error result if auth fails, otherwise proceeds
+3. Creates PlatformContext with request ID and tool name
+4. Looks up toolkit metadata (kind, name, connection) via `ToolkitLookup`
+5. Runs authenticator to identify user (populates UserID, Email, Roles)
+6. Runs authorizer to check tool access (populates PersonaName, Authorized)
+7. Returns error result if auth fails, otherwise proceeds
+
+The `toolkitLookup` parameter is optional; if `nil`, toolkit metadata fields remain empty.
 
 ### MCPAuditMiddleware
 
-Logs tool calls for compliance and debugging.
+Logs tool calls for compliance and debugging. See [Audit Logging](../server/audit.md) for full documentation.
 
 ```go
 func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware
@@ -90,8 +129,28 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware
 2. Records start time
 3. Calls next handler
 4. Gets PlatformContext (set by MCPToolCallMiddleware)
-5. Builds audit event with timing, user, tool, parameters
-6. Logs asynchronously (does not block response)
+5. Builds audit event with timing, user, tool, and parameter data
+6. Logs asynchronously in a goroutine (does not block response)
+
+If PlatformContext is `nil` (auth middleware didn't run or middleware is misordered), audit logging is skipped with a warning.
+
+### MCPRuleEnforcementMiddleware
+
+Adds operational guidance and warnings to tool responses based on configured rules.
+
+```go
+func MCPRuleEnforcementMiddleware(
+    engine *tuning.RuleEngine,
+    hints *tuning.HintManager,
+) mcp.Middleware
+```
+
+**Behavior:**
+
+1. Only intercepts `tools/call` requests
+2. Calls next handler to get result
+3. Evaluates rules (e.g., require DataHub check, warn on deprecated tables)
+4. Appends rule messages and tool hints to result content
 
 ### MCPSemanticEnrichmentMiddleware
 
@@ -115,6 +174,19 @@ func MCPSemanticEnrichmentMiddleware(
 5. Calls appropriate enrichment function based on toolkit
 6. Appends semantic context to result content
 
+### ToolMetadataMiddleware (MCP Apps)
+
+Injects `_meta.ui` fields into `tools/list` responses for tools that have associated MCP Apps.
+
+```go
+func ToolMetadataMiddleware(reg *mcpapps.Registry) mcp.Middleware
+```
+
+**Behavior:**
+
+1. Intercepts `tools/list` responses (not `tools/call`)
+2. For each tool with an associated MCP App, adds UI metadata to the response
+
 ## Enrichment Configuration
 
 ```go
@@ -128,32 +200,41 @@ type EnrichmentConfig struct {
 
 ## Middleware Registration
 
-Middleware is registered in the platform during setup:
+Middleware is registered in `platform.go` `finalizeSetup()`. The add order is innermost-first because `AddReceivingMiddleware` makes each call the new outermost layer:
 
 ```go
-// In platform.go finalizeSetup()
+// 1. Semantic enrichment (innermost) - enriches responses
+if needsEnrichment {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPSemanticEnrichmentMiddleware(
+            p.semanticProvider, p.queryProvider, p.storageProvider, enrichCfg,
+        ),
+    )
+}
 
-// 1. Auth/Authz middleware
-p.mcpServer.AddReceivingMiddleware(
-    middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer),
-)
+// 2. Rule enforcement - adds operational guidance
+if p.ruleEngine != nil {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
+    )
+}
 
-// 2. Audit middleware (if enabled)
-if p.config.Audit.Enabled {
+// 3. Audit - logs tool calls (reads PlatformContext from Auth)
+if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
     p.mcpServer.AddReceivingMiddleware(
         middleware.MCPAuditMiddleware(p.auditLogger),
     )
 }
 
-// 3. Semantic enrichment middleware (if any enrichment enabled)
-if needsEnrichment {
+// 4. Auth/Authz - creates PlatformContext (must be outer to Audit)
+p.mcpServer.AddReceivingMiddleware(
+    middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
+)
+
+// 5. MCP Apps metadata (overall outermost)
+if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
     p.mcpServer.AddReceivingMiddleware(
-        middleware.MCPSemanticEnrichmentMiddleware(
-            p.semanticProvider,
-            p.queryProvider,
-            p.storageProvider,
-            middleware.EnrichmentConfig{...},
-        ),
+        mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
     )
 }
 ```
@@ -180,7 +261,22 @@ type UserInfo struct {
 
 ```go
 type Authorizer interface {
-    IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string)
+    // IsAuthorized checks if the user can use the tool.
+    // Returns:
+    //   - authorized: whether the user is authorized
+    //   - personaName: the resolved persona name (for audit logging)
+    //   - reason: reason for denial (empty if authorized)
+    IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (authorized bool, personaName string, reason string)
+}
+```
+
+### ToolkitLookup
+
+```go
+type ToolkitLookup interface {
+    // GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
+    // Returns found=false if the tool is not found in any registered toolkit.
+    GetToolkitForTool(toolName string) (kind, name, connection string, found bool)
 }
 ```
 
@@ -192,26 +288,26 @@ type AuditLogger interface {
 }
 
 type AuditEvent struct {
-    Timestamp    time.Time
-    RequestID    string
-    UserID       string
-    UserEmail    string
-    Persona      string
-    ToolName     string
-    ToolkitKind  string
-    ToolkitName  string
-    Connection   string
-    Parameters   map[string]any
-    Success      bool
-    ErrorMessage string
-    DurationMS   int64
+    Timestamp    time.Time      `json:"timestamp"`
+    RequestID    string         `json:"request_id"`
+    UserID       string         `json:"user_id"`
+    UserEmail    string         `json:"user_email"`
+    Persona      string         `json:"persona"`
+    ToolName     string         `json:"tool_name"`
+    ToolkitKind  string         `json:"toolkit_kind"`
+    ToolkitName  string         `json:"toolkit_name"`
+    Connection   string         `json:"connection"`
+    Parameters   map[string]any `json:"parameters"`
+    Success      bool           `json:"success"`
+    ErrorMessage string         `json:"error_message,omitempty"`
+    DurationMS   int64          `json:"duration_ms"`
 }
 ```
 
 ## Best Practices
 
-**Use MCP protocol-level middleware:**
-All middleware should implement `mcp.Middleware` and be registered via `AddReceivingMiddleware()`.
+**Understand `AddReceivingMiddleware` wrapping:**
+Each call makes the new middleware the outermost layer. Add innermost middleware first. If middleware B reads context values set by middleware A, then A must be outer to B (added after B).
 
 **Check method type:**
 Only intercept `tools/call` for tool-specific middleware. Pass through other methods unchanged.

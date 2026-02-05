@@ -14,6 +14,7 @@
 - [Configuration](server/configuration.md): YAML configuration with environment variable expansion
 - [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
+- [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference, parameter sanitization, retention, query examples, troubleshooting
 - [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
 
 ## Cross-Injection
