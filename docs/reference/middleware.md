@@ -47,7 +47,7 @@ server.AddReceivingMiddleware(auth)        // outermost for tools/call
 server.AddReceivingMiddleware(apps)        // overall outermost
 ```
 
-This ordering is critical for context propagation. Go's `context.WithValue` creates a new context — values set in an outer middleware (like `PlatformContext` set by Auth) are visible to inner middleware (like Audit), but not the other way around.
+This ordering is critical for context propagation. Go's `context.WithValue` creates a new context. Values set in an outer middleware (like `PlatformContext` set by Auth) are visible to inner middleware (like Audit), but not the other way around.
 
 ## Platform Context
 

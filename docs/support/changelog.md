@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Comprehensive documentation overhaul
+- Documentation overhaul
 - S3 semantic enrichment (S3 results include DataHub metadata)
 - DataHub storage enrichment (DataHub results include S3 availability)
 - Storage provider interface for S3 integration
