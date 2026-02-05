@@ -7,15 +7,19 @@ import (
 // Authorizer checks if a user is authorized for a tool.
 type Authorizer interface {
 	// IsAuthorized checks if the user can use the tool.
-	IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string)
+	// Returns:
+	//   - authorized: whether the user is authorized
+	//   - personaName: the resolved persona name (for audit logging)
+	//   - reason: reason for denial (empty if authorized)
+	IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (authorized bool, personaName string, reason string)
 }
 
 // NoopAuthorizer always authorizes.
 type NoopAuthorizer struct{}
 
-// IsAuthorized always returns true.
-func (n *NoopAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string) {
-	return true, ""
+// IsAuthorized always returns true with empty persona name.
+func (n *NoopAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string, string) {
+	return true, "", ""
 }
 
 // AllowAllAuthorizer authorizes all requests.
