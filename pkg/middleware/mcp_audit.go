@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -36,6 +37,7 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 			if pc == nil {
 				// No platform context means auth middleware didn't run
 				// or this is an edge case - don't log
+				slog.Warn("audit: no platform context available, skipping audit log")
 				return result, err
 			}
 
@@ -44,7 +46,14 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 
 			// Log asynchronously to not block the response
 			go func() {
-				_ = logger.Log(context.Background(), event)
+				if err := logger.Log(context.Background(), event); err != nil {
+					slog.Error("failed to log audit event",
+						"error", err,
+						"tool", event.ToolName,
+						"user_id", event.UserID,
+						"request_id", event.RequestID,
+					)
+				}
 			}()
 
 			return result, err
