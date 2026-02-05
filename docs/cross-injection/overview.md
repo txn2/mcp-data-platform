@@ -4,7 +4,7 @@ description: Automatic context enrichment between DataHub, Trino, and S3. Query 
 
 # Cross-Injection
 
-Cross-injection is the key differentiator of mcp-data-platform. It automatically enriches tool responses with context from other services—without additional calls from the AI assistant.
+Cross-injection is the key differentiator of mcp-data-platform. It automatically enriches tool responses with context from other services, without additional calls from the AI assistant.
 
 ---
 
@@ -439,7 +439,7 @@ sequenceDiagram
     P-->>AI: Query results (no semantic_context)
 ```
 
-The query succeeds—you just don't get the enrichment.
+The query succeeds, you just don't get the enrichment.
 
 ### Entity Not Found
 
