@@ -11,6 +11,7 @@ type contextKey int
 
 const (
 	platformContextKey contextKey = iota
+	tokenContextKey
 )
 
 // PlatformContext holds platform-specific context for a request.
@@ -71,4 +72,17 @@ func MustGetPlatformContext(ctx context.Context) *PlatformContext {
 		panic("platform context not found in context")
 	}
 	return pc
+}
+
+// WithToken adds an authentication token to the context.
+func WithToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, tokenContextKey, token)
+}
+
+// GetToken retrieves an authentication token from the context.
+func GetToken(ctx context.Context) string {
+	if token, ok := ctx.Value(tokenContextKey).(string); ok {
+		return token
+	}
+	return ""
 }
