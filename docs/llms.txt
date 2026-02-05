@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context—owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for SSE transport, and prompt injection protection.
 
 ## Concepts
 
