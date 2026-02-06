@@ -97,6 +97,9 @@ func TestServerAuthorize(t *testing.T) {
 		if code == "" {
 			t.Error("expected non-empty code")
 		}
+		if len(code) < 32 {
+			t.Errorf("auth code too short for sufficient entropy: len=%d, want >= 32", len(code))
+		}
 	})
 
 	t.Run("invalid client", func(t *testing.T) {
@@ -288,6 +291,12 @@ func TestServerRegisterClient(t *testing.T) {
 		}
 		if resp.ClientID == "" {
 			t.Error("expected non-empty client_id")
+		}
+		if resp.ClientSecret == "" {
+			t.Error("expected non-empty client_secret")
+		}
+		if len(resp.RedirectURIs) != 1 || resp.RedirectURIs[0] != "http://localhost:8080" {
+			t.Errorf("expected RedirectURIs=[http://localhost:8080], got %v", resp.RedirectURIs)
 		}
 	})
 }
@@ -512,96 +521,6 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	}
 }
 
-func TestServerConfig(t *testing.T) {
-	cfg := ServerConfig{
-		Issuer:          "http://localhost:8080",
-		AccessTokenTTL:  2 * time.Hour,
-		RefreshTokenTTL: 7 * 24 * time.Hour,
-		AuthCodeTTL:     5 * time.Minute,
-		DCR:             DCRConfig{Enabled: true},
-	}
-
-	if cfg.Issuer != "http://localhost:8080" {
-		t.Error("unexpected Issuer")
-	}
-	if cfg.AccessTokenTTL != 2*time.Hour {
-		t.Error("unexpected AccessTokenTTL")
-	}
-}
-
-func TestTokenRequest(t *testing.T) {
-	req := TokenRequest{
-		GrantType:    "authorization_code",
-		Code:         "code123",
-		RedirectURI:  "http://localhost:8080/callback",
-		ClientID:     "client-123",
-		ClientSecret: "secret",
-		CodeVerifier: "verifier",
-		RefreshToken: "",
-		Scope:        "read",
-	}
-
-	if req.GrantType != "authorization_code" {
-		t.Error("unexpected GrantType")
-	}
-	if req.Code != "code123" {
-		t.Error("unexpected Code")
-	}
-}
-
-func TestTokenResponse(t *testing.T) {
-	resp := TokenResponse{
-		AccessToken:  "access-123",
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-		RefreshToken: "refresh-123",
-		Scope:        "read write",
-	}
-
-	if resp.AccessToken != "access-123" {
-		t.Error("unexpected AccessToken")
-	}
-	if resp.TokenType != "Bearer" {
-		t.Error("unexpected TokenType")
-	}
-	if resp.ExpiresIn != 3600 {
-		t.Error("unexpected ExpiresIn")
-	}
-}
-
-func TestErrorResponse(t *testing.T) {
-	resp := ErrorResponse{
-		Error:            "invalid_request",
-		ErrorDescription: "Missing required parameter",
-	}
-
-	if resp.Error != "invalid_request" {
-		t.Error("unexpected Error")
-	}
-	if resp.ErrorDescription != "Missing required parameter" {
-		t.Error("unexpected ErrorDescription")
-	}
-}
-
-func TestAuthorizationRequest(t *testing.T) {
-	req := AuthorizationRequest{
-		ResponseType:        "code",
-		ClientID:            "client-123",
-		RedirectURI:         "http://localhost:8080/callback",
-		Scope:               "read write",
-		State:               "state123",
-		CodeChallenge:       "challenge",
-		CodeChallengeMethod: "S256",
-	}
-
-	if req.ResponseType != "code" {
-		t.Error("unexpected ResponseType")
-	}
-	if req.CodeChallengeMethod != "S256" {
-		t.Error("unexpected CodeChallengeMethod")
-	}
-}
-
 func TestHandleAuthorizationCodeGrant(t *testing.T) {
 	ctx := context.Background()
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
@@ -661,6 +580,12 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		}
 		if resp.TokenType != "Bearer" {
 			t.Errorf("expected token type Bearer, got %s", resp.TokenType)
+		}
+		if resp.ExpiresIn <= 0 {
+			t.Errorf("expected ExpiresIn > 0, got %d", resp.ExpiresIn)
+		}
+		if resp.AccessToken == resp.RefreshToken {
+			t.Error("access token and refresh token must be different")
 		}
 	})
 
@@ -1014,6 +939,15 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 		}
 		if resp.RefreshToken == "" {
 			t.Error("expected non-empty refresh token (rotated)")
+		}
+		if resp.RefreshToken == "valid-refresh-token" {
+			t.Error("new refresh token must differ from old (rotation)")
+		}
+		if resp.TokenType != "Bearer" {
+			t.Errorf("expected token type Bearer, got %s", resp.TokenType)
+		}
+		if resp.ExpiresIn <= 0 {
+			t.Errorf("expected ExpiresIn > 0, got %d", resp.ExpiresIn)
 		}
 	})
 
