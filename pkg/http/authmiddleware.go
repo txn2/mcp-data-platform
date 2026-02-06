@@ -62,10 +62,17 @@ func AuthMiddleware(requireAuth bool) func(http.Handler) http.Handler {
 func MCPAuthGateway(resourceMetadataURL string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hasBearer := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
-			hasAPIKey := r.Header.Get("X-API-Key") != ""
+			var token string
 
-			if !hasBearer && !hasAPIKey {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+			if token == "" {
+				token = r.Header.Get("X-API-Key")
+			}
+
+			if token == "" {
 				if resourceMetadataURL != "" {
 					w.Header().Set("WWW-Authenticate",
 						`Bearer resource_metadata="`+resourceMetadataURL+`"`)
@@ -76,7 +83,12 @@ func MCPAuthGateway(resourceMetadataURL string) func(http.Handler) http.Handler 
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Bridge the token to context so the MCP connection inherits it.
+			// For Streamable HTTP the SDK creates a long-lived connection from
+			// the initialize request's context; placing the token here ensures
+			// it is available for all subsequent requests on that connection.
+			ctx := auth.WithToken(r.Context(), token)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
