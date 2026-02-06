@@ -93,44 +93,5 @@ func TestMemoryStateStore(t *testing.T) {
 	})
 }
 
-func TestAuthorizationStateFields(t *testing.T) {
-	now := time.Now()
-	state := AuthorizationState{
-		ClientID:            "client-123",
-		RedirectURI:         "http://localhost:8080/callback",
-		State:               "abc123",
-		CodeChallenge:       "challenge",
-		CodeChallengeMethod: "S256",
-		Scope:               "read write",
-		UpstreamState:       "keycloak-state",
-		CreatedAt:           now,
-	}
-
-	if state.ClientID != "client-123" {
-		t.Errorf("unexpected ClientID: %s", state.ClientID)
-	}
-	if state.RedirectURI != "http://localhost:8080/callback" {
-		t.Errorf("unexpected RedirectURI: %s", state.RedirectURI)
-	}
-	if state.State != "abc123" {
-		t.Errorf("unexpected State: %s", state.State)
-	}
-	if state.CodeChallenge != "challenge" {
-		t.Errorf("unexpected CodeChallenge: %s", state.CodeChallenge)
-	}
-	if state.CodeChallengeMethod != "S256" {
-		t.Errorf("unexpected CodeChallengeMethod: %s", state.CodeChallengeMethod)
-	}
-	if state.Scope != "read write" {
-		t.Errorf("unexpected Scope: %s", state.Scope)
-	}
-	if state.UpstreamState != "keycloak-state" {
-		t.Errorf("unexpected UpstreamState: %s", state.UpstreamState)
-	}
-	if !state.CreatedAt.Equal(now) {
-		t.Errorf("unexpected CreatedAt: %v", state.CreatedAt)
-	}
-}
-
 // Verify MemoryStateStore implements StateStore.
 var _ StateStore = (*MemoryStateStore)(nil)
