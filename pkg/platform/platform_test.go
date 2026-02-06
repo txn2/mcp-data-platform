@@ -2048,6 +2048,226 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	}
 }
 
+func TestNew_NilToolkitsConfig(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		// Toolkits intentionally nil
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Should succeed with no toolkits loaded
+	if p.ToolkitRegistry() == nil {
+		t.Error("ToolkitRegistry() should not be nil")
+	}
+	if len(p.ToolkitRegistry().All()) != 0 {
+		t.Errorf("expected 0 toolkits, got %d", len(p.ToolkitRegistry().All()))
+	}
+}
+
+func TestNew_NoRulesEngine(t *testing.T) {
+	// Verify that when no rule engine is provided and tuning rules are all
+	// default, middleware setup still succeeds (nil ruleEngine path at L535).
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// The default RuleEngine is always created in initTuning, so it should not be nil
+	if p.RuleEngine() == nil {
+		t.Error("RuleEngine() should not be nil even without explicit config")
+	}
+}
+
+func TestNew_NoAuthenticators_FallsBackToNoop(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		// Auth intentionally empty — no OIDC, no API keys, no OAuth
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Should fall back to NoopAuthenticator (L761)
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() should not be nil")
+	}
+}
+
+func TestNew_DefaultOAuthTTL(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		OAuth: OAuthConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:8080",
+			// No explicit TTLs — should use default 1h AccessTokenTTL (L332)
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.OAuthServer() == nil {
+		t.Fatal("OAuthServer() should not be nil")
+	}
+}
+
+func TestNew_DefaultDataHubTimeout(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Toolkits: map[string]any{
+				"datahub": map[string]any{
+					"instances": map[string]any{
+						"default": map[string]any{
+							"url": "http://datahub:8080",
+							// timeout not set — should default to 30s (L911)
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := p.getDataHubConfig("default")
+	if cfg == nil {
+		t.Fatal("getDataHubConfig() returned nil")
+	}
+	if cfg.Timeout != 30*time.Second {
+		t.Errorf("Timeout = %v, want 30s", cfg.Timeout)
+	}
+}
+
+func TestNew_DefaultTrinoTimeout(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"default": map[string]any{
+							"host": "localhost",
+							// timeout not set — should default to 120s (L939)
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := p.getTrinoConfig("default")
+	if cfg == nil {
+		t.Fatal("getTrinoConfig() returned nil")
+	}
+	if cfg.Timeout != 120*time.Second {
+		t.Errorf("Timeout = %v, want 120s", cfg.Timeout)
+	}
+}
+
+func TestClose_NilAuditStore(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		// No audit configured — auditStore will be nil (L1084)
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Verify auditStore is nil
+	if p.auditStore != nil {
+		t.Error("auditStore should be nil without database")
+	}
+
+	// Close should succeed without panicking on nil auditStore
+	if err := p.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
+func TestPlatformInfo_WithTags(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Name: "test-platform",
+			Tags: []string{"fireworks", "retail", "pos"},
+		},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Verify tags appear in the tool description (L59)
+	desc := p.buildInfoToolDescription()
+	if !containsHelper(desc, "fireworks") {
+		t.Errorf("description %q does not contain tag 'fireworks'", desc)
+	}
+	if !containsHelper(desc, "retail") {
+		t.Errorf("description %q does not contain tag 'retail'", desc)
+	}
+}
+
+func TestNew_SigningKeyExactly32Bytes(t *testing.T) {
+	// "aaaaaaaaaabbbbbbbbbbccccccccccdd" is exactly 32 bytes
+	// base64 of 32 bytes of "a" repeated: use a known 32-byte string
+	import32Bytes := "YWFhYWFhYWFhYWJiYmJiYmJiYmJjY2NjY2NjY2NjZGQ=" // "aaaaaaaaaabbbbbbbbbbccccccccccdd"
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test"},
+		Semantic: SemanticConfig{Provider: "noop"},
+		Query:    QueryConfig{Provider: "noop"},
+		Storage:  StorageConfig{Provider: "noop"},
+		OAuth: OAuthConfig{
+			Enabled:    true,
+			Issuer:     "http://localhost:8080",
+			SigningKey: import32Bytes,
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v (exactly 32 bytes should be accepted)", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.OAuthServer() == nil {
+		t.Error("OAuthServer() should not be nil with exact 32-byte key")
+	}
+}
+
 // contains checks if s contains substr.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
