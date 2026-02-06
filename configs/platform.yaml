@@ -3,12 +3,15 @@
 
 server:
   name: mcp-data-platform
-  transport: stdio              # stdio, sse
+  transport: stdio              # stdio, http
   address: ":8080"
   tls:
     enabled: false
     cert_file: /etc/ssl/server.crt
     key_file: /etc/ssl/server.key
+  streamable:
+    session_timeout: 30m        # idle session timeout (default: 30m)
+    stateless: false            # disable session tracking
 
 # Generic OIDC authentication
 auth:

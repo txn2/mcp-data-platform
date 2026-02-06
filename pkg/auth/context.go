@@ -1,14 +1,17 @@
 // Package auth provides authentication support for the platform.
 package auth
 
-import "context"
+import (
+	"context"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
+)
 
 // contextKey is a private type for context keys.
 type contextKey int
 
 const (
 	userContextKey contextKey = iota
-	tokenContextKey
 )
 
 // UserContext holds authenticated user information.
@@ -37,16 +40,15 @@ func GetUserContext(ctx context.Context) *UserContext {
 }
 
 // WithToken adds a token to the context.
+// Delegates to middleware.WithToken so that both packages share the same context key.
 func WithToken(ctx context.Context, token string) context.Context {
-	return context.WithValue(ctx, tokenContextKey, token)
+	return middleware.WithToken(ctx, token)
 }
 
 // GetToken retrieves a token from the context.
+// Delegates to middleware.GetToken so that both packages share the same context key.
 func GetToken(ctx context.Context) string {
-	if token, ok := ctx.Value(tokenContextKey).(string); ok {
-		return token
-	}
-	return ""
+	return middleware.GetToken(ctx)
 }
 
 // HasRole checks if the user has a specific role.

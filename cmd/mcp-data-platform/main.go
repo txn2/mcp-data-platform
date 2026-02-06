@@ -36,8 +36,8 @@ type serverOptions struct {
 func parseFlags() serverOptions {
 	opts := serverOptions{}
 	flag.StringVar(&opts.configPath, "config", "", "Path to configuration file")
-	flag.StringVar(&opts.transport, "transport", "stdio", "Transport type: stdio, sse")
-	flag.StringVar(&opts.address, "address", ":8080", "Server address for SSE transport")
+	flag.StringVar(&opts.transport, "transport", "stdio", "Transport type: stdio, http")
+	flag.StringVar(&opts.address, "address", ":8080", "Server address for HTTP transports")
 	flag.BoolVar(&opts.showVersion, "version", false, "Show version and exit")
 	flag.Parse()
 	return opts
@@ -119,8 +119,10 @@ func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platfor
 	switch opts.transport {
 	case "stdio":
 		return mcpServer.Run(ctx, &mcp.StdioTransport{})
-	case "sse":
-		return startSSEServer(ctx, mcpServer, p, opts)
+	case "http", "sse":
+		// HTTP serves both SSE (/sse, /message) and Streamable HTTP (/mcp).
+		// "sse" is accepted for backward compatibility.
+		return startHTTPServer(ctx, mcpServer, p, opts)
 	default:
 		return fmt.Errorf("unknown transport: %s", opts.transport)
 	}
@@ -134,8 +136,11 @@ func corsMiddleware(next http.Handler) http.Handler {
 			origin = "*"
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, mcp-protocol-version")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers",
+			"Content-Type, Authorization, Accept, X-API-Key, "+
+				"Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
@@ -147,39 +152,46 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func startSSEServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
-	mux := http.NewServeMux()
+// httpConfig holds configuration extracted from the platform for HTTP servers.
+type httpConfig struct {
+	requireAuth   bool
+	tlsEnabled    bool
+	tlsCertFile   string
+	tlsKeyFile    string
+	streamableCfg platform.StreamableConfig
+}
 
-	// SSE handler for MCP protocol
+func extractHTTPConfig(p *platform.Platform) httpConfig {
+	var cfg httpConfig
+	if p != nil && p.Config() != nil {
+		c := p.Config()
+		cfg.requireAuth = !c.Auth.AllowAnonymous
+		cfg.tlsEnabled = c.Server.TLS.Enabled
+		cfg.tlsCertFile = c.Server.TLS.CertFile
+		cfg.tlsKeyFile = c.Server.TLS.KeyFile
+		cfg.streamableCfg = c.Server.Streamable
+	}
+	return cfg
+}
+
+// newSSEHandler creates an SSE handler with auth middleware.
+func newSSEHandler(mcpServer *mcp.Server, requireAuth bool) http.Handler {
 	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, nil)
 
-	// Get config if available
-	var requireAuth bool
-	var tlsEnabled bool
-	var tlsCertFile, tlsKeyFile string
-
-	if p != nil && p.Config() != nil {
-		cfg := p.Config()
-		// Require auth unless explicitly allowing anonymous
-		requireAuth = !cfg.Auth.AllowAnonymous
-		tlsEnabled = cfg.Server.TLS.Enabled
-		tlsCertFile = cfg.Server.TLS.CertFile
-		tlsKeyFile = cfg.Server.TLS.KeyFile
-	}
-
-	// Warn if SSE transport is used without TLS
-	if !tlsEnabled {
-		log.Println("WARNING: SSE transport without TLS - credentials may be transmitted in plaintext")
-	}
-
-	// Apply HTTP auth middleware to SSE handler
-	var wrappedSSE http.Handler
 	if requireAuth {
-		wrappedSSE = httpauth.RequireAuth()(sseHandler)
-	} else {
-		wrappedSSE = httpauth.OptionalAuth()(sseHandler)
+		return httpauth.RequireAuth()(sseHandler)
+	}
+	return httpauth.OptionalAuth()(sseHandler)
+}
+
+func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+	mux := http.NewServeMux()
+	hcfg := extractHTTPConfig(p)
+
+	if !hcfg.tlsEnabled {
+		log.Println("WARNING: HTTP transport without TLS - credentials may be transmitted in plaintext")
 	}
 
 	// Mount OAuth server if enabled
@@ -188,18 +200,34 @@ func startSSEServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Plat
 		log.Println("OAuth server enabled")
 	}
 
-	// Mount SSE handler for MCP protocol
+	// Mount SSE handler (legacy clients)
+	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth)
 	mux.Handle("/sse", wrappedSSE)
 	mux.Handle("/message", wrappedSSE)
-	mux.Handle("/", wrappedSSE)
+	log.Println("SSE transport enabled on /sse, /message")
 
+	// Mount Streamable HTTP handler at root (modern clients)
+	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return mcpServer
+	}, &mcp.StreamableHTTPOptions{
+		SessionTimeout: hcfg.streamableCfg.SessionTimeout,
+		Stateless:      hcfg.streamableCfg.Stateless,
+	})
+	// Streamable HTTP handles auth via RequestExtra headers (bridged in
+	// MCPToolCallMiddleware), so no HTTP-level auth middleware is needed.
+	mux.Handle("/", streamableHandler)
+	log.Println("Streamable HTTP transport enabled on /")
+
+	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg)
+}
+
+func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg httpConfig) error {
 	server := &http.Server{
-		Addr:              opts.address,
-		Handler:           corsMiddleware(mux),
+		Addr:              addr,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// Graceful shutdown on context cancellation
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -207,16 +235,15 @@ func startSSEServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Plat
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	// Use TLS if configured
-	if tlsEnabled {
-		log.Printf("Starting SSE server with TLS on %s\n", opts.address)
-		if err := server.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != http.ErrServerClosed {
+	if hcfg.tlsEnabled {
+		log.Printf("Starting HTTP server with TLS on %s\n", addr)
+		if err := server.ListenAndServeTLS(hcfg.tlsCertFile, hcfg.tlsKeyFile); err != http.ErrServerClosed {
 			return err
 		}
 		return nil
 	}
 
-	log.Printf("Starting SSE server on %s\n", opts.address)
+	log.Printf("Starting HTTP server on %s\n", addr)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

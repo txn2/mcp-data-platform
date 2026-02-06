@@ -65,3 +65,28 @@ func TestPlatformContext(t *testing.T) {
 		}
 	})
 }
+
+func TestTokenContext(t *testing.T) {
+	t.Run("WithToken and GetToken", func(t *testing.T) {
+		ctx := WithToken(context.Background(), "test-token-123")
+		got := GetToken(ctx)
+		if got != "test-token-123" {
+			t.Errorf("GetToken() = %q, want %q", got, "test-token-123")
+		}
+	})
+
+	t.Run("GetToken not set", func(t *testing.T) {
+		got := GetToken(context.Background())
+		if got != "" {
+			t.Errorf("GetToken() = %q, want empty string", got)
+		}
+	})
+
+	t.Run("empty token", func(t *testing.T) {
+		ctx := WithToken(context.Background(), "")
+		got := GetToken(ctx)
+		if got != "" {
+			t.Errorf("GetToken() = %q, want empty string", got)
+		}
+	})
+}

@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 func TestUserContext_HasRole(t *testing.T) {
@@ -81,5 +83,21 @@ func TestGetToken_NotSet(t *testing.T) {
 	got := GetToken(ctx)
 	if got != "" {
 		t.Errorf("GetToken() = %q, want empty string", got)
+	}
+}
+
+func TestTokenInterop_AuthAndMiddleware(t *testing.T) {
+	// Token set via auth.WithToken must be readable via middleware.GetToken,
+	// ensuring the SSE HTTP middleware and MCP middleware share the same key.
+	ctx := WithToken(context.Background(), "cross-package-token")
+
+	if got := middleware.GetToken(ctx); got != "cross-package-token" {
+		t.Errorf("middleware.GetToken() = %q, want %q", got, "cross-package-token")
+	}
+
+	// And the reverse: token set via middleware must be readable via auth.
+	ctx2 := middleware.WithToken(context.Background(), "middleware-token")
+	if got := GetToken(ctx2); got != "middleware-token" {
+		t.Errorf("auth.GetToken() = %q, want %q", got, "middleware-token")
 	}
 }

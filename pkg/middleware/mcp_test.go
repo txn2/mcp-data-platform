@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -456,4 +457,162 @@ func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestExtractBearerOrAPIKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		header http.Header
+		want   string
+	}{
+		{
+			name:   "bearer token",
+			header: http.Header{"Authorization": {"Bearer my-token"}},
+			want:   "my-token",
+		},
+		{
+			name:   "api key",
+			header: http.Header{"X-Api-Key": {"api-key-123"}},
+			want:   "api-key-123",
+		},
+		{
+			name: "bearer preferred over api key",
+			header: http.Header{
+				"Authorization": {"Bearer bearer-token"},
+				"X-Api-Key":     {"api-key"},
+			},
+			want: "bearer-token",
+		},
+		{
+			name:   "no auth headers",
+			header: http.Header{"Content-Type": {"application/json"}},
+			want:   "",
+		},
+		{
+			name:   "non-bearer authorization",
+			header: http.Header{"Authorization": {"Basic dXNlcjpwYXNz"}},
+			want:   "",
+		},
+		{
+			name:   "empty header",
+			header: http.Header{},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractBearerOrAPIKey(tt.header)
+			if got != tt.want {
+				t.Errorf("extractBearerOrAPIKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// newMCPTestRequestWithExtra creates a test request with RequestExtra headers.
+func newMCPTestRequestWithExtra(toolName string, headers http.Header) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
+	return &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: &mcp.CallToolParamsRaw{
+			Name: toolName,
+		},
+		Extra: &mcp.RequestExtra{
+			Header: headers,
+		},
+	}
+}
+
+func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
+	// tokenCapturingAuthenticator captures the token from context during Authenticate.
+	type tokenCapture struct {
+		capturedToken string
+	}
+	capture := &tokenCapture{}
+
+	authenticator := &mockAuthenticator{
+		authenticateFunc: func(ctx context.Context) (*UserInfo, error) {
+			capture.capturedToken = GetToken(ctx)
+			return &UserInfo{
+				UserID:   "api-user",
+				Roles:    []string{"admin"},
+				AuthType: "apikey",
+			}, nil
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "admin"}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil)
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
+
+	handler := mw(next)
+
+	t.Run("bearer token from RequestExtra", func(t *testing.T) {
+		capture.capturedToken = ""
+		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+			"Authorization": {"Bearer streamable-token"},
+		})
+
+		_, err := handler(context.Background(), "tools/call", req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if capture.capturedToken != "streamable-token" {
+			t.Errorf("expected captured token 'streamable-token', got %q", capture.capturedToken)
+		}
+	})
+
+	t.Run("api key from RequestExtra", func(t *testing.T) {
+		capture.capturedToken = ""
+		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+			"X-Api-Key": {"my-api-key"},
+		})
+
+		_, err := handler(context.Background(), "tools/call", req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if capture.capturedToken != "my-api-key" {
+			t.Errorf("expected captured token 'my-api-key', got %q", capture.capturedToken)
+		}
+	})
+
+	t.Run("existing context token takes precedence", func(t *testing.T) {
+		capture.capturedToken = ""
+		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+			"Authorization": {"Bearer extra-token"},
+		})
+
+		// Pre-set token in context (as SSE HTTP middleware would do)
+		ctx := WithToken(context.Background(), "sse-token")
+
+		_, err := handler(ctx, "tools/call", req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if capture.capturedToken != "sse-token" {
+			t.Errorf("expected context token 'sse-token' to take precedence, got %q", capture.capturedToken)
+		}
+	})
+
+	t.Run("nil extra does not panic", func(t *testing.T) {
+		capture.capturedToken = ""
+		req := newMCPTestRequest("test_tool")
+
+		_, err := handler(context.Background(), "tools/call", req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Token should be empty since there's no Extra and no context token
+		if capture.capturedToken != "" {
+			t.Errorf("expected empty token, got %q", capture.capturedToken)
+		}
+	})
 }

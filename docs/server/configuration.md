@@ -64,6 +64,22 @@ server:
 !!! warning "HTTP Transport Security"
     When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.
 
+### Streamable HTTP Configuration
+
+The HTTP transport serves both legacy SSE (`/sse`, `/message`) and Streamable HTTP (`/`) endpoints. Streamable HTTP session behavior is configured under `server.streamable`:
+
+```yaml
+server:
+  streamable:
+    session_timeout: 30m
+    stateless: false
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `session_timeout` | duration | `30m` | How long an idle session persists before cleanup |
+| `stateless` | bool | `false` | Disable session tracking (no `Mcp-Session-Id` validation) |
+
 ## Authentication Configuration
 
 ```yaml

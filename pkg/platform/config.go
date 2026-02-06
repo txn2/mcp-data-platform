@@ -32,15 +32,25 @@ type Config struct {
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
-	Name              string         `yaml:"name"`
-	Version           string         `yaml:"version"`
-	Description       string         `yaml:"description"`
-	Tags              []string       `yaml:"tags"`               // Discovery keywords for routing
-	AgentInstructions string         `yaml:"agent_instructions"` // Inline operational guidance for AI agents
-	Prompts           []PromptConfig `yaml:"prompts"`            // Platform-level MCP prompts
-	Transport         string         `yaml:"transport"`          // "stdio", "sse"
-	Address           string         `yaml:"address"`
-	TLS               TLSConfig      `yaml:"tls"`
+	Name              string           `yaml:"name"`
+	Version           string           `yaml:"version"`
+	Description       string           `yaml:"description"`
+	Tags              []string         `yaml:"tags"`               // Discovery keywords for routing
+	AgentInstructions string           `yaml:"agent_instructions"` // Inline operational guidance for AI agents
+	Prompts           []PromptConfig   `yaml:"prompts"`            // Platform-level MCP prompts
+	Transport         string           `yaml:"transport"`          // "stdio", "http" (or "sse" for backward compat)
+	Address           string           `yaml:"address"`
+	TLS               TLSConfig        `yaml:"tls"`
+	Streamable        StreamableConfig `yaml:"streamable"`
+}
+
+// StreamableConfig configures the Streamable HTTP transport.
+type StreamableConfig struct {
+	// SessionTimeout is how long an idle session persists before cleanup.
+	// Defaults to 30 minutes.
+	SessionTimeout time.Duration `yaml:"session_timeout"`
+	// Stateless disables session tracking (no Mcp-Session-Id validation).
+	Stateless bool `yaml:"stateless"`
 }
 
 // PromptConfig defines a platform-level MCP prompt.
@@ -337,6 +347,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Tuning.Rules.QualityThreshold == 0 {
 		cfg.Tuning.Rules.QualityThreshold = 0.7
+	}
+	if cfg.Server.Streamable.SessionTimeout == 0 {
+		cfg.Server.Streamable.SessionTimeout = 30 * time.Minute
 	}
 }
 
