@@ -59,16 +59,6 @@ func TestToolkit_handleExampleTool(t *testing.T) {
 	}
 }
 
-func TestExampleToolArgs(t *testing.T) {
-	args := ExampleToolArgs{
-		Message: "Test message",
-	}
-
-	if args.Message != "Test message" {
-		t.Errorf("unexpected Message: %s", args.Message)
-	}
-}
-
 func TestToolkit_Close(t *testing.T) {
 	toolkit := NewToolkit()
 
