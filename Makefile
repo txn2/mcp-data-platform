@@ -21,6 +21,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
+	dead-code mutate \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
@@ -123,8 +124,26 @@ version:
 	@echo "Go Version: $(GO_VERSION)"
 	@echo "Build Time: $(BUILD_TIME)"
 
-## verify: Run all checks (test, lint, fmt)
-verify: fmt test lint
+## dead-code: Report unreachable functions (informational, not blocking)
+dead-code:
+	@echo "Checking for dead code..."
+	@which deadcode > /dev/null || (echo "Installing deadcode..." && go install golang.org/x/tools/cmd/deadcode@latest)
+	@OUTPUT=$$(deadcode ./... 2>&1 | grep -v "^$$") || true; \
+	if [ -n "$$OUTPUT" ]; then \
+		echo "Dead code detected (review for false positives):"; \
+		echo "$$OUTPUT"; \
+	else \
+		echo "No dead code found."; \
+	fi
+
+## mutate: Run mutation testing (informational)
+mutate:
+	@echo "Running mutation testing..."
+	@which gremlins > /dev/null || (echo "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
+	gremlins unleash --workers 1 --timeout-coefficient 3 ./pkg/...
+
+## verify: Run all checks (test, lint, fmt, dead-code)
+verify: fmt test lint dead-code
 	@echo "All checks passed."
 
 ## docs-serve: Serve documentation locally
