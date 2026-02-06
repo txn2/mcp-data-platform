@@ -214,12 +214,12 @@ p, err := platform.New(
 )
 ```
 
-## Using SSE Transport
+## Using HTTP Transport
 
 ```go
 p, err := platform.New(
-    platform.WithServerName("sse-platform"),
-    platform.WithTransport("sse"),
+    platform.WithServerName("http-platform"),
+    platform.WithTransport("http"),
     platform.WithAddress(":8080"),
 
     platform.WithTrinoToolkit("primary", trinoCfg),

@@ -7,10 +7,10 @@ mcp-data-platform implements a **fail-closed** security model where missing or i
 | Transport | Authentication | TLS | Why |
 |-----------|---------------|-----|-----|
 | **stdio** | Not needed | N/A | Local execution with your own credentials |
-| **SSE** | **Required** | Strongly recommended | Shared server needs to identify users |
+| **HTTP** | **Required** | Strongly recommended | Shared server needs to identify users |
 
-!!! warning "SSE Security"
-    When using SSE transport, authentication is **required by default**. Anonymous access must be explicitly enabled and is not recommended for production deployments.
+!!! warning "HTTP Transport Security"
+    When using HTTP transport, authentication is **required by default**. Anonymous access must be explicitly enabled and is not recommended for production deployments.
 
 ## stdio Transport (Local)
 
@@ -29,7 +29,7 @@ toolkits:
 
 You're authenticated implicitly. It's your machine, your config, your credentials.
 
-## SSE Transport (Remote/Shared)
+## HTTP Transport (Remote/Shared)
 
 When deploying mcp-data-platform as a shared remote service, authentication identifies who is making requests. This enables:
 
@@ -85,9 +85,9 @@ auth:
     max_token_age: 24h          # Optional: reject tokens older than this
 ```
 
-## SSE Authentication Flow
+## HTTP Authentication Flow
 
-mcp-data-platform supports two authentication flows for SSE transport:
+mcp-data-platform supports two authentication flows for HTTP transport:
 
 ### OAuth 2.1 Flow (Claude Desktop + Keycloak)
 
@@ -149,13 +149,13 @@ sequenceDiagram
     M-->>C: Connected
 ```
 
-## Recommended SSE Configuration
+## Recommended HTTP Configuration
 
 For a shared remote deployment with Keycloak:
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8443"
   tls:
     enabled: true
@@ -203,7 +203,7 @@ This configuration:
 
 ## User Context
 
-For SSE deployments, authenticated users have a context:
+For HTTP deployments, authenticated users have a context:
 
 ```go
 type UserContext struct {
@@ -222,7 +222,7 @@ This enables:
 
 ## Audit Integration
 
-For SSE deployments, enable audit logging:
+For HTTP deployments, enable audit logging:
 
 ```yaml
 audit:

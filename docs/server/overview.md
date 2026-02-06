@@ -56,7 +56,7 @@ graph TB
 
 ## Request Flow
 
-For SSE (remote) deployments:
+For HTTP (remote) deployments:
 
 1. **Auth** - Validate OIDC token or API key
 2. **Persona** - Map user roles to tool permissions
@@ -71,7 +71,7 @@ For stdio (local), skip steps 1-2. Your machine, your credentials.
 | Transport | When to use |
 |-----------|-------------|
 | **stdio** | Local. Claude Code, development. |
-| **SSE** | Remote. Shared server, Claude Desktop connecting over network. |
+| **HTTP** | Remote. Shared server, Claude Desktop connecting over network. Serves both SSE and Streamable HTTP. |
 
 ## Minimal Configuration
 

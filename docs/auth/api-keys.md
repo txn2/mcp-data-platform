@@ -167,7 +167,7 @@ The platform reads the API key from the request headers set by the MCP client.
 ### HTTP Clients
 
 ```bash
-# SSE transport with API key header
+# HTTP transport with API key header (SSE endpoint)
 curl -H "Authorization: Bearer your-api-key" \
   http://localhost:8080/sse
 

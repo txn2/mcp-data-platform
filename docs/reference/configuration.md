@@ -65,8 +65,8 @@ server:
 | `server.prompts[].name` | string | required | Prompt name |
 | `server.prompts[].description` | string | - | Prompt description |
 | `server.prompts[].content` | string | required | Prompt content returned by `prompts/get` |
-| `server.transport` | string | `stdio` | Transport: `stdio`, `sse` |
-| `server.address` | string | `:8080` | Listen address for SSE |
+| `server.transport` | string | `stdio` | Transport: `stdio`, `http` (`sse` accepted for backward compatibility) |
+| `server.address` | string | `:8080` | Listen address for HTTP transports |
 | `server.tls.enabled` | bool | `false` | Enable TLS |
 | `server.tls.cert_file` | string | - | TLS certificate path |
 | `server.tls.key_file` | string | - | TLS private key path |

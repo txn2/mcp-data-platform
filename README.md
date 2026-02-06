@@ -210,8 +210,8 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 # Run with configuration file
 ./mcp-data-platform --config configs/platform.yaml
 
-# Run with SSE transport
-./mcp-data-platform --transport sse --address :8080
+# Run with HTTP transport (serves both SSE and Streamable HTTP)
+./mcp-data-platform --transport http --address :8080
 ```
 
 ### Claude Code CLI
@@ -243,7 +243,7 @@ For connecting Claude Desktop to a remote MCP server with Keycloak authenticatio
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8080"
 
 oauth:
