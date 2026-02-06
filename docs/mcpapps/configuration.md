@@ -72,7 +72,7 @@ Your `config.yaml`:
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8080"
 
 mcpapps:

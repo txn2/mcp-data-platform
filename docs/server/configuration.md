@@ -44,8 +44,8 @@ injection:
 ```yaml
 server:
   name: mcp-data-platform      # Server name reported to clients
-  transport: stdio             # stdio or sse
-  address: ":8080"             # Listen address for SSE
+  transport: stdio             # stdio or http
+  address: ":8080"             # Listen address for HTTP transports
   tls:
     enabled: false
     cert_file: ""
@@ -55,14 +55,14 @@ server:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | `mcp-data-platform` | Server name in MCP handshake |
-| `transport` | string | `stdio` | Transport protocol: `stdio` or `sse` |
-| `address` | string | `:8080` | Listen address for SSE transport |
-| `tls.enabled` | bool | `false` | Enable TLS for SSE transport |
+| `transport` | string | `stdio` | Transport protocol: `stdio` or `http` (`sse` accepted for backward compatibility) |
+| `address` | string | `:8080` | Listen address for HTTP transports |
+| `tls.enabled` | bool | `false` | Enable TLS for HTTP transport |
 | `tls.cert_file` | string | - | Path to TLS certificate |
 | `tls.key_file` | string | - | Path to TLS private key |
 
-!!! warning "SSE Transport Security"
-    When using SSE transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.
+!!! warning "HTTP Transport Security"
+    When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.
 
 ## Authentication Configuration
 
