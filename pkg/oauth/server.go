@@ -572,11 +572,52 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, upstreamURL, http.StatusFound)
 }
 
+// handleLoginRequiredError handles the OIDC login_required error from prompt=none.
+// Per OpenID Connect Core Section 3.1.2.6, when prompt=none is sent and the user
+// has no active session, the IdP returns error=login_required. This method retries
+// the authorization without prompt=none so the IdP shows its login form.
+// Returns true if the error was handled (retry redirect issued), false otherwise.
+func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request) bool {
+	errParam := r.URL.Query().Get("error")
+	if errParam != "login_required" {
+		return false
+	}
+
+	stateParam := r.URL.Query().Get("state")
+	if stateParam == "" {
+		return false
+	}
+
+	authState, err := s.stateStore.Get(stateParam)
+	if err != nil {
+		return false
+	}
+
+	// Prevent infinite loop: only retry once
+	if authState.PromptNoneAttempted {
+		return false
+	}
+
+	// Mark that we tried prompt=none and re-save the state
+	authState.PromptNoneAttempted = true
+	_ = s.stateStore.Save(stateParam, authState)
+
+	// Redirect to upstream IdP without prompt=none
+	upstreamURL := s.buildUpstreamAuthURLWithPrompt(stateParam, false)
+	http.Redirect(w, r, upstreamURL, http.StatusFound)
+	return true
+}
+
 // handleCallbackEndpoint handles GET /oauth/callback.
 // It receives the callback from the upstream IdP and exchanges the code for tokens.
 func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET required")
+		return
+	}
+
+	// Check for login_required error from prompt=none (silent SSO fallback)
+	if s.handleLoginRequiredError(w, r) {
 		return
 	}
 
@@ -635,16 +676,27 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 }
 
 // buildUpstreamAuthURL builds the authorization URL for the upstream IdP.
-// Does not set the prompt parameter, allowing standard OIDC behavior:
-// - User has session: Keycloak silently redirects with auth code (SSO)
-// - No session: Keycloak shows login form, then redirects after login
+// Uses prompt=none by default to attempt silent SSO per OpenID Connect Core
+// Section 3.1.2.1. If the user has an active IdP session, the IdP silently
+// issues an authorization code. If not, the IdP returns error=login_required,
+// which handleLoginRequiredError catches and retries without prompt=none.
 func (s *Server) buildUpstreamAuthURL(state string) string {
+	return s.buildUpstreamAuthURLWithPrompt(state, true)
+}
+
+// buildUpstreamAuthURLWithPrompt builds the upstream IdP authorization URL.
+// When usePromptNone is true, adds prompt=none for silent SSO.
+// When false, omits prompt so the IdP shows its login form.
+func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool) string {
 	params := url.Values{}
 	params.Set("response_type", "code")
 	params.Set("client_id", s.config.Upstream.ClientID)
 	params.Set("redirect_uri", s.config.Upstream.RedirectURI)
 	params.Set("state", state)
 	params.Set("scope", "openid email profile")
+	if usePromptNone {
+		params.Set("prompt", "none")
+	}
 
 	// Construct the authorization URL
 	authURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/auth"
