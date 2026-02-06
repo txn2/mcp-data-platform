@@ -222,8 +222,8 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 # Run with config file
 ./mcp-data-platform --config configs/platform.yaml
 
-# Run with SSE transport
-./mcp-data-platform --transport sse --address :8080
+# Run with HTTP transport (serves both SSE and Streamable HTTP)
+./mcp-data-platform --transport http --address :8080
 ```
 
 ## Configuration Reference
