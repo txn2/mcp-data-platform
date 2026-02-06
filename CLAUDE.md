@@ -372,4 +372,22 @@ gosec ./...
 
 # Run specific package tests
 go test -race ./pkg/platform/...
+
+# Run dead code analysis (informational)
+make dead-code
+
+# Run mutation testing (informational)
+make mutate
 ```
+
+## AI Verification Requirements
+
+When AI (Claude Code or similar) contributes code, the following additional checks apply:
+
+1. **No Tautological Tests**: Tests must verify behavior, not struct field assignment. A test that sets `x.Field = "value"` then asserts `x.Field == "value"` tests the Go compiler, not the application. Delete such tests on sight.
+
+2. **Integration Tests for Multi-Component Features**: Unit tests alone are insufficient for features that span middleware chains, provider pipelines, or context propagation. Require an integration test that wires up the real assembled system (e.g., `mcp.Server` + `AddReceivingMiddleware` + in-memory transport + real `CallTool`).
+
+3. **Mutation Survival Review**: After adding tests, run `make mutate` on the affected packages. Surviving mutants in security-critical paths (auth, audit, encryption) must be addressed with targeted tests. Informational mutants in logging or formatting may be deferred.
+
+4. **Dead Code Audit**: Run `make dead-code` before submitting. Functions reported as dead should be either deleted or moved to test files. Public API functions may be false positives (library exports) and can be ignored with justification.
