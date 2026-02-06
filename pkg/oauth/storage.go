@@ -3,6 +3,7 @@ package oauth
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -80,13 +81,51 @@ func (t *RefreshToken) IsExpired() bool {
 }
 
 // ValidRedirectURI checks if a redirect URI is valid for this client.
+// For loopback redirect URIs (127.0.0.1, [::1], localhost), matching follows
+// RFC 8252 Section 7.3: scheme and host must match, but port and path are ignored.
 func (c *Client) ValidRedirectURI(uri string) bool {
 	for _, registered := range c.RedirectURIs {
-		if registered == uri {
+		if matchesRedirectURI(registered, uri) {
 			return true
 		}
 	}
 	return false
+}
+
+// isLoopbackURI checks if a URI is a loopback redirect URI per RFC 8252 Section 7.3.
+// Loopback URIs use the http scheme with host 127.0.0.1, [::1], or localhost.
+func isLoopbackURI(uri string) bool {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	return host == "127.0.0.1" || host == "::1" || host == "localhost"
+}
+
+// matchesRedirectURI checks if a requested redirect URI matches a registered one.
+// For loopback URIs (RFC 8252 Section 7.3), only scheme and host must match;
+// port and path are ignored because native apps use dynamic ports.
+// Non-loopback URIs require an exact string match.
+func matchesRedirectURI(registered, requested string) bool {
+	if registered == requested {
+		return true
+	}
+	if !isLoopbackURI(registered) || !isLoopbackURI(requested) {
+		return false
+	}
+	regURL, err := url.Parse(registered)
+	if err != nil {
+		return false
+	}
+	reqURL, err := url.Parse(requested)
+	if err != nil {
+		return false
+	}
+	return regURL.Scheme == reqURL.Scheme && regURL.Hostname() == reqURL.Hostname()
 }
 
 // SupportsGrantType checks if the client supports a grant type.
