@@ -718,6 +718,109 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		}
 	})
 
+	t.Run("loopback redirect_uri with different port succeeds", func(t *testing.T) {
+		// RFC 8252 Section 7.3: loopback URIs match by scheme+host only.
+		// Code was issued with one dynamic port, token exchange uses another.
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			RedirectURIs: []string{"http://localhost"},
+			Active:       true,
+		}
+		authCode := &AuthorizationCode{
+			Code:        "loopback-code",
+			ClientID:    "client-123",
+			UserID:      "user-123",
+			UserClaims:  map[string]any{"role": "admin"},
+			RedirectURI: "http://localhost:52431/callback",
+			Scope:       "read",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+			deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "loopback-code",
+			RedirectURI:  "http://localhost:52431/callback",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("expected non-empty access token")
+		}
+	})
+
+	t.Run("loopback redirect_uri port variation in token exchange", func(t *testing.T) {
+		// Code stored with port 52431, token exchange uses port 63000.
+		// Both are loopback, so this should succeed per RFC 8252.
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			RedirectURIs: []string{"http://127.0.0.1"},
+			Active:       true,
+		}
+		authCode := &AuthorizationCode{
+			Code:        "loopback-port-code",
+			ClientID:    "client-123",
+			UserID:      "user-123",
+			RedirectURI: "http://127.0.0.1:52431/callback",
+			Scope:       "read",
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+			Used:        false,
+		}
+
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+				return authCode, nil
+			},
+			deleteAuthorizationCodeFunc: func(_ context.Context, _ string) error {
+				return nil
+			},
+			saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		resp, err := server.Token(ctx, TokenRequest{
+			GrantType:    "authorization_code",
+			Code:         "loopback-port-code",
+			RedirectURI:  "http://127.0.0.1:63000/callback",
+			ClientID:     "client-123",
+			ClientSecret: "secret",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("expected non-empty access token")
+		}
+	})
+
 	t.Run("invalid client credentials", func(t *testing.T) {
 		client := &Client{
 			ClientID:     "client-123",
