@@ -99,7 +99,7 @@ Every data query includes business context from DataHub. Table descriptions, col
 Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
 
 ### Enterprise Security
-Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for SSE transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
+Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
 
 ### OAuth 2.1 Authentication
 Native support for OIDC providers (Keycloak, Auth0, Okta), API keys for service accounts, PKCE for public clients, and Dynamic Client Registration. Claude Desktop can authenticate through your existing identity provider.
@@ -166,7 +166,7 @@ mcp-data-platform implements a **fail-closed** security model designed for enter
 |---------|-------------|
 | **Fail-Closed Authentication** | Missing or invalid credentials deny access (never bypass) |
 | **Required JWT Claims** | Tokens must include `sub` and `exp` claims |
-| **TLS for SSE Transport** | Configurable TLS with warnings for plaintext connections |
+| **TLS for HTTP Transport** | Configurable TLS with warnings for plaintext connections |
 | **Prompt Injection Protection** | Metadata sanitization prevents injection attacks |
 | **Read-Only Mode** | Trino and S3 toolkits support enforced read-only access |
 | **Default-Deny Personas** | Users without explicit persona assignment have no tool access |
@@ -177,7 +177,7 @@ mcp-data-platform implements a **fail-closed** security model designed for enter
 | Transport | Authentication | TLS |
 |-----------|---------------|-----|
 | **stdio** | Not required (local execution) | N/A |
-| **SSE** | Required (Bearer token or API key) | Strongly recommended |
+| **HTTP** | Required (Bearer token or API key) | Strongly recommended |
 
 ---
 
@@ -210,8 +210,8 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 # Run with configuration file
 ./mcp-data-platform --config configs/platform.yaml
 
-# Run with SSE transport
-./mcp-data-platform --transport sse --address :8080
+# Run with HTTP transport (serves both SSE and Streamable HTTP)
+./mcp-data-platform --transport http --address :8080
 ```
 
 ### Claude Code CLI
