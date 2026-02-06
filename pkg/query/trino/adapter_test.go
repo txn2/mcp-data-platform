@@ -448,40 +448,6 @@ func TestNew(t *testing.T) {
 	})
 }
 
-func TestConfig(t *testing.T) {
-	cfg := Config{
-		Host:           "trino.example.com",
-		Port:           8443,
-		User:           "admin",
-		Password:       "secret",
-		Catalog:        "hive",
-		Schema:         "default",
-		SSL:            true,
-		SSLVerify:      true,
-		Timeout:        60000000000, // 60s in nanoseconds
-		DefaultLimit:   500,
-		MaxLimit:       5000,
-		ReadOnly:       true,
-		ConnectionName: "prod",
-	}
-
-	if cfg.Host != "trino.example.com" {
-		t.Errorf("unexpected Host: %s", cfg.Host)
-	}
-	if cfg.Port != 8443 {
-		t.Errorf("unexpected Port: %d", cfg.Port)
-	}
-	if !cfg.SSL {
-		t.Error("expected SSL to be true")
-	}
-	if !cfg.SSLVerify {
-		t.Error("expected SSLVerify to be true")
-	}
-	if !cfg.ReadOnly {
-		t.Error("expected ReadOnly to be true")
-	}
-}
-
 func TestAdapterCloseNilClient(t *testing.T) {
 	adapter := &Adapter{
 		client: nil,
