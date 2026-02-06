@@ -65,8 +65,10 @@ server:
 | `server.prompts[].name` | string | required | Prompt name |
 | `server.prompts[].description` | string | - | Prompt description |
 | `server.prompts[].content` | string | required | Prompt content returned by `prompts/get` |
-| `server.transport` | string | `stdio` | Transport: `stdio`, `sse` |
-| `server.address` | string | `:8080` | Listen address for SSE |
+| `server.transport` | string | `stdio` | Transport: `stdio`, `http` (`sse` accepted for backward compat) |
+| `server.address` | string | `:8080` | Listen address for HTTP transport |
+| `server.streamable.session_timeout` | duration | `30m` | How long an idle Streamable HTTP session persists before cleanup |
+| `server.streamable.stateless` | bool | `false` | Disable session tracking (no `Mcp-Session-Id` validation) |
 | `server.tls.enabled` | bool | `false` | Enable TLS |
 | `server.tls.cert_file` | string | - | TLS certificate path |
 | `server.tls.key_file` | string | - | TLS private key path |
