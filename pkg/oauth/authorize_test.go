@@ -322,6 +322,9 @@ func TestBuildUpstreamAuthURL(t *testing.T) {
 	if u.Query().Get("state") != "test-state" {
 		t.Errorf("expected state=test-state")
 	}
+	if u.Query().Get("prompt") != "none" {
+		t.Errorf("expected prompt=none, got %s", u.Query().Get("prompt"))
+	}
 }
 
 func TestBuildClientRedirectURL(t *testing.T) {
@@ -431,6 +434,242 @@ func TestExtractUserFromUpstreamToken(t *testing.T) {
 		}
 		if len(claims) != 0 {
 			t.Errorf("expected empty claims")
+		}
+	})
+}
+
+func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
+	storage := NewMemoryStorage()
+	server, _ := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		Upstream: &UpstreamConfig{
+			Issuer:       "http://keycloak:8180/realms/test",
+			ClientID:     "mcp-server",
+			ClientSecret: "secret",
+			RedirectURI:  "http://localhost:8080/oauth/callback",
+		},
+	}, storage)
+
+	t.Run("with prompt=none", func(t *testing.T) {
+		authURL := server.buildUpstreamAuthURLWithPrompt("test-state", true)
+		u, err := url.Parse(authURL)
+		if err != nil {
+			t.Fatalf("invalid URL: %v", err)
+		}
+		if u.Query().Get("prompt") != "none" {
+			t.Errorf("expected prompt=none, got %q", u.Query().Get("prompt"))
+		}
+		if u.Query().Get("state") != "test-state" {
+			t.Errorf("expected state=test-state, got %q", u.Query().Get("state"))
+		}
+	})
+
+	t.Run("without prompt", func(t *testing.T) {
+		authURL := server.buildUpstreamAuthURLWithPrompt("test-state", false)
+		u, err := url.Parse(authURL)
+		if err != nil {
+			t.Fatalf("invalid URL: %v", err)
+		}
+		if u.Query().Get("prompt") != "" {
+			t.Errorf("expected no prompt param, got %q", u.Query().Get("prompt"))
+		}
+		if u.Query().Get("client_id") != "mcp-server" {
+			t.Errorf("expected client_id=mcp-server, got %q", u.Query().Get("client_id"))
+		}
+	})
+}
+
+func TestHandleLoginRequiredError(t *testing.T) {
+	storage := NewMemoryStorage()
+	server, _ := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		Upstream: &UpstreamConfig{
+			Issuer:       "http://keycloak:8180/realms/test",
+			ClientID:     "mcp-server",
+			ClientSecret: "secret",
+			RedirectURI:  "http://localhost:8080/oauth/callback",
+		},
+	}, storage)
+
+	t.Run("handles login_required with redirect", func(t *testing.T) {
+		state := &AuthorizationState{
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			State:       "client-state",
+			CreatedAt:   time.Now(),
+		}
+		_ = server.stateStore.Save("upstream-state", state)
+
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", nil)
+		w := httptest.NewRecorder()
+
+		handled := server.handleLoginRequiredError(w, req)
+		if !handled {
+			t.Fatal("expected handleLoginRequiredError to return true")
+		}
+		if w.Code != http.StatusFound {
+			t.Errorf("expected 302, got %d", w.Code)
+		}
+
+		location := w.Header().Get("Location")
+		u, err := url.Parse(location)
+		if err != nil {
+			t.Fatalf("invalid redirect URL: %v", err)
+		}
+		// Should NOT have prompt=none on the retry
+		if u.Query().Get("prompt") != "" {
+			t.Errorf("expected no prompt param on retry, got %q", u.Query().Get("prompt"))
+		}
+		if u.Host != "keycloak:8180" {
+			t.Errorf("expected redirect to keycloak, got %s", u.Host)
+		}
+
+		// Verify state was marked as attempted
+		savedState, _ := server.stateStore.Get("upstream-state")
+		if !savedState.PromptNoneAttempted {
+			t.Error("expected PromptNoneAttempted to be true")
+		}
+	})
+
+	t.Run("returns false for other errors", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&state=some-state", nil)
+		w := httptest.NewRecorder()
+
+		handled := server.handleLoginRequiredError(w, req)
+		if handled {
+			t.Error("expected false for non-login_required error")
+		}
+	})
+
+	t.Run("returns false when state is missing", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required", nil)
+		w := httptest.NewRecorder()
+
+		handled := server.handleLoginRequiredError(w, req)
+		if handled {
+			t.Error("expected false when state param is empty")
+		}
+	})
+
+	t.Run("returns false when state not found in store", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=nonexistent", nil)
+		w := httptest.NewRecorder()
+
+		handled := server.handleLoginRequiredError(w, req)
+		if handled {
+			t.Error("expected false when state not found in store")
+		}
+	})
+
+	t.Run("prevents infinite loop when already attempted", func(t *testing.T) {
+		state := &AuthorizationState{
+			ClientID:            "client-123",
+			RedirectURI:         "http://localhost:8080/callback",
+			State:               "client-state",
+			PromptNoneAttempted: true, // Already attempted
+			CreatedAt:           time.Now(),
+		}
+		_ = server.stateStore.Save("loop-state", state)
+
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", nil)
+		w := httptest.NewRecorder()
+
+		handled := server.handleLoginRequiredError(w, req)
+		if handled {
+			t.Error("expected false to prevent infinite redirect loop")
+		}
+	})
+}
+
+func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+
+	t.Run("login_required retry redirects to upstream", func(t *testing.T) {
+		storage := NewMemoryStorage()
+		client := &Client{
+			ClientID:     "client-123",
+			ClientSecret: string(hashedSecret),
+			RedirectURIs: []string{"http://localhost:8080/callback"},
+			Active:       true,
+		}
+		_ = storage.CreateClient(context.Background(), client)
+
+		server, _ := NewServer(ServerConfig{
+			Issuer: "http://localhost:8080",
+			Upstream: &UpstreamConfig{
+				Issuer:       "http://keycloak:8180/realms/test",
+				ClientID:     "mcp-server",
+				ClientSecret: "secret",
+				RedirectURI:  "http://localhost:8080/oauth/callback",
+			},
+		}, storage)
+
+		// Save state simulating initial prompt=none attempt
+		state := &AuthorizationState{
+			ClientID:    "client-123",
+			RedirectURI: "http://localhost:8080/callback",
+			State:       "client-state",
+			CreatedAt:   time.Now(),
+		}
+		_ = server.stateStore.Save("upstream-state", state)
+
+		// Simulate Keycloak returning login_required (user has no session)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", nil)
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusFound {
+			t.Fatalf("expected 302, got %d: %s", w.Code, w.Body.String())
+		}
+
+		location := w.Header().Get("Location")
+		u, err := url.Parse(location)
+		if err != nil {
+			t.Fatalf("invalid redirect URL: %v", err)
+		}
+
+		// Should redirect to Keycloak without prompt=none
+		if u.Host != "keycloak:8180" {
+			t.Errorf("expected redirect to keycloak, got %s", u.Host)
+		}
+		if u.Query().Get("prompt") != "" {
+			t.Errorf("expected no prompt on retry, got %q", u.Query().Get("prompt"))
+		}
+		if u.Query().Get("state") != "upstream-state" {
+			t.Errorf("expected same upstream state, got %q", u.Query().Get("state"))
+		}
+	})
+
+	t.Run("login_required loop prevention falls through to error", func(t *testing.T) {
+		storage := NewMemoryStorage()
+		server, _ := NewServer(ServerConfig{
+			Issuer: "http://localhost:8080",
+			Upstream: &UpstreamConfig{
+				Issuer:       "http://keycloak:8180/realms/test",
+				ClientID:     "mcp-server",
+				ClientSecret: "secret",
+				RedirectURI:  "http://localhost:8080/oauth/callback",
+			},
+		}, storage)
+
+		// Save state with PromptNoneAttempted already true
+		state := &AuthorizationState{
+			ClientID:            "client-123",
+			RedirectURI:         "http://localhost:8080/callback",
+			State:               "client-state",
+			PromptNoneAttempted: true,
+			CreatedAt:           time.Now(),
+		}
+		_ = server.stateStore.Save("loop-state", state)
+
+		// login_required again after retry — should fall through to generic error handler
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", nil)
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, req)
+
+		// Should fall through to generic error response (400)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 on loop prevention, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
