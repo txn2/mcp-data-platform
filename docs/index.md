@@ -359,7 +359,7 @@ Built with a **fail-closed** security model. Missing credentials deny access, ne
 |---------|-------------|
 | **Fail-Closed Authentication** | Invalid credentials = denied (never bypass) |
 | **Required JWT Claims** | Tokens must include `sub` and `exp` |
-| **TLS for SSE** | Configurable TLS with plaintext warnings |
+| **TLS for HTTP** | Configurable TLS with plaintext warnings |
 | **Prompt Injection Protection** | Metadata sanitization |
 | **Read-Only Mode** | Enforced at query level |
 | **Default-Deny Personas** | No implicit tool access |
