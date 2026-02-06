@@ -192,7 +192,7 @@ TOKEN=$(curl -s -X POST "https://auth.example.com/token" \
   -d "client_id=test-client" \
   -d "client_secret=secret" | jq -r '.access_token')
 
-# Test with the platform (if using SSE transport)
+# Test with the platform (if using HTTP transport)
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/sse
 ```
