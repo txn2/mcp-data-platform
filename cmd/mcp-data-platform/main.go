@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
@@ -175,15 +177,27 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 }
 
 // newSSEHandler creates an SSE handler with auth middleware.
-func newSSEHandler(mcpServer *mcp.Server, requireAuth bool) http.Handler {
+func newSSEHandler(mcpServer *mcp.Server, requireAuth bool, resourceMetadataURL string) http.Handler {
 	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, nil)
 
+	if requireAuth && resourceMetadataURL != "" {
+		return httpauth.RequireAuthWithOAuth(resourceMetadataURL)(sseHandler)
+	}
 	if requireAuth {
 		return httpauth.RequireAuth()(sseHandler)
 	}
 	return httpauth.OptionalAuth()(sseHandler)
+}
+
+// resourceMetadataURL returns the protected resource metadata URL if OAuth is
+// enabled, or empty string otherwise.
+func resourceMetadataURL(p *platform.Platform) string {
+	if p == nil || p.OAuthServer() == nil {
+		return ""
+	}
+	return p.Config().OAuth.Issuer + "/.well-known/oauth-protected-resource"
 }
 
 func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
@@ -200,23 +214,48 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		log.Println("OAuth server enabled")
 	}
 
+	// Mount OAuth protected resource metadata (RFC 9728) when OAuth is
+	// enabled. MCP clients discover the authorization server from this
+	// endpoint after receiving an HTTP 401 with WWW-Authenticate header.
+	rmURL := resourceMetadataURL(p)
+	if rmURL != "" {
+		issuer := p.Config().OAuth.Issuer
+		mux.Handle("/.well-known/oauth-protected-resource",
+			sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
+				Resource:               issuer,
+				AuthorizationServers:   []string{issuer},
+				BearerMethodsSupported: []string{"header"},
+				ResourceName:           p.Config().Server.Name,
+			}))
+		log.Println("OAuth protected resource metadata enabled on /.well-known/oauth-protected-resource")
+	}
+
 	// Mount SSE handler (legacy clients)
-	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth)
+	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
 	mux.Handle("/sse", wrappedSSE)
 	mux.Handle("/message", wrappedSSE)
 	log.Println("SSE transport enabled on /sse, /message")
 
-	// Mount Streamable HTTP handler at root (modern clients)
+	// Mount Streamable HTTP handler at root (modern clients).
+	// MCPAuthGateway returns HTTP 401 with WWW-Authenticate header when
+	// no credentials are present, triggering the OAuth discovery flow in
+	// MCP clients (Claude.ai, Claude Desktop). Once a token is present,
+	// bridgeAuthToken in MCPToolCallMiddleware extracts it from
+	// RequestExtra.Header into the MCP context for authentication.
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
 		SessionTimeout: hcfg.streamableCfg.SessionTimeout,
 		Stateless:      hcfg.streamableCfg.Stateless,
 	})
-	// Streamable HTTP handles auth via RequestExtra headers (bridged in
-	// MCPToolCallMiddleware), so no HTTP-level auth middleware is needed.
-	mux.Handle("/", streamableHandler)
-	log.Println("Streamable HTTP transport enabled on /")
+
+	if hcfg.requireAuth {
+		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(streamableHandler))
+		log.Println("Streamable HTTP transport enabled on / (auth required)")
+	} else {
+		mux.Handle("/", streamableHandler)
+		log.Println("Streamable HTTP transport enabled on / (anonymous)")
+	}
 
 	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg)
 }

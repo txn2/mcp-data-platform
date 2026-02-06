@@ -149,3 +149,162 @@ func TestOptionalAuth(t *testing.T) {
 		t.Error("OptionalAuth should call handler without token")
 	}
 }
+
+func TestMCPAuthGateway(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("returns 401 with WWW-Authenticate when no credentials", func(t *testing.T) {
+		rmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+		handler := MCPAuthGateway(rmURL)(okHandler)
+
+		req := httptest.NewRequest("POST", "/", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rr.Code)
+		}
+		wwwAuth := rr.Header().Get("WWW-Authenticate")
+		expected := `Bearer resource_metadata="` + rmURL + `"`
+		if wwwAuth != expected {
+			t.Errorf("WWW-Authenticate header = %q, want %q", wwwAuth, expected)
+		}
+	})
+
+	t.Run("returns 401 with plain Bearer when no resource metadata URL", func(t *testing.T) {
+		handler := MCPAuthGateway("")(okHandler)
+
+		req := httptest.NewRequest("POST", "/", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rr.Code)
+		}
+		if got := rr.Header().Get("WWW-Authenticate"); got != "Bearer" {
+			t.Errorf("WWW-Authenticate header = %q, want %q", got, "Bearer")
+		}
+	})
+
+	t.Run("passes through with Bearer token", func(t *testing.T) {
+		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(okHandler)
+
+		req := httptest.NewRequest("POST", "/", nil)
+		req.Header.Set("Authorization", "Bearer some-token")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("passes through with API key", func(t *testing.T) {
+		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(okHandler)
+
+		req := httptest.NewRequest("POST", "/", nil)
+		req.Header.Set("X-API-Key", "some-api-key")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("rejects Authorization header without Bearer prefix", func(t *testing.T) {
+		handler := MCPAuthGateway("")(okHandler)
+
+		req := httptest.NewRequest("POST", "/", nil)
+		req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401 for Basic auth, got %d", rr.Code)
+		}
+	})
+}
+
+func TestRequireAuthWithOAuth(t *testing.T) {
+	rmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+
+	t.Run("returns 401 with WWW-Authenticate when no token", func(t *testing.T) {
+		handler := RequireAuthWithOAuth(rmURL)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "/sse", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rr.Code)
+		}
+		wwwAuth := rr.Header().Get("WWW-Authenticate")
+		expected := `Bearer resource_metadata="` + rmURL + `"`
+		if wwwAuth != expected {
+			t.Errorf("WWW-Authenticate header = %q, want %q", wwwAuth, expected)
+		}
+	})
+
+	t.Run("returns 401 with plain Bearer when no resource metadata URL", func(t *testing.T) {
+		handler := RequireAuthWithOAuth("")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "/sse", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rr.Code)
+		}
+		if got := rr.Header().Get("WWW-Authenticate"); got != "Bearer" {
+			t.Errorf("WWW-Authenticate header = %q, want %q", got, "Bearer")
+		}
+	})
+
+	t.Run("passes through and sets token with Bearer", func(t *testing.T) {
+		var extractedToken string
+		handler := RequireAuthWithOAuth(rmURL)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			extractedToken = auth.GetToken(r.Context())
+		}))
+
+		req := httptest.NewRequest("GET", "/sse", nil)
+		req.Header.Set("Authorization", "Bearer my-oauth-token")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if extractedToken != "my-oauth-token" {
+			t.Errorf("expected token 'my-oauth-token', got %q", extractedToken)
+		}
+	})
+
+	t.Run("passes through and sets token with API key", func(t *testing.T) {
+		var extractedToken string
+		handler := RequireAuthWithOAuth(rmURL)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			extractedToken = auth.GetToken(r.Context())
+		}))
+
+		req := httptest.NewRequest("GET", "/sse", nil)
+		req.Header.Set("X-API-Key", "my-api-key")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if extractedToken != "my-api-key" {
+			t.Errorf("expected token 'my-api-key', got %q", extractedToken)
+		}
+	})
+}

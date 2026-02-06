@@ -201,16 +201,59 @@ func TestNewSSEHandler(t *testing.T) {
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
 
 	t.Run("without auth", func(t *testing.T) {
-		handler := newSSEHandler(mcpServer, false)
+		handler := newSSEHandler(mcpServer, false, "")
 		if handler == nil {
 			t.Fatal("expected non-nil handler")
 		}
 	})
 
-	t.Run("with auth", func(t *testing.T) {
-		handler := newSSEHandler(mcpServer, true)
+	t.Run("with auth no OAuth", func(t *testing.T) {
+		handler := newSSEHandler(mcpServer, true, "")
 		if handler == nil {
 			t.Fatal("expected non-nil handler")
+		}
+	})
+
+	t.Run("with auth and OAuth", func(t *testing.T) {
+		handler := newSSEHandler(mcpServer, true, "https://mcp.example.com/.well-known/oauth-protected-resource")
+		if handler == nil {
+			t.Fatal("expected non-nil handler")
+		}
+	})
+}
+
+func TestResourceMetadataURL(t *testing.T) {
+	t.Run("returns empty for nil platform", func(t *testing.T) {
+		if got := resourceMetadataURL(nil); got != "" {
+			t.Errorf("resourceMetadataURL(nil) = %q, want empty", got)
+		}
+	})
+
+	t.Run("returns empty when OAuth not enabled", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+		})
+		defer p.Close()
+
+		if got := resourceMetadataURL(p); got != "" {
+			t.Errorf("resourceMetadataURL = %q, want empty (OAuth not enabled)", got)
+		}
+	})
+
+	t.Run("returns URL when OAuth enabled", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			OAuth: platform.OAuthConfig{
+				Enabled:    true,
+				Issuer:     "https://mcp.example.com",
+				SigningKey: "dGVzdC1zaWduaW5nLWtleS0xMjM0NTY3ODkwYWJjZGVm", // base64, 33 bytes
+			},
+		})
+		defer p.Close()
+
+		want := "https://mcp.example.com/.well-known/oauth-protected-resource"
+		if got := resourceMetadataURL(p); got != want {
+			t.Errorf("resourceMetadataURL = %q, want %q", got, want)
 		}
 	})
 }
