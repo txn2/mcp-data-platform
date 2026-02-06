@@ -929,27 +929,6 @@ func TestFieldToColumnContextEdgeCases(t *testing.T) {
 	}
 }
 
-func TestConfig_DebugField(t *testing.T) {
-	t.Run("debug can be set to true", func(t *testing.T) {
-		cfg := Config{
-			URL:   "http://datahub.example.com:8080",
-			Debug: true,
-		}
-		if !cfg.Debug {
-			t.Error("expected Debug to be true when set")
-		}
-	})
-
-	t.Run("debug defaults to false", func(t *testing.T) {
-		cfg := Config{
-			URL: "http://datahub.example.com:8080",
-		}
-		if cfg.Debug {
-			t.Error("expected Debug to default to false")
-		}
-	})
-}
-
 // Verify Adapter implements interfaces.
 var (
 	_ semantic.Provider    = (*Adapter)(nil)

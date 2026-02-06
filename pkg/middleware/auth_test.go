@@ -89,26 +89,6 @@ func TestNewToolResultText(t *testing.T) {
 	}
 }
 
-func TestUserInfo(t *testing.T) {
-	info := UserInfo{
-		UserID:   "user123",
-		Email:    "user@example.com",
-		Claims:   map[string]any{"role": "admin"},
-		Roles:    []string{"admin", "viewer"},
-		AuthType: "oidc",
-	}
-
-	if info.UserID != "user123" {
-		t.Errorf("unexpected UserID: %s", info.UserID)
-	}
-	if info.Email != "user@example.com" {
-		t.Errorf("unexpected Email: %s", info.Email)
-	}
-	if len(info.Roles) != 2 {
-		t.Errorf("unexpected Roles count: %d", len(info.Roles))
-	}
-}
-
 // Verify interface compliance.
 var _ Authenticator = (*NoopAuthenticator)(nil)
 var _ Authenticator = (*mockAuthenticator)(nil)

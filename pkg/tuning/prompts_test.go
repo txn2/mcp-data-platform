@@ -253,12 +253,3 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptConfig(t *testing.T) {
-	cfg := PromptConfig{
-		PromptsDir: "/path/to/prompts",
-	}
-
-	if cfg.PromptsDir != "/path/to/prompts" {
-		t.Errorf("PromptsDir = %q", cfg.PromptsDir)
-	}
-}

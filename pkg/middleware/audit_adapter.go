@@ -23,13 +23,6 @@ func NewAuditStoreAdapter(store *auditpostgres.Store) AuditLogger {
 	return &auditStoreAdapter{store: store}
 }
 
-// newAuditStoreAdapterWithStore creates an AuditLogger with a custom store (for testing).
-//
-//nolint:unused // Used in tests only
-func newAuditStoreAdapterWithStore(store auditStore) AuditLogger {
-	return &auditStoreAdapter{store: store}
-}
-
 // Log records an audit event by converting from middleware.AuditEvent to audit.Event.
 func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 	// Convert middleware.AuditEvent to audit.Event

@@ -69,11 +69,45 @@ func TestAuditEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Verify ALL 12 fields survive JSON round-trip
+	if !unmarshaled.Timestamp.Equal(now) {
+		t.Errorf("Timestamp = %v, want %v", unmarshaled.Timestamp, now)
+	}
+	if unmarshaled.RequestID != "req-123" {
+		t.Errorf("RequestID = %q, want %q", unmarshaled.RequestID, "req-123")
+	}
+	if unmarshaled.UserID != "user123" {
+		t.Errorf("UserID = %q, want %q", unmarshaled.UserID, "user123")
+	}
+	if unmarshaled.UserEmail != "user@test.com" {
+		t.Errorf("UserEmail = %q, want %q", unmarshaled.UserEmail, "user@test.com")
+	}
+	if unmarshaled.Persona != "analyst" {
+		t.Errorf("Persona = %q, want %q", unmarshaled.Persona, "analyst")
+	}
 	if unmarshaled.ToolName != "trino_query" {
-		t.Errorf("expected ToolName 'trino_query', got %q", unmarshaled.ToolName)
+		t.Errorf("ToolName = %q, want %q", unmarshaled.ToolName, "trino_query")
+	}
+	if unmarshaled.ToolkitKind != "trino" {
+		t.Errorf("ToolkitKind = %q, want %q", unmarshaled.ToolkitKind, "trino")
+	}
+	if unmarshaled.ToolkitName != "main-trino" {
+		t.Errorf("ToolkitName = %q, want %q", unmarshaled.ToolkitName, "main-trino")
+	}
+	if unmarshaled.Connection != "prod" {
+		t.Errorf("Connection = %q, want %q", unmarshaled.Connection, "prod")
+	}
+	if unmarshaled.Parameters["query"] != "SELECT 1" {
+		t.Errorf("Parameters[query] = %v, want 'SELECT 1'", unmarshaled.Parameters["query"])
+	}
+	if !unmarshaled.Success {
+		t.Errorf("Success = false, want true")
+	}
+	if unmarshaled.ErrorMessage != "" {
+		t.Errorf("ErrorMessage = %q, want empty", unmarshaled.ErrorMessage)
 	}
 	if unmarshaled.DurationMS != 100 {
-		t.Errorf("expected DurationMS 100, got %d", unmarshaled.DurationMS)
+		t.Errorf("DurationMS = %d, want 100", unmarshaled.DurationMS)
 	}
 }
 

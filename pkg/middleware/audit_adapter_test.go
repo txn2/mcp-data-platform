@@ -25,6 +25,11 @@ func (m *mockAuditStore) Log(_ context.Context, event audit.Event) error {
 	return nil
 }
 
+// newAuditStoreAdapterWithStore creates an AuditLogger with a custom store (for testing).
+func newAuditStoreAdapterWithStore(store auditStore) AuditLogger {
+	return &auditStoreAdapter{store: store}
+}
+
 func TestNewAuditStoreAdapter(t *testing.T) {
 	// Test with nil store (just verifies constructor doesn't panic)
 	adapter := NewAuditStoreAdapter(nil)

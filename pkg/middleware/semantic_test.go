@@ -13,28 +13,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
-func TestEnrichmentConfig(t *testing.T) {
-	cfg := EnrichmentConfig{
-		EnrichTrinoResults:          true,
-		EnrichDataHubResults:        true,
-		EnrichS3Results:             true,
-		EnrichDataHubStorageResults: true,
-	}
-
-	if !cfg.EnrichTrinoResults {
-		t.Error("expected EnrichTrinoResults to be true")
-	}
-	if !cfg.EnrichDataHubResults {
-		t.Error("expected EnrichDataHubResults to be true")
-	}
-	if !cfg.EnrichS3Results {
-		t.Error("expected EnrichS3Results to be true")
-	}
-	if !cfg.EnrichDataHubStorageResults {
-		t.Error("expected EnrichDataHubStorageResults to be true")
-	}
-}
-
 func TestExtractTableFromRequest(t *testing.T) {
 	t.Run("empty arguments", func(t *testing.T) {
 		request := mcp.CallToolRequest{
