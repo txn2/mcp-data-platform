@@ -268,12 +268,12 @@ semantic:
 
     No MCP authentication needed. Uses your configured DataHub/Trino/S3 credentials.
 
-=== "Remote (SSE)"
+=== "Remote (HTTP)"
 
     Deploy as a shared service with Keycloak authentication:
 
     ```bash
-    mcp-data-platform --config platform.yaml --transport sse --address :8443
+    mcp-data-platform --config platform.yaml --transport http --address :8443
     ```
 
     Users connect via Claude Desktop and authenticate through your identity provider.
@@ -370,8 +370,8 @@ Built with a **fail-closed** security model. Missing credentials deny access, ne
 
 ## Runs With
 
-- Claude Desktop (add the SSE endpoint)
-- Claude Code (stdio or SSE)
+- Claude Desktop (HTTP endpoint or stdio)
+- Claude Code (stdio or HTTP)
 - Any MCP client
 
 ---

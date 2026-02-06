@@ -102,7 +102,7 @@ lsof -i :8080
 kill -9 <PID>
 
 # Or use a different port
-mcp-data-platform --transport sse --address :8081
+mcp-data-platform --transport http --address :8081
 ```
 
 ---
@@ -331,7 +331,7 @@ auth:
 **Step 3: Test the key directly**
 
 ```bash
-# For SSE transport
+# For HTTP transport
 curl -H "Authorization: Bearer $API_KEY_ADMIN" \
   http://localhost:8080/health
 ```
@@ -633,7 +633,7 @@ mcp-data-platform --config platform.yaml 2>&1 | tee debug.log
 ### Log format
 
 ```
-2024-01-15T10:30:45.123Z INFO  server started address=:8080 transport=sse
+2024-01-15T10:30:45.123Z INFO  server started address=:8080 transport=http
 2024-01-15T10:30:46.456Z DEBUG auth middleware: validating token
 2024-01-15T10:30:46.457Z DEBUG persona middleware: resolved persona=analyst
 2024-01-15T10:30:46.458Z INFO  tool call tool=trino_query user=user@example.com persona=analyst

@@ -243,7 +243,7 @@ For connecting Claude Desktop to a remote MCP server with Keycloak authenticatio
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8080"
 
 oauth:

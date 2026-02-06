@@ -234,7 +234,7 @@ Configuration is loaded from YAML with environment variable expansion (`${VAR_NA
 ```yaml
 server:
   name: mcp-data-platform
-  transport: stdio          # stdio, sse
+  transport: stdio          # stdio, http
   address: ":8080"
 ```
 

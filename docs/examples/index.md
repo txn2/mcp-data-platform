@@ -17,7 +17,7 @@ Full audit logging for regulatory compliance (SOC 2, HIPAA, GDPR).
 ```yaml
 server:
   name: mcp-data-platform
-  transport: sse
+  transport: http
   address: ":8443"
   tls:
     enabled: true
@@ -241,7 +241,7 @@ Configuration optimized for business users exploring data through AI.
 ```yaml
 server:
   name: analytics-assistant
-  transport: sse
+  transport: http
   address: ":8080"
 
 toolkits:
@@ -458,7 +458,7 @@ Configuration for autonomous AI agents discovering data.
 ```yaml
 server:
   name: ml-data-explorer
-  transport: sse
+  transport: http
   address: ":8080"
 
 toolkits:

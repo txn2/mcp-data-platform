@@ -147,8 +147,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--config` | Path to YAML configuration file | None |
-| `--transport` | Transport protocol: `stdio` or `http` (`sse` accepted for backward compat) | `stdio` |
-| `--address` | Listen address for HTTP transport | `:8080` |
+| `--transport` | Transport protocol: `stdio` or `http` | `stdio` |
+| `--address` | Listen address for HTTP transports | `:8080` |
 
 ---
 
@@ -192,8 +192,8 @@ injection:
 | `server.tags` | array | `[]` | Keywords for discovery: company names, product names, business domains. Agents match these against user questions. |
 | `server.agent_instructions` | string | - | Operational guidance: data conventions, required filters, unit conversions. Returned in `platform_info` response. |
 | `server.prompts` | array | `[]` | Platform-level MCP prompts (name, description, content) registered via `prompts/list` |
-| `server.transport` | string | `stdio` | Transport: `stdio` or `http` (`sse` accepted for backward compat) |
-| `server.address` | string | `:8080` | Listen address for HTTP transport |
+| `server.transport` | string | `stdio` | Transport: `stdio` or `http` (`sse` accepted for backward compatibility) |
+| `server.address` | string | `:8080` | Listen address for HTTP transports |
 | `server.streamable.session_timeout` | duration | `30m` | How long an idle Streamable HTTP session persists before cleanup |
 | `server.streamable.stateless` | bool | `false` | Disable session tracking (no `Mcp-Session-Id` validation) |
 
@@ -301,7 +301,7 @@ mcp-data-platform implements a **fail-closed** security model. Missing or invali
 
 No MCP authentication required. The server runs on your machine using credentials you configured.
 
-## SSE Transport (Remote/Shared)
+## HTTP Transport (Remote/Shared)
 
 Authentication identifies who is making requests. Anonymous access is disabled by default.
 

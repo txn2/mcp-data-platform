@@ -42,7 +42,7 @@ For development or simple deployments with known clients:
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8080"
 
 oauth:
@@ -64,7 +64,7 @@ For production deployments with Keycloak as the identity provider:
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8080"
   tls:
     enabled: true
