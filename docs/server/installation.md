@@ -122,24 +122,24 @@ Restart Claude Desktop to load the new server.
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--config` | Path to YAML configuration file | None |
-| `--transport` | Transport protocol: `stdio` or `sse` | `stdio` |
-| `--address` | Listen address for SSE transport | `:8080` |
+| `--transport` | Transport protocol: `stdio` or `http` (`sse` accepted for backward compat) | `stdio` |
+| `--address` | Listen address for HTTP transport | `:8080` |
 | `--version` | Print version and exit | - |
 | `--help` | Print help message | - |
 
-## Running with SSE Transport
+## Running with HTTP Transport
 
 For remote access or web-based clients:
 
 ```bash
-mcp-data-platform --config platform.yaml --transport sse --address :8080
+mcp-data-platform --config platform.yaml --transport http --address :8080
 ```
 
 With TLS:
 
 ```yaml
 server:
-  transport: sse
+  transport: http
   address: ":8443"
   tls:
     enabled: true
