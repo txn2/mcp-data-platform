@@ -29,6 +29,11 @@ type AuthorizationState struct {
 	// UpstreamState is the state for the upstream IdP (e.g., Keycloak).
 	UpstreamState string
 
+	// PromptNoneAttempted tracks whether we already tried prompt=none
+	// for this flow. Used to prevent infinite redirect loops when the
+	// upstream IdP returns login_required.
+	PromptNoneAttempted bool
+
 	// CreatedAt is when this state was created.
 	CreatedAt time.Time
 }
