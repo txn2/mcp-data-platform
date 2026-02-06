@@ -166,7 +166,7 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
     volumes:
       - ./platform.yaml:/etc/mcp/platform.yaml:ro
-    command: ["--config", "/etc/mcp/platform.yaml", "--transport", "sse", "--address", ":8080"]
+    command: ["--config", "/etc/mcp/platform.yaml", "--transport", "http", "--address", ":8080"]
     ports:
       - "8080:8080"
     depends_on:
@@ -189,7 +189,7 @@ Create `platform.yaml`:
 ```yaml
 server:
   name: mcp-data-platform
-  transport: sse
+  transport: http
   address: ":8080"
 
 toolkits:
@@ -277,7 +277,7 @@ For rapid iteration during development:
 docker compose up -d postgres elasticsearch kafka zookeeper schema-registry datahub-gms trino keycloak
 
 # Run mcp-data-platform locally
-go run ./cmd/mcp-data-platform --config platform.yaml --transport sse --address :8080
+go run ./cmd/mcp-data-platform --config platform.yaml --transport http --address :8080
 ```
 
 ---
@@ -396,7 +396,7 @@ pdb:
 config:
   server:
     name: mcp-data-platform
-    transport: sse
+    transport: http
     address: ":8080"
     tls:
       enabled: false  # TLS terminates at ingress
@@ -487,7 +487,7 @@ spec:
             - --config
             - /etc/mcp/platform.yaml
             - --transport
-            - sse
+            - http
             - --address
             - :8080
           ports:
