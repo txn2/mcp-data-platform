@@ -190,8 +190,12 @@ func TestMCPAuthGateway(t *testing.T) {
 		}
 	})
 
-	t.Run("passes through with Bearer token", func(t *testing.T) {
-		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(okHandler)
+	t.Run("passes through with Bearer token and bridges to context", func(t *testing.T) {
+		var extractedToken string
+		inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			extractedToken = auth.GetToken(r.Context())
+		})
+		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(inner)
 
 		req := httptest.NewRequest("POST", "/", nil)
 		req.Header.Set("Authorization", "Bearer some-token")
@@ -199,13 +203,17 @@ func TestMCPAuthGateway(t *testing.T) {
 
 		handler.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected status 200, got %d", rr.Code)
+		if extractedToken != "some-token" {
+			t.Errorf("expected token 'some-token' in context, got %q", extractedToken)
 		}
 	})
 
-	t.Run("passes through with API key", func(t *testing.T) {
-		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(okHandler)
+	t.Run("passes through with API key and bridges to context", func(t *testing.T) {
+		var extractedToken string
+		inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			extractedToken = auth.GetToken(r.Context())
+		})
+		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(inner)
 
 		req := httptest.NewRequest("POST", "/", nil)
 		req.Header.Set("X-API-Key", "some-api-key")
@@ -213,8 +221,8 @@ func TestMCPAuthGateway(t *testing.T) {
 
 		handler.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected status 200, got %d", rr.Code)
+		if extractedToken != "some-api-key" {
+			t.Errorf("expected token 'some-api-key' in context, got %q", extractedToken)
 		}
 	})
 
