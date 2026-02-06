@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -71,17 +72,23 @@ func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName
 // bridgeAuthToken extracts auth tokens from Streamable HTTP RequestExtra headers
 // into the context. SSE sets the token via HTTP middleware on the initial GET;
 // Streamable HTTP provides headers in RequestExtra on every POST.
+// MCPAuthGateway also bridges tokens at the HTTP level so they propagate via
+// the connection context; this function acts as a fallback.
 func bridgeAuthToken(ctx context.Context, req mcp.Request) context.Context {
 	if GetToken(ctx) != "" {
+		slog.Debug("bridgeAuthToken: token already in context")
 		return ctx
 	}
 	extra := req.GetExtra()
 	if extra == nil || extra.Header == nil {
+		slog.Debug("bridgeAuthToken: no extra headers in request")
 		return ctx
 	}
 	if token := extractBearerOrAPIKey(extra.Header); token != "" {
+		slog.Debug("bridgeAuthToken: extracted token from request headers")
 		return WithToken(ctx, token)
 	}
+	slog.Debug("bridgeAuthToken: no token in request headers")
 	return ctx
 }
 
@@ -95,6 +102,11 @@ func authenticateAndAuthorize(
 ) (mcp.Result, error) {
 	userInfo, err := authenticator.Authenticate(ctx)
 	if err != nil {
+		slog.Warn("tool call authentication failed",
+			"tool", toolName,
+			"request_id", pc.RequestID,
+			"error", err.Error(),
+		)
 		return createErrorResult("authentication failed: " + err.Error()), nil
 	}
 
@@ -110,8 +122,31 @@ func authenticateAndAuthorize(
 	pc.PersonaName = personaName
 	if !authorized {
 		pc.AuthzError = reason
+		slog.Warn("tool call authorization denied",
+			"tool", toolName,
+			"user_id", pc.UserID,
+			"email", pc.UserEmail,
+			"roles", pc.Roles,
+			"persona", personaName,
+			"reason", reason,
+			"request_id", pc.RequestID,
+		)
 		return createErrorResult("not authorized: " + reason), nil
 	}
+
+	authType := ""
+	if userInfo != nil {
+		authType = userInfo.AuthType
+	}
+	slog.Debug("tool call authorized",
+		"tool", toolName,
+		"user_id", pc.UserID,
+		"email", pc.UserEmail,
+		"roles", pc.Roles,
+		"persona", personaName,
+		"auth_type", authType,
+		"request_id", pc.RequestID,
+	)
 
 	return next(ctx, method, req)
 }
