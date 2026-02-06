@@ -232,7 +232,7 @@ func (s *Server) validateAuthorizationCode(code *AuthorizationCode, req TokenReq
 	if code.ClientID != req.ClientID {
 		return fmt.Errorf("client_id mismatch")
 	}
-	if code.RedirectURI != req.RedirectURI {
+	if !matchesRedirectURI(code.RedirectURI, req.RedirectURI) {
 		return fmt.Errorf("redirect_uri mismatch")
 	}
 	return nil
@@ -572,31 +572,6 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, upstreamURL, http.StatusFound)
 }
 
-// handleLoginRequiredError handles the login_required error from prompt=none.
-// Returns true if the error was handled (retry initiated), false otherwise.
-func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request, errParam string) bool {
-	if errParam != "login_required" {
-		return false
-	}
-	upstreamState := r.URL.Query().Get("state")
-	if upstreamState == "" {
-		return false
-	}
-	authState, err := s.stateStore.Get(upstreamState)
-	if err != nil {
-		return false
-	}
-	if authState.PromptNoneAttempted {
-		return false
-	}
-	// Mark that we've attempted prompt=none and retry without it
-	authState.PromptNoneAttempted = true
-	_ = s.stateStore.Save(upstreamState, authState)
-	upstreamURL := s.buildUpstreamAuthURLWithPrompt(upstreamState, false)
-	http.Redirect(w, r, upstreamURL, http.StatusFound)
-	return true
-}
-
 // handleCallbackEndpoint handles GET /oauth/callback.
 // It receives the callback from the upstream IdP and exchanges the code for tokens.
 func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -607,9 +582,6 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 
 	// Check for error from upstream IdP
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		if s.handleLoginRequiredError(w, r, errParam) {
-			return
-		}
 		errDesc := r.URL.Query().Get("error_description")
 		s.writeError(w, http.StatusBadRequest, errParam, errDesc)
 		return
@@ -663,27 +635,16 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 }
 
 // buildUpstreamAuthURL builds the authorization URL for the upstream IdP.
-// Uses prompt=none to handle Keycloak's "already logged in" issue.
+// Does not set the prompt parameter, allowing standard OIDC behavior:
+// - User has session: Keycloak silently redirects with auth code (SSO)
+// - No session: Keycloak shows login form, then redirects after login
 func (s *Server) buildUpstreamAuthURL(state string) string {
-	return s.buildUpstreamAuthURLWithPrompt(state, true)
-}
-
-// buildUpstreamAuthURLWithPrompt builds the authorization URL with optional prompt=none.
-func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool) string {
 	params := url.Values{}
 	params.Set("response_type", "code")
 	params.Set("client_id", s.config.Upstream.ClientID)
 	params.Set("redirect_uri", s.config.Upstream.RedirectURI)
 	params.Set("state", state)
 	params.Set("scope", "openid email profile")
-
-	if usePromptNone {
-		// Workaround for Keycloak "You are already logged in" bug.
-		// prompt=none tells Keycloak to silently redirect back with auth code
-		// if user is already logged in, instead of showing the error page.
-		// See: https://github.com/keycloak/keycloak/discussions/11158
-		params.Set("prompt", "none")
-	}
 
 	// Construct the authorization URL
 	authURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/auth"
