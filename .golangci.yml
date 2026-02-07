@@ -1,49 +1,346 @@
 version: "2"
 
 run:
-  timeout: 5m
-  tests: false
+  timeout: 10m
+  modules-download-mode: readonly
 
 linters:
+  default: none
   enable:
-    - misspell
-    - unconvert
-    - nakedret
-    - prealloc
-    - bodyclose
-    - gocyclo
-  disable:
-    - gosec
-    - gocritic
+    # ===== Bug Detection =====
+    - errcheck           # Check error returns are handled
+    - govet              # Official Go vet checks
+    - staticcheck        # Comprehensive static analysis
+    - ineffassign        # Detect ineffective assignments
+    - unused             # Find unused code
+    - bodyclose          # Ensure HTTP response bodies are closed
+    - noctx              # Check context usage in HTTP requests
+    - rowserrcheck       # Check sql.Rows.Err is checked
+    - sqlclosecheck      # Check sql.Rows and sql.Stmt are closed
+    - nilerr             # Check nil errors are returned properly
+    - nilnil             # Check for nil return with nil error
+    - durationcheck      # Detect duration multiplication issues
+    - makezero           # Find slice append issues
+    - nosprintfhostport  # Check for sprintf host:port issues
+    - wastedassign       # Find wasted assignments
+
+    # ===== Code Style =====
+    - misspell           # Spelling mistakes
+    - unconvert          # Unnecessary type conversions
+    - whitespace         # Whitespace issues
+    - godot              # Comment punctuation
+
+    # ===== Code Quality =====
+    - gocritic           # Comprehensive checks
+    - revive             # Fast, extensible linter (AI guardrails)
+    - gocyclo            # Cyclomatic complexity
+    - gocognit           # Cognitive complexity
+    - nakedret           # Naked returns in long functions
+    - prealloc           # Slice preallocation suggestions
+    - predeclared        # Shadowing predeclared identifiers
+    - nestif             # Deeply nested ifs
+    - goconst            # Repeated strings to constants
+    - unparam            # Unused parameters
+    - errname            # Error naming conventions
+    - errorlint          # Error wrapping issues
+    - wrapcheck          # Ensure errors from external packages are wrapped
+    - thelper            # Test helper issues
+
+    # ===== Security =====
+    - gosec              # Security issues (OWASP)
+
+    # ===== Performance =====
+    - copyloopvar        # Loop variable copying
+
+    # ===== Modern Go =====
+    - modernize          # Go modernization suggestions
+
   settings:
     errcheck:
       check-type-assertions: true
       check-blank: false
+
     govet:
       disable:
         - fieldalignment
         - shadow
+
     misspell:
       locale: US
+
     nakedret:
       max-func-lines: 30
+
     prealloc:
       simple: true
       range-loops: true
       for-loops: true
+
     gocyclo:
-      min-complexity: 10
+      min-complexity: 15
+
+    gocognit:
+      min-complexity: 20
+
+    nestif:
+      min-complexity: 5
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+
+    revive:
+      severity: error
+      confidence: 0.8
+      enable-all-rules: false
+      rules:
+        # ===== Mandatory Style Rules =====
+        - name: exported
+          severity: error
+          arguments: [checkPrivateReceivers, sayRepetitiveInsteadOfStutters]
+        - name: package-comments
+          severity: error
+        - name: var-naming
+          severity: error
+        - name: receiver-naming
+          severity: error
+        - name: error-naming
+          severity: error
+        - name: time-naming
+          severity: error
+        - name: unexported-naming
+          severity: error
+
+        # ===== Error Handling (Critical) =====
+        - name: error-return
+          severity: error
+        - name: error-strings
+          severity: error
+        - name: errorf
+          severity: error
+        - name: unhandled-error
+          severity: error
+          arguments: ["fmt.Printf", "fmt.Println", "fmt.Print"]
+
+        # ===== Context Rules (Critical for Services) =====
+        - name: context-as-argument
+          severity: error
+        - name: context-keys-type
+          severity: error
+
+        # ===== Import Rules =====
+        - name: blank-imports
+          severity: error
+        - name: dot-imports
+          severity: error
+        - name: import-shadowing
+          severity: error
+        - name: import-alias-naming
+          severity: warning
+          arguments: ["^[a-z][a-z0-9]*$"]
+
+        # ===== Control Flow =====
+        - name: if-return
+          severity: warning
+        - name: indent-error-flow
+          severity: error
+        - name: superfluous-else
+          severity: warning
+        - name: early-return
+          severity: warning
+        - name: empty-block
+          severity: error
+        - name: unreachable-code
+          severity: error
+        - name: unconditional-recursion
+          severity: error
+
+        # ===== Function Design =====
+        - name: function-result-limit
+          severity: warning
+          arguments: [3]
+        - name: argument-limit
+          severity: warning
+          arguments: [5]
+        - name: cognitive-complexity
+          severity: warning
+          arguments: [20]
+        - name: cyclomatic
+          severity: warning
+          arguments: [15]
+        - name: function-length
+          severity: warning
+          arguments: [80, 0]
+        - name: max-public-structs
+          severity: warning
+          arguments: [5]
+
+        # ===== Variable Rules =====
+        - name: var-declaration
+          severity: warning
+        - name: increment-decrement
+          severity: warning
+        - name: range
+          severity: warning
+        - name: range-val-in-closure
+          severity: error
+        - name: range-val-address
+          severity: error
+        - name: redefines-builtin-id
+          severity: error
+        - name: unused-parameter
+          severity: warning
+        - name: unused-receiver
+          severity: warning
+        - name: confusing-naming
+          severity: warning
+        - name: confusing-results
+          severity: warning
+
+        # ===== Safety Rules =====
+        - name: bare-return
+          severity: warning
+        - name: get-return
+          severity: warning
+        - name: modifies-parameter
+          severity: warning
+        - name: modifies-value-receiver
+          severity: error
+        - name: deep-exit
+          severity: warning
+        - name: defer
+          severity: warning
+          arguments: [["call-chain", "loop", "method-call", "recover", "immediate-recover", "return"]]
+
+        # ===== String Rules =====
+        - name: string-of-int
+          severity: error
+        - name: string-format
+          severity: warning
+          arguments:
+            - - 'fmt.Errorf[0]'
+              - '/^[a-z].*[^.]$/'
+              - 'error strings should not be capitalized or end with punctuation'
+
+        # ===== Boolean Rules =====
+        - name: bool-literal-in-expr
+          severity: warning
+        - name: constant-logical-expr
+          severity: error
+
+        # ===== Type Rules =====
+        - name: identical-branches
+          severity: error
+        - name: datarace
+          severity: error
+        - name: waitgroup-by-value
+          severity: error
+        - name: atomic
+          severity: error
+
+        # ===== Comment Rules =====
+        - name: comment-spacings
+          severity: warning
+          arguments: ["nolint", "TODO", "FIXME", "BUG", "HACK"]
+
+        # ===== Struct Rules =====
+        - name: struct-tag
+          severity: error
+        - name: unexported-return
+          severity: warning
+
+        # ===== Testing Rules =====
+        - name: useless-break
+          severity: warning
+        - name: unnecessary-stmt
+          severity: warning
+        - name: duplicated-imports
+          severity: error
+
+        # ===== Banned Functions (AI Guardrails) =====
+        - name: banned-characters
+          severity: error
+          arguments: ["\u03A9", "\u03A3", "\u03C3"]
+        - name: add-constant
+          severity: warning
+          arguments:
+            - maxLitCount: "3"
+              allowStrs: '""'
+              allowInts: "0,1,2"
+              ignoreFuncs: "make,len,cap"
+
+    goimports:
+      local-prefixes:
+        - github.com/txn2/mcp-data-platform
+
+    gosec:
+      excludes:
+        - G104
+      config:
+        G306: "0644"
+
+    wrapcheck:
+      ignoreSigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithStack(
+
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: true
+      comparison: true
+
   exclusions:
     generated: lax
     rules:
+      # Relax rules for tests
       - path: _test\.go
         linters:
           - errcheck
+          - gosec
+          - wrapcheck
+          - gocritic
+          - gocognit
+          - goconst
+          - unparam
+          - thelper
+
+      # Allow longer functions in tests
+      - path: _test\.go
+        linters:
+          - gocyclo
+        text: "cyclomatic complexity"
+
+      # Generated files
+      - path: generated
+        linters:
+          - all
+
+      # Main packages can have longer functions
+      - path: cmd/
+        linters:
+          - gocyclo
+        text: "cyclomatic complexity"
+
+    max-issues-per-linter: 50
+    max-same-issues: 10
 
 formatters:
   enable:
     - gofmt
     - goimports
+    - gofumpt
   settings:
     goimports:
       local-prefixes:
