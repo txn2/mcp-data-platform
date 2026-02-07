@@ -34,6 +34,6 @@ type AuditEvent struct {
 type NoopAuditLogger struct{}
 
 // Log does nothing.
-func (n *NoopAuditLogger) Log(_ context.Context, _ AuditEvent) error {
+func (*NoopAuditLogger) Log(_ context.Context, _ AuditEvent) error {
 	return nil
 }
