@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -148,20 +149,31 @@ func (r *Registry) AllTools() []string {
 	return tools
 }
 
+// ToolkitMatch contains the result of matching a tool to its toolkit.
+type ToolkitMatch struct {
+	Kind       string
+	Name       string
+	Connection string
+	Found      bool
+}
+
 // GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
-// Returns found=false if the tool is not found in any registered toolkit.
-func (r *Registry) GetToolkitForTool(toolName string) (kind, name, connection string, found bool) {
+// Returns Found=false if the tool is not found in any registered toolkit.
+func (r *Registry) GetToolkitForTool(toolName string) ToolkitMatch {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, toolkit := range r.toolkits {
-		for _, tool := range toolkit.Tools() {
-			if tool == toolName {
-				return toolkit.Kind(), toolkit.Name(), toolkit.Connection(), true
+		if slices.Contains(toolkit.Tools(), toolName) {
+			return ToolkitMatch{
+				Kind:       toolkit.Kind(),
+				Name:       toolkit.Name(),
+				Connection: toolkit.Connection(),
+				Found:      true,
 			}
 		}
 	}
-	return "", "", "", false
+	return ToolkitMatch{}
 }
 
 // RegisterAllTools registers all tools from all toolkits with the MCP server.
