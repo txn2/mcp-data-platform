@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 // mcpTestAuthenticator implements Authenticator for MCP middleware testing.
@@ -40,11 +42,11 @@ type mcpTestToolkitLookup struct {
 	found      bool
 }
 
-func (m *mcpTestToolkitLookup) GetToolkitForTool(_ string) (string, string, string, bool) {
-	return m.kind, m.name, m.connection, m.found
+func (m *mcpTestToolkitLookup) GetToolkitForTool(_ string) registry.ToolkitMatch {
+	return registry.ToolkitMatch{Kind: m.kind, Name: m.name, Connection: m.connection, Found: m.found}
 }
 
-// mcpTestRequest wraps ServerRequest for testing
+// mcpTestRequest wraps ServerRequest for testing.
 type mcpTestRequest struct {
 	mcp.ServerRequest[*mcp.CallToolParamsRaw]
 }
