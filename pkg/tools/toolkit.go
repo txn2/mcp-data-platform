@@ -32,7 +32,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 }
 
 // handleExampleTool handles the example_tool MCP call.
-func (t *Toolkit) handleExampleTool(_ context.Context, _ *mcp.CallToolRequest, args ExampleToolArgs) (*mcp.CallToolResult, any, error) {
+func (*Toolkit) handleExampleTool(_ context.Context, _ *mcp.CallToolRequest, args ExampleToolArgs) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: "Echo: " + args.Message},
@@ -41,6 +41,6 @@ func (t *Toolkit) handleExampleTool(_ context.Context, _ *mcp.CallToolRequest, a
 }
 
 // Close cleans up any resources used by the toolkit.
-func (t *Toolkit) Close() error {
+func (*Toolkit) Close() error {
 	return nil
 }
