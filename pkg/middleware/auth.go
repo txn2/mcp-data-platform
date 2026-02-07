@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 // Authenticator validates authentication credentials.
@@ -15,8 +17,8 @@ type Authenticator interface {
 // ToolkitLookup provides toolkit metadata for a given tool name.
 type ToolkitLookup interface {
 	// GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
-	// Returns found=false if the tool is not found in any registered toolkit.
-	GetToolkitForTool(toolName string) (kind, name, connection string, found bool)
+	// Returns Found=false if the tool is not found in any registered toolkit.
+	GetToolkitForTool(toolName string) registry.ToolkitMatch
 }
 
 // UserInfo holds authenticated user information.

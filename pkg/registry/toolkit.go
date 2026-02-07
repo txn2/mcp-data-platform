@@ -37,13 +37,13 @@ type Toolkit interface {
 }
 
 // ToolkitFactory creates a toolkit from configuration.
-type ToolkitFactory func(name string, config map[string]interface{}) (Toolkit, error)
+type ToolkitFactory func(name string, config map[string]any) (Toolkit, error)
 
 // ToolkitConfig holds configuration for a toolkit instance.
 type ToolkitConfig struct {
 	Kind    string
 	Name    string
 	Enabled bool
-	Config  map[string]interface{}
+	Config  map[string]any
 	Default bool
 }

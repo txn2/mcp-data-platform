@@ -1,6 +1,7 @@
 package datahub
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -279,13 +280,7 @@ func TestToolkit_Methods(t *testing.T) {
 		}
 
 		for _, expected := range expectedTools {
-			found := false
-			for _, tool := range tools {
-				if tool == expected {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(tools, expected)
 			if !found {
 				t.Errorf("missing expected tool: %s", expected)
 			}

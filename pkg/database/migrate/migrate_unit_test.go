@@ -19,10 +19,10 @@ type mockMigrator struct {
 	versionErr error
 }
 
-func (m *mockMigrator) Up() error                      { return m.upErr }
-func (m *mockMigrator) Down() error                    { return m.downErr }
-func (m *mockMigrator) Steps(_ int) error              { return m.stepsErr }
-func (m *mockMigrator) Version() (uint, bool, error)   { return m.versionVal, m.dirty, m.versionErr }
+func (m *mockMigrator) Up() error                    { return m.upErr }
+func (m *mockMigrator) Down() error                  { return m.downErr }
+func (m *mockMigrator) Steps(_ int) error            { return m.stepsErr }
+func (m *mockMigrator) Version() (uint, bool, error) { return m.versionVal, m.dirty, m.versionErr }
 
 func TestMigrationsEmbedded(t *testing.T) {
 	entries, err := migrations.ReadDir("migrations")

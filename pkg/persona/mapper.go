@@ -117,12 +117,12 @@ type StaticRoleMapper struct {
 }
 
 // MapToRoles returns static roles (not used for static mapping).
-func (m *StaticRoleMapper) MapToRoles(_ map[string]any) ([]string, error) {
+func (*StaticRoleMapper) MapToRoles(_ map[string]any) ([]string, error) {
 	return []string{}, nil
 }
 
 // MapToPersona maps based on static configuration.
-func (m *StaticRoleMapper) MapToPersona(ctx context.Context, _ []string) (*Persona, error) {
+func (m *StaticRoleMapper) MapToPersona(_ context.Context, _ []string) (*Persona, error) {
 	// This would need user ID from context - placeholder for now
 	// In practice, you'd extract user info from context
 
@@ -182,11 +182,11 @@ func getNestedValue(data map[string]any, path string) any {
 	var current any = data
 
 	for _, part := range parts {
-		if m, ok := current.(map[string]any); ok {
-			current = m[part]
-		} else {
+		m, ok := current.(map[string]any)
+		if !ok {
 			return nil
 		}
+		current = m[part]
 	}
 
 	return current

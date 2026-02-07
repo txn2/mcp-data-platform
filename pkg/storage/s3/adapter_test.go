@@ -11,7 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
-// mockS3Client implements the S3Client interface for testing.
+// mockS3Client implements the Client interface for testing.
 type mockS3Client struct {
 	listObjectsOutput *s3client.ListObjectsOutput
 	listObjectsErr    error

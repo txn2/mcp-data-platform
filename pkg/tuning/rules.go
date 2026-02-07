@@ -1,5 +1,13 @@
 package tuning
 
+const (
+	// defaultQualityThreshold is the minimum quality score for data access.
+	defaultQualityThreshold = 0.7
+
+	// defaultMaxQueryLimit is the maximum number of rows a query can return.
+	defaultMaxQueryLimit = 10000
+)
+
 // Rules defines operational rules for the platform.
 type Rules struct {
 	// RequireDataHubCheck requires checking DataHub before writing queries.
@@ -26,8 +34,8 @@ func DefaultRules() *Rules {
 	return &Rules{
 		RequireDataHubCheck:      true,
 		WarnOnDeprecated:         true,
-		QualityThreshold:         0.7,
-		MaxQueryLimit:            10000,
+		QualityThreshold:         defaultQualityThreshold,
+		MaxQueryLimit:            defaultMaxQueryLimit,
 		RequirePIIAcknowledgment: false,
 		Custom:                   make(map[string]any),
 	}
@@ -57,6 +65,7 @@ type Violation struct {
 // Severity indicates the severity of a violation.
 type Severity string
 
+// Severity levels for operational rules.
 const (
 	SeverityInfo    Severity = "info"
 	SeverityWarning Severity = "warning"

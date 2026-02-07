@@ -1,6 +1,11 @@
 // Package persona provides persona-based access control and customization.
 package persona
 
+import "strings"
+
+// defaultPersonaPriority is the default priority for built-in personas.
+const defaultPersonaPriority = 100
+
 // Persona defines a user persona with associated permissions and customizations.
 type Persona struct {
 	// Name is the unique identifier for this persona.
@@ -80,7 +85,7 @@ func AdminPersona() *Persona {
 		},
 		Prompts:  PromptConfig{},
 		Hints:    make(map[string]string),
-		Priority: 100,
+		Priority: defaultPersonaPriority,
 	}
 }
 
@@ -103,9 +108,10 @@ func (p *Persona) GetFullSystemPrompt() string {
 		return ""
 	}
 
-	result := parts[0]
+	var result strings.Builder
+	_, _ = result.WriteString(parts[0])
 	for i := 1; i < len(parts); i++ {
-		result += "\n\n" + parts[i]
+		_, _ = result.WriteString("\n\n" + parts[i])
 	}
-	return result
+	return result.String()
 }

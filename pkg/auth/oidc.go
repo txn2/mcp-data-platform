@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/http"
 	"strings"
@@ -15,6 +16,17 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+)
+
+const (
+	// jwtPartCount is the number of parts in a JWT token (header.payload.signature).
+	jwtPartCount = 3
+
+	// defaultClockSkewSeconds is the default allowed clock skew for time-based claims.
+	defaultClockSkewSeconds = 30
+
+	// bitsPerByte is the number of bits in a byte, used for RSA key size calculation.
+	bitsPerByte = 8
 )
 
 // OIDCConfig configures OIDC authentication.
@@ -67,7 +79,7 @@ type jwksCache struct {
 // NewOIDCAuthenticator creates a new OIDC authenticator.
 func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("OIDC issuer is required")
+		return nil, fmt.Errorf("oidc issuer is required")
 	}
 
 	extractor := &ClaimsExtractor{
@@ -167,9 +179,7 @@ func (a *OIDCAuthenticator) parseAndValidateToken(tokenString string) (map[strin
 
 	// Convert to map[string]any for compatibility
 	claimsMap := make(map[string]any)
-	for k, v := range claims {
-		claimsMap[k] = v
-	}
+	maps.Copy(claimsMap, claims)
 
 	// Validate standard claims (issuer, audience)
 	if err := a.validateClaims(claimsMap); err != nil {
@@ -183,7 +193,7 @@ func (a *OIDCAuthenticator) parseAndValidateToken(tokenString string) (map[strin
 // WARNING: Only for testing - never use in production.
 func (a *OIDCAuthenticator) parseTokenWithoutSignatureVerification(tokenString string) (map[string]any, error) {
 	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
+	if len(parts) != jwtPartCount {
 		return nil, fmt.Errorf("invalid JWT format")
 	}
 
@@ -210,12 +220,12 @@ func (a *OIDCAuthenticator) getPublicKey(kid string) (*rsa.PublicKey, error) {
 	defer a.mu.RUnlock()
 
 	if a.jwks == nil {
-		return nil, fmt.Errorf("JWKS not loaded")
+		return nil, fmt.Errorf("jwks not loaded")
 	}
 
 	// Check if cache is expired
 	if time.Now().After(a.jwks.expiresAt) {
-		return nil, fmt.Errorf("JWKS cache expired")
+		return nil, fmt.Errorf("jwks cache expired")
 	}
 
 	key, ok := a.jwks.keys[kid]
@@ -240,7 +250,7 @@ func (a *OIDCAuthenticator) validateClaims(claims map[string]any) error {
 }
 
 // validateRequiredClaims checks that required claims are present.
-func (a *OIDCAuthenticator) validateRequiredClaims(claims map[string]any) error {
+func (*OIDCAuthenticator) validateRequiredClaims(claims map[string]any) error {
 	// REQUIRE sub claim - every token must have a subject
 	sub, ok := claims["sub"].(string)
 	if !ok || sub == "" {
@@ -310,7 +320,7 @@ func (a *OIDCAuthenticator) getClockSkew() int64 {
 	if a.cfg.ClockSkewSeconds > 0 {
 		return int64(a.cfg.ClockSkewSeconds)
 	}
-	return 30 // default 30 second skew
+	return defaultClockSkewSeconds
 }
 
 // checkAudience checks if the token audience matches.
@@ -355,7 +365,7 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error) {
 	discoveryURL := strings.TrimSuffix(a.cfg.Issuer, "/") + "/.well-known/openid-configuration"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("creating discovery request: %w", err)
 	}
@@ -385,8 +395,8 @@ func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error)
 }
 
 // fetchAndParseJWKS fetches the JWKS and parses RSA keys.
-func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI string) (map[string]*rsa.PublicKey, map[string]any, error) {
-	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
+func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI string) (keys map[string]*rsa.PublicKey, raw map[string]any, err error) {
+	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, http.NoBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating JWKS request: %w", err)
 	}
@@ -398,7 +408,7 @@ func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI strin
 	defer func() { _ = jwksResp.Body.Close() }()
 
 	if jwksResp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("JWKS request failed: %d", jwksResp.StatusCode)
+		return nil, nil, fmt.Errorf("jwks request failed: %d", jwksResp.StatusCode)
 	}
 
 	var jwksResponse struct {
@@ -426,7 +436,7 @@ type jwkKeyInfo struct {
 }
 
 // parseJWKSKeys parses raw JWKS keys into RSA public keys.
-func (a *OIDCAuthenticator) parseJWKSKeys(rawKeys []json.RawMessage) (map[string]*rsa.PublicKey, map[string]any) {
+func (*OIDCAuthenticator) parseJWKSKeys(rawKeys []json.RawMessage) (rsaKeys map[string]*rsa.PublicKey, otherKeys map[string]any) {
 	keys := make(map[string]*rsa.PublicKey)
 	rawKeyMap := make(map[string]any)
 
@@ -482,7 +492,7 @@ func parseRSAPublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
 	// Convert exponent bytes to int
 	var e int
 	for _, b := range eBytes {
-		e = e<<8 + int(b)
+		e = e<<bitsPerByte + int(b)
 	}
 
 	return &rsa.PublicKey{

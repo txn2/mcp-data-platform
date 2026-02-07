@@ -4,6 +4,7 @@ package oauth
 import (
 	"context"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -130,10 +131,5 @@ func matchesRedirectURI(registered, requested string) bool {
 
 // SupportsGrantType checks if the client supports a grant type.
 func (c *Client) SupportsGrantType(grantType string) bool {
-	for _, gt := range c.GrantTypes {
-		if gt == grantType {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.GrantTypes, grantType)
 }

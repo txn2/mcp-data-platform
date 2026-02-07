@@ -179,7 +179,7 @@ func (m *mockRoleMapper) MapToRoles(claims map[string]any) ([]string, error) {
 	return nil, nil
 }
 
-func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
+func TestAuthorizer_IsAuthorized(t *testing.T) {
 	reg := NewRegistry()
 
 	t.Run("mapper error returns not authorized", func(t *testing.T) {
@@ -188,7 +188,7 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 				return nil, errors.New("mapper error")
 			},
 		}
-		auth := NewPersonaAuthorizer(reg, mapper)
+		auth := NewAuthorizer(reg, mapper)
 
 		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
 		if authorized {
@@ -212,7 +212,7 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 				return persona, nil
 			},
 		}
-		auth := NewPersonaAuthorizer(reg, mapper)
+		auth := NewAuthorizer(reg, mapper)
 
 		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"analyst"}, "s3_list_buckets")
 		if authorized {
@@ -236,7 +236,7 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 				return persona, nil
 			},
 		}
-		auth := NewPersonaAuthorizer(reg, mapper)
+		auth := NewAuthorizer(reg, mapper)
 
 		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"admin"}, "any_tool")
 		if !authorized {
@@ -252,5 +252,7 @@ func TestPersonaAuthorizer_IsAuthorized(t *testing.T) {
 }
 
 // Verify interface compliance.
-var _ RoleMapper = (*mockRoleMapper)(nil)
-var _ middleware.Authorizer = (*PersonaAuthorizer)(nil)
+var (
+	_ RoleMapper            = (*mockRoleMapper)(nil)
+	_ middleware.Authorizer = (*Authorizer)(nil)
+)

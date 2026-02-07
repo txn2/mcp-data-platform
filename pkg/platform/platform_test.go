@@ -1470,7 +1470,7 @@ func createTestAppDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "index.html")
-	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), 0600); err != nil {
+	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), 0o600); err != nil {
 		t.Fatalf("Failed to create test index.html: %v", err)
 	}
 	return dir

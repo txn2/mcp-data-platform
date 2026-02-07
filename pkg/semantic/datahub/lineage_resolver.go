@@ -2,6 +2,7 @@ package datahub
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -35,7 +36,7 @@ func (r *lineageResolver) resolveColumnsWithLineage(
 ) (map[string]*semantic.ColumnContext, error) {
 	schema, err := r.client.GetSchema(ctx, urn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting schema for lineage resolution: %w", err)
 	}
 
 	columns, undocumented := r.buildColumnsAndFindUndocumented(schema)
@@ -48,9 +49,9 @@ func (r *lineageResolver) resolveColumnsWithLineage(
 }
 
 // buildColumnsAndFindUndocumented converts schema fields to column contexts and identifies undocumented ones.
-func (r *lineageResolver) buildColumnsAndFindUndocumented(schema *types.SchemaMetadata) (map[string]*semantic.ColumnContext, map[string]bool) {
-	columns := make(map[string]*semantic.ColumnContext, len(schema.Fields))
-	undocumented := make(map[string]bool)
+func (r *lineageResolver) buildColumnsAndFindUndocumented(schema *types.SchemaMetadata) (columns map[string]*semantic.ColumnContext, undocumented map[string]bool) {
+	columns = make(map[string]*semantic.ColumnContext, len(schema.Fields))
+	undocumented = make(map[string]bool)
 
 	for _, field := range schema.Fields {
 		fieldName := extractFieldName(field.FieldPath)
@@ -100,7 +101,7 @@ func (r *lineageResolver) tryColumnLineage(
 	if err != nil || len(columnLineage.Mappings) == 0 {
 		return nil
 	}
-	result, _ := r.inheritFromColumnLineage(ctx, columns, undocumented, columnLineage)
+	result := r.inheritFromColumnLineage(ctx, columns, undocumented, columnLineage)
 	return result
 }
 
@@ -116,7 +117,7 @@ func (r *lineageResolver) tryTableLineage(
 		dhclient.WithDepth(r.cfg.MaxHops),
 	)
 	if err != nil {
-		return columns, nil
+		return columns, nil //nolint:nilerr // lineage resolution is best-effort; return columns without inheritance on failure
 	}
 	return r.inheritFromTableLineage(ctx, columns, undocumented, lineage)
 }
@@ -166,7 +167,7 @@ func (r *lineageResolver) inheritFromAlias(
 	sourceURN := "urn:li:dataset:(urn:li:dataPlatform:trino," + source + ",PROD)"
 	sourceSchema, err := r.client.GetSchema(ctx, sourceURN)
 	if err != nil {
-		return columns, nil
+		return columns, nil //nolint:nilerr // alias resolution is best-effort; return columns without inheritance on failure
 	}
 
 	sourceColumns := r.buildFieldMap(sourceSchema.Fields)
@@ -189,7 +190,13 @@ func (r *lineageResolver) applyAliasInheritance(
 			sourceCol = r.transformColumnName(targetCol)
 		}
 		if sourceField, ok := sourceColumns[sourceCol]; ok {
-			r.inheritMetadata(columns[targetCol], sourceField, sourceURN, sourceCol, 1, "alias")
+			r.inheritMetadata(columns[targetCol], inheritSource{
+				Field:       sourceField,
+				URN:         sourceURN,
+				Column:      sourceCol,
+				Hops:        1,
+				MatchMethod: "alias",
+			})
 		}
 	}
 }
@@ -200,20 +207,20 @@ func (r *lineageResolver) inheritFromColumnLineage(
 	columns map[string]*semantic.ColumnContext,
 	undocumented map[string]bool,
 	columnLineage *types.ColumnLineage,
-) (map[string]*semantic.ColumnContext, error) {
+) map[string]*semantic.ColumnContext {
 	upstreamDatasets := r.groupMappingsByDataset(columnLineage.Mappings, undocumented)
 	if len(upstreamDatasets) == 0 {
-		return columns, nil
+		return columns
 	}
 
 	upstreamSchemas := r.fetchUpstreamSchemas(ctx, upstreamDatasets)
 	r.applyColumnLineageInheritance(columns, upstreamDatasets, upstreamSchemas)
 
-	return columns, nil
+	return columns
 }
 
 // groupMappingsByDataset groups column lineage mappings by upstream dataset.
-func (r *lineageResolver) groupMappingsByDataset(
+func (*lineageResolver) groupMappingsByDataset(
 	mappings []types.ColumnLineageMapping,
 	undocumented map[string]bool,
 ) map[string][]types.ColumnLineageMapping {
@@ -259,7 +266,13 @@ func (r *lineageResolver) applyColumnLineageInheritance(
 		for _, mapping := range mappings {
 			downstreamCol := extractFieldName(mapping.DownstreamColumn)
 			if sourceField, ok := upstreamColumns[mapping.UpstreamColumn]; ok {
-				r.inheritMetadata(columns[downstreamCol], sourceField, upstreamURN, mapping.UpstreamColumn, 1, "column_lineage")
+				r.inheritMetadata(columns[downstreamCol], inheritSource{
+					Field:       sourceField,
+					URN:         upstreamURN,
+					Column:      mapping.UpstreamColumn,
+					Hops:        1,
+					MatchMethod: "column_lineage",
+				})
 			}
 		}
 	}
@@ -344,13 +357,19 @@ func (r *lineageResolver) matchAndInheritColumns(
 		sourceCol := r.transformColumnName(targetCol)
 		if sourceField, ok := upstreamColumns[sourceCol]; ok {
 			matchMethod := r.determineMatchMethod(targetCol, sourceCol)
-			r.inheritMetadata(columns[targetCol], sourceField, upstreamURN, sourceCol, level, matchMethod)
+			r.inheritMetadata(columns[targetCol], inheritSource{
+				Field:       sourceField,
+				URN:         upstreamURN,
+				Column:      sourceCol,
+				Hops:        level,
+				MatchMethod: matchMethod,
+			})
 		}
 	}
 }
 
 // determineMatchMethod determines the match method based on column name comparison.
-func (r *lineageResolver) determineMatchMethod(targetCol, sourceCol string) string {
+func (*lineageResolver) determineMatchMethod(targetCol, sourceCol string) string {
 	if sourceCol != targetCol {
 		return "name_transformed"
 	}
@@ -358,7 +377,7 @@ func (r *lineageResolver) determineMatchMethod(targetCol, sourceCol string) stri
 }
 
 // buildFieldMap builds a map of field name to schema field.
-func (r *lineageResolver) buildFieldMap(fields []types.SchemaField) map[string]types.SchemaField {
+func (*lineageResolver) buildFieldMap(fields []types.SchemaField) map[string]types.SchemaField {
 	m := make(map[string]types.SchemaField, len(fields))
 	for _, field := range fields {
 		m[extractFieldName(field.FieldPath)] = field
@@ -367,7 +386,7 @@ func (r *lineageResolver) buildFieldMap(fields []types.SchemaField) map[string]t
 }
 
 // buildFieldMapByPath builds a map of field path to schema field.
-func (r *lineageResolver) buildFieldMapByPath(fields []types.SchemaField) map[string]types.SchemaField {
+func (*lineageResolver) buildFieldMapByPath(fields []types.SchemaField) map[string]types.SchemaField {
 	m := make(map[string]types.SchemaField, len(fields))
 	for _, field := range fields {
 		m[field.FieldPath] = field
@@ -385,7 +404,7 @@ func (r *lineageResolver) transformColumnName(columnName string) string {
 }
 
 // applyTransform applies a single transform to a column name.
-func (r *lineageResolver) applyTransform(columnName string, transform ColumnTransformConfig) string {
+func (*lineageResolver) applyTransform(columnName string, transform ColumnTransformConfig) string {
 	result := columnName
 	if transform.StripPrefix != "" {
 		result = strings.TrimPrefix(result, transform.StripPrefix)
@@ -396,25 +415,28 @@ func (r *lineageResolver) applyTransform(columnName string, transform ColumnTran
 	return result
 }
 
+// inheritSource holds the parameters for metadata inheritance from an upstream field.
+type inheritSource struct {
+	Field       types.SchemaField
+	URN         string
+	Column      string
+	Hops        int
+	MatchMethod string
+}
+
 // inheritMetadata copies metadata from a source field to a target column context.
-func (r *lineageResolver) inheritMetadata(
-	target *semantic.ColumnContext,
-	source types.SchemaField,
-	sourceURN string,
-	sourceColumn string,
-	hops int,
-	matchMethod string,
-) {
+func (r *lineageResolver) inheritMetadata(target *semantic.ColumnContext, src inheritSource) {
+	source := src.Field
 	inherited := r.inheritDescription(target, source)
 	inherited = r.inheritGlossaryTerms(target, source) || inherited
 	inherited = r.inheritTags(target, source) || inherited
 
 	if inherited {
 		target.InheritedFrom = &semantic.InheritedMetadata{
-			SourceURN:    sourceURN,
-			SourceColumn: sourceColumn,
-			Hops:         hops,
-			MatchMethod:  matchMethod,
+			SourceURN:    src.URN,
+			SourceColumn: src.Column,
+			Hops:         src.Hops,
+			MatchMethod:  src.MatchMethod,
 		}
 	}
 }

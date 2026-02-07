@@ -46,5 +46,7 @@ func TestAllowAllAuthorizer(t *testing.T) {
 }
 
 // Verify interface compliance.
-var _ Authorizer = (*NoopAuthorizer)(nil)
-var _ Authorizer = (*mockAuthorizer)(nil)
+var (
+	_ Authorizer = (*NoopAuthorizer)(nil)
+	_ Authorizer = (*mockAuthorizer)(nil)
+)

@@ -11,17 +11,17 @@ func NewNoopProvider() *NoopProvider {
 }
 
 // Name returns the provider name.
-func (n *NoopProvider) Name() string {
+func (*NoopProvider) Name() string {
 	return "noop"
 }
 
-// ResolveTable returns nil.
-func (n *NoopProvider) ResolveTable(_ context.Context, _ string) (*TableIdentifier, error) {
-	return nil, nil
+// ResolveTable returns an empty identifier.
+func (*NoopProvider) ResolveTable(_ context.Context, _ string) (*TableIdentifier, error) {
+	return &TableIdentifier{}, nil
 }
 
 // GetTableAvailability returns unavailable.
-func (n *NoopProvider) GetTableAvailability(_ context.Context, _ string) (*TableAvailability, error) {
+func (*NoopProvider) GetTableAvailability(_ context.Context, _ string) (*TableAvailability, error) {
 	return &TableAvailability{
 		Available: false,
 		Error:     "no query provider configured",
@@ -29,12 +29,12 @@ func (n *NoopProvider) GetTableAvailability(_ context.Context, _ string) (*Table
 }
 
 // GetQueryExamples returns empty examples.
-func (n *NoopProvider) GetQueryExamples(_ context.Context, _ string) ([]QueryExample, error) {
-	return []QueryExample{}, nil
+func (*NoopProvider) GetQueryExamples(_ context.Context, _ string) ([]Example, error) {
+	return []Example{}, nil
 }
 
 // GetExecutionContext returns empty context.
-func (n *NoopProvider) GetExecutionContext(_ context.Context, _ []string) (*ExecutionContext, error) {
+func (*NoopProvider) GetExecutionContext(_ context.Context, _ []string) (*ExecutionContext, error) {
 	return &ExecutionContext{
 		Tables:      []TableInfo{},
 		Connections: []string{},
@@ -42,14 +42,14 @@ func (n *NoopProvider) GetExecutionContext(_ context.Context, _ []string) (*Exec
 }
 
 // GetTableSchema returns empty schema.
-func (n *NoopProvider) GetTableSchema(_ context.Context, _ TableIdentifier) (*TableSchema, error) {
+func (*NoopProvider) GetTableSchema(_ context.Context, _ TableIdentifier) (*TableSchema, error) {
 	return &TableSchema{
 		Columns: []Column{},
 	}, nil
 }
 
 // Close does nothing.
-func (n *NoopProvider) Close() error {
+func (*NoopProvider) Close() error {
 	return nil
 }
 

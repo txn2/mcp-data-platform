@@ -3,7 +3,9 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,6 +14,22 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
+
+// toolPrefixTrino is the toolkit kind identifier for Trino tools.
+const toolPrefixTrino = "trino"
+
+// String constants for repeated map keys and comparisons.
+const (
+	keyTable           = "table"
+	keyError           = "error"
+	keyURN             = "urn"
+	keyDescription     = "description"
+	keyTags            = "tags"
+	keySemanticContext = "semantic_context"
+)
+
+// tablePartsWithCatalog is the expected number of parts in a fully-qualified table name (catalog.schema.table).
+const tablePartsWithCatalog = 3
 
 // EnrichmentConfig configures semantic enrichment.
 type EnrichmentConfig struct {
@@ -51,7 +69,7 @@ func (e *semanticEnricher) enrich(
 	pc *PlatformContext,
 ) (*mcp.CallToolResult, error) {
 	switch pc.ToolkitKind {
-	case "trino":
+	case toolPrefixTrino:
 		if e.cfg.EnrichTrinoResults && e.semanticProvider != nil {
 			return e.enrichTrinoResultWithDedup(ctx, result, request, pc)
 		}
@@ -194,7 +212,7 @@ func (e *semanticEnricher) appendSemanticSummary(
 		}
 
 		enrichment := map[string]any{
-			"semantic_context": buildTrinoSemanticContext(tableCtx),
+			keySemanticContext: buildTrinoSemanticContext(tableCtx),
 			"note":             "Summary only. Full column metadata was provided earlier in this session.",
 		}
 
@@ -217,7 +235,7 @@ func (e *semanticEnricher) enrichDataHubResultWithAll(
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	var enrichedResult = result
+	enrichedResult := result
 
 	// Enrich with query context (Trino)
 	if e.cfg.EnrichDataHubResults && e.queryProvider != nil {
@@ -273,11 +291,11 @@ func enrichTrinoResult(
 	semanticCtx, err := provider.GetTableContext(ctx, table)
 	if err != nil {
 		slog.Debug("semantic enrichment failed for Trino result",
-			"table", tableName,
+			keyTable, tableName,
 			"parsed_catalog", table.Catalog,
 			"parsed_schema", table.Schema,
 			"parsed_table", table.Table,
-			"error", err,
+			keyError, err,
 		)
 		return result, nil
 	}
@@ -286,8 +304,8 @@ func enrichTrinoResult(
 	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, table)
 	if columnsErr != nil {
 		slog.Debug("column semantic enrichment failed for Trino result",
-			"table", tableName,
-			"error", columnsErr,
+			keyTable, tableName,
+			keyError, columnsErr,
 		)
 	}
 
@@ -336,8 +354,8 @@ func enrichTrinoQueryResult(
 	tableCtx, err := provider.GetTableContext(ctx, tableID)
 	if err != nil {
 		slog.Debug("semantic enrichment failed for primary table",
-			"table", primary.FullPath,
-			"error", err,
+			keyTable, primary.FullPath,
+			keyError, err,
 		)
 		return result, nil
 	}
@@ -345,8 +363,8 @@ func enrichTrinoQueryResult(
 	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, tableID)
 	if columnsErr != nil {
 		slog.Debug("column enrichment failed for primary table",
-			"table", primary.FullPath,
-			"error", columnsErr,
+			keyTable, primary.FullPath,
+			keyError, columnsErr,
 		)
 	}
 
@@ -357,8 +375,8 @@ func enrichTrinoQueryResult(
 		tCtx, tErr := provider.GetTableContext(ctx, tID)
 		if tErr != nil {
 			slog.Debug("semantic enrichment failed for additional table",
-				"table", t.FullPath,
-				"error", tErr,
+				keyTable, t.FullPath,
+				keyError, tErr,
 			)
 			continue
 		}
@@ -380,17 +398,17 @@ func refToTableIdentifier(ref TableRef) semantic.TableIdentifier {
 // buildAdditionalTableContext creates summary context for additional tables.
 func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[string]any {
 	summary := map[string]any{
-		"table":       ref.FullPath,
-		"description": ctx.Description,
+		keyTable:       ref.FullPath,
+		keyDescription: ctx.Description,
 	}
 	if ctx.URN != "" {
-		summary["urn"] = ctx.URN
+		summary[keyURN] = ctx.URN
 	}
 	if ctx.Deprecation != nil && ctx.Deprecation.Deprecated {
 		summary["deprecation"] = ctx.Deprecation
 	}
 	if len(ctx.Tags) > 0 {
-		summary["tags"] = ctx.Tags
+		summary[keyTags] = ctx.Tags
 	}
 	if len(ctx.Owners) > 0 {
 		summary["owners"] = ctx.Owners
@@ -410,7 +428,7 @@ func appendSemanticContextWithAdditional(
 	}
 
 	enrichment := map[string]any{
-		"semantic_context": buildTrinoSemanticContext(ctx),
+		keySemanticContext: buildTrinoSemanticContext(ctx),
 	}
 
 	if len(columnsCtx) > 0 {
@@ -427,7 +445,7 @@ func appendSemanticContextWithAdditional(
 
 	enrichmentJSON, err := json.Marshal(enrichment)
 	if err != nil {
-		return result, nil
+		return result, fmt.Errorf("marshal semantic context with additional tables: %w", err)
 	}
 
 	result.Content = append(result.Content, &mcp.TextContent{
@@ -449,13 +467,7 @@ func enrichDataHubResult(
 
 	// Also extract URN from request (for tools like datahub_get_schema that take urn param)
 	if reqURN := extractURNFromRequest(request); reqURN != "" {
-		found := false
-		for _, u := range urns {
-			if u == reqURN {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(urns, reqURN)
 		if !found {
 			urns = append(urns, reqURN)
 		}
@@ -514,7 +526,7 @@ func parseRequestArgs(request mcp.CallToolRequest) map[string]any {
 func extractExplicitTable(args map[string]any) string {
 	catalog, _ := args["catalog"].(string)
 	schema, _ := args["schema"].(string)
-	table, _ := args["table"].(string)
+	table, _ := args[keyTable].(string)
 
 	// If we have separate parameters, combine them
 	if table != "" && (catalog != "" || schema != "") {
@@ -566,7 +578,7 @@ func extractURNFromRequest(request mcp.CallToolRequest) string {
 	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
 		return ""
 	}
-	if urn, ok := args["urn"].(string); ok {
+	if urn, ok := args[keyURN].(string); ok {
 		return urn
 	}
 	return ""
@@ -576,7 +588,7 @@ func extractURNFromRequest(request mcp.CallToolRequest) string {
 func parseTableIdentifier(name string) semantic.TableIdentifier {
 	parts := splitTableName(name)
 	switch len(parts) {
-	case 3:
+	case tablePartsWithCatalog:
 		return semantic.TableIdentifier{
 			Catalog: parts[0],
 			Schema:  parts[1],
@@ -626,7 +638,7 @@ func extractURNsFromResult(result *mcp.CallToolResult) []string {
 func extractURNsFromMap(data map[string]any) []string {
 	var urns []string
 	for k, v := range data {
-		if k == "urn" || k == "URN" {
+		if k == keyURN || k == "URN" {
 			if urn, ok := v.(string); ok {
 				urns = append(urns, urn)
 			}
@@ -648,16 +660,16 @@ func extractURNsFromMap(data map[string]any) []string {
 // buildTrinoSemanticContext creates the semantic context map from table context for Trino enrichment.
 func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 	semanticCtx := map[string]any{
-		"description":   ctx.Description,
+		keyDescription:  ctx.Description,
 		"owners":        ctx.Owners,
-		"tags":          ctx.Tags,
+		keyTags:         ctx.Tags,
 		"domain":        ctx.Domain,
 		"quality_score": ctx.QualityScore,
 		"deprecation":   ctx.Deprecation,
 	}
 
 	if ctx.URN != "" {
-		semanticCtx["urn"] = ctx.URN
+		semanticCtx[keyURN] = ctx.URN
 	}
 	if len(ctx.GlossaryTerms) > 0 {
 		semanticCtx["glossary_terms"] = ctx.GlossaryTerms
@@ -675,9 +687,9 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 // buildColumnInfo creates a column info map from column context.
 func buildColumnInfo(col *semantic.ColumnContext) map[string]any {
 	colInfo := map[string]any{
-		"description":    col.Description,
+		keyDescription:   col.Description,
 		"glossary_terms": col.GlossaryTerms,
-		"tags":           col.Tags,
+		keyTags:          col.Tags,
 		"is_pii":         col.IsPII,
 		"is_sensitive":   col.IsSensitive,
 	}
@@ -695,8 +707,8 @@ func buildColumnInfo(col *semantic.ColumnContext) map[string]any {
 }
 
 // buildColumnContexts creates column context and collects inheritance sources.
-func buildColumnContexts(columnsCtx map[string]*semantic.ColumnContext) (map[string]any, []string) {
-	columnContext := make(map[string]any)
+func buildColumnContexts(columnsCtx map[string]*semantic.ColumnContext) (columnContext map[string]any, sources []string) {
+	columnContext = make(map[string]any)
 	inheritanceSources := make(map[string]bool)
 
 	for name, col := range columnsCtx {
@@ -706,7 +718,7 @@ func buildColumnContexts(columnsCtx map[string]*semantic.ColumnContext) (map[str
 		}
 	}
 
-	sources := make([]string, 0, len(inheritanceSources))
+	sources = make([]string, 0, len(inheritanceSources))
 	for src := range inheritanceSources {
 		sources = append(sources, src)
 	}
@@ -725,7 +737,7 @@ func appendSemanticContextWithColumns(
 	}
 
 	enrichment := map[string]any{
-		"semantic_context": buildTrinoSemanticContext(ctx),
+		keySemanticContext: buildTrinoSemanticContext(ctx),
 	}
 
 	if len(columnsCtx) > 0 {
@@ -738,7 +750,7 @@ func appendSemanticContextWithColumns(
 
 	enrichmentJSON, err := json.Marshal(enrichment)
 	if err != nil {
-		return result, nil
+		return result, fmt.Errorf("marshal semantic context with columns: %w", err)
 	}
 
 	result.Content = append(result.Content, &mcp.TextContent{
@@ -761,7 +773,7 @@ func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*query.T
 
 	enrichmentJSON, err := json.Marshal(enrichment)
 	if err != nil {
-		return result, nil
+		return result, fmt.Errorf("marshal query context: %w", err)
 	}
 
 	// Append to result
@@ -846,15 +858,15 @@ func buildS3SemanticContexts(
 // buildTableSemanticContext builds a semantic context map from search result and table context.
 func buildTableSemanticContext(sr semantic.TableSearchResult, tableCtx *semantic.TableContext) map[string]any {
 	semanticCtx := map[string]any{
-		"urn":         sr.URN,
-		"name":        sr.Name,
-		"description": tableCtx.Description,
+		keyURN:         sr.URN,
+		"name":         sr.Name,
+		keyDescription: tableCtx.Description,
 	}
 	if len(tableCtx.Owners) > 0 {
 		semanticCtx["owners"] = tableCtx.Owners
 	}
 	if len(tableCtx.Tags) > 0 {
-		semanticCtx["tags"] = tableCtx.Tags
+		semanticCtx[keyTags] = tableCtx.Tags
 	}
 	if tableCtx.Domain != nil {
 		semanticCtx["domain"] = tableCtx.Domain.Name
@@ -901,7 +913,7 @@ func appendS3SemanticContext(result *mcp.CallToolResult, contexts []map[string]a
 
 	// Create enrichment content
 	enrichment := map[string]any{
-		"semantic_context": map[string]any{
+		keySemanticContext: map[string]any{
 			"matching_datasets": contexts,
 			"note":              "Semantic metadata from DataHub for S3 location",
 		},
@@ -909,7 +921,7 @@ func appendS3SemanticContext(result *mcp.CallToolResult, contexts []map[string]a
 
 	enrichmentJSON, err := json.Marshal(enrichment)
 	if err != nil {
-		return result, nil
+		return result, fmt.Errorf("marshal S3 semantic context: %w", err)
 	}
 
 	// Append to result
@@ -964,23 +976,33 @@ func extractS3URNsFromResult(result *mcp.CallToolResult) []string {
 func extractS3URNsFromMap(data map[string]any) []string {
 	var urns []string
 	for k, v := range data {
-		if k == "urn" || k == "URN" {
-			if urn, ok := v.(string); ok {
-				// Check if this is an S3 dataset URN
-				if strings.Contains(urn, "dataPlatform:s3") {
-					urns = append(urns, urn)
-				}
-			}
+		if k == keyURN || k == "URN" {
+			urns = appendIfS3URN(urns, v)
 		}
-		if m, ok := v.(map[string]any); ok {
+		switch val := v.(type) {
+		case map[string]any:
+			urns = append(urns, extractS3URNsFromMap(val)...)
+		case []any:
+			urns = extractS3URNsFromSlice(urns, val)
+		}
+	}
+	return urns
+}
+
+// appendIfS3URN appends the value to urns if it is an S3 dataset URN string.
+func appendIfS3URN(urns []string, v any) []string {
+	urn, ok := v.(string)
+	if ok && strings.Contains(urn, "dataPlatform:s3") {
+		return append(urns, urn)
+	}
+	return urns
+}
+
+// extractS3URNsFromSlice extracts S3 URNs from slice items that are maps.
+func extractS3URNsFromSlice(urns []string, items []any) []string {
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
 			urns = append(urns, extractS3URNsFromMap(m)...)
-		}
-		if arr, ok := v.([]any); ok {
-			for _, item := range arr {
-				if m, ok := item.(map[string]any); ok {
-					urns = append(urns, extractS3URNsFromMap(m)...)
-				}
-			}
 		}
 	}
 	return urns
@@ -999,7 +1021,7 @@ func appendStorageContext(result *mcp.CallToolResult, contexts map[string]*stora
 
 	enrichmentJSON, err := json.Marshal(enrichment)
 	if err != nil {
-		return result, nil
+		return result, fmt.Errorf("marshal storage context: %w", err)
 	}
 
 	// Append to result

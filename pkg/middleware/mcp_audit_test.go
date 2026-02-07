@@ -335,7 +335,13 @@ func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
 	}
 	req := createAuditTestRequest(t, "trino_query", nil)
 
-	event := buildMCPAuditEvent(pc, req, result, nil, time.Now(), time.Millisecond)
+	event := buildMCPAuditEvent(pc, auditCallInfo{
+		Request:   req,
+		Result:    result,
+		Err:       nil,
+		StartTime: time.Now(),
+		Duration:  time.Millisecond,
+	})
 
 	assert.Equal(t, 11, event.ResponseChars)
 	assert.Equal(t, 2, event.ResponseTokenEstimate)
@@ -368,7 +374,7 @@ func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
 	assert.Equal(t, 4, events[0].ResponseTokenEstimate) // 16/4 = 4
 }
 
-// capturingAuditLogger captures audit events for testing
+// capturingAuditLogger captures audit events for testing.
 type capturingAuditLogger struct {
 	mu     sync.Mutex
 	events []AuditEvent
@@ -395,7 +401,7 @@ func (c *capturingAuditLogger) Events() []AuditEvent {
 	return result
 }
 
-// Helper to create ServerRequest for audit testing
+// Helper to create ServerRequest for audit testing.
 func createAuditTestRequest(t *testing.T, toolName string, args map[string]any) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
 	t.Helper()
 	var argsJSON json.RawMessage

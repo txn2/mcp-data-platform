@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -53,30 +54,15 @@ func GetToken(ctx context.Context) string {
 
 // HasRole checks if the user has a specific role.
 func (uc *UserContext) HasRole(role string) bool {
-	for _, r := range uc.Roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(uc.Roles, role)
 }
 
 // HasAnyRole checks if the user has any of the specified roles.
 func (uc *UserContext) HasAnyRole(roles ...string) bool {
-	for _, role := range roles {
-		if uc.HasRole(role) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(roles, uc.HasRole)
 }
 
 // InGroup checks if the user is in a specific group.
 func (uc *UserContext) InGroup(group string) bool {
-	for _, g := range uc.Groups {
-		if g == group {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(uc.Groups, group)
 }

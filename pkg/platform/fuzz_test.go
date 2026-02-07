@@ -65,7 +65,7 @@ storage:
 		// Create temp file
 		dir := t.TempDir()
 		configPath := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(configPath, []byte(yamlContent), 0600); err != nil {
+		if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
 			return
 		}
 

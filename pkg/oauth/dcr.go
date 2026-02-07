@@ -11,6 +11,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// DCR credential size constants.
+const (
+	// clientIDByteLength is the byte length for generated client IDs.
+	clientIDByteLength = 32
+
+	// clientSecretByteLength is the byte length for generated client secrets.
+	clientSecretByteLength = 48
+
+	// idByteLength is the byte length for generated unique IDs.
+	idByteLength = 16
+)
+
 // DCRConfig configures Dynamic Client Registration.
 type DCRConfig struct {
 	// Enabled enables DCR.
@@ -87,12 +99,12 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 	}
 
 	// Generate client credentials
-	clientID, err := generateSecureToken(32)
+	clientID, err := generateSecureToken(clientIDByteLength)
 	if err != nil {
 		return nil, fmt.Errorf("generating client ID: %w", err)
 	}
 
-	clientSecret, err := generateSecureToken(48)
+	clientSecret, err := generateSecureToken(clientSecretByteLength)
 	if err != nil {
 		return nil, fmt.Errorf("generating client secret: %w", err)
 	}
@@ -154,14 +166,14 @@ func (s *DCRService) isAllowedRedirectURI(uri string) bool {
 func generateSecureToken(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+		return "", fmt.Errorf("reading random bytes: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
 // generateID generates a unique ID.
 func generateID() string {
-	bytes := make([]byte, 16)
+	bytes := make([]byte, idByteLength)
 	_, _ = rand.Read(bytes)
 	return base64.RawURLEncoding.EncodeToString(bytes)
 }

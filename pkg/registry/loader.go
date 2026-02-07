@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"maps"
 )
 
 // LoaderConfig holds configuration for loading toolkits.
@@ -37,12 +38,8 @@ func (l *Loader) Load(cfg LoaderConfig) error {
 		for name, instanceCfg := range kindCfg.Instances {
 			// Merge kind-level config with instance config
 			mergedCfg := make(map[string]any)
-			for k, v := range kindCfg.Config {
-				mergedCfg[k] = v
-			}
-			for k, v := range instanceCfg {
-				mergedCfg[k] = v
-			}
+			maps.Copy(mergedCfg, kindCfg.Config)
+			maps.Copy(mergedCfg, instanceCfg)
 
 			toolkitCfg := ToolkitConfig{
 				Kind:    kind,
@@ -83,12 +80,8 @@ func (l *Loader) LoadFromMap(toolkits map[string]any) error {
 
 			// Merge configs
 			mergedCfg := make(map[string]any)
-			for k, val := range kindConfig {
-				mergedCfg[k] = val
-			}
-			for k, val := range instanceCfg {
-				mergedCfg[k] = val
-			}
+			maps.Copy(mergedCfg, kindConfig)
+			maps.Copy(mergedCfg, instanceCfg)
 
 			toolkitCfg := ToolkitConfig{
 				Kind:    kind,

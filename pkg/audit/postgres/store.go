@@ -12,6 +12,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
+const (
+	defaultRetentionDays = 90
+	defaultQueryCapacity = 100
+)
+
 // Store implements audit.Logger using PostgreSQL.
 type Store struct {
 	db            *sql.DB
@@ -26,7 +31,7 @@ type Config struct {
 // New creates a new PostgreSQL audit store.
 func New(db *sql.DB, cfg Config) *Store {
 	if cfg.RetentionDays == 0 {
-		cfg.RetentionDays = 90
+		cfg.RetentionDays = defaultRetentionDays
 	}
 	return &Store{
 		db:            db,
@@ -66,8 +71,11 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.ResponseChars,
 		event.ResponseTokenEstimate,
 	)
+	if err != nil {
+		return fmt.Errorf("inserting audit log: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 // queryBuilder helps build parameterized queries.
@@ -132,7 +140,7 @@ func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Ev
 	return s.executeQuery(ctx, query, builder.args, filter.Limit)
 }
 
-func (s *Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
+func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
 	if filter.StartTime != nil {
 		b.addTimeCondition("timestamp", ">=", *filter.StartTime)
 	}
@@ -153,7 +161,7 @@ func (s *Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter)
 	}
 }
 
-func (s *Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) string {
+func (*Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) string {
 	query := `
 		SELECT id, timestamp, duration_ms, request_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, response_chars, response_token_estimate
 		FROM audit_logs
@@ -176,13 +184,13 @@ func (s *Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) stri
 func (s *Store) executeQuery(ctx context.Context, query string, args []any, limit int) ([]audit.Event, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("querying audit logs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	capacity := limit
 	if capacity <= 0 {
-		capacity = 100
+		capacity = defaultQueryCapacity
 	}
 	events := make([]audit.Event, 0, capacity)
 
@@ -194,10 +202,14 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 		events = append(events, event)
 	}
 
-	return events, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating audit log rows: %w", err)
+	}
+
+	return events, nil
 }
 
-func (s *Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
+func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	var event audit.Event
 	var params []byte
 
@@ -220,7 +232,7 @@ func (s *Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.ResponseTokenEstimate,
 	)
 	if err != nil {
-		return event, err
+		return event, fmt.Errorf("scanning audit log row: %w", err)
 	}
 
 	if len(params) > 0 {
@@ -231,7 +243,7 @@ func (s *Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 }
 
 // Close releases resources.
-func (s *Store) Close() error {
+func (*Store) Close() error {
 	return nil
 }
 
@@ -240,7 +252,10 @@ func (s *Store) Cleanup(ctx context.Context) error {
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays)
 	query := `DELETE FROM audit_logs WHERE timestamp < $1`
 	_, err := s.db.ExecContext(ctx, query, cutoff)
-	return err
+	if err != nil {
+		return fmt.Errorf("cleaning up audit logs: %w", err)
+	}
+	return nil
 }
 
 // StartCleanupRoutine starts a background routine to clean up old audit logs.

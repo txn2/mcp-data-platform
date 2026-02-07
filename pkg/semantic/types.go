@@ -1,7 +1,11 @@
 // Package semantic provides abstractions for semantic metadata providers.
+//
+//nolint:revive // package contains related semantic data types
 package semantic
 
 import "time"
+
+const identifierSeparator = "."
 
 // TableIdentifier uniquely identifies a table.
 type TableIdentifier struct {
@@ -13,9 +17,9 @@ type TableIdentifier struct {
 // String returns a dot-separated representation.
 func (t TableIdentifier) String() string {
 	if t.Catalog != "" {
-		return t.Catalog + "." + t.Schema + "." + t.Table
+		return t.Catalog + identifierSeparator + t.Schema + identifierSeparator + t.Table
 	}
-	return t.Schema + "." + t.Table
+	return t.Schema + identifierSeparator + t.Table
 }
 
 // ColumnIdentifier uniquely identifies a column.
@@ -26,7 +30,7 @@ type ColumnIdentifier struct {
 
 // String returns a dot-separated representation including the column.
 func (c ColumnIdentifier) String() string {
-	return c.TableIdentifier.String() + "." + c.Column
+	return c.TableIdentifier.String() + identifierSeparator + c.Column
 }
 
 // TableContext provides semantic context for a table.
@@ -102,6 +106,7 @@ type Owner struct {
 // OwnerType indicates the type of owner.
 type OwnerType string
 
+// Owner type constants.
 const (
 	OwnerTypeUser  OwnerType = "user"
 	OwnerTypeGroup OwnerType = "group"
@@ -132,6 +137,7 @@ type Deprecation struct {
 // LineageDirection indicates the direction of lineage traversal.
 type LineageDirection string
 
+// Lineage direction constants.
 const (
 	LineageUpstream   LineageDirection = "upstream"
 	LineageDownstream LineageDirection = "downstream"

@@ -16,13 +16,19 @@ const (
 
 	// PKCEMethodS256 uses SHA-256 hashing (recommended).
 	PKCEMethodS256 PKCEMethod = "S256"
+
+	// pkceMinLength is the minimum length for code verifiers and challenges per RFC 7636.
+	pkceMinLength = 43
+
+	// pkceMaxLength is the maximum length for code verifiers and challenges per RFC 7636.
+	pkceMaxLength = 128
 )
 
 // ValidateCodeVerifier validates a code verifier.
 // Per RFC 7636, it must be 43-128 characters of [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~".
 func ValidateCodeVerifier(verifier string) error {
-	if len(verifier) < 43 || len(verifier) > 128 {
-		return fmt.Errorf("code verifier must be between 43 and 128 characters")
+	if len(verifier) < pkceMinLength || len(verifier) > pkceMaxLength {
+		return fmt.Errorf("code verifier must be between %d and %d characters", pkceMinLength, pkceMaxLength)
 	}
 
 	validPattern := regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`)
@@ -35,8 +41,8 @@ func ValidateCodeVerifier(verifier string) error {
 
 // ValidateCodeChallenge validates a code challenge.
 func ValidateCodeChallenge(challenge string) error {
-	if len(challenge) < 43 || len(challenge) > 128 {
-		return fmt.Errorf("code challenge must be between 43 and 128 characters")
+	if len(challenge) < pkceMinLength || len(challenge) > pkceMaxLength {
+		return fmt.Errorf("code challenge must be between %d and %d characters", pkceMinLength, pkceMaxLength)
 	}
 
 	// Base64 URL-safe characters

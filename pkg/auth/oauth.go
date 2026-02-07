@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -34,10 +35,10 @@ type OAuthJWTAuthenticator struct {
 // NewOAuthJWTAuthenticator creates a new OAuth JWT authenticator.
 func NewOAuthJWTAuthenticator(cfg OAuthJWTConfig) (*OAuthJWTAuthenticator, error) {
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("OAuth issuer is required")
+		return nil, fmt.Errorf("oauth issuer is required")
 	}
 	if len(cfg.SigningKey) == 0 {
-		return nil, fmt.Errorf("OAuth signing key is required")
+		return nil, fmt.Errorf("oauth signing key is required")
 	}
 
 	extractor := &ClaimsExtractor{
@@ -134,9 +135,7 @@ func (a *OAuthJWTAuthenticator) parseAndValidateToken(tokenString string) (map[s
 
 	// Convert to map[string]any for compatibility
 	claimsMap := make(map[string]any)
-	for k, v := range claims {
-		claimsMap[k] = v
-	}
+	maps.Copy(claimsMap, claims)
 
 	return claimsMap, nil
 }

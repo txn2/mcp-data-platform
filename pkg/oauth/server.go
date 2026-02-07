@@ -1,4 +1,4 @@
-package oauth
+package oauth //nolint:revive // max-public-structs: OAuth server requires multiple public types for its API surface
 
 import (
 	"context"
@@ -15,6 +15,46 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+)
+
+// Token and crypto size constants.
+const (
+	// tokenByteLength is the byte length for secure tokens (auth codes, access tokens, refresh tokens).
+	tokenByteLength = 32
+
+	// stateByteLength is the byte length for upstream IdP state parameters.
+	stateByteLength = 16
+
+	// jwtPartCount is the expected number of parts in a JWT (header.payload.signature).
+	jwtPartCount = 3
+
+	// defaultRefreshTokenDays is the default refresh token lifetime in days.
+	defaultRefreshTokenDays = 30
+
+	// defaultRefreshTokenHours is the hours-per-day factor for computing refresh token TTL.
+	defaultRefreshTokenHours = 24
+
+	// defaultAuthCodeMinutes is the default authorization code lifetime in minutes.
+	defaultAuthCodeMinutes = 10
+
+	// defaultHTTPTimeoutSeconds is the default HTTP client timeout in seconds.
+	defaultHTTPTimeoutSeconds = 30
+)
+
+// OAuth error code constants.
+const (
+	errInvalidRequest   = "invalid_request"
+	errMethodNotAllowed = "method_not_allowed"
+	errServerError      = "server_error"
+)
+
+// OAuth parameter name constants.
+const (
+	paramCode        = "code"
+	paramState       = "state"
+	paramScope       = "scope"
+	paramRedirectURI = "redirect_uri"
+	paramClientID    = "client_id"
 )
 
 // Errors returned by the OAuth server.
@@ -78,10 +118,10 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 		config.AccessTokenTTL = 1 * time.Hour
 	}
 	if config.RefreshTokenTTL == 0 {
-		config.RefreshTokenTTL = 24 * time.Hour * 30 // 30 days
+		config.RefreshTokenTTL = defaultRefreshTokenHours * time.Hour * defaultRefreshTokenDays
 	}
 	if config.AuthCodeTTL == 0 {
-		config.AuthCodeTTL = 10 * time.Minute
+		config.AuthCodeTTL = defaultAuthCodeMinutes * time.Minute
 	}
 
 	var dcr *DCRService
@@ -98,7 +138,7 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 		storage:    storage,
 		dcr:        dcr,
 		stateStore: NewMemoryStateStore(),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeoutSeconds * time.Second},
 	}, nil
 }
 
@@ -152,14 +192,14 @@ func (s *Server) validateAuthorizationRequest(ctx context.Context, req Authoriza
 	if !client.ValidRedirectURI(req.RedirectURI) {
 		return nil, fmt.Errorf("invalid redirect_uri")
 	}
-	if req.ResponseType != "code" {
+	if req.ResponseType != paramCode {
 		return nil, fmt.Errorf("unsupported response_type")
 	}
 	return client, nil
 }
 
 // validatePKCE validates PKCE parameters if required.
-func (s *Server) validatePKCE(client *Client, req AuthorizationRequest) error {
+func (*Server) validatePKCE(client *Client, req AuthorizationRequest) error {
 	if !client.RequirePKCE {
 		return nil
 	}
@@ -183,7 +223,7 @@ func (s *Server) Authorize(ctx context.Context, req AuthorizationRequest, userID
 		return "", err
 	}
 
-	codeValue, err := generateSecureToken(32)
+	codeValue, err := generateSecureToken(tokenByteLength)
 	if err != nil {
 		return "", fmt.Errorf("generating authorization code: %w", err)
 	}
@@ -222,7 +262,7 @@ func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, e
 }
 
 // validateAuthorizationCode validates the authorization code state.
-func (s *Server) validateAuthorizationCode(code *AuthorizationCode, req TokenRequest) error {
+func (*Server) validateAuthorizationCode(code *AuthorizationCode, req TokenRequest) error {
 	if code.Used {
 		return fmt.Errorf("authorization code already used")
 	}
@@ -251,7 +291,7 @@ func (s *Server) validateClientCredentials(ctx context.Context, req TokenRequest
 }
 
 // verifyCodeChallenge verifies PKCE code challenge if used.
-func (s *Server) verifyCodeChallenge(code *AuthorizationCode, req TokenRequest) error {
+func (*Server) verifyCodeChallenge(code *AuthorizationCode, req TokenRequest) error {
 	if code.CodeChallenge == "" {
 		return nil
 	}
@@ -339,7 +379,7 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 	}
 
 	// Generate refresh token
-	refreshTokenValue, err := generateSecureToken(32)
+	refreshTokenValue, err := generateSecureToken(tokenByteLength)
 	if err != nil {
 		return nil, fmt.Errorf("generating refresh token: %w", err)
 	}
@@ -374,7 +414,7 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 func (s *Server) generateAccessToken(clientID, userID string, userClaims map[string]any, scope string) (string, error) {
 	// If no signing key configured, fall back to opaque token
 	if len(s.config.SigningKey) == 0 {
-		return generateSecureToken(32)
+		return generateSecureToken(tokenByteLength)
 	}
 
 	now := time.Now()
@@ -448,24 +488,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // handleTokenEndpoint handles POST /oauth/token.
 func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST required")
+		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "POST required")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", "could not parse form")
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "could not parse form")
 		return
 	}
 
 	req := TokenRequest{
 		GrantType:    r.FormValue("grant_type"),
-		Code:         r.FormValue("code"),
-		RedirectURI:  r.FormValue("redirect_uri"),
-		ClientID:     r.FormValue("client_id"),
+		Code:         r.FormValue(paramCode),
+		RedirectURI:  r.FormValue(paramRedirectURI),
+		ClientID:     r.FormValue(paramClientID),
 		ClientSecret: r.FormValue("client_secret"),
 		CodeVerifier: r.FormValue("code_verifier"),
 		RefreshToken: r.FormValue("refresh_token"),
-		Scope:        r.FormValue("scope"),
+		Scope:        r.FormValue(paramScope),
 	}
 
 	// Support Basic auth for client credentials
@@ -478,7 +518,7 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.Token(r.Context(), req)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
 
@@ -488,19 +528,19 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 // handleRegisterEndpoint handles POST /oauth/register.
 func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST required")
+		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "POST required")
 		return
 	}
 
 	var req DCRRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", "could not parse JSON")
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "could not parse JSON")
 		return
 	}
 
 	resp, err := s.RegisterClient(r.Context(), req)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
 
@@ -511,16 +551,16 @@ func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) 
 // It validates the client request and redirects to the upstream IdP for authentication.
 func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET required")
+		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "GET required")
 		return
 	}
 
 	req := AuthorizationRequest{
 		ResponseType:        r.URL.Query().Get("response_type"),
-		ClientID:            r.URL.Query().Get("client_id"),
-		RedirectURI:         r.URL.Query().Get("redirect_uri"),
-		Scope:               r.URL.Query().Get("scope"),
-		State:               r.URL.Query().Get("state"),
+		ClientID:            r.URL.Query().Get(paramClientID),
+		RedirectURI:         r.URL.Query().Get(paramRedirectURI),
+		Scope:               r.URL.Query().Get(paramScope),
+		State:               r.URL.Query().Get(paramState),
 		CodeChallenge:       r.URL.Query().Get("code_challenge"),
 		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
 	}
@@ -528,26 +568,26 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 	// Validate client request
 	client, err := s.validateAuthorizationRequest(r.Context(), req)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
 
 	// Validate PKCE if required
 	if err := s.validatePKCE(client, req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
 
 	// Check if upstream IdP is configured
 	if s.config.Upstream == nil {
-		s.writeError(w, http.StatusInternalServerError, "server_error", "upstream IdP not configured")
+		s.writeError(w, http.StatusInternalServerError, errServerError, "upstream IdP not configured")
 		return
 	}
 
 	// Generate state for upstream IdP
-	upstreamState, err := generateSecureToken(16)
+	upstreamState, err := generateSecureToken(stateByteLength)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "server_error", "failed to generate state")
+		s.writeError(w, http.StatusInternalServerError, errServerError, "failed to generate state")
 		return
 	}
 
@@ -563,7 +603,7 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 		CreatedAt:           time.Now(),
 	}
 	if err := s.stateStore.Save(upstreamState, authState); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "server_error", "failed to save state")
+		s.writeError(w, http.StatusInternalServerError, errServerError, "failed to save state")
 		return
 	}
 
@@ -583,7 +623,7 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 		return false
 	}
 
-	stateParam := r.URL.Query().Get("state")
+	stateParam := r.URL.Query().Get(paramState)
 	if stateParam == "" {
 		return false
 	}
@@ -612,7 +652,7 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 // It receives the callback from the upstream IdP and exchanges the code for tokens.
 func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET required")
+		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "GET required")
 		return
 	}
 
@@ -628,11 +668,11 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	upstreamCode := r.URL.Query().Get("code")
-	upstreamState := r.URL.Query().Get("state")
+	upstreamCode := r.URL.Query().Get(paramCode)
+	upstreamState := r.URL.Query().Get(paramState)
 
 	if upstreamCode == "" || upstreamState == "" {
-		s.writeError(w, http.StatusBadRequest, "invalid_request", "missing code or state")
+		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "missing code or state")
 		return
 	}
 
@@ -658,7 +698,7 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 
 	// Generate MCP authorization code for the original client
 	mcpCode, err := s.Authorize(r.Context(), AuthorizationRequest{
-		ResponseType:        "code",
+		ResponseType:        paramCode,
 		ClientID:            authState.ClientID,
 		RedirectURI:         authState.RedirectURI,
 		Scope:               authState.Scope,
@@ -666,7 +706,7 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 		CodeChallengeMethod: authState.CodeChallengeMethod,
 	}, userID, userClaims)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		s.writeError(w, http.StatusInternalServerError, errServerError, err.Error())
 		return
 	}
 
@@ -689,11 +729,11 @@ func (s *Server) buildUpstreamAuthURL(state string) string {
 // When false, omits prompt so the IdP shows its login form.
 func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool) string {
 	params := url.Values{}
-	params.Set("response_type", "code")
-	params.Set("client_id", s.config.Upstream.ClientID)
-	params.Set("redirect_uri", s.config.Upstream.RedirectURI)
-	params.Set("state", state)
-	params.Set("scope", "openid email profile")
+	params.Set("response_type", paramCode)
+	params.Set(paramClientID, s.config.Upstream.ClientID)
+	params.Set(paramRedirectURI, s.config.Upstream.RedirectURI)
+	params.Set(paramState, state)
+	params.Set(paramScope, "openid email profile")
 	if usePromptNone {
 		params.Set("prompt", "none")
 	}
@@ -718,9 +758,9 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
-	data.Set("code", code)
-	data.Set("redirect_uri", s.config.Upstream.RedirectURI)
-	data.Set("client_id", s.config.Upstream.ClientID)
+	data.Set(paramCode, code)
+	data.Set(paramRedirectURI, s.config.Upstream.RedirectURI)
+	data.Set(paramClientID, s.config.Upstream.ClientID)
 	data.Set("client_secret", s.config.Upstream.ClientSecret)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
@@ -749,7 +789,7 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 }
 
 // extractUserFromUpstreamToken extracts user information from the upstream token.
-func (s *Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (string, map[string]any) {
+func (*Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (string, map[string]any) { //nolint:gocritic // unnamedResult: names would shadow local variables
 	claims := make(map[string]any)
 
 	// Extract claims from ID token first (basic profile info)
@@ -788,7 +828,7 @@ func (s *Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (str
 // This is safe because we received the token directly from the trusted upstream IdP.
 func decodeJWTClaims(token string) map[string]any {
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
+	if len(parts) != jwtPartCount {
 		return nil
 	}
 
@@ -807,16 +847,16 @@ func decodeJWTClaims(token string) map[string]any {
 }
 
 // buildClientRedirectURL builds the redirect URL back to the client.
-func (s *Server) buildClientRedirectURL(redirectURI, code, state string) string {
+func (*Server) buildClientRedirectURL(redirectURI, code, state string) string {
 	u, err := url.Parse(redirectURI)
 	if err != nil {
 		return redirectURI
 	}
 
 	q := u.Query()
-	q.Set("code", code)
+	q.Set(paramCode, code)
 	if state != "" {
-		q.Set("state", state)
+		q.Set(paramState, state)
 	}
 	u.RawQuery = q.Encode()
 
@@ -831,7 +871,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		"authorization_endpoint":                s.config.Issuer + "/authorize",
 		"token_endpoint":                        s.config.Issuer + "/token",
 		"registration_endpoint":                 s.config.Issuer + "/register",
-		"response_types_supported":              []string{"code"},
+		"response_types_supported":              []string{paramCode},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
@@ -841,7 +881,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 }
 
 // writeJSON writes a JSON response.
-func (s *Server) writeJSON(w http.ResponseWriter, status int, data any) {
+func (*Server) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
@@ -874,7 +914,7 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 // Uses paths without /oauth prefix for Claude Desktop compatibility.
 func BuildAuthorizationURL(baseURL, clientID, redirectURI, scope, state string) string {
 	// Generate PKCE
-	verifier := make([]byte, 32)
+	verifier := make([]byte, tokenByteLength)
 	_, _ = rand.Read(verifier)
 	codeVerifier := base64.RawURLEncoding.EncodeToString(verifier)
 	challenge, _ := GenerateCodeChallenge(codeVerifier, PKCEMethodS256)

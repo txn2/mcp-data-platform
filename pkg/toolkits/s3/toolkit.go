@@ -68,13 +68,13 @@ func applyDefaults(name string, cfg Config) Config {
 		cfg.Region = "us-east-1"
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = DefaultTimeout
 	}
 	if cfg.MaxGetSize == 0 {
-		cfg.MaxGetSize = 10 * 1024 * 1024 // 10MB
+		cfg.MaxGetSize = DefaultMaxGetSize
 	}
 	if cfg.MaxPutSize == 0 {
-		cfg.MaxPutSize = 100 * 1024 * 1024 // 100MB
+		cfg.MaxPutSize = DefaultMaxPutSize
 	}
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
@@ -119,7 +119,7 @@ func createToolkit(client *s3client.Client, cfg Config) *s3tools.Toolkit {
 }
 
 // Kind returns the toolkit kind.
-func (t *Toolkit) Kind() string {
+func (*Toolkit) Kind() string {
 	return "s3"
 }
 
@@ -175,7 +175,9 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.client != nil {
-		return t.client.Close()
+		if err := t.client.Close(); err != nil {
+			return fmt.Errorf("closing s3 client: %w", err)
+		}
 	}
 	return nil
 }

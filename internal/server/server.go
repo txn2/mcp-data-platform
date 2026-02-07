@@ -28,10 +28,11 @@ func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 	}
 
 	// Create default toolkit and register
+	mcpSrv := p.MCPServer()
 	toolkit := tools.NewToolkit()
-	toolkit.RegisterTools(p.MCPServer())
+	toolkit.RegisterTools(mcpSrv)
 
-	return p.MCPServer(), p, nil
+	return mcpSrv, p, nil
 }
 
 // NewWithDefaults creates a new MCP server with default configuration.

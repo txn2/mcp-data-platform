@@ -221,18 +221,23 @@ func (e *errorProvider) Name() string { return "error" }
 func (e *errorProvider) GetTableContext(_ context.Context, _ TableIdentifier) (*TableContext, error) {
 	return nil, &mockError{}
 }
+
 func (e *errorProvider) GetColumnContext(_ context.Context, _ ColumnIdentifier) (*ColumnContext, error) {
 	return nil, &mockError{}
 }
+
 func (e *errorProvider) GetColumnsContext(_ context.Context, _ TableIdentifier) (map[string]*ColumnContext, error) {
 	return nil, &mockError{}
 }
+
 func (e *errorProvider) GetLineage(_ context.Context, _ TableIdentifier, _ LineageDirection, _ int) (*LineageInfo, error) {
 	return nil, &mockError{}
 }
+
 func (e *errorProvider) GetGlossaryTerm(_ context.Context, _ string) (*GlossaryTerm, error) {
 	return nil, &mockError{}
 }
+
 func (e *errorProvider) SearchTables(_ context.Context, _ SearchFilter) ([]TableSearchResult, error) {
 	return nil, &mockError{}
 }

@@ -90,5 +90,7 @@ func TestNewToolResultText(t *testing.T) {
 }
 
 // Verify interface compliance.
-var _ Authenticator = (*NoopAuthenticator)(nil)
-var _ Authenticator = (*mockAuthenticator)(nil)
+var (
+	_ Authenticator = (*NoopAuthenticator)(nil)
+	_ Authenticator = (*mockAuthenticator)(nil)
+)

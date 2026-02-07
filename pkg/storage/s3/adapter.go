@@ -11,6 +11,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
+const (
+	// defaultListLimit is the maximum number of objects to list in an availability check.
+	defaultListLimit = 1000
+
+	// defaultGetLimit is the default number of objects returned by ListObjects.
+	defaultGetLimit = 100
+)
+
 // Config holds S3 adapter configuration.
 type Config struct {
 	Region         string
@@ -22,9 +30,9 @@ type Config struct {
 	ReadOnly       bool
 }
 
-// S3Client defines the interface for S3 operations used by the adapter.
+// Client defines the interface for S3 operations used by the adapter.
 // This interface allows for mocking in tests.
-type S3Client interface {
+type Client interface {
 	ListObjects(ctx context.Context, bucket, prefix, delimiter string, maxKeys int32, continueToken string) (*s3client.ListObjectsOutput, error)
 	Close() error
 }
@@ -32,11 +40,11 @@ type S3Client interface {
 // Adapter implements storage.Provider using S3.
 type Adapter struct {
 	cfg    Config
-	client S3Client
+	client Client
 }
 
 // New creates a new S3 adapter with an existing client.
-func New(cfg Config, client S3Client) (*Adapter, error) {
+func New(cfg Config, client Client) (*Adapter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("s3 client is required")
 	}
@@ -68,7 +76,7 @@ func NewFromConfig(cfg Config) (*Adapter, error) {
 }
 
 // Name returns the provider name.
-func (a *Adapter) Name() string {
+func (*Adapter) Name() string {
 	return "s3"
 }
 
@@ -104,16 +112,16 @@ func (a *Adapter) ResolveDataset(_ context.Context, urn string) (*storage.Datase
 func (a *Adapter) GetDatasetAvailability(ctx context.Context, urn string) (*storage.DatasetAvailability, error) {
 	dataset, err := a.ResolveDataset(ctx, urn)
 	if err != nil {
-		return &storage.DatasetAvailability{
+		return &storage.DatasetAvailability{ //nolint:nilerr // availability check: resolve errors mean "not available", not a system failure
 			Available: false,
 			Error:     err.Error(),
 		}, nil
 	}
 
 	// List objects to verify the dataset exists and get stats
-	result, err := a.client.ListObjects(ctx, dataset.Bucket, dataset.Prefix, "", 1000, "")
+	result, err := a.client.ListObjects(ctx, dataset.Bucket, dataset.Prefix, "", defaultListLimit, "")
 	if err != nil {
-		return &storage.DatasetAvailability{
+		return &storage.DatasetAvailability{ //nolint:nilerr // availability check: list errors mean "not available", not a system failure
 			Available: false,
 			Error:     err.Error(),
 		}, nil
@@ -166,7 +174,7 @@ func (a *Adapter) GetAccessExamples(ctx context.Context, urn string) ([]storage.
 // ListObjects lists objects in an S3 dataset prefix.
 func (a *Adapter) ListObjects(ctx context.Context, dataset storage.DatasetIdentifier, limit int) ([]storage.ObjectInfo, error) {
 	if limit <= 0 {
-		limit = 100
+		limit = defaultGetLimit
 	}
 	// S3 API limits maxKeys to 1000, ensure we stay within int32 bounds
 	const maxLimit = 1000
@@ -196,7 +204,9 @@ func (a *Adapter) ListObjects(ctx context.Context, dataset storage.DatasetIdenti
 // Close releases resources.
 func (a *Adapter) Close() error {
 	if a.client != nil {
-		return a.client.Close()
+		if err := a.client.Close(); err != nil {
+			return fmt.Errorf("closing s3 client: %w", err)
+		}
 	}
 	return nil
 }

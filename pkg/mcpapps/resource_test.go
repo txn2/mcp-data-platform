@@ -2,6 +2,7 @@ package mcpapps
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -505,14 +506,14 @@ func TestReadAsset(t *testing.T) {
 
 	t.Run("returns error for missing file", func(t *testing.T) {
 		_, err := readAsset(app, "nonexistent.html")
-		if err != ErrAssetNotFound {
+		if !errors.Is(err, ErrAssetNotFound) {
 			t.Errorf("Expected ErrAssetNotFound, got %v", err)
 		}
 	})
 
 	t.Run("prevents path traversal", func(t *testing.T) {
 		_, err := readAsset(app, "../errors.go")
-		if err != ErrPathTraversal {
+		if !errors.Is(err, ErrPathTraversal) {
 			t.Errorf("Expected ErrPathTraversal, got %v", err)
 		}
 	})
@@ -520,7 +521,7 @@ func TestReadAsset(t *testing.T) {
 	t.Run("prevents nested traversal", func(t *testing.T) {
 		// Try accessing file with nested path traversal
 		_, err := readAsset(app, "subdir/../../errors.go")
-		if err != ErrPathTraversal {
+		if !errors.Is(err, ErrPathTraversal) {
 			t.Errorf("Expected ErrPathTraversal, got %v", err)
 		}
 	})
