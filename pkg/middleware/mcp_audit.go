@@ -8,6 +8,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// estimatedCharsPerToken is the approximate number of characters per LLM token.
+const estimatedCharsPerToken = 4
+
 // MCPAuditMiddleware creates MCP protocol-level middleware that logs tool calls
 // for auditing purposes.
 //
@@ -125,7 +128,7 @@ func extractMCPParameters(req mcp.Request) map[string]any {
 // calculateResponseSize computes the total character count and estimated token
 // count from an MCP tool call result. Returns (0, 0) if err is non-nil or
 // the result is not a CallToolResult.
-func calculateResponseSize(result mcp.Result, err error) (chars int, tokens int) {
+func calculateResponseSize(result mcp.Result, err error) (chars, tokens int) {
 	if err != nil {
 		return 0, 0
 	}
@@ -146,7 +149,7 @@ func calculateResponseSize(result mcp.Result, err error) (chars int, tokens int)
 		}
 	}
 
-	return total, total / 4
+	return total, total / estimatedCharsPerToken
 }
 
 // extractMCPErrorMessage extracts the error message from an MCP CallToolResult.
