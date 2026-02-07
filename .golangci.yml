@@ -312,6 +312,8 @@ linters:
           - unparam
           - thelper
           - revive
+          - nilnil
+          - nestif
 
       # Allow longer functions in tests
       - path: _test\.go
