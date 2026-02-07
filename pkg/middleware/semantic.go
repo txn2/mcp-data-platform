@@ -139,7 +139,7 @@ func extractTableKeysFromRequest(request mcp.CallToolRequest) []string {
 func (e *semanticEnricher) applyDedupMode(
 	ctx context.Context,
 	result *mcp.CallToolResult,
-	request mcp.CallToolRequest,
+	_ mcp.CallToolRequest,
 	tableKeys []string,
 ) (*mcp.CallToolResult, error) {
 	switch e.cfg.DedupMode {
