@@ -61,7 +61,7 @@ func TestNoopProvider(t *testing.T) {
 			t.Errorf("GetLineage() error = %v", err)
 		}
 		if result == nil {
-			t.Error("GetLineage() returned nil")
+			t.Fatal("GetLineage() returned nil")
 		}
 		if result.Direction != LineageUpstream {
 			t.Errorf("GetLineage() Direction = %v, want %v", result.Direction, LineageUpstream)
@@ -74,8 +74,8 @@ func TestNoopProvider(t *testing.T) {
 		if err != nil {
 			t.Errorf("GetGlossaryTerm() error = %v", err)
 		}
-		if result != nil {
-			t.Error("GetGlossaryTerm() expected nil result for noop")
+		if result == nil {
+			t.Error("GetGlossaryTerm() returned nil, expected empty term")
 		}
 	})
 
