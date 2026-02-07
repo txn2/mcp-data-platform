@@ -839,8 +839,8 @@ func TestMiddlewareChain_AuditResponseSize(t *testing.T) {
 
 // Ensure mock types satisfy interfaces (compile-time check).
 var (
-	_ semantic.Provider    = (*mockSemanticProvider)(nil)
-	_ query.Provider       = (*mockQueryProvider)(nil)
+	_ semantic.Provider     = (*mockSemanticProvider)(nil)
+	_ query.Provider        = (*mockQueryProvider)(nil)
 	_ middleware.Authorizer = (*denyAuthorizer)(nil)
 )
 
