@@ -42,6 +42,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Create platform context
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
+			pc.SessionID = extractSessionID(req)
 			ctx = WithPlatformContext(ctx, pc)
 
 			// Populate toolkit metadata
@@ -149,6 +150,31 @@ func authenticateAndAuthorize(
 	)
 
 	return next(ctx, method, req)
+}
+
+// extractSessionID extracts the session ID from a request.
+// For Streamable HTTP transport, this is the Mcp-Session-Id header value.
+// For stdio/SSE transport, it falls back to a constant "stdio" so that
+// all calls within the same process share a single implicit session.
+func extractSessionID(req mcp.Request) (id string) {
+	id = "stdio"
+	if req == nil {
+		return id
+	}
+	// GetSession() may return a typed nil *ServerSession wrapped in the
+	// Session interface, which passes the != nil check but panics on
+	// method calls. Guard with recover for safety.
+	defer func() {
+		if r := recover(); r != nil {
+			id = "stdio"
+		}
+	}()
+	if session := req.GetSession(); session != nil {
+		if sid := session.ID(); sid != "" {
+			return sid
+		}
+	}
+	return id
 }
 
 // extractToolName extracts the tool name from a tools/call request.
