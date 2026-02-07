@@ -301,7 +301,7 @@ func (r *lineageResolver) groupNodesByLevel(nodes []types.LineageNode) map[int][
 
 // collectUpstreamURNs collects all upstream URNs from nodes grouped by level.
 func (r *lineageResolver) collectUpstreamURNs(nodesByLevel map[int][]types.LineageNode) []string {
-	var urns []string
+	urns := make([]string, 0, len(nodesByLevel)*2)
 	for level := 1; level <= r.cfg.MaxHops; level++ {
 		for _, node := range nodesByLevel[level] {
 			urns = append(urns, node.URN)
