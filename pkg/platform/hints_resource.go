@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -28,7 +29,7 @@ func (p *Platform) buildHintsResourceResult() (*mcp.ReadResourceResult, error) {
 
 	content, err := json.MarshalIndent(hints, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling hints: %w", err)
 	}
 
 	return &mcp.ReadResourceResult{
