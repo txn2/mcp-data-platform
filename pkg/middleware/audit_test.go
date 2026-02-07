@@ -22,12 +22,6 @@ func (m *mockAuditLogger) Log(_ context.Context, event AuditEvent) error {
 	return m.logErr
 }
 
-func (m *mockAuditLogger) getEvents() []AuditEvent {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]AuditEvent{}, m.events...)
-}
-
 func TestNoopAuditLogger(t *testing.T) {
 	logger := &NoopAuditLogger{}
 	err := logger.Log(context.Background(), AuditEvent{
@@ -112,5 +106,7 @@ func TestAuditEvent(t *testing.T) {
 }
 
 // Verify interface compliance.
-var _ AuditLogger = (*NoopAuditLogger)(nil)
-var _ AuditLogger = (*mockAuditLogger)(nil)
+var (
+	_ AuditLogger = (*NoopAuditLogger)(nil)
+	_ AuditLogger = (*mockAuditLogger)(nil)
+)
