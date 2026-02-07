@@ -1,4 +1,4 @@
-// Package http provides HTTP middleware for the MCP data platform.
+//nolint:revive // package name matches directory structure
 package http
 
 import (
@@ -18,8 +18,8 @@ func AuthMiddleware(requireAuth bool) func(http.Handler) http.Handler {
 
 			// Extract Bearer token from Authorization header
 			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			}
 
 			// If no Bearer token, try X-API-Key header
@@ -65,8 +65,8 @@ func MCPAuthGateway(resourceMetadataURL string) func(http.Handler) http.Handler 
 			var token string
 
 			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			}
 			if token == "" {
 				token = r.Header.Get("X-API-Key")
@@ -108,8 +108,8 @@ func RequireAuthWithOAuth(resourceMetadataURL string) func(http.Handler) http.Ha
 			var token string
 
 			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			}
 
 			if token == "" {
