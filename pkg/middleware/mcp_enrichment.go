@@ -54,7 +54,7 @@ func MCPSemanticEnrichmentMiddleware(
 			// Get tool name from request
 			toolName, extractErr := extractToolName(req)
 			if extractErr != nil {
-				return result, nil
+				return result, nil //nolint:nilerr // enrichment is best-effort; skip if tool name extraction fails
 			}
 
 			// Determine toolkit kind from tool name prefix
