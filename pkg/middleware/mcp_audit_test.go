@@ -252,6 +252,122 @@ func TestExtractMCPErrorMessage(t *testing.T) {
 	}
 }
 
+func TestCalculateResponseSize_SingleText(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "hello world"}},
+	}
+	chars, tokens := calculateResponseSize(result, nil)
+	assert.Equal(t, 11, chars)
+	assert.Equal(t, 2, tokens) // 11/4 = 2 (truncated)
+}
+
+func TestCalculateResponseSize_MultipleItems(t *testing.T) {
+	// Build 1000 chars across multiple content items
+	text1 := make([]byte, 600)
+	for i := range text1 {
+		text1[i] = 'a'
+	}
+	text2 := make([]byte, 400)
+	for i := range text2 {
+		text2[i] = 'b'
+	}
+
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(text1)},
+			&mcp.TextContent{Text: string(text2)},
+		},
+	}
+	chars, tokens := calculateResponseSize(result, nil)
+	assert.Equal(t, 1000, chars)
+	assert.Equal(t, 250, tokens) // 1000/4 = 250
+}
+
+func TestCalculateResponseSize_ErrorResult(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "hello"}},
+	}
+	chars, tokens := calculateResponseSize(result, assert.AnError)
+	assert.Equal(t, 0, chars)
+	assert.Equal(t, 0, tokens)
+}
+
+func TestCalculateResponseSize_NilResult(t *testing.T) {
+	chars, tokens := calculateResponseSize(nil, nil)
+	assert.Equal(t, 0, chars)
+	assert.Equal(t, 0, tokens)
+}
+
+func TestCalculateResponseSize_NonCallToolResult(t *testing.T) {
+	chars, tokens := calculateResponseSize(&mcp.ListResourcesResult{}, nil)
+	assert.Equal(t, 0, chars)
+	assert.Equal(t, 0, tokens)
+}
+
+func TestCalculateResponseSize_ImageContent(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "text"},
+			&mcp.ImageContent{Data: []byte("base64imagedata")},
+		},
+	}
+	chars, tokens := calculateResponseSize(result, nil)
+	// "text" = 4, "base64imagedata" = 15, total = 19
+	assert.Equal(t, 19, chars)
+	assert.Equal(t, 4, tokens) // 19/4 = 4
+}
+
+func TestCalculateResponseSize_EmptyContent(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{},
+	}
+	chars, tokens := calculateResponseSize(result, nil)
+	assert.Equal(t, 0, chars)
+	assert.Equal(t, 0, tokens)
+}
+
+func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
+	pc := NewPlatformContext("req-test")
+	pc.ToolName = "trino_query"
+
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "hello world"}},
+	}
+	req := createAuditTestRequest(t, "trino_query", nil)
+
+	event := buildMCPAuditEvent(pc, req, result, nil, time.Now(), time.Millisecond)
+
+	assert.Equal(t, 11, event.ResponseChars)
+	assert.Equal(t, 2, event.ResponseTokenEstimate)
+}
+
+func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
+	mockLogger := newCapturingAuditLogger()
+	mw := MCPAuditMiddleware(mockLogger)
+
+	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "result data here"}},
+		}, nil
+	}
+
+	wrapped := mw(mockHandler)
+
+	pc := NewPlatformContext("req-size")
+	pc.ToolName = "test_tool"
+	ctx := WithPlatformContext(context.Background(), pc)
+
+	req := createAuditTestRequest(t, "test_tool", nil)
+	_, _ = wrapped(ctx, "tools/call", req)
+
+	time.Sleep(50 * time.Millisecond)
+
+	events := mockLogger.Events()
+	require.Len(t, events, 1)
+	assert.Equal(t, 16, events[0].ResponseChars)         // "result data here" = 16 chars
+	assert.Equal(t, 4, events[0].ResponseTokenEstimate)   // 16/4 = 4
+}
+
 // capturingAuditLogger captures audit events for testing
 type capturingAuditLogger struct {
 	mu     sync.Mutex
