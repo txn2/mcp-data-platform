@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -39,11 +40,14 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 	// Override timestamp from the event
 	auditEvent.Timestamp = event.Timestamp
 
-	return a.store.Log(ctx, *auditEvent)
+	if err := a.store.Log(ctx, *auditEvent); err != nil {
+		return fmt.Errorf("logging audit event: %w", err)
+	}
+	return nil
 }
 
 // Close releases resources. The adapter itself has no resources to release,
 // as the store lifecycle is managed by the platform.
-func (a *auditStoreAdapter) Close() error {
+func (*auditStoreAdapter) Close() error {
 	return nil
 }
