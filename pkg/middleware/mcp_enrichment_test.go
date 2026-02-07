@@ -288,7 +288,7 @@ func TestBuildCallToolRequest_NilParams(t *testing.T) {
 	assert.Nil(t, callReq.Params)
 }
 
-// Helper to create ServerRequest for testing
+// Helper to create ServerRequest for testing.
 func createServerRequest(t *testing.T, toolName string, args map[string]any) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
 	t.Helper()
 	var argsJSON json.RawMessage
