@@ -76,13 +76,17 @@ func Run(db *sql.DB) error {
 }
 
 // Version returns the current migration version.
-func Version(db *sql.DB) (uint, bool, error) {
+func Version(db *sql.DB) (version uint, dirty bool, err error) {
 	m, err := migratorFactory(db)
 	if err != nil {
 		return 0, false, err
 	}
 
-	return m.Version()
+	version, dirty, err = m.Version()
+	if err != nil {
+		return 0, false, fmt.Errorf("getting migration version: %w", err)
+	}
+	return version, dirty, nil
 }
 
 // Down rolls back all migrations.
