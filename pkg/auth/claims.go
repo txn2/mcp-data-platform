@@ -105,7 +105,7 @@ func (e *ClaimsExtractor) getStringSlice(claims map[string]any, path string) []s
 }
 
 // getValue gets a value at a dot-separated path.
-func (e *ClaimsExtractor) getValue(claims map[string]any, path string) any {
+func (*ClaimsExtractor) getValue(claims map[string]any, path string) any {
 	if path == "" {
 		return nil
 	}
@@ -114,11 +114,11 @@ func (e *ClaimsExtractor) getValue(claims map[string]any, path string) any {
 	var current any = claims
 
 	for _, part := range parts {
-		if m, ok := current.(map[string]any); ok {
-			current = m[part]
-		} else {
+		m, ok := current.(map[string]any)
+		if !ok {
 			return nil
 		}
+		current = m[part]
 	}
 
 	return current
