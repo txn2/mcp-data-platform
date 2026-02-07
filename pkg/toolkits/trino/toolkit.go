@@ -13,6 +13,23 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const (
+	// defaultQueryLimit is the default number of rows returned by queries.
+	defaultQueryLimit = 1000
+
+	// defaultMaxLimit is the maximum number of rows allowed per query.
+	defaultMaxLimit = 10000
+
+	// defaultTrinoTimeout is the default query timeout.
+	defaultTrinoTimeout = 120 * time.Second
+
+	// defaultSSLPort is the default port when SSL is enabled.
+	defaultSSLPort = 443
+
+	// defaultPlainPort is the default port when SSL is disabled.
+	defaultPlainPort = 8080
+)
+
 // Config holds Trino toolkit configuration.
 type Config struct {
 	Host           string        `yaml:"host"`
@@ -81,13 +98,13 @@ func applyDefaults(name string, cfg Config) Config {
 		cfg.Port = defaultPort(cfg.SSL)
 	}
 	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = 1000
+		cfg.DefaultLimit = defaultQueryLimit
 	}
 	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = 10000
+		cfg.MaxLimit = defaultMaxLimit
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 120 * time.Second
+		cfg.Timeout = defaultTrinoTimeout
 	}
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
@@ -98,9 +115,9 @@ func applyDefaults(name string, cfg Config) Config {
 // defaultPort returns the default port based on SSL setting.
 func defaultPort(ssl bool) int {
 	if ssl {
-		return 443
+		return defaultSSLPort
 	}
-	return 8080
+	return defaultPlainPort
 }
 
 // createClient creates a new Trino client from the configuration.
@@ -141,7 +158,7 @@ func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 }
 
 // Kind returns the toolkit kind.
-func (t *Toolkit) Kind() string {
+func (*Toolkit) Kind() string {
 	return "trino"
 }
 
@@ -163,7 +180,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 }
 
 // Tools returns the list of tool names that would be provided by this toolkit.
-func (t *Toolkit) Tools() []string {
+func (*Toolkit) Tools() []string {
 	return []string{
 		"trino_query",
 		"trino_explain",
@@ -188,7 +205,9 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.client != nil {
-		return t.client.Close()
+		if err := t.client.Close(); err != nil {
+			return fmt.Errorf("closing trino client: %w", err)
+		}
 	}
 	return nil
 }
