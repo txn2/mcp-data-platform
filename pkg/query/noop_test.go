@@ -20,8 +20,8 @@ func TestNoopProvider(t *testing.T) {
 		if err != nil {
 			t.Errorf("ResolveTable() error = %v", err)
 		}
-		if result != nil {
-			t.Error("ResolveTable() expected nil for noop")
+		if result == nil {
+			t.Error("ResolveTable() returned nil, expected empty identifier")
 		}
 	})
 
