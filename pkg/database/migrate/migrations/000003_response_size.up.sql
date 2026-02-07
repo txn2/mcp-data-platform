@@ -1,0 +1,2 @@
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS response_chars INTEGER DEFAULT 0;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS response_token_estimate INTEGER DEFAULT 0;
