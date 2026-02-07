@@ -10,6 +10,9 @@ import (
 // MaxStringLength is the maximum length for sanitized strings.
 const MaxStringLength = 2000
 
+// maxTagLength is the maximum allowed length for a tag name.
+const maxTagLength = 100
+
 // SanitizeConfig configures sanitization behavior.
 type SanitizeConfig struct {
 	// MaxLength is the maximum length for strings (default: 2000).
@@ -74,7 +77,7 @@ func (s *Sanitizer) SanitizeDescription(desc string) string {
 
 // SanitizeTag validates and sanitizes a tag name.
 // Returns empty string if the tag is invalid.
-func (s *Sanitizer) SanitizeTag(tag string) string {
+func (*Sanitizer) SanitizeTag(tag string) string {
 	if tag == "" {
 		return ""
 	}
@@ -84,8 +87,8 @@ func (s *Sanitizer) SanitizeTag(tag string) string {
 		return ""
 	}
 
-	// Truncate to reasonable tag length (100 chars)
-	if len(tag) > 100 {
+	// Truncate to reasonable tag length
+	if len(tag) > maxTagLength {
 		return ""
 	}
 
@@ -114,7 +117,7 @@ func (s *Sanitizer) SanitizeTags(tags []string) []string {
 
 // DetectInjection checks if the input contains potential prompt injection patterns.
 // Returns true if injection is detected along with matched patterns.
-func (s *Sanitizer) DetectInjection(input string) (bool, []string) {
+func (*Sanitizer) DetectInjection(input string) (detected bool, patterns []string) {
 	return detectInjectionPatterns(input)
 }
 
@@ -126,7 +129,7 @@ func removeControlChars(s string) string {
 	for _, r := range s {
 		// Allow printable characters, newline, and tab
 		if unicode.IsPrint(r) || r == '\n' || r == '\t' {
-			result.WriteRune(r)
+			_, _ = result.WriteRune(r)
 		}
 		// Skip all other control characters
 	}
@@ -214,7 +217,7 @@ var injectionPatternNames = []string{
 }
 
 // detectInjectionPatterns checks for prompt injection patterns.
-func detectInjectionPatterns(input string) (bool, []string) {
+func detectInjectionPatterns(input string) (detected bool, patterns []string) {
 	if input == "" {
 		return false, nil
 	}
