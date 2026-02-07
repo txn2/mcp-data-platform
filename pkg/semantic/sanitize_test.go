@@ -467,7 +467,7 @@ func TestSanitizer_SanitizeTableContext_EmptyOwners(t *testing.T) {
 		Owners: []Owner{},
 	}
 	result := s.SanitizeTableContext(tc)
-	if result.Owners != nil && len(result.Owners) != 0 {
+	if len(result.Owners) != 0 {
 		t.Errorf("expected empty owners to be nil or empty")
 	}
 }
@@ -503,7 +503,7 @@ func TestSanitizer_SanitizeTableContext_EmptyProperties(t *testing.T) {
 		CustomProperties: map[string]string{},
 	}
 	result := s.SanitizeTableContext(tc)
-	if result.CustomProperties != nil && len(result.CustomProperties) != 0 {
+	if len(result.CustomProperties) != 0 {
 		t.Error("expected empty properties to be nil or empty")
 	}
 }
@@ -531,7 +531,7 @@ func TestSanitizer_SanitizeTableContext_EmptyGlossaryTerms(t *testing.T) {
 		GlossaryTerms: []GlossaryTerm{},
 	}
 	result := s.SanitizeTableContext(tc)
-	if result.GlossaryTerms != nil && len(result.GlossaryTerms) != 0 {
+	if len(result.GlossaryTerms) != 0 {
 		t.Error("expected empty glossary terms to be nil or empty")
 	}
 }
@@ -576,8 +576,7 @@ func BenchmarkSanitizeString(b *testing.B) {
 	s := NewSanitizer(DefaultSanitizeConfig())
 	input := strings.Repeat("This is a test description with some content. ", 50)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s.SanitizeString(input)
 	}
 }
@@ -586,8 +585,7 @@ func BenchmarkDetectInjection(b *testing.B) {
 	s := NewSanitizer(DefaultSanitizeConfig())
 	input := "This is a normal description that should not trigger any detection patterns."
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s.DetectInjection(input)
 	}
 }
