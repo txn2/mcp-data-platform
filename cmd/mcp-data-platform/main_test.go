@@ -115,7 +115,7 @@ func TestCorsMiddleware(t *testing.T) {
 }
 
 func TestStartServer_UnknownTransport(t *testing.T) {
-	err := startServer(nil, nil, nil, serverOptions{transport: "websocket"})
+	err := startServer(context.TODO(), nil, nil, serverOptions{transport: "websocket"})
 	if err == nil {
 		t.Fatal("expected error for unknown transport")
 	}
@@ -284,8 +284,7 @@ func TestListenAndServe_GracefulShutdown(t *testing.T) {
 }
 
 func TestListenAndServe_TLSBadCert(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
