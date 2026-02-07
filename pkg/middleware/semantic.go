@@ -26,6 +26,14 @@ type EnrichmentConfig struct {
 
 	// EnrichDataHubStorageResults adds storage context to DataHub tool results.
 	EnrichDataHubStorageResults bool
+
+	// SessionCache enables session-level metadata deduplication.
+	// If nil, dedup is disabled and full enrichment is always sent.
+	SessionCache *SessionEnrichmentCache
+
+	// DedupMode controls what content is sent for previously-enriched tables.
+	// Only used when SessionCache is non-nil.
+	DedupMode DedupMode
 }
 
 // semanticEnricher holds the enrichment dependencies.
@@ -45,7 +53,7 @@ func (e *semanticEnricher) enrich(
 	switch pc.ToolkitKind {
 	case "trino":
 		if e.cfg.EnrichTrinoResults && e.semanticProvider != nil {
-			return enrichTrinoResult(ctx, result, request, e.semanticProvider)
+			return e.enrichTrinoResultWithDedup(ctx, result, request, pc)
 		}
 	case "datahub":
 		return e.enrichDataHubResultWithAll(ctx, result, request)
@@ -54,6 +62,152 @@ func (e *semanticEnricher) enrich(
 			return enrichS3Result(ctx, result, request, e.semanticProvider)
 		}
 	}
+	return result, nil
+}
+
+// enrichTrinoResultWithDedup wraps Trino enrichment with session deduplication.
+// If the session cache is nil or the tables haven't been seen, full enrichment is sent.
+// Otherwise, the dedup mode determines what (if any) reduced content is sent.
+func (e *semanticEnricher) enrichTrinoResultWithDedup(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	request mcp.CallToolRequest,
+	pc *PlatformContext,
+) (*mcp.CallToolResult, error) {
+	cache := e.cfg.SessionCache
+	if cache == nil {
+		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
+	}
+
+	// Identify tables from the request
+	tableKeys := extractTableKeysFromRequest(request)
+	if len(tableKeys) == 0 {
+		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
+	}
+
+	// Check if all tables were recently enriched in this session
+	allSent := true
+	for _, key := range tableKeys {
+		if !cache.WasSentRecently(pc.SessionID, key) {
+			allSent = false
+			break
+		}
+	}
+
+	if allSent {
+		// All tables already enriched for this session - apply dedup mode
+		return e.applyDedupMode(ctx, result, request, tableKeys)
+	}
+
+	// Full enrichment needed
+	enrichedResult, err := enrichTrinoResult(ctx, result, request, e.semanticProvider)
+	if err != nil {
+		return enrichedResult, err
+	}
+
+	// Mark all tables as sent
+	for _, key := range tableKeys {
+		cache.MarkSent(pc.SessionID, key)
+	}
+
+	return enrichedResult, nil
+}
+
+// extractTableKeysFromRequest extracts table keys from a tool call request.
+func extractTableKeysFromRequest(request mcp.CallToolRequest) []string {
+	// Check for SQL query first (multi-table support)
+	if sql := extractSQLFromRequest(request); sql != "" {
+		tables := ExtractTablesFromSQL(sql)
+		if len(tables) > 0 {
+			keys := make([]string, len(tables))
+			for i, t := range tables {
+				keys[i] = t.FullPath
+			}
+			return keys
+		}
+	}
+
+	// Fall back to explicit table parameter
+	tableName := extractTableFromRequest(request)
+	if tableName == "" {
+		return nil
+	}
+	return []string{tableName}
+}
+
+// applyDedupMode sends reduced enrichment based on the configured dedup mode.
+func (e *semanticEnricher) applyDedupMode(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	request mcp.CallToolRequest,
+	tableKeys []string,
+) (*mcp.CallToolResult, error) {
+	switch e.cfg.DedupMode {
+	case DedupModeNone:
+		return result, nil
+
+	case DedupModeSummary:
+		return e.appendSemanticSummary(ctx, result, tableKeys)
+
+	case DedupModeReference:
+		return appendMetadataReference(result, tableKeys), nil
+
+	default:
+		// Unknown mode, treat as reference
+		return appendMetadataReference(result, tableKeys), nil
+	}
+}
+
+// appendMetadataReference appends a minimal reference noting that full metadata
+// was already provided earlier in the session.
+func appendMetadataReference(result *mcp.CallToolResult, tableKeys []string) *mcp.CallToolResult {
+	ref := map[string]any{
+		"metadata_reference": map[string]any{
+			"tables": tableKeys,
+			"note":   "Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.",
+		},
+	}
+
+	refJSON, err := json.Marshal(ref)
+	if err != nil {
+		return result
+	}
+
+	result.Content = append(result.Content, &mcp.TextContent{
+		Text: string(refJSON),
+	})
+
+	return result
+}
+
+// appendSemanticSummary appends table-level semantic context without column details.
+func (e *semanticEnricher) appendSemanticSummary(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	tableKeys []string,
+) (*mcp.CallToolResult, error) {
+	for _, key := range tableKeys {
+		table := parseTableIdentifier(key)
+		tableCtx, err := e.semanticProvider.GetTableContext(ctx, table)
+		if err != nil {
+			continue
+		}
+
+		enrichment := map[string]any{
+			"semantic_context": buildTrinoSemanticContext(tableCtx),
+			"note":             "Summary only. Full column metadata was provided earlier in this session.",
+		}
+
+		enrichmentJSON, marshalErr := json.Marshal(enrichment)
+		if marshalErr != nil {
+			continue
+		}
+
+		result.Content = append(result.Content, &mcp.TextContent{
+			Text: string(enrichmentJSON),
+		})
+	}
+
 	return result, nil
 }
 
