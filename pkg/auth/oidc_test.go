@@ -687,7 +687,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for nil JWKS")
 		}
-		if err.Error() != "JWKS not loaded" {
+		if err.Error() != "jwks not loaded" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -707,7 +707,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for expired cache")
 		}
-		if err.Error() != "JWKS cache expired" {
+		if err.Error() != "jwks cache expired" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -894,7 +894,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	}
 
 	// Encode public key components for JWKS
-	nBytes := privateKey.PublicKey.N.Bytes()
+	nBytes := privateKey.N.Bytes()
 	nBase64 := base64.RawURLEncoding.EncodeToString(nBytes)
 
 	eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
@@ -908,7 +908,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
 		case "/jwks":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{
+			_, _ = fmt.Fprintf(w, `{
 				"keys": [
 					{
 						"kty": "RSA",
@@ -918,7 +918,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 						"e": "%s"
 					}
 				]
-			}`, nBase64, eBase64)))
+			}`, nBase64, eBase64)
 		}
 	}))
 	defer server.Close()
@@ -962,7 +962,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) 
 	jwksKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	// Encode JWKS key (different from signing key)
-	nBytes := jwksKey.PublicKey.N.Bytes()
+	nBytes := jwksKey.N.Bytes()
 	nBase64 := base64.RawURLEncoding.EncodeToString(nBytes)
 	eBytes := big.NewInt(int64(jwksKey.PublicKey.E)).Bytes()
 	eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
@@ -974,9 +974,9 @@ func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) 
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
 		case "/jwks":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{
+			_, _ = fmt.Fprintf(w, `{
 				"keys": [{"kty": "RSA", "kid": "test-key", "use": "sig", "n": "%s", "e": "%s"}]
-			}`, nBase64, eBase64)))
+			}`, nBase64, eBase64)
 		}
 	}))
 	defer server.Close()
