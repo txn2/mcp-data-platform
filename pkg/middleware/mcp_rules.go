@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,8 +16,8 @@ import (
 // This middleware intercepts tools/call responses and:
 // 1. Checks if the tool is a query tool that should have DataHub context first
 // 2. Adds warnings for rule violations to the response
-// 3. Does NOT block requests - it only adds informational guidance
-func MCPRuleEnforcementMiddleware(engine *tuning.RuleEngine, hints *tuning.HintManager) mcp.Middleware {
+// 3. Does NOT block requests - it only adds informational guidance.
+func MCPRuleEnforcementMiddleware(engine *tuning.RuleEngine, _ *tuning.HintManager) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
@@ -59,12 +60,7 @@ func isQueryTool(toolName string) bool {
 		"trino_execute",
 	}
 
-	for _, qt := range queryTools {
-		if toolName == qt {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(queryTools, toolName)
 }
 
 // prependHintsToResult adds hints as text content at the beginning of the result.
