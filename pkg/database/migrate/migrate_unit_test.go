@@ -28,13 +28,15 @@ func TestMigrationsEmbedded(t *testing.T) {
 	entries, err := migrations.ReadDir("migrations")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, entries)
-	assert.Len(t, entries, 4)
+	assert.Len(t, entries, 6)
 
 	expectedFiles := []string{
 		"000001_oauth_clients.up.sql",
 		"000001_oauth_clients.down.sql",
 		"000002_audit_logs.up.sql",
 		"000002_audit_logs.down.sql",
+		"000003_response_size.up.sql",
+		"000003_response_size.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
