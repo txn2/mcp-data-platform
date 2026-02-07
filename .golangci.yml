@@ -311,6 +311,7 @@ linters:
           - goconst
           - unparam
           - thelper
+          - revive
 
       # Allow longer functions in tests
       - path: _test\.go
