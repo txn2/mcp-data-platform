@@ -11,32 +11,32 @@ func NewNoopProvider() *NoopProvider {
 }
 
 // Name returns the provider name.
-func (p *NoopProvider) Name() string {
+func (*NoopProvider) Name() string {
 	return "noop"
 }
 
-// ResolveDataset returns nil for no-op.
-func (p *NoopProvider) ResolveDataset(_ context.Context, _ string) (*DatasetIdentifier, error) {
-	return nil, nil
+// ResolveDataset returns an empty identifier for no-op.
+func (*NoopProvider) ResolveDataset(_ context.Context, _ string) (*DatasetIdentifier, error) {
+	return &DatasetIdentifier{}, nil
 }
 
 // GetDatasetAvailability returns unavailable for no-op.
-func (p *NoopProvider) GetDatasetAvailability(_ context.Context, _ string) (*DatasetAvailability, error) {
+func (*NoopProvider) GetDatasetAvailability(_ context.Context, _ string) (*DatasetAvailability, error) {
 	return &DatasetAvailability{Available: false}, nil
 }
 
 // GetAccessExamples returns empty for no-op.
-func (p *NoopProvider) GetAccessExamples(_ context.Context, _ string) ([]AccessExample, error) {
-	return nil, nil
+func (*NoopProvider) GetAccessExamples(_ context.Context, _ string) ([]AccessExample, error) {
+	return []AccessExample{}, nil
 }
 
 // ListObjects returns empty for no-op.
-func (p *NoopProvider) ListObjects(_ context.Context, _ DatasetIdentifier, _ int) ([]ObjectInfo, error) {
-	return nil, nil
+func (*NoopProvider) ListObjects(_ context.Context, _ DatasetIdentifier, _ int) ([]ObjectInfo, error) {
+	return []ObjectInfo{}, nil
 }
 
 // Close is a no-op.
-func (p *NoopProvider) Close() error {
+func (*NoopProvider) Close() error {
 	return nil
 }
 
