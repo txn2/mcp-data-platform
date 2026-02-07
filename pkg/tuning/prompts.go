@@ -2,6 +2,8 @@
 package tuning
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +39,7 @@ func (m *PromptManager) LoadPrompts() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("reading prompts directory: %w", err)
 	}
 
 	for _, entry := range entries {
@@ -90,9 +92,7 @@ func (m *PromptManager) Set(name, content string) {
 // All returns all prompts.
 func (m *PromptManager) All() map[string]string {
 	result := make(map[string]string)
-	for k, v := range m.prompts {
-		result[k] = v
-	}
+	maps.Copy(result, m.prompts)
 	return result
 }
 
