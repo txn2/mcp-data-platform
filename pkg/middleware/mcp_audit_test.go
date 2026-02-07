@@ -364,8 +364,8 @@ func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
 
 	events := mockLogger.Events()
 	require.Len(t, events, 1)
-	assert.Equal(t, 16, events[0].ResponseChars)         // "result data here" = 16 chars
-	assert.Equal(t, 4, events[0].ResponseTokenEstimate)   // 16/4 = 4
+	assert.Equal(t, 16, events[0].ResponseChars)        // "result data here" = 16 chars
+	assert.Equal(t, 4, events[0].ResponseTokenEstimate) // 16/4 = 4
 }
 
 // capturingAuditLogger captures audit events for testing
