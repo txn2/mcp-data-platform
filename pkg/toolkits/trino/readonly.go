@@ -45,7 +45,7 @@ var writePattern = regexp.MustCompile(
 )
 
 // Intercept checks if the query is a write operation and blocks it in read-only mode.
-func (r *ReadOnlyInterceptor) Intercept(_ context.Context, sql string, _ trinotools.ToolName) (string, error) {
+func (*ReadOnlyInterceptor) Intercept(_ context.Context, sql string, _ trinotools.ToolName) (string, error) {
 	if isWriteQuery(sql) {
 		return "", fmt.Errorf("write operations not allowed in read-only mode")
 	}
