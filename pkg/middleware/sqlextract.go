@@ -77,16 +77,16 @@ func extractCTENames(sql string) map[string]bool {
 
 // Regex patterns for SQL table extraction.
 var (
-	// ES raw_query patterns (non-standard Trino syntax)
+	// ES raw_query patterns (non-standard Trino syntax).
 	rawQueryPattern    = regexp.MustCompile(`(?i)TABLE\s*\(\s*elasticsearch\.system\.raw_query\s*\(`)
 	indexParamPattern  = regexp.MustCompile(`(?i)index\s*=>\s*'([^']+)'`)
 	schemaParamPattern = regexp.MustCompile(`(?i)schema\s*=>\s*'([^']+)'`)
 
-	// CTE name pattern - matches "WITH name AS" or ", name AS" for chained CTEs
+	// CTE name pattern - matches "WITH name AS" or ", name AS" for chained CTEs.
 	cteNamePattern = regexp.MustCompile(`(?i)(?:WITH|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(`)
 
 	// Table reference patterns for Trino 3-part names
-	// Matches: FROM/JOIN catalog.schema.table or schema.table or table
+	// Matches: FROM/JOIN catalog.schema.table or schema.table or table.
 	tableRefPattern = regexp.MustCompile(`(?i)(?:FROM|JOIN)\s+` +
 		`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*){0,2})` +
 		`(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?(?:\s|,|$|ON|WHERE|GROUP|ORDER|LIMIT|LEFT|RIGHT|INNER|OUTER|CROSS|NATURAL)`)
@@ -121,13 +121,16 @@ func extractTablesWithRegex(sql string) []TableRef {
 	return tables
 }
 
+// tableNamePartsCount is the expected number of parts in a fully-qualified table name (catalog.schema.table).
+const tableNamePartsCount = 3
+
 // parseTablePath parses a dot-separated table path into TableRef.
 func parseTablePath(path string) TableRef {
 	parts := strings.Split(path, ".")
 	ref := TableRef{FullPath: path}
 
 	switch len(parts) {
-	case 3:
+	case tableNamePartsCount:
 		ref.Catalog = parts[0]
 		ref.Schema = parts[1]
 		ref.Table = parts[2]
