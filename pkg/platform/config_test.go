@@ -24,7 +24,7 @@ auth:
   api_keys:
     enabled: false
 `
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 
@@ -47,7 +47,7 @@ auth:
 	t.Run("invalid yaml", func(t *testing.T) {
 		dir := t.TempDir()
 		configPath := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(configPath, []byte("invalid: yaml: content:"), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte("invalid: yaml: content:"), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 
@@ -66,7 +66,7 @@ auth:
 server:
   name: ${TEST_SERVER_NAME}
 `
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 
@@ -94,7 +94,7 @@ semantic:
       rdbms: warehouse
       iceberg: datalake
 `
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 
