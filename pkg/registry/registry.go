@@ -141,7 +141,7 @@ func (r *Registry) AllTools() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var tools []string
+	tools := make([]string, 0, len(r.toolkits)*4)
 	for _, toolkit := range r.toolkits {
 		tools = append(tools, toolkit.Tools()...)
 	}

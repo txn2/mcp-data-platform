@@ -75,6 +75,13 @@ func (e *Event) WithRequestID(requestID string) *Event {
 	return e
 }
 
+// WithResponseSize adds response size metrics to the event.
+func (e *Event) WithResponseSize(chars, tokenEstimate int) *Event {
+	e.ResponseChars = chars
+	e.ResponseTokenEstimate = tokenEstimate
+	return e
+}
+
 // generateEventID generates a unique event ID.
 func generateEventID() string {
 	bytes := make([]byte, 16)

@@ -758,10 +758,89 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 	}
 }
 
+// TestMiddlewareChain_AuditResponseSize verifies that when the full middleware
+// chain processes a tool call, the audit event contains ResponseChars > 0.
+func TestMiddlewareChain_AuditResponseSize(t *testing.T) {
+	auditStore := &testAuditStore{}
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "test-user",
+			Roles:  []string{"analyst"},
+		},
+	}
+	authorizer := &testAuthorizer{persona: "analyst"}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			"trino_query": {kind: "trino", name: "production", conn: "prod"},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-platform",
+		Version: "v0.0.1",
+	}, nil)
+
+	server.AddTool(&mcp.Tool{
+		Name:        "trino_query",
+		Description: "Execute query",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "hello world response"}},
+		}, nil
+	})
+
+	// Middleware: audit (innermost), auth (outermost)
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf("connecting client: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "trino_query",
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	if err != nil {
+		t.Fatalf("calling tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("tool returned error")
+	}
+
+	// Wait for async audit
+	deadline := time.Now().Add(2 * time.Second)
+	var events []middleware.AuditEvent
+	for time.Now().Before(deadline) {
+		events = auditStore.Events()
+		if len(events) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("audit store received no events")
+	}
+
+	event := events[0]
+	// "hello world response" = 20 chars
+	if event.ResponseChars != 20 {
+		t.Errorf("ResponseChars = %d, want 20", event.ResponseChars)
+	}
+	if event.ResponseTokenEstimate != 5 {
+		t.Errorf("ResponseTokenEstimate = %d, want 5", event.ResponseTokenEstimate)
+	}
+}
+
 // Ensure mock types satisfy interfaces (compile-time check).
 var (
-	_ semantic.Provider   = (*mockSemanticProvider)(nil)
-	_ query.Provider      = (*mockQueryProvider)(nil)
+	_ semantic.Provider     = (*mockSemanticProvider)(nil)
+	_ query.Provider        = (*mockQueryProvider)(nil)
 	_ middleware.Authorizer = (*denyAuthorizer)(nil)
 )
 

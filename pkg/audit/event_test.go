@@ -24,7 +24,8 @@ func TestEvent_Builders(t *testing.T) {
 		WithConnection("prod-cluster").
 		WithParameters(map[string]any{"query": "SELECT 1"}).
 		WithResult(true, "", 100).
-		WithRequestID("req-123")
+		WithRequestID("req-123").
+		WithResponseSize(500, 125)
 
 	if event.UserID != "user123" {
 		t.Errorf("UserID = %q, want %q", event.UserID, "user123")
@@ -55,6 +56,12 @@ func TestEvent_Builders(t *testing.T) {
 	}
 	if event.RequestID != "req-123" {
 		t.Errorf("RequestID = %q, want %q", event.RequestID, "req-123")
+	}
+	if event.ResponseChars != 500 {
+		t.Errorf("ResponseChars = %d, want 500", event.ResponseChars)
+	}
+	if event.ResponseTokenEstimate != 125 {
+		t.Errorf("ResponseTokenEstimate = %d, want 125", event.ResponseTokenEstimate)
 	}
 }
 

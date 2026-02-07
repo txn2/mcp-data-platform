@@ -33,7 +33,8 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 		WithToolkit(event.ToolkitKind, event.ToolkitName).
 		WithConnection(event.Connection).
 		WithParameters(audit.SanitizeParameters(event.Parameters)).
-		WithResult(event.Success, event.ErrorMessage, event.DurationMS)
+		WithResult(event.Success, event.ErrorMessage, event.DurationMS).
+		WithResponseSize(event.ResponseChars, event.ResponseTokenEstimate)
 
 	// Override timestamp from the event
 	auditEvent.Timestamp = event.Timestamp

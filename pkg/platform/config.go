@@ -215,10 +215,45 @@ type StorageConfig struct {
 
 // InjectionConfig configures cross-injection.
 type InjectionConfig struct {
-	TrinoSemanticEnrichment  bool `yaml:"trino_semantic_enrichment"`
-	DataHubQueryEnrichment   bool `yaml:"datahub_query_enrichment"`
-	S3SemanticEnrichment     bool `yaml:"s3_semantic_enrichment"`
-	DataHubStorageEnrichment bool `yaml:"datahub_storage_enrichment"`
+	TrinoSemanticEnrichment  bool               `yaml:"trino_semantic_enrichment"`
+	DataHubQueryEnrichment   bool               `yaml:"datahub_query_enrichment"`
+	S3SemanticEnrichment     bool               `yaml:"s3_semantic_enrichment"`
+	DataHubStorageEnrichment bool               `yaml:"datahub_storage_enrichment"`
+	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
+}
+
+// SessionDedupConfig configures session-level metadata deduplication.
+type SessionDedupConfig struct {
+	// Enabled controls whether session dedup is active. Defaults to true.
+	Enabled *bool `yaml:"enabled"`
+
+	// Mode controls what is sent for previously-enriched tables.
+	// Values: "reference" (default), "summary", "none".
+	Mode string `yaml:"mode"`
+
+	// EntryTTL is how long a table's enrichment is considered fresh.
+	// Defaults to the semantic cache TTL (typically 5m).
+	EntryTTL time.Duration `yaml:"entry_ttl"`
+
+	// SessionTimeout is how long an idle session persists before cleanup.
+	// Defaults to the server's streamable session timeout (typically 30m).
+	SessionTimeout time.Duration `yaml:"session_timeout"`
+}
+
+// IsEnabled returns whether session dedup is enabled, defaulting to true.
+func (c *SessionDedupConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// EffectiveMode returns the dedup mode, defaulting to "reference".
+func (c *SessionDedupConfig) EffectiveMode() string {
+	if c.Mode == "" {
+		return "reference"
+	}
+	return c.Mode
 }
 
 // TuningConfig configures AI tuning.
@@ -350,6 +385,17 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.Streamable.SessionTimeout == 0 {
 		cfg.Server.Streamable.SessionTimeout = 30 * time.Minute
+	}
+	applySessionDedupDefaults(cfg)
+}
+
+// applySessionDedupDefaults sets session dedup defaults from related config values.
+func applySessionDedupDefaults(cfg *Config) {
+	if cfg.Injection.SessionDedup.EntryTTL == 0 {
+		cfg.Injection.SessionDedup.EntryTTL = cfg.Semantic.Cache.TTL
+	}
+	if cfg.Injection.SessionDedup.SessionTimeout == 0 {
+		cfg.Injection.SessionDedup.SessionTimeout = cfg.Server.Streamable.SessionTimeout
 	}
 }
 

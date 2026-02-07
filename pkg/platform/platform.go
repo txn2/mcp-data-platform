@@ -64,6 +64,9 @@ type Platform struct {
 	// Audit
 	auditLogger middleware.AuditLogger
 
+	// Session dedup
+	sessionCache *middleware.SessionEnrichmentCache
+
 	// Tuning
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
@@ -516,17 +519,13 @@ func (p *Platform) finalizeSetup() {
 		p.config.Injection.DataHubStorageEnrichment
 
 	if needsEnrichment {
+		enrichCfg := p.buildEnrichmentConfig()
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPSemanticEnrichmentMiddleware(
 				p.semanticProvider,
 				p.queryProvider,
 				p.storageProvider,
-				middleware.EnrichmentConfig{
-					EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
-					EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
-					EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
-					EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
-				},
+				enrichCfg,
 			),
 		)
 	}
@@ -560,6 +559,35 @@ func (p *Platform) finalizeSetup() {
 		// Register UI resources for each app
 		p.mcpAppsRegistry.RegisterResources(p.mcpServer)
 	}
+}
+
+// buildEnrichmentConfig creates the enrichment middleware config, including
+// optional session dedup cache setup.
+func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
+	cfg := middleware.EnrichmentConfig{
+		EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
+		EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
+		EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
+		EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
+	}
+
+	if p.config.Injection.SessionDedup.IsEnabled() {
+		p.sessionCache = middleware.NewSessionEnrichmentCache(
+			p.config.Injection.SessionDedup.EntryTTL,
+			p.config.Injection.SessionDedup.SessionTimeout,
+		)
+		p.sessionCache.StartCleanup(1 * time.Minute)
+		cfg.SessionCache = p.sessionCache
+		cfg.DedupMode = middleware.DedupMode(p.config.Injection.SessionDedup.EffectiveMode())
+
+		slog.Info("session metadata dedup enabled",
+			"mode", p.config.Injection.SessionDedup.EffectiveMode(),
+			"entry_ttl", p.config.Injection.SessionDedup.EntryTTL,
+			"session_timeout", p.config.Injection.SessionDedup.SessionTimeout,
+		)
+	}
+
+	return cfg
 }
 
 // createSemanticProvider creates the semantic provider based on config.
@@ -1070,6 +1098,10 @@ func closeResource(errs *[]error, closer Closer) {
 // Close closes all platform resources.
 func (p *Platform) Close() error {
 	var errs []error
+
+	if p.sessionCache != nil {
+		p.sessionCache.Stop()
+	}
 
 	closeResource(&errs, p.semanticProvider)
 	closeResource(&errs, p.queryProvider)

@@ -522,6 +522,57 @@ func newMCPTestRequestWithExtra(toolName string, headers http.Header) *mcp.Serve
 	}
 }
 
+func TestExtractSessionID(t *testing.T) {
+	t.Run("nil request returns stdio", func(t *testing.T) {
+		result := extractSessionID(nil)
+		if result != "stdio" {
+			t.Errorf("extractSessionID(nil) = %q, want %q", result, "stdio")
+		}
+	})
+
+	t.Run("request without session returns stdio", func(t *testing.T) {
+		req := newMCPTestRequest("test_tool")
+		result := extractSessionID(req)
+		if result != "stdio" {
+			t.Errorf("extractSessionID() = %q, want %q", result, "stdio")
+		}
+	})
+}
+
+func TestMCPToolCallMiddleware_SessionIDPopulated(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: "user1",
+			Roles:  []string{"analyst"},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "analyst"}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
+
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal("expected platform context to be set")
+		}
+		// For a test request without session, should default to "stdio"
+		if pc.SessionID != "stdio" {
+			t.Errorf("expected SessionID 'stdio', got %q", pc.SessionID)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
+
+	handler := middleware(next)
+	req := newMCPTestRequest("test_tool")
+
+	_, err := handler(context.Background(), "tools/call", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 	// tokenCapturingAuthenticator captures the token from context during Authenticate.
 	type tokenCapture struct {
