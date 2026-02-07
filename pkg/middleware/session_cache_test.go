@@ -125,11 +125,11 @@ func TestSessionEnrichmentCache_ConcurrentAccess(t *testing.T) {
 	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 
 	done := make(chan struct{})
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			defer func() { done <- struct{}{} }()
 			sessionID := "session"
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				cache.MarkSent(sessionID, "table")
 				cache.WasSentRecently(sessionID, "table")
 				cache.SessionCount()
@@ -137,7 +137,7 @@ func TestSessionEnrichmentCache_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
