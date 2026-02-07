@@ -83,20 +83,24 @@ func buildMCPAuditEvent(
 	// Extract parameters from request
 	params := extractMCPParameters(req)
 
+	chars, tokens := calculateResponseSize(result, err)
+
 	return AuditEvent{
-		Timestamp:    startTime,
-		RequestID:    pc.RequestID,
-		UserID:       pc.UserID,
-		UserEmail:    pc.UserEmail,
-		Persona:      pc.PersonaName,
-		ToolName:     pc.ToolName,
-		ToolkitKind:  pc.ToolkitKind,
-		ToolkitName:  pc.ToolkitName,
-		Connection:   pc.Connection,
-		Parameters:   params,
-		Success:      success,
-		ErrorMessage: errorMsg,
-		DurationMS:   duration.Milliseconds(),
+		Timestamp:             startTime,
+		RequestID:             pc.RequestID,
+		UserID:                pc.UserID,
+		UserEmail:             pc.UserEmail,
+		Persona:               pc.PersonaName,
+		ToolName:              pc.ToolName,
+		ToolkitKind:           pc.ToolkitKind,
+		ToolkitName:           pc.ToolkitName,
+		Connection:            pc.Connection,
+		Parameters:            params,
+		Success:               success,
+		ErrorMessage:          errorMsg,
+		DurationMS:            duration.Milliseconds(),
+		ResponseChars:         chars,
+		ResponseTokenEstimate: tokens,
 	}
 }
 
@@ -116,6 +120,33 @@ func extractMCPParameters(req mcp.Request) map[string]any {
 	}
 
 	return extractArgumentsMap(callParams)
+}
+
+// calculateResponseSize computes the total character count and estimated token
+// count from an MCP tool call result. Returns (0, 0) if err is non-nil or
+// the result is not a CallToolResult.
+func calculateResponseSize(result mcp.Result, err error) (chars int, tokens int) {
+	if err != nil {
+		return 0, 0
+	}
+	callResult, ok := result.(*mcp.CallToolResult)
+	if !ok || callResult == nil {
+		return 0, 0
+	}
+
+	total := 0
+	for _, content := range callResult.Content {
+		switch c := content.(type) {
+		case *mcp.TextContent:
+			total += len(c.Text)
+		case *mcp.ImageContent:
+			total += len(c.Data)
+		case *mcp.AudioContent:
+			total += len(c.Data)
+		}
+	}
+
+	return total, total / 4
 }
 
 // extractMCPErrorMessage extracts the error message from an MCP CallToolResult.
