@@ -647,18 +647,23 @@ func (m *mockSemanticProvider) GetTableContext(ctx context.Context, table semant
 	}
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetColumnContext(_ context.Context, _ semantic.ColumnIdentifier) (*semantic.ColumnContext, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetLineage(_ context.Context, _ semantic.TableIdentifier, _ semantic.LineageDirection, _ int) (*semantic.LineageInfo, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*semantic.GlossaryTerm, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	if m.searchTablesFunc != nil {
 		return m.searchTablesFunc(ctx, filter)
@@ -676,18 +681,22 @@ func (m *mockQueryProvider) Name() string { return "mock" }
 func (m *mockQueryProvider) ResolveTable(_ context.Context, _ string) (*query.TableIdentifier, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error) {
 	if m.getTableAvailabilityFunc != nil {
 		return m.getTableAvailabilityFunc(ctx, urn)
 	}
 	return nil, nil
 }
-func (m *mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.QueryExample, error) {
+
+func (m *mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.Example, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetExecutionContext(_ context.Context, _ []string) (*query.ExecutionContext, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetTableSchema(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
 	return nil, nil
 }
@@ -702,15 +711,18 @@ func (m *mockStorageProvider) Name() string { return "mock" }
 func (m *mockStorageProvider) ResolveDataset(_ context.Context, _ string) (*storage.DatasetIdentifier, error) {
 	return nil, nil
 }
+
 func (m *mockStorageProvider) GetDatasetAvailability(ctx context.Context, urn string) (*storage.DatasetAvailability, error) {
 	if m.getDatasetAvailabilityFunc != nil {
 		return m.getDatasetAvailabilityFunc(ctx, urn)
 	}
 	return nil, nil
 }
+
 func (m *mockStorageProvider) GetAccessExamples(_ context.Context, _ string) ([]storage.AccessExample, error) {
 	return nil, nil
 }
+
 func (m *mockStorageProvider) ListObjects(_ context.Context, _ storage.DatasetIdentifier, _ int) ([]storage.ObjectInfo, error) {
 	return nil, nil
 }
