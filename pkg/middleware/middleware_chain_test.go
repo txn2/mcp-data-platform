@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -59,11 +60,11 @@ type testToolkitLookup struct {
 	tools map[string]struct{ kind, name, conn string }
 }
 
-func (l *testToolkitLookup) GetToolkitForTool(toolName string) (string, string, string, bool) {
+func (l *testToolkitLookup) GetToolkitForTool(toolName string) registry.ToolkitMatch {
 	if info, ok := l.tools[toolName]; ok {
-		return info.kind, info.name, info.conn, true
+		return registry.ToolkitMatch{Kind: info.kind, Name: info.name, Connection: info.conn, Found: true}
 	}
-	return "", "", "", false
+	return registry.ToolkitMatch{}
 }
 
 // connectClientServer creates an in-memory MCP client-server pair.
@@ -262,7 +263,7 @@ func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
 
 // mockSemanticProvider returns canned semantic metadata.
 type mockSemanticProvider struct {
-	tableContext   *semantic.TableContext
+	tableContext  *semantic.TableContext
 	columnsCtx    map[string]*semantic.ColumnContext
 	searchResults []semantic.TableSearchResult
 }
@@ -271,18 +272,23 @@ func (m *mockSemanticProvider) Name() string { return "mock" }
 func (m *mockSemanticProvider) GetTableContext(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 	return m.tableContext, nil
 }
+
 func (m *mockSemanticProvider) GetColumnContext(_ context.Context, _ semantic.ColumnIdentifier) (*semantic.ColumnContext, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
 	return m.columnsCtx, nil
 }
+
 func (m *mockSemanticProvider) GetLineage(_ context.Context, _ semantic.TableIdentifier, _ semantic.LineageDirection, _ int) (*semantic.LineageInfo, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*semantic.GlossaryTerm, error) {
 	return nil, nil
 }
+
 func (m *mockSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return m.searchResults, nil
 }
@@ -297,15 +303,19 @@ func (m *mockQueryProvider) Name() string { return "mock" }
 func (m *mockQueryProvider) ResolveTable(_ context.Context, _ string) (*query.TableIdentifier, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetTableAvailability(_ context.Context, _ string) (*query.TableAvailability, error) {
 	return m.availability, nil
 }
-func (m *mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.QueryExample, error) {
+
+func (m *mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.Example, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetExecutionContext(_ context.Context, _ []string) (*query.ExecutionContext, error) {
 	return nil, nil
 }
+
 func (m *mockQueryProvider) GetTableSchema(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
 	return nil, nil
 }
