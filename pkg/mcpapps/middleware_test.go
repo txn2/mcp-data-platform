@@ -3,6 +3,7 @@ package mcpapps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -126,7 +127,6 @@ func TestToolMetadataMiddleware(t *testing.T) {
 
 		wrapped := middleware(handler)
 		result, err := wrapped(context.Background(), "tools/list", nil)
-
 		if err != nil {
 			t.Fatalf("Middleware returned error: %v", err)
 		}
@@ -136,7 +136,8 @@ func TestToolMetadataMiddleware(t *testing.T) {
 	})
 
 	t.Run("handles error from handler", func(t *testing.T) {
-		expectedErr := json.Unmarshal([]byte("invalid"), nil)
+		var dummy any
+		expectedErr := json.Unmarshal([]byte("invalid"), &dummy)
 		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			return nil, expectedErr
 		}
@@ -144,7 +145,7 @@ func TestToolMetadataMiddleware(t *testing.T) {
 		wrapped := middleware(handler)
 		_, err := wrapped(context.Background(), "tools/list", nil)
 
-		if err != expectedErr {
+		if !errors.Is(err, expectedErr) {
 			t.Errorf("Expected error %v, got %v", expectedErr, err)
 		}
 	})
@@ -164,13 +165,12 @@ func TestToolMetadataMiddleware_EmptyRegistry(t *testing.T) {
 
 	wrapped := middleware(handler)
 	result, err := wrapped(context.Background(), "tools/list", nil)
-
 	if err != nil {
 		t.Fatalf("Middleware returned error: %v", err)
 	}
 
 	listResult := result.(*mcp.ListToolsResult)
-	if listResult.Tools[0].Meta != nil && len(listResult.Tools[0].Meta) > 0 {
+	if len(listResult.Tools[0].Meta) > 0 {
 		t.Error("Tool should not have metadata when no apps registered")
 	}
 }
