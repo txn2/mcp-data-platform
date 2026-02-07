@@ -18,6 +18,7 @@ const (
 type PlatformContext struct {
 	// Request identification
 	RequestID string
+	SessionID string
 	StartTime time.Time
 
 	// User information
