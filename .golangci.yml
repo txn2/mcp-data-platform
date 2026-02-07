@@ -275,10 +275,6 @@ linters:
               allowInts: "0,1,2"
               ignoreFuncs: "make,len,cap"
 
-    goimports:
-      local-prefixes:
-        - github.com/txn2/mcp-data-platform
-
     gosec:
       excludes:
         - G104
@@ -286,7 +282,7 @@ linters:
         G306: "0644"
 
     wrapcheck:
-      ignoreSigs:
+      ignore-sigs:
         - .Errorf(
         - errors.New(
         - errors.Unwrap(
@@ -333,8 +329,9 @@ linters:
           - gocyclo
         text: "cyclomatic complexity"
 
-    max-issues-per-linter: 50
-    max-same-issues: 10
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
 
 formatters:
   enable:
