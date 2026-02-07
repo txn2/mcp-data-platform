@@ -188,7 +188,9 @@ func TestChainedAuthConfig(t *testing.T) {
 }
 
 // Verify interface compliance.
-var _ middleware.Authenticator = (*mockAuthenticator)(nil)
-var _ middleware.Authenticator = (*ChainedAuthenticator)(nil)
-var _ TokenExtractor = (*BearerTokenExtractor)(nil)
-var _ TokenExtractor = (*APIKeyExtractor)(nil)
+var (
+	_ middleware.Authenticator = (*mockAuthenticator)(nil)
+	_ middleware.Authenticator = (*ChainedAuthenticator)(nil)
+	_ TokenExtractor           = (*BearerTokenExtractor)(nil)
+	_ TokenExtractor           = (*APIKeyExtractor)(nil)
+)
