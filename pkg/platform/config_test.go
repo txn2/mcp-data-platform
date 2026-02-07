@@ -270,7 +270,7 @@ server:
     session_timeout: 15m
     stateless: true
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
@@ -574,7 +574,7 @@ injection:
     entry_ttl: 10m
     session_timeout: 1h
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
@@ -613,7 +613,7 @@ toolkits:
         debug: true
     default: primary
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
@@ -669,7 +669,7 @@ toolkits:
         token: "test-token"
     default: primary
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
@@ -737,7 +737,7 @@ semantic:
         column_mapping:
           user_id: payload.user_id
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
