@@ -480,6 +480,123 @@ func TestConfigTypes(t *testing.T) {
 	})
 }
 
+func TestSessionDedupConfig_IsEnabled(t *testing.T) {
+	t.Run("nil enabled defaults to true", func(t *testing.T) {
+		cfg := &SessionDedupConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("IsEnabled() = false, want true (default)")
+		}
+	})
+
+	t.Run("explicitly true", func(t *testing.T) {
+		enabled := true
+		cfg := &SessionDedupConfig{Enabled: &enabled}
+		if !cfg.IsEnabled() {
+			t.Error("IsEnabled() = false, want true")
+		}
+	})
+
+	t.Run("explicitly false", func(t *testing.T) {
+		disabled := false
+		cfg := &SessionDedupConfig{Enabled: &disabled}
+		if cfg.IsEnabled() {
+			t.Error("IsEnabled() = true, want false")
+		}
+	})
+}
+
+func TestSessionDedupConfig_EffectiveMode(t *testing.T) {
+	t.Run("empty defaults to reference", func(t *testing.T) {
+		cfg := &SessionDedupConfig{}
+		if got := cfg.EffectiveMode(); got != "reference" {
+			t.Errorf("EffectiveMode() = %q, want %q", got, "reference")
+		}
+	})
+
+	t.Run("summary mode", func(t *testing.T) {
+		cfg := &SessionDedupConfig{Mode: "summary"}
+		if got := cfg.EffectiveMode(); got != "summary" {
+			t.Errorf("EffectiveMode() = %q, want %q", got, "summary")
+		}
+	})
+
+	t.Run("none mode", func(t *testing.T) {
+		cfg := &SessionDedupConfig{Mode: "none"}
+		if got := cfg.EffectiveMode(); got != "none" {
+			t.Errorf("EffectiveMode() = %q, want %q", got, "none")
+		}
+	})
+}
+
+func TestApplyDefaults_SessionDedupDefaults(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+
+	// Session dedup should inherit from semantic cache TTL and streamable session timeout
+	if cfg.Injection.SessionDedup.EntryTTL != 5*time.Minute {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, 5*time.Minute)
+	}
+	if cfg.Injection.SessionDedup.SessionTimeout != 30*time.Minute {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, 30*time.Minute)
+	}
+}
+
+func TestApplyDefaults_SessionDedupPreservesExisting(t *testing.T) {
+	cfg := &Config{
+		Injection: InjectionConfig{
+			SessionDedup: SessionDedupConfig{
+				EntryTTL:       10 * time.Minute,
+				SessionTimeout: 60 * time.Minute,
+			},
+		},
+	}
+	applyDefaults(cfg)
+
+	if cfg.Injection.SessionDedup.EntryTTL != 10*time.Minute {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v (should preserve)", cfg.Injection.SessionDedup.EntryTTL, 10*time.Minute)
+	}
+	if cfg.Injection.SessionDedup.SessionTimeout != 60*time.Minute {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v (should preserve)", cfg.Injection.SessionDedup.SessionTimeout, 60*time.Minute)
+	}
+}
+
+func TestLoadConfig_SessionDedupFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configContent := `
+server:
+  name: test-platform
+injection:
+  trino_semantic_enrichment: true
+  session_dedup:
+    enabled: false
+    mode: summary
+    entry_ttl: 10m
+    session_timeout: 1h
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Injection.SessionDedup.IsEnabled() {
+		t.Error("SessionDedup.IsEnabled() = true, want false")
+	}
+	if cfg.Injection.SessionDedup.EffectiveMode() != "summary" {
+		t.Errorf("SessionDedup.EffectiveMode() = %q, want %q", cfg.Injection.SessionDedup.EffectiveMode(), "summary")
+	}
+	if cfg.Injection.SessionDedup.EntryTTL != 10*time.Minute {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, 10*time.Minute)
+	}
+	if cfg.Injection.SessionDedup.SessionTimeout != time.Hour {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, time.Hour)
+	}
+}
+
 func TestLoadConfig_DataHubDebugFromYAML(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
