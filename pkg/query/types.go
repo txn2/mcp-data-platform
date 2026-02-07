@@ -1,4 +1,6 @@
 // Package query provides abstractions for query execution providers.
+//
+//nolint:revive // package contains related DTO types
 package query
 
 // TableIdentifier uniquely identifies a table in the query engine.
@@ -26,8 +28,8 @@ type TableAvailability struct {
 	Error         string `json:"error,omitempty"`
 }
 
-// QueryExample provides a sample query for a table.
-type QueryExample struct {
+// Example provides a sample query for a table.
+type Example struct {
 	Description string `json:"description"`
 	SQL         string `json:"sql"`
 }
@@ -60,9 +62,9 @@ type TableSchema struct {
 	PrimaryKey []string `json:"primary_key,omitempty"`
 }
 
-// QueryResult represents the result of a query.
-type QueryResult struct {
-	Columns []string        `json:"columns"`
-	Rows    [][]interface{} `json:"rows"`
-	Count   int             `json:"count"`
+// Result represents the result of a query.
+type Result struct {
+	Columns []string `json:"columns"`
+	Rows    [][]any  `json:"rows"`
+	Count   int      `json:"count"`
 }
