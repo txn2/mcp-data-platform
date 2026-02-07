@@ -10,8 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// PlatformInfo contains information about the platform deployment.
-type PlatformInfo struct {
+// Info contains information about the platform deployment.
+type Info struct {
 	Name              string        `json:"name"`
 	Version           string        `json:"version"`
 	Description       string        `json:"description,omitempty"`
@@ -46,7 +46,7 @@ func (p *Platform) registerInfoTool() {
 		Name:        "platform_info",
 		Description: p.buildInfoToolDescription(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
-		return p.handlePlatformInfo(ctx, req)
+		return p.handleInfo(ctx, req)
 	})
 }
 
@@ -63,8 +63,8 @@ func (p *Platform) buildInfoToolDescription() string {
 		"Call this first to understand what data and capabilities are available."
 }
 
-// handlePlatformInfo handles the platform_info tool call.
-func (p *Platform) handlePlatformInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
+// handleInfo handles the platform_info tool call.
+func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
 	// Collect enabled toolkits
 	var toolkits []string
 	if p.config.Toolkits != nil {
@@ -84,7 +84,7 @@ func (p *Platform) handlePlatformInfo(_ context.Context, _ *mcp.CallToolRequest)
 		})
 	}
 
-	info := PlatformInfo{
+	info := Info{
 		Name:              p.config.Server.Name,
 		Version:           p.config.Server.Version,
 		Description:       p.config.Server.Description,
@@ -102,7 +102,7 @@ func (p *Platform) handlePlatformInfo(_ context.Context, _ *mcp.CallToolRequest)
 
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
-		return &mcp.CallToolResult{
+		return &mcp.CallToolResult{ //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "Error: " + err.Error()},
 			},
