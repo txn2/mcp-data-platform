@@ -321,7 +321,7 @@ func TestGenerateSecureToken(t *testing.T) {
 
 	t.Run("generates unique tokens", func(t *testing.T) {
 		tokens := make(map[string]bool)
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			token, err := generateSecureToken(32)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -337,7 +337,7 @@ func TestGenerateSecureToken(t *testing.T) {
 func TestGenerateID(t *testing.T) {
 	t.Run("generates unique IDs", func(t *testing.T) {
 		ids := make(map[string]bool)
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			id := generateID()
 			if ids[id] {
 				t.Error("duplicate ID generated")

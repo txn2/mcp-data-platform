@@ -438,7 +438,13 @@ func TestInheritMetadata(t *testing.T) {
 		Tags: []types.Tag{{Name: "important"}},
 	}
 
-	resolver.inheritMetadata(target, source, "urn:upstream", "source_col", 1, "name_exact")
+	resolver.inheritMetadata(target, inheritSource{
+		Field:       source,
+		URN:         "urn:upstream",
+		Column:      "source_col",
+		Hops:        1,
+		MatchMethod: "name_exact",
+	})
 
 	if target.Description != "Source description" {
 		t.Errorf("expected inherited description, got %q", target.Description)
@@ -479,7 +485,13 @@ func TestInheritMetadata_NoInheritanceWhenTargetPopulated(t *testing.T) {
 		Description: "Source description",
 	}
 
-	resolver.inheritMetadata(target, source, "urn:upstream", "source_col", 1, "name_exact")
+	resolver.inheritMetadata(target, inheritSource{
+		Field:       source,
+		URN:         "urn:upstream",
+		Column:      "source_col",
+		Hops:        1,
+		MatchMethod: "name_exact",
+	})
 
 	if target.Description != "Already has description" {
 		t.Errorf("description should not be overwritten, got %q", target.Description)

@@ -10,7 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// mockToolkit is a simple mock for testing
+// mockToolkit is a simple mock for testing.
 type mockToolkit struct {
 	kind       string
 	name       string
@@ -310,18 +310,18 @@ func TestGetToolkitForTool(t *testing.T) {
 			tools:      []string{"trino_query", "trino_describe"},
 		})
 
-		kind, name, connection, found := reg.GetToolkitForTool("trino_query")
-		if !found {
+		match := reg.GetToolkitForTool("trino_query")
+		if !match.Found {
 			t.Error("expected to find tool")
 		}
-		if kind != "trino" {
-			t.Errorf("expected kind 'trino', got %q", kind)
+		if match.Kind != "trino" {
+			t.Errorf("expected kind 'trino', got %q", match.Kind)
 		}
-		if name != "production" {
-			t.Errorf("expected name 'production', got %q", name)
+		if match.Name != "production" {
+			t.Errorf("expected name 'production', got %q", match.Name)
 		}
-		if connection != "prod-trino" {
-			t.Errorf("expected connection 'prod-trino', got %q", connection)
+		if match.Connection != "prod-trino" {
+			t.Errorf("expected connection 'prod-trino', got %q", match.Connection)
 		}
 	})
 
@@ -334,11 +334,11 @@ func TestGetToolkitForTool(t *testing.T) {
 			tools:      []string{"trino_query"},
 		})
 
-		kind, name, connection, found := reg.GetToolkitForTool("unknown_tool")
-		if found {
+		match := reg.GetToolkitForTool("unknown_tool")
+		if match.Found {
 			t.Error("expected tool not to be found")
 		}
-		if kind != "" || name != "" || connection != "" {
+		if match.Kind != "" || match.Name != "" || match.Connection != "" {
 			t.Error("expected empty strings when not found")
 		}
 	})
@@ -366,11 +366,11 @@ func TestGetToolkitForTool(t *testing.T) {
 
 		// Test finding tool in each toolkit
 		tests := []struct {
-			tool       string
-			wantKind   string
-			wantName   string
-			wantConn   string
-			wantFound  bool
+			tool      string
+			wantKind  string
+			wantName  string
+			wantConn  string
+			wantFound bool
 		}{
 			{"trino_query", "trino", "production", "prod-trino", true},
 			{"datahub_search", "datahub", "main", "main-datahub", true},
@@ -380,18 +380,18 @@ func TestGetToolkitForTool(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.tool, func(t *testing.T) {
-				kind, name, conn, found := reg.GetToolkitForTool(tt.tool)
-				if found != tt.wantFound {
-					t.Errorf("found = %v, want %v", found, tt.wantFound)
+				match := reg.GetToolkitForTool(tt.tool)
+				if match.Found != tt.wantFound {
+					t.Errorf("found = %v, want %v", match.Found, tt.wantFound)
 				}
-				if kind != tt.wantKind {
-					t.Errorf("kind = %q, want %q", kind, tt.wantKind)
+				if match.Kind != tt.wantKind {
+					t.Errorf("kind = %q, want %q", match.Kind, tt.wantKind)
 				}
-				if name != tt.wantName {
-					t.Errorf("name = %q, want %q", name, tt.wantName)
+				if match.Name != tt.wantName {
+					t.Errorf("name = %q, want %q", match.Name, tt.wantName)
 				}
-				if conn != tt.wantConn {
-					t.Errorf("connection = %q, want %q", conn, tt.wantConn)
+				if match.Connection != tt.wantConn {
+					t.Errorf("connection = %q, want %q", match.Connection, tt.wantConn)
 				}
 			})
 		}

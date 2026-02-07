@@ -1,5 +1,7 @@
 package tuning
 
+import "maps"
+
 // HintManager manages tool hints.
 type HintManager struct {
 	hints map[string]string // tool name -> hint
@@ -25,17 +27,13 @@ func (m *HintManager) GetHint(toolName string) (string, bool) {
 
 // SetHints sets multiple hints at once.
 func (m *HintManager) SetHints(hints map[string]string) {
-	for k, v := range hints {
-		m.hints[k] = v
-	}
+	maps.Copy(m.hints, hints)
 }
 
 // All returns all hints.
 func (m *HintManager) All() map[string]string {
 	result := make(map[string]string)
-	for k, v := range m.hints {
-		result[k] = v
-	}
+	maps.Copy(result, m.hints)
 	return result
 }
 

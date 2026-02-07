@@ -8,10 +8,10 @@ import (
 // ParseConfig parses a DataHub toolkit configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
-		Timeout:         30 * time.Second,
-		DefaultLimit:    10,
-		MaxLimit:        100,
-		MaxLineageDepth: 5,
+		Timeout:         defaultTimeout,
+		DefaultLimit:    defaultDataHubLimit,
+		MaxLimit:        defaultMaxLimit,
+		MaxLineageDepth: defaultMaxLineageDepth,
 	}
 
 	// Required URL field (supports both "url" and "endpoint" keys)
@@ -67,7 +67,11 @@ func getInt(cfg map[string]any, key string, defaultVal int) int {
 // getDuration extracts a duration value from a config map.
 func getDuration(cfg map[string]any, key string) (time.Duration, error) {
 	if v, ok := cfg[key].(string); ok {
-		return time.ParseDuration(v)
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return 0, fmt.Errorf("parsing duration %q: %w", v, err)
+		}
+		return d, nil
 	}
 	if v, ok := cfg[key].(int); ok {
 		return time.Duration(v) * time.Second, nil

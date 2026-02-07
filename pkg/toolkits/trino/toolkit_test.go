@@ -1,6 +1,7 @@
 package trino
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -168,35 +169,30 @@ func TestConfig_Defaults(t *testing.T) {
 		User: "testuser",
 	}
 
-	// Apply defaults by checking what New would set
-	if cfg.Port == 0 {
-		if cfg.SSL {
-			if 443 != 443 {
-				t.Error("SSL default port should be 443")
-			}
-		} else {
-			if 8080 != 8080 {
-				t.Error("non-SSL default port should be 8080")
-			}
-		}
+	result := applyDefaults("test", cfg)
+
+	if result.Port != 8080 {
+		t.Errorf("non-SSL default port should be 8080, got %d", result.Port)
+	}
+	if result.DefaultLimit != 1000 {
+		t.Errorf("DefaultLimit should default to 1000, got %d", result.DefaultLimit)
+	}
+	if result.MaxLimit != 10000 {
+		t.Errorf("MaxLimit should default to 10000, got %d", result.MaxLimit)
+	}
+	if result.Timeout != 120*time.Second {
+		t.Errorf("Timeout should default to 120s, got %v", result.Timeout)
 	}
 
-	if cfg.DefaultLimit == 0 {
-		if 1000 != 1000 {
-			t.Error("DefaultLimit should default to 1000")
-		}
+	// Test SSL default port
+	sslCfg := Config{
+		Host: "localhost",
+		User: "testuser",
+		SSL:  true,
 	}
-
-	if cfg.MaxLimit == 0 {
-		if 10000 != 10000 {
-			t.Error("MaxLimit should default to 10000")
-		}
-	}
-
-	if cfg.Timeout == 0 {
-		if 120*time.Second != 120*time.Second {
-			t.Error("Timeout should default to 120s")
-		}
+	sslResult := applyDefaults("test", sslCfg)
+	if sslResult.Port != 443 {
+		t.Errorf("SSL default port should be 443, got %d", sslResult.Port)
 	}
 }
 
@@ -309,13 +305,7 @@ func TestToolkit_Methods(t *testing.T) {
 		}
 
 		for _, expected := range expectedTools {
-			found := false
-			for _, tool := range tools {
-				if tool == expected {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(tools, expected)
 			if !found {
 				t.Errorf("missing expected tool: %s", expected)
 			}

@@ -18,7 +18,7 @@ func NewToolFilter(registry *Registry) *ToolFilter {
 }
 
 // IsAllowed checks if a tool is allowed for a persona.
-func (f *ToolFilter) IsAllowed(persona *Persona, toolName string) bool {
+func (*ToolFilter) IsAllowed(persona *Persona, toolName string) bool {
 	if persona == nil {
 		return false // DENY if no persona - fail closed
 	}
@@ -67,16 +67,16 @@ func matchPattern(pattern, name string) bool {
 	return matched
 }
 
-// PersonaAuthorizer implements middleware.Authorizer using personas.
-type PersonaAuthorizer struct {
+// Authorizer implements middleware.Authorizer using personas.
+type Authorizer struct {
 	registry   *Registry
 	roleMapper RoleMapper
 	filter     *ToolFilter
 }
 
-// NewPersonaAuthorizer creates a new persona-based authorizer.
-func NewPersonaAuthorizer(registry *Registry, mapper RoleMapper) *PersonaAuthorizer {
-	return &PersonaAuthorizer{
+// NewAuthorizer creates a new persona-based authorizer.
+func NewAuthorizer(registry *Registry, mapper RoleMapper) *Authorizer {
+	return &Authorizer{
 		registry:   registry,
 		roleMapper: mapper,
 		filter:     NewToolFilter(registry),
@@ -85,14 +85,13 @@ func NewPersonaAuthorizer(registry *Registry, mapper RoleMapper) *PersonaAuthori
 
 // IsAuthorized checks if the user is authorized for the tool.
 // Returns the resolved persona name for audit logging.
-func (a *PersonaAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string, string) {
+func (a *Authorizer) IsAuthorized(ctx context.Context, _ string, roles []string, toolName string) (allowed bool, personaName, reason string) {
 	// Get persona for roles
 	persona, err := a.roleMapper.MapToPersona(ctx, roles)
 	if err != nil {
 		return false, "", "failed to determine persona"
 	}
 
-	personaName := ""
 	if persona != nil {
 		personaName = persona.Name
 	}
@@ -106,4 +105,4 @@ func (a *PersonaAuthorizer) IsAuthorized(ctx context.Context, userID string, rol
 }
 
 // Verify interface compliance.
-var _ middleware.Authorizer = (*PersonaAuthorizer)(nil)
+var _ middleware.Authorizer = (*Authorizer)(nil)

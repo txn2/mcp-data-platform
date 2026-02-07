@@ -4,13 +4,24 @@ import (
 	"time"
 )
 
+const (
+	// DefaultTimeout is the default HTTP client timeout for S3 operations.
+	DefaultTimeout = 30 * time.Second
+
+	// DefaultMaxGetSize is the default maximum size for S3 GET operations (10MB).
+	DefaultMaxGetSize = 10 * 1024 * 1024
+
+	// DefaultMaxPutSize is the default maximum size for S3 PUT operations (100MB).
+	DefaultMaxPutSize = 100 * 1024 * 1024
+)
+
 // ParseConfig parses an S3 toolkit configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
 		Region:     "us-east-1",
-		Timeout:    30 * time.Second,
-		MaxGetSize: 10 * 1024 * 1024,
-		MaxPutSize: 100 * 1024 * 1024,
+		Timeout:    DefaultTimeout,
+		MaxGetSize: DefaultMaxGetSize,
+		MaxPutSize: DefaultMaxPutSize,
 	}
 
 	// String fields

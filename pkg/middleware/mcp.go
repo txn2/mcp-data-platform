@@ -12,8 +12,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// defaultSessionID is used for stdio/SSE transports that don't provide a session ID.
-const defaultSessionID = "stdio"
+const (
+	// defaultSessionID is used for stdio/SSE transports that don't provide a session ID.
+	defaultSessionID = "stdio"
+
+	// methodToolsCall is the MCP method name for tool invocations.
+	methodToolsCall = "tools/call"
+)
 
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
 // tools/call requests and enforces authentication and authorization.
@@ -32,7 +37,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
-			if method != "tools/call" {
+			if method != methodToolsCall {
 				return next(ctx, method, req)
 			}
 
@@ -55,7 +60,12 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			ctx = bridgeAuthToken(ctx, req)
 
 			// Authenticate and authorize
-			return authenticateAndAuthorize(ctx, method, req, next, authenticator, authorizer, pc, toolName)
+			return authenticateAndAuthorize(ctx, method, req, next, authParams{
+				authenticator: authenticator,
+				authorizer:    authorizer,
+				pc:            pc,
+				toolName:      toolName,
+			})
 		}
 	}
 }
@@ -65,11 +75,11 @@ func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName
 	if lookup == nil {
 		return
 	}
-	kind, name, connection, found := lookup.GetToolkitForTool(toolName)
-	if found {
-		pc.ToolkitKind = kind
-		pc.ToolkitName = name
-		pc.Connection = connection
+	match := lookup.GetToolkitForTool(toolName)
+	if match.Found {
+		pc.ToolkitKind = match.Kind
+		pc.ToolkitName = match.Name
+		pc.Connection = match.Connection
 	}
 }
 
@@ -96,44 +106,51 @@ func bridgeAuthToken(ctx context.Context, req mcp.Request) context.Context {
 	return ctx
 }
 
+// authParams groups authentication and authorization parameters.
+type authParams struct {
+	authenticator Authenticator
+	authorizer    Authorizer
+	pc            *PlatformContext
+	toolName      string
+}
+
 // authenticateAndAuthorize runs authentication and authorization, returning
 // the next handler result or an error result.
 func authenticateAndAuthorize(
 	ctx context.Context, method string, req mcp.Request,
 	next mcp.MethodHandler,
-	authenticator Authenticator, authorizer Authorizer,
-	pc *PlatformContext, toolName string,
+	params authParams,
 ) (mcp.Result, error) {
-	userInfo, err := authenticator.Authenticate(ctx)
+	userInfo, err := params.authenticator.Authenticate(ctx)
 	if err != nil {
 		slog.Warn("tool call authentication failed",
-			"tool", toolName,
-			"request_id", pc.RequestID,
+			"tool", params.toolName,
+			"request_id", params.pc.RequestID,
 			"error", err.Error(),
 		)
 		return createErrorResult("authentication failed: " + err.Error()), nil
 	}
 
 	if userInfo != nil {
-		pc.UserID = userInfo.UserID
-		pc.UserEmail = userInfo.Email
-		pc.UserClaims = userInfo.Claims
-		pc.Roles = userInfo.Roles
+		params.pc.UserID = userInfo.UserID
+		params.pc.UserEmail = userInfo.Email
+		params.pc.UserClaims = userInfo.Claims
+		params.pc.Roles = userInfo.Roles
 	}
 
-	authorized, personaName, reason := authorizer.IsAuthorized(ctx, pc.UserID, pc.Roles, toolName)
-	pc.Authorized = authorized
-	pc.PersonaName = personaName
+	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName)
+	params.pc.Authorized = authorized
+	params.pc.PersonaName = personaName
 	if !authorized {
-		pc.AuthzError = reason
+		params.pc.AuthzError = reason
 		slog.Warn("tool call authorization denied",
-			"tool", toolName,
-			"user_id", pc.UserID,
-			"email", pc.UserEmail,
-			"roles", pc.Roles,
+			"tool", params.toolName,
+			"user_id", params.pc.UserID,
+			"email", params.pc.UserEmail,
+			"roles", params.pc.Roles,
 			"persona", personaName,
 			"reason", reason,
-			"request_id", pc.RequestID,
+			"request_id", params.pc.RequestID,
 		)
 		return createErrorResult("not authorized: " + reason), nil
 	}
@@ -143,13 +160,13 @@ func authenticateAndAuthorize(
 		authType = userInfo.AuthType
 	}
 	slog.Debug("tool call authorized",
-		"tool", toolName,
-		"user_id", pc.UserID,
-		"email", pc.UserEmail,
-		"roles", pc.Roles,
+		"tool", params.toolName,
+		"user_id", params.pc.UserID,
+		"email", params.pc.UserEmail,
+		"roles", params.pc.Roles,
 		"persona", personaName,
 		"auth_type", authType,
-		"request_id", pc.RequestID,
+		"request_id", params.pc.RequestID,
 	)
 
 	return next(ctx, method, req)

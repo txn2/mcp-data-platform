@@ -8,10 +8,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
-func TestHandlePlatformInfo(t *testing.T) {
+func TestHandleInfo(t *testing.T) {
 	tests := []struct {
 		name                  string
 		config                Config
@@ -81,7 +82,7 @@ func TestHandlePlatformInfo(t *testing.T) {
 				personaRegistry: persona.NewRegistry(),
 			}
 
-			result, extra, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
+			result, extra, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 			require.NoError(t, err)
 			assert.Nil(t, extra)
@@ -91,7 +92,7 @@ func TestHandlePlatformInfo(t *testing.T) {
 			textContent, ok := result.Content[0].(*mcp.TextContent)
 			require.True(t, ok, "expected TextContent")
 
-			var info PlatformInfo
+			var info Info
 			err = json.Unmarshal([]byte(textContent.Text), &info)
 			require.NoError(t, err)
 
@@ -104,7 +105,7 @@ func TestHandlePlatformInfo(t *testing.T) {
 	}
 }
 
-func TestPlatformInfoFeatures(t *testing.T) {
+func TestInfoFeatures(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "feature-test",
@@ -125,12 +126,12 @@ func TestPlatformInfoFeatures(t *testing.T) {
 		config:          &config,
 		personaRegistry: persona.NewRegistry(),
 	}
-	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
 	textContent := result.Content[0].(*mcp.TextContent)
 
-	var info PlatformInfo
+	var info Info
 	err = json.Unmarshal([]byte(textContent.Text), &info)
 	require.NoError(t, err)
 
@@ -205,7 +206,7 @@ func TestBuildInfoToolDescription(t *testing.T) {
 	}
 }
 
-func TestPlatformInfoToolkits(t *testing.T) {
+func TestInfoToolkits(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "toolkit-test",
@@ -222,12 +223,12 @@ func TestPlatformInfoToolkits(t *testing.T) {
 		config:          &config,
 		personaRegistry: persona.NewRegistry(),
 	}
-	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
 	textContent := result.Content[0].(*mcp.TextContent)
 
-	var info PlatformInfo
+	var info Info
 	err = json.Unmarshal([]byte(textContent.Text), &info)
 	require.NoError(t, err)
 
@@ -237,7 +238,7 @@ func TestPlatformInfoToolkits(t *testing.T) {
 	assert.Contains(t, info.Toolkits, "s3")
 }
 
-func TestPlatformInfoPersonas(t *testing.T) {
+func TestInfoPersonas(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "persona-test",
@@ -261,12 +262,12 @@ func TestPlatformInfoPersonas(t *testing.T) {
 		config:          &config,
 		personaRegistry: registry,
 	}
-	result, _, err := p.handlePlatformInfo(context.Background(), &mcp.CallToolRequest{})
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
 	textContent := result.Content[0].(*mcp.TextContent)
 
-	var info PlatformInfo
+	var info Info
 	err = json.Unmarshal([]byte(textContent.Text), &info)
 	require.NoError(t, err)
 

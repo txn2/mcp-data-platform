@@ -204,9 +204,9 @@ func injectConfig(content []byte, config any) []byte {
 			// Use explicit buffer to avoid slice aliasing issues with append
 			endIdx += idx + len("</script>")
 			var buf bytes.Buffer
-			buf.Write(content[:idx])
-			buf.WriteString(configScript)
-			buf.Write(content[endIdx:])
+			_, _ = buf.Write(content[:idx])
+			_, _ = buf.WriteString(configScript)
+			_, _ = buf.Write(content[endIdx:])
 			return buf.Bytes()
 		}
 	}
@@ -215,9 +215,9 @@ func injectConfig(content []byte, config any) []byte {
 	headClose := []byte(`</head>`)
 	if idx := bytes.Index(content, headClose); idx != -1 {
 		var buf bytes.Buffer
-		buf.Write(content[:idx])
-		buf.WriteString(configScript + "\n")
-		buf.Write(content[idx:])
+		_, _ = buf.Write(content[:idx])
+		_, _ = buf.WriteString(configScript + "\n")
+		_, _ = buf.Write(content[idx:])
 		return buf.Bytes()
 	}
 

@@ -12,6 +12,15 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
+const (
+	defaultSSLPort      = 443
+	defaultPlainPort    = 8080
+	defaultQueryLimit   = 1000
+	defaultMaxLimit     = 10000
+	defaultQueryTimeout = 120 * time.Second
+	tablePartsMinCount  = 3
+)
+
 // Config holds Trino adapter configuration.
 type Config struct {
 	Host           string
@@ -62,19 +71,19 @@ func New(cfg Config) (*Adapter, error) {
 	}
 	if cfg.Port == 0 {
 		if cfg.SSL {
-			cfg.Port = 443
+			cfg.Port = defaultSSLPort
 		} else {
-			cfg.Port = 8080
+			cfg.Port = defaultPlainPort
 		}
 	}
 	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = 1000
+		cfg.DefaultLimit = defaultQueryLimit
 	}
 	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = 10000
+		cfg.MaxLimit = defaultMaxLimit
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 120 * time.Second
+		cfg.Timeout = defaultQueryTimeout
 	}
 
 	clientCfg := trinoclient.Config{
@@ -107,10 +116,10 @@ func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 		return nil, fmt.Errorf("trino client is required")
 	}
 	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = 1000
+		cfg.DefaultLimit = defaultQueryLimit
 	}
 	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = 10000
+		cfg.MaxLimit = defaultMaxLimit
 	}
 	return &Adapter{
 		cfg:    cfg,
@@ -119,7 +128,7 @@ func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 }
 
 // Name returns the provider name.
-func (a *Adapter) Name() string {
+func (*Adapter) Name() string {
 	return "trino"
 }
 
@@ -149,7 +158,7 @@ func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdent
 			Table:      parts[1],
 			Connection: a.cfg.ConnectionName,
 		}, nil
-	case 3:
+	case tablePartsMinCount:
 		catalog := parts[0]
 		// Apply reverse catalog mapping if configured
 		if mapped, ok := a.cfg.CatalogMapping[catalog]; ok {
@@ -170,7 +179,7 @@ func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdent
 func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error) {
 	table, err := a.ResolveTable(ctx, urn)
 	if err != nil {
-		return &query.TableAvailability{
+		return &query.TableAvailability{ //nolint:nilerr // availability check: resolve errors mean "not available", not a system failure
 			Available: false,
 			Error:     err.Error(),
 		}, nil
@@ -179,7 +188,7 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 	// Actually verify the table exists by describing it
 	_, err = a.client.DescribeTable(ctx, table.Catalog, table.Schema, table.Table)
 	if err != nil {
-		return &query.TableAvailability{
+		return &query.TableAvailability{ //nolint:nilerr // availability check: describe errors mean "not available", not a system failure
 			Available: false,
 			Error:     err.Error(),
 		}, nil
@@ -217,7 +226,7 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 }
 
 // GetQueryExamples returns sample queries for a table.
-func (a *Adapter) GetQueryExamples(ctx context.Context, urn string) ([]query.QueryExample, error) {
+func (a *Adapter) GetQueryExamples(ctx context.Context, urn string) ([]query.Example, error) {
 	table, err := a.ResolveTable(ctx, urn)
 	if err != nil {
 		return nil, err
@@ -229,7 +238,7 @@ func (a *Adapter) GetQueryExamples(ctx context.Context, urn string) ([]query.Que
 		trinoclient.QuoteIdentifier(table.Table),
 	)
 
-	return []query.QueryExample{
+	return []query.Example{
 		{
 			Description: "Preview first 10 rows",
 			SQL:         fmt.Sprintf("SELECT * FROM %s LIMIT 10", tableName),
@@ -313,14 +322,19 @@ func (a *Adapter) GetTableSchema(ctx context.Context, table query.TableIdentifie
 // Close releases resources.
 func (a *Adapter) Close() error {
 	if a.client != nil {
-		return a.client.Close()
+		if err := a.client.Close(); err != nil {
+			return fmt.Errorf("closing trino client: %w", err)
+		}
 	}
 	return nil
 }
 
 // Ping tests the connection to Trino.
 func (a *Adapter) Ping(ctx context.Context) error {
-	return a.client.Ping(ctx)
+	if err := a.client.Ping(ctx); err != nil {
+		return fmt.Errorf("pinging trino: %w", err)
+	}
+	return nil
 }
 
 // Verify interface compliance.

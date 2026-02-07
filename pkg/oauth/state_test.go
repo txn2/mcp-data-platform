@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -41,7 +42,7 @@ func TestMemoryStateStore(t *testing.T) {
 
 	t.Run("get nonexistent state", func(t *testing.T) {
 		_, err := store.Get("nonexistent")
-		if err != ErrStateNotFound {
+		if !errors.Is(err, ErrStateNotFound) {
 			t.Errorf("expected ErrStateNotFound, got %v", err)
 		}
 	})
@@ -53,7 +54,7 @@ func TestMemoryStateStore(t *testing.T) {
 		}
 
 		_, err = store.Get("key-1")
-		if err != ErrStateNotFound {
+		if !errors.Is(err, ErrStateNotFound) {
 			t.Error("expected state to be deleted")
 		}
 	})
@@ -81,7 +82,7 @@ func TestMemoryStateStore(t *testing.T) {
 
 		// Old should be gone
 		_, err = store.Get("old-key")
-		if err != ErrStateNotFound {
+		if !errors.Is(err, ErrStateNotFound) {
 			t.Error("expected old state to be cleaned up")
 		}
 

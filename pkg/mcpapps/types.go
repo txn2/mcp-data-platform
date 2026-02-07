@@ -7,6 +7,7 @@
 package mcpapps
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -112,7 +113,7 @@ func (a *AppDefinition) ValidateAssets() error {
 		if os.IsNotExist(err) {
 			return ErrEntryPointNotFound
 		}
-		return err
+		return fmt.Errorf("checking entry point %s: %w", entryPath, err)
 	}
 
 	return nil

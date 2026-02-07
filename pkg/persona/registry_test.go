@@ -122,7 +122,7 @@ func TestRegistry(t *testing.T) {
 
 	t.Run("LoadFromConfig", func(t *testing.T) {
 		reg := NewRegistry()
-		config := map[string]*PersonaConfig{
+		config := map[string]*Config{
 			"analyst": {
 				DisplayName: "Data Analyst",
 				Description: "Analyst persona",
@@ -191,7 +191,7 @@ func TestRegistry(t *testing.T) {
 
 	t.Run("LoadFromConfig empty", func(t *testing.T) {
 		reg := NewRegistry()
-		config := map[string]*PersonaConfig{}
+		config := map[string]*Config{}
 
 		if err := reg.LoadFromConfig(config); err != nil {
 			t.Errorf("LoadFromConfig() with empty config error = %v", err)
@@ -200,7 +200,7 @@ func TestRegistry(t *testing.T) {
 
 	t.Run("LoadFromConfig with empty name", func(t *testing.T) {
 		reg := NewRegistry()
-		config := map[string]*PersonaConfig{
+		config := map[string]*Config{
 			"": {DisplayName: "Invalid"}, // Empty name should fail Register
 		}
 

@@ -53,8 +53,8 @@ func TestNoopProvider(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
+		if result == nil {
+			t.Error("expected non-nil empty identifier")
 		}
 	})
 
@@ -76,8 +76,8 @@ func TestNoopProvider(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
+		if len(result) != 0 {
+			t.Errorf("expected empty slice, got %v", result)
 		}
 	})
 
@@ -86,8 +86,8 @@ func TestNoopProvider(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
+		if len(result) != 0 {
+			t.Errorf("expected empty slice, got %v", result)
 		}
 	})
 

@@ -12,7 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/crypto/bcrypt"
 
-	// PostgreSQL driver for database/sql
+	// PostgreSQL driver for database/sql.
 	_ "github.com/lib/pq"
 
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -31,6 +31,21 @@ import (
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
+
+// providerNoop is the provider name for no-op (disabled) providers.
+const providerNoop = "noop"
+
+// minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
+const minSigningKeyLength = 32
+
+// defaultTrinoPort is the default port for Trino connections.
+const defaultTrinoPort = 8080
+
+// defaultTrinoQueryLimit is the default query limit for Trino connections.
+const defaultTrinoQueryLimit = 1000
+
+// defaultTrinoMaxLimit is the maximum query limit for Trino connections.
+const defaultTrinoMaxLimit = 10000
 
 // Platform is the main platform facade.
 type Platform struct {
@@ -147,10 +162,10 @@ func (p *Platform) initDatabase() error {
 
 	db.SetMaxOpenConns(p.config.Database.MaxOpenConns)
 	if p.config.Database.MaxOpenConns == 0 {
-		db.SetMaxOpenConns(25)
+		db.SetMaxOpenConns(defaultMaxOpenConns)
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 
@@ -304,7 +319,7 @@ func (p *Platform) initOAuth() error {
 	}
 
 	// Create in-memory storage
-	storage := oauth.NewMemoryStorage()
+	oauthStorage := oauth.NewMemoryStorage()
 
 	// Pre-register clients from config
 	for _, clientCfg := range p.config.OAuth.Clients {
@@ -324,7 +339,7 @@ func (p *Platform) initOAuth() error {
 			Active:       true,
 		}
 
-		if err := storage.CreateClient(context.Background(), client); err != nil {
+		if err := oauthStorage.CreateClient(context.Background(), client); err != nil {
 			return fmt.Errorf("creating client %s: %w", clientCfg.ID, err)
 		}
 	}
@@ -352,7 +367,7 @@ func (p *Platform) initOAuth() error {
 	}
 
 	// Create OAuth server
-	server, err := oauth.NewServer(serverConfig, storage)
+	server, err := oauth.NewServer(serverConfig, oauthStorage)
 	if err != nil {
 		return fmt.Errorf("creating OAuth server: %w", err)
 	}
@@ -369,14 +384,14 @@ func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decoding signing key: %w", err)
 		}
-		if len(key) < 32 {
-			return nil, fmt.Errorf("signing key must be at least 32 bytes")
+		if len(key) < minSigningKeyLength {
+			return nil, fmt.Errorf("signing key must be at least %d bytes", minSigningKeyLength)
 		}
 		return key, nil
 	}
 
 	// Generate random key if not configured (not recommended for production)
-	key := make([]byte, 32)
+	key := make([]byte, minSigningKeyLength)
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("generating random key: %w", err)
 	}
@@ -627,7 +642,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 		}
 		return adapter, nil
 
-	case "noop", "":
+	case providerNoop, "":
 		return semantic.NewNoopProvider(), nil
 
 	default:
@@ -666,7 +681,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		}
 		return adapter, nil
 
-	case "noop", "":
+	case providerNoop, "":
 		return query.NewNoopProvider(), nil
 
 	default:
@@ -697,7 +712,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 		}
 		return adapter, nil
 
-	case "noop", "":
+	case providerNoop, "":
 		return storage.NewNoopProvider(), nil
 
 	default:
@@ -708,7 +723,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 // loadPersonas loads personas from config.
 func (p *Platform) loadPersonas() error {
 	for name, def := range p.config.Personas.Definitions {
-		persona := &persona.Persona{
+		personaDef := &persona.Persona{
 			Name:        name,
 			DisplayName: def.DisplayName,
 			Description: def.Description,
@@ -725,7 +740,7 @@ func (p *Platform) loadPersonas() error {
 			Hints:    def.Hints,
 			Priority: def.Priority,
 		}
-		if err := p.personaRegistry.Register(persona); err != nil {
+		if err := p.personaRegistry.Register(personaDef); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)
 		}
 	}
@@ -810,7 +825,7 @@ func (p *Platform) createAuthorizer() middleware.Authorizer {
 		Registry:       p.personaRegistry,
 	}
 
-	return persona.NewPersonaAuthorizer(p.personaRegistry, mapper)
+	return persona.NewAuthorizer(p.personaRegistry, mapper)
 }
 
 // Start starts the platform.
@@ -957,7 +972,7 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 
 	return &trinoConfig{
 		Host:           cfgString(instanceCfg, "host"),
-		Port:           cfgInt(instanceCfg, "port", 8080),
+		Port:           cfgInt(instanceCfg, "port", defaultTrinoPort),
 		User:           cfgString(instanceCfg, "user"),
 		Password:       cfgString(instanceCfg, "password"),
 		Catalog:        cfgString(instanceCfg, "catalog"),
@@ -965,8 +980,8 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 		SSL:            cfgBool(instanceCfg, "ssl"),
 		SSLVerify:      cfgBoolDefault(instanceCfg, "ssl_verify", true),
 		Timeout:        cfgDuration(instanceCfg, "timeout", 120*time.Second),
-		DefaultLimit:   cfgInt(instanceCfg, "default_limit", 1000),
-		MaxLimit:       cfgInt(instanceCfg, "max_limit", 10000),
+		DefaultLimit:   cfgInt(instanceCfg, "default_limit", defaultTrinoQueryLimit),
+		MaxLimit:       cfgInt(instanceCfg, "max_limit", defaultTrinoMaxLimit),
 		ReadOnly:       cfgBool(instanceCfg, "read_only"),
 		ConnectionName: cfgString(instanceCfg, "connection_name"),
 	}
@@ -1026,7 +1041,7 @@ func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[strin
 }
 
 // resolveDefaultInstance determines which instance to use.
-func resolveDefaultInstance(kindCfg map[string]any, instances map[string]any) string {
+func resolveDefaultInstance(kindCfg, instances map[string]any) string {
 	if defaultName, ok := kindCfg["default"].(string); ok {
 		return defaultName
 	}

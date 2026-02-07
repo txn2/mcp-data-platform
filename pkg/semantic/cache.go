@@ -2,10 +2,13 @@ package semantic
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
 )
+
+const defaultCacheTTL = 5 * time.Minute
 
 // CachedProvider wraps a Provider with caching.
 type CachedProvider struct {
@@ -38,7 +41,7 @@ type CacheConfig struct {
 func NewCachedProvider(provider Provider, cfg CacheConfig) *CachedProvider {
 	ttl := cfg.TTL
 	if ttl == 0 {
-		ttl = 5 * time.Minute
+		ttl = defaultCacheTTL
 	}
 	return &CachedProvider{
 		provider:     provider,
@@ -69,7 +72,7 @@ func (c *CachedProvider) GetTableContext(ctx context.Context, table TableIdentif
 
 	result, err := c.provider.GetTableContext(ctx, table)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting table context from provider: %w", err)
 	}
 
 	c.mu.Lock()
@@ -95,7 +98,7 @@ func (c *CachedProvider) GetColumnContext(ctx context.Context, column ColumnIden
 
 	result, err := c.provider.GetColumnContext(ctx, column)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting column context from provider: %w", err)
 	}
 
 	c.mu.Lock()
@@ -121,7 +124,7 @@ func (c *CachedProvider) GetColumnsContext(ctx context.Context, table TableIdent
 
 	result, err := c.provider.GetColumnsContext(ctx, table)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting columns context from provider: %w", err)
 	}
 
 	c.mu.Lock()
@@ -147,7 +150,7 @@ func (c *CachedProvider) GetLineage(ctx context.Context, table TableIdentifier, 
 
 	result, err := c.provider.GetLineage(ctx, table, direction, maxDepth)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting lineage from provider: %w", err)
 	}
 
 	c.mu.Lock()
@@ -171,7 +174,7 @@ func (c *CachedProvider) GetGlossaryTerm(ctx context.Context, urn string) (*Glos
 
 	result, err := c.provider.GetGlossaryTerm(ctx, urn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting glossary term from provider: %w", err)
 	}
 
 	c.mu.Lock()
@@ -186,12 +189,19 @@ func (c *CachedProvider) GetGlossaryTerm(ctx context.Context, urn string) (*Glos
 
 // SearchTables searches without caching (queries vary too much).
 func (c *CachedProvider) SearchTables(ctx context.Context, filter SearchFilter) ([]TableSearchResult, error) {
-	return c.provider.SearchTables(ctx, filter)
+	results, err := c.provider.SearchTables(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("searching tables from provider: %w", err)
+	}
+	return results, nil
 }
 
 // Close closes the underlying provider.
 func (c *CachedProvider) Close() error {
-	return c.provider.Close()
+	if err := c.provider.Close(); err != nil {
+		return fmt.Errorf("closing provider: %w", err)
+	}
+	return nil
 }
 
 // Invalidate clears the cache.

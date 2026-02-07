@@ -15,7 +15,7 @@ type Provider interface {
 	GetTableAvailability(ctx context.Context, urn string) (*TableAvailability, error)
 
 	// GetQueryExamples returns sample queries for a table.
-	GetQueryExamples(ctx context.Context, urn string) ([]QueryExample, error)
+	GetQueryExamples(ctx context.Context, urn string) ([]Example, error)
 
 	// GetExecutionContext returns context for querying multiple tables.
 	GetExecutionContext(ctx context.Context, urns []string) (*ExecutionContext, error)
@@ -30,7 +30,7 @@ type Provider interface {
 // Executor can execute queries against the query engine.
 type Executor interface {
 	// Execute runs a query and returns results.
-	Execute(ctx context.Context, sql string, limit int) (*QueryResult, error)
+	Execute(ctx context.Context, sql string, limit int) (*Result, error)
 
 	// Describe returns information about a table.
 	Describe(ctx context.Context, table TableIdentifier) (*TableSchema, error)

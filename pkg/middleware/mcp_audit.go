@@ -24,7 +24,7 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only audit tools/call requests
-			if method != "tools/call" {
+			if method != methodToolsCall {
 				return next(ctx, method, req)
 			}
 
@@ -45,7 +45,13 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 			}
 
 			// Build audit event
-			event := buildMCPAuditEvent(pc, req, result, err, startTime, duration)
+			event := buildMCPAuditEvent(pc, auditCallInfo{
+				Request:   req,
+				Result:    result,
+				Err:       err,
+				StartTime: startTime,
+				Duration:  duration,
+			})
 
 			// Log asynchronously to not block the response
 			go func() {
@@ -64,32 +70,34 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 	}
 }
 
+// auditCallInfo groups the call-related parameters for building an audit event.
+type auditCallInfo struct {
+	Request   mcp.Request
+	Result    mcp.Result
+	Err       error
+	StartTime time.Time
+	Duration  time.Duration
+}
+
 // buildMCPAuditEvent builds an audit event from the MCP request and response.
-func buildMCPAuditEvent(
-	pc *PlatformContext,
-	req mcp.Request,
-	result mcp.Result,
-	err error,
-	startTime time.Time,
-	duration time.Duration,
-) AuditEvent {
+func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 	// Determine success
-	success := err == nil
+	success := info.Err == nil
 	errorMsg := ""
-	if err != nil {
-		errorMsg = err.Error()
-	} else if callResult, ok := result.(*mcp.CallToolResult); ok && callResult != nil && callResult.IsError {
+	if info.Err != nil {
+		errorMsg = info.Err.Error()
+	} else if callResult, ok := info.Result.(*mcp.CallToolResult); ok && callResult != nil && callResult.IsError {
 		success = false
 		errorMsg = extractMCPErrorMessage(callResult)
 	}
 
 	// Extract parameters from request
-	params := extractMCPParameters(req)
+	params := extractMCPParameters(info.Request)
 
-	chars, tokens := calculateResponseSize(result, err)
+	chars, tokens := calculateResponseSize(info.Result, info.Err)
 
 	return AuditEvent{
-		Timestamp:             startTime,
+		Timestamp:             info.StartTime,
 		RequestID:             pc.RequestID,
 		UserID:                pc.UserID,
 		UserEmail:             pc.UserEmail,
@@ -101,7 +109,7 @@ func buildMCPAuditEvent(
 		Parameters:            params,
 		Success:               success,
 		ErrorMessage:          errorMsg,
-		DurationMS:            duration.Milliseconds(),
+		DurationMS:            info.Duration.Milliseconds(),
 		ResponseChars:         chars,
 		ResponseTokenEstimate: tokens,
 	}

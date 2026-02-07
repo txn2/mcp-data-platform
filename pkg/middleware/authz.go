@@ -18,7 +18,7 @@ type Authorizer interface {
 type NoopAuthorizer struct{}
 
 // IsAuthorized always returns true with empty persona name.
-func (n *NoopAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string, string) {
+func (*NoopAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (authorized bool, personaName, reason string) {
 	return true, "", ""
 }
 

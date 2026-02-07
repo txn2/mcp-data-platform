@@ -69,7 +69,7 @@ type BearerTokenExtractor struct {
 }
 
 // Extract extracts a bearer token from the context.
-func (e *BearerTokenExtractor) Extract(ctx context.Context) (string, error) {
+func (*BearerTokenExtractor) Extract(ctx context.Context) (string, error) {
 	// In MCP, we typically get auth info from the request metadata
 	// This is a placeholder - actual extraction depends on transport
 	token := GetToken(ctx)
@@ -78,8 +78,8 @@ func (e *BearerTokenExtractor) Extract(ctx context.Context) (string, error) {
 	}
 
 	// Strip "Bearer " prefix if present
-	if strings.HasPrefix(token, "Bearer ") {
-		return strings.TrimPrefix(token, "Bearer "), nil
+	if after, ok := strings.CutPrefix(token, "Bearer "); ok {
+		return after, nil
 	}
 
 	return token, nil
@@ -92,7 +92,7 @@ type APIKeyExtractor struct {
 }
 
 // Extract extracts an API key from the context.
-func (e *APIKeyExtractor) Extract(ctx context.Context) (string, error) {
+func (*APIKeyExtractor) Extract(ctx context.Context) (string, error) {
 	// This is a placeholder - actual extraction depends on transport
 	token := GetToken(ctx)
 	if token == "" {

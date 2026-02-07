@@ -96,7 +96,7 @@ query:
 storage:
   provider: noop
 `
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 
@@ -134,7 +134,7 @@ server:
 semantic:
   provider: unknown-provider
 `
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 			t.Fatalf("failed to write config file: %v", err)
 		}
 

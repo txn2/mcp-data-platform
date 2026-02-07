@@ -1,4 +1,4 @@
-// Package platform provides the main platform orchestration.
+//nolint:revive // package contains related config DTOs
 package platform
 
 import (
@@ -11,6 +11,22 @@ import (
 	"gopkg.in/yaml.v3"
 
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
+)
+
+// defaultServerName is the default server name used when none is configured.
+const defaultServerName = "mcp-data-platform"
+
+// Default configuration values.
+const (
+	defaultMaxOpenConns     = 25
+	defaultRetentionDays    = 90
+	defaultQualityThreshold = 0.7
+)
+
+// Default durations for configuration.
+var (
+	defaultCacheTTL       = 5 * time.Minute
+	defaultSessionTimeout = 30 * time.Minute
 )
 
 // Config holds the complete platform configuration.
@@ -363,7 +379,7 @@ func expandEnvVars(s string) string {
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
 	if cfg.Server.Name == "" {
-		cfg.Server.Name = "mcp-data-platform"
+		cfg.Server.Name = defaultServerName
 	}
 	if cfg.Server.Version == "" {
 		cfg.Server.Version = "1.0.0"
@@ -372,19 +388,19 @@ func applyDefaults(cfg *Config) {
 		cfg.Server.Transport = "stdio"
 	}
 	if cfg.Database.MaxOpenConns == 0 {
-		cfg.Database.MaxOpenConns = 25
+		cfg.Database.MaxOpenConns = defaultMaxOpenConns
 	}
 	if cfg.Semantic.Cache.TTL == 0 {
-		cfg.Semantic.Cache.TTL = 5 * time.Minute
+		cfg.Semantic.Cache.TTL = defaultCacheTTL
 	}
 	if cfg.Audit.RetentionDays == 0 {
-		cfg.Audit.RetentionDays = 90
+		cfg.Audit.RetentionDays = defaultRetentionDays
 	}
 	if cfg.Tuning.Rules.QualityThreshold == 0 {
-		cfg.Tuning.Rules.QualityThreshold = 0.7
+		cfg.Tuning.Rules.QualityThreshold = defaultQualityThreshold
 	}
 	if cfg.Server.Streamable.SessionTimeout == 0 {
-		cfg.Server.Streamable.SessionTimeout = 30 * time.Minute
+		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
 	}
 	applySessionDedupDefaults(cfg)
 }
@@ -407,27 +423,35 @@ func (c *Config) Validate() error {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
 
-	if c.OAuth.Enabled {
-		if c.OAuth.Issuer == "" {
-			errs = append(errs, "oauth.issuer is required when OAuth is enabled")
-		}
-		// Upstream IdP is required for the authorization flow
-		if c.OAuth.Upstream != nil {
-			if c.OAuth.Upstream.Issuer == "" {
-				errs = append(errs, "oauth.upstream.issuer is required")
-			}
-			if c.OAuth.Upstream.ClientID == "" {
-				errs = append(errs, "oauth.upstream.client_id is required")
-			}
-			if c.OAuth.Upstream.RedirectURI == "" {
-				errs = append(errs, "oauth.upstream.redirect_uri is required")
-			}
-		}
-	}
+	errs = c.validateOAuth(errs)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation errors: %s", strings.Join(errs, "; "))
 	}
 
 	return nil
+}
+
+// validateOAuth checks OAuth configuration validity and appends any errors.
+func (c *Config) validateOAuth(errs []string) []string {
+	if !c.OAuth.Enabled {
+		return errs
+	}
+	if c.OAuth.Issuer == "" {
+		errs = append(errs, "oauth.issuer is required when OAuth is enabled")
+	}
+	// Upstream IdP is required for the authorization flow.
+	if c.OAuth.Upstream == nil {
+		return errs
+	}
+	if c.OAuth.Upstream.Issuer == "" {
+		errs = append(errs, "oauth.upstream.issuer is required")
+	}
+	if c.OAuth.Upstream.ClientID == "" {
+		errs = append(errs, "oauth.upstream.client_id is required")
+	}
+	if c.OAuth.Upstream.RedirectURI == "" {
+		errs = append(errs, "oauth.upstream.redirect_uri is required")
+	}
+	return errs
 }

@@ -1,6 +1,17 @@
 package datahub
 
-import "time"
+import (
+	"slices"
+	"time"
+)
+
+const (
+	// defaultCacheTTL is the default cache TTL for lineage graphs.
+	defaultCacheTTL = 10 * time.Minute
+
+	// defaultLineageTimeout is the default timeout for the entire inheritance operation.
+	defaultLineageTimeout = 5 * time.Second
+)
 
 // LineageConfig controls lineage-aware semantic enrichment.
 type LineageConfig struct {
@@ -68,17 +79,12 @@ func DefaultLineageConfig() LineageConfig {
 		Inherit:             []string{"glossary_terms", "descriptions"},
 		ConflictResolution:  "nearest",
 		PreferColumnLineage: true,
-		CacheTTL:            10 * time.Minute,
-		Timeout:             5 * time.Second,
+		CacheTTL:            defaultCacheTTL,
+		Timeout:             defaultLineageTimeout,
 	}
 }
 
 // shouldInherit checks if a metadata type should be inherited.
 func (c *LineageConfig) shouldInherit(metadataType string) bool {
-	for _, t := range c.Inherit {
-		if t == metadataType {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Inherit, metadataType)
 }

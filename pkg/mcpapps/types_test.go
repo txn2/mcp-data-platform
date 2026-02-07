@@ -1,6 +1,7 @@
 package mcpapps
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -102,7 +103,7 @@ func TestAppDefinition_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.app.Validate()
-			if err != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -146,7 +147,7 @@ func TestAppDefinition_ValidateAssets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.app.ValidateAssets()
-			if err != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("ValidateAssets() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

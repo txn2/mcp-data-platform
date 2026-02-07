@@ -48,7 +48,7 @@ func TestPromptManagerLoadPrompts(t *testing.T) {
 	t.Run("path is file not directory", func(t *testing.T) {
 		dir := t.TempDir()
 		filePath := filepath.Join(dir, "not_a_dir")
-		if err := os.WriteFile(filePath, []byte("file content"), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte("file content"), 0o644); err != nil {
 			t.Fatalf("failed to create file: %v", err)
 		}
 
@@ -66,14 +66,14 @@ func TestPromptManagerLoadPrompts(t *testing.T) {
 		dir := t.TempDir()
 
 		// Create test prompt files
-		if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), 0o644); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), 0o644); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
 		// Create a file that should be ignored
-		if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), 0o644); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
 
@@ -115,12 +115,12 @@ func TestPromptManagerLoadPrompts(t *testing.T) {
 
 		// Create a subdirectory
 		subdir := filepath.Join(dir, "subdir")
-		if err := os.Mkdir(subdir, 0755); err != nil {
+		if err := os.Mkdir(subdir, 0o755); err != nil {
 			t.Fatalf("failed to create subdir: %v", err)
 		}
 
 		// Create a file inside subdir (should be ignored)
-		if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), 0o644); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
 
@@ -252,4 +252,3 @@ func TestBuildSystemPrompt(t *testing.T) {
 		})
 	}
 }
-

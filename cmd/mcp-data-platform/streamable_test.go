@@ -223,14 +223,14 @@ func makeTestJWT(t *testing.T, signingKey []byte, issuer, userID string, keycloa
 }
 
 // buildProductionMiddleware sets up the full production-like middleware chain:
-// OAuth JWT auth + PersonaAuthorizer with the same config as production.
+// OAuth JWT auth + Authorizer with the same config as production.
 func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (middleware.Authenticator, middleware.Authorizer) {
 	t.Helper()
 
 	// Create OAuth JWT authenticator (same as production)
 	oauthAuth, err := auth.NewOAuthJWTAuthenticator(auth.OAuthJWTConfig{
 		Issuer:        issuer,
-		SigningKey:     signingKey,
+		SigningKey:    signingKey,
 		RoleClaimPath: "realm_access.roles",
 		RolePrefix:    "dp_",
 	})
@@ -260,7 +260,7 @@ func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (
 	})
 	registry.SetDefault("default")
 
-	// Create OIDCRoleMapper + PersonaAuthorizer (same as production)
+	// Create OIDCRoleMapper + Authorizer (same as production)
 	mapper := &persona.OIDCRoleMapper{
 		ClaimPath:  "realm_access.roles",
 		RolePrefix: "dp_",
@@ -270,7 +270,7 @@ func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (
 		},
 		Registry: registry,
 	}
-	authorizer := persona.NewPersonaAuthorizer(registry, mapper)
+	authorizer := persona.NewAuthorizer(registry, mapper)
 
 	// Chain authenticators (same as production)
 	chainedAuth := auth.NewChainedAuthenticator(
@@ -282,7 +282,7 @@ func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (
 }
 
 // TestStreamableHTTP_OAuthJWT_WithRoles tests the full production flow:
-// OAuth JWT with dp_admin role → PersonaAuthorizer → tool call succeeds.
+// OAuth JWT with dp_admin role → Authorizer → tool call succeeds.
 func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	ctx := context.Background()
 	signingKey := []byte("test-signing-key-32-bytes-long!!")
@@ -349,7 +349,7 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 
 // TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona reproduces the
 // production bug: OAuth JWT is VALID (auth succeeds) but the Keycloak
-// user has NO dp_* roles, so PersonaAuthorizer falls back to the default
+// user has NO dp_* roles, so Authorizer falls back to the default
 // persona which denies all tools. Claude.ai shows "Tool execution failed".
 func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 	ctx := context.Background()

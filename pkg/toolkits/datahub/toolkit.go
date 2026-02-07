@@ -13,6 +13,20 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const (
+	// defaultTimeout is the default HTTP timeout for DataHub requests.
+	defaultTimeout = 30 * time.Second
+
+	// defaultDataHubLimit is the default number of results returned.
+	defaultDataHubLimit = 10
+
+	// defaultMaxLimit is the maximum number of results allowed.
+	defaultMaxLimit = 100
+
+	// defaultMaxLineageDepth is the maximum lineage traversal depth.
+	defaultMaxLineageDepth = 5
+)
+
 // Config holds DataHub toolkit configuration.
 type Config struct {
 	URL             string        `yaml:"url"`
@@ -70,16 +84,16 @@ func validateConfig(cfg Config) error {
 // applyDefaults applies default values to the configuration.
 func applyDefaults(name string, cfg Config) Config {
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = defaultTimeout
 	}
 	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = 10
+		cfg.DefaultLimit = defaultDataHubLimit
 	}
 	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = 100
+		cfg.MaxLimit = defaultMaxLimit
 	}
 	if cfg.MaxLineageDepth == 0 {
-		cfg.MaxLineageDepth = 5
+		cfg.MaxLineageDepth = defaultMaxLineageDepth
 	}
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
@@ -116,7 +130,7 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 }
 
 // Kind returns the toolkit kind.
-func (t *Toolkit) Kind() string {
+func (*Toolkit) Kind() string {
 	return "datahub"
 }
 
@@ -138,7 +152,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 }
 
 // Tools returns the list of tool names that would be provided by this toolkit.
-func (t *Toolkit) Tools() []string {
+func (*Toolkit) Tools() []string {
 	return []string{
 		"datahub_search",
 		"datahub_get_entity",
@@ -167,7 +181,9 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.client != nil {
-		return t.client.Close()
+		if err := t.client.Close(); err != nil {
+			return fmt.Errorf("closing datahub client: %w", err)
+		}
 	}
 	return nil
 }

@@ -90,7 +90,6 @@ func TestServerAuthorize(t *testing.T) {
 			RedirectURI:  "http://localhost:8080/callback",
 			Scope:        "read",
 		}, "user-123", map[string]any{"role": "admin"})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -285,7 +284,6 @@ func TestServerRegisterClient(t *testing.T) {
 			ClientName:   "Test",
 			RedirectURIs: []string{"http://localhost:8080"},
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -568,7 +566,6 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			ClientID:     "client-123",
 			ClientSecret: "secret",
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -761,7 +758,6 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			ClientID:     "client-123",
 			ClientSecret: "secret",
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -812,7 +808,6 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			ClientID:     "client-123",
 			ClientSecret: "secret",
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -901,7 +896,6 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			RedirectURI:  "http://localhost:8080/callback",
 			CodeVerifier: codeVerifier,
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1033,7 +1027,6 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 			ClientID:     "client-123",
 			ClientSecret: "secret",
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1195,7 +1188,6 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 			ClientSecret: "secret",
 			Scope:        "read",
 		})
-
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1417,7 +1409,6 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 		ClientID:     "client-123",
 		ClientSecret: "secret",
 	})
-
 	// Should succeed despite delete error
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -1536,7 +1527,6 @@ func TestValidatePKCEPlain(t *testing.T) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: "plain",
 	}, "user-123", nil)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

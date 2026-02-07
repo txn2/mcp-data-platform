@@ -1,6 +1,7 @@
 package mcpapps
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -49,7 +50,7 @@ func TestRegistry_Register(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reg := NewRegistry()
 			err := reg.Register(tt.app)
-			if err != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Register() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -75,7 +76,7 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 
 	// Second registration should fail
 	err := reg.Register(app)
-	if err != ErrAppAlreadyRegistered {
+	if !errors.Is(err, ErrAppAlreadyRegistered) {
 		t.Errorf("Second Register() error = %v, want %v", err, ErrAppAlreadyRegistered)
 	}
 }
@@ -99,7 +100,7 @@ func TestRegistry_Get(t *testing.T) {
 	// Test getting existing app
 	got := reg.Get("test-app")
 	if got == nil {
-		t.Error("Get() returned nil for existing app")
+		t.Fatal("Get() returned nil for existing app")
 	}
 	if got.Name != "test-app" {
 		t.Errorf("Get() returned app with wrong name: %s", got.Name)

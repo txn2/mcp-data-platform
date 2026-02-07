@@ -8,19 +8,19 @@ import (
 // ParseConfig parses a Trino toolkit configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
-		Port:         8080,
-		DefaultLimit: 1000,
-		MaxLimit:     10000,
-		Timeout:      120 * time.Second,
+		Port:         defaultPlainPort,
+		DefaultLimit: defaultQueryLimit,
+		MaxLimit:     defaultMaxLimit,
+		Timeout:      defaultTrinoTimeout,
 		SSLVerify:    true,
 	}
 
 	// Required fields
-	if v, ok := cfg["host"].(string); ok {
-		c.Host = v
-	} else {
+	v, ok := cfg["host"].(string)
+	if !ok {
 		return c, fmt.Errorf("host is required")
 	}
+	c.Host = v
 
 	// Optional string fields
 	c.User = getString(cfg, "user")
@@ -87,7 +87,11 @@ func getBoolDefault(cfg map[string]any, key string, defaultVal bool) bool {
 // getDuration extracts a duration value from a config map.
 func getDuration(cfg map[string]any, key string) (time.Duration, error) {
 	if v, ok := cfg[key].(string); ok {
-		return time.ParseDuration(v)
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return 0, fmt.Errorf("parsing duration %q: %w", v, err)
+		}
+		return d, nil
 	}
 	if v, ok := cfg[key].(int); ok {
 		return time.Duration(v) * time.Second, nil

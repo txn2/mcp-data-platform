@@ -13,6 +13,21 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const (
+	// defaultPlatform is the default data platform for URN building.
+	defaultPlatform = "trino"
+
+	// defaultTimeout is the default HTTP client timeout.
+	defaultTimeout = 30 * time.Second
+
+	// urnPartsMinCount is the minimum number of dot-separated parts in a URN name
+	// (e.g., "schema.table" = 2, "catalog.schema.table" = 3).
+	urnPartsMinCount = 3
+
+	// datahubPlatform is the provider name for this adapter.
+	datahubPlatform = "datahub"
+)
+
 // Config holds DataHub adapter configuration.
 type Config struct {
 	URL      string
@@ -57,10 +72,10 @@ func New(cfg Config) (*Adapter, error) {
 		return nil, fmt.Errorf("datahub URL is required")
 	}
 	if cfg.Platform == "" {
-		cfg.Platform = "trino"
+		cfg.Platform = defaultPlatform
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = defaultTimeout
 	}
 
 	clientCfg := dhclient.DefaultConfig()
@@ -87,7 +102,7 @@ func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 		return nil, fmt.Errorf("datahub client is required")
 	}
 	if cfg.Platform == "" {
-		cfg.Platform = "trino"
+		cfg.Platform = defaultPlatform
 	}
 	return &Adapter{
 		cfg:       cfg,
@@ -97,8 +112,8 @@ func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 }
 
 // Name returns the provider name.
-func (a *Adapter) Name() string {
-	return "datahub"
+func (*Adapter) Name() string {
+	return datahubPlatform
 }
 
 // LineageConfig returns the lineage configuration.
@@ -263,7 +278,9 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 // Close releases resources.
 func (a *Adapter) Close() error {
 	if a.client != nil {
-		return a.client.Close()
+		if err := a.client.Close(); err != nil {
+			return fmt.Errorf("closing datahub client: %w", err)
+		}
 	}
 	return nil
 }
@@ -294,7 +311,7 @@ func (a *Adapter) buildDatasetURN(table semantic.TableIdentifier) string {
 }
 
 // ResolveURN converts a DataHub URN to a table identifier.
-func (a *Adapter) ResolveURN(_ context.Context, urn string) (*semantic.TableIdentifier, error) {
+func (*Adapter) ResolveURN(_ context.Context, urn string) (*semantic.TableIdentifier, error) {
 	// Parse URN format: urn:li:dataset:(urn:li:dataPlatform:platform,name,env)
 	if !strings.HasPrefix(urn, "urn:li:dataset:") {
 		return nil, fmt.Errorf("invalid dataset URN: %s", urn)
@@ -316,7 +333,7 @@ func (a *Adapter) ResolveURN(_ context.Context, urn string) (*semantic.TableIden
 			Schema: parts[0],
 			Table:  parts[1],
 		}, nil
-	case 3:
+	case urnPartsMinCount:
 		return &semantic.TableIdentifier{
 			Catalog: parts[0],
 			Schema:  parts[1],
@@ -517,7 +534,7 @@ func (a *Adapter) fieldToColumnContext(field types.SchemaField) *semantic.Column
 }
 
 // lineageResultToInfo converts a DataHub lineage result to semantic lineage info.
-func (a *Adapter) lineageResultToInfo(result *types.LineageResult, direction semantic.LineageDirection, maxDepth int) *semantic.LineageInfo {
+func (*Adapter) lineageResultToInfo(result *types.LineageResult, direction semantic.LineageDirection, maxDepth int) *semantic.LineageInfo {
 	info := &semantic.LineageInfo{
 		Direction: direction,
 		MaxDepth:  maxDepth,
@@ -554,15 +571,10 @@ func (a *Adapter) lineageResultToInfo(result *types.LineageResult, direction sem
 }
 
 // ownerTypeToSemantic converts DataHub ownership type to semantic type.
-func ownerTypeToSemantic(t types.OwnershipType) semantic.OwnerType {
-	switch t {
-	case types.OwnershipTypeTechnicalOwner:
-		return semantic.OwnerTypeUser
-	case types.OwnershipTypeBusinessOwner:
-		return semantic.OwnerTypeUser
-	default:
-		return semantic.OwnerTypeUser
-	}
+// Currently all DataHub ownership types map to OwnerTypeUser; extend this
+// mapping when additional semantic owner types are introduced.
+func ownerTypeToSemantic(_ types.OwnershipType) semantic.OwnerType {
+	return semantic.OwnerTypeUser
 }
 
 // extractFieldName extracts the simple field name from a FieldPath.
