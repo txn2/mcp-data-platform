@@ -2069,3 +2069,450 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		}
 	})
 }
+
+// --- Session Dedup Tests ---
+
+func TestSessionDedup_FirstAccess_FullEnrichment(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Full enrichment table",
+					Tags:        []string{"test"},
+				}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	result := NewToolResultText("original")
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+
+	enriched, err := enricher.enrich(context.Background(), result, request, pc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have full enrichment (original + semantic_context)
+	if len(enriched.Content) != 2 {
+		t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+	}
+
+	// Verify it's full semantic_context (not a reference)
+	textContent := enriched.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if _, ok := data["semantic_context"]; !ok {
+		t.Error("expected semantic_context in enrichment")
+	}
+	if _, ok := data["metadata_reference"]; ok {
+		t.Error("should NOT have metadata_reference on first access")
+	}
+}
+
+func TestSessionDedup_SecondAccess_MinimalReference(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: "Test table",
+					Tags:        []string{"test"},
+				}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+
+	// First access - full enrichment
+	result1 := NewToolResultText("result1")
+	enriched1, _ := enricher.enrich(context.Background(), result1, request, pc)
+	if len(enriched1.Content) != 2 {
+		t.Fatalf("first access: expected 2 content items, got %d", len(enriched1.Content))
+	}
+
+	// Second access - should get reference
+	result2 := NewToolResultText("result2")
+	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+	if len(enriched2.Content) != 2 {
+		t.Fatalf("second access: expected 2 content items, got %d", len(enriched2.Content))
+	}
+
+	textContent := enriched2.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if _, ok := data["metadata_reference"]; !ok {
+		t.Error("expected metadata_reference on second access")
+	}
+	if _, ok := data["semantic_context"]; ok {
+		t.Error("should NOT have full semantic_context on second access with reference mode")
+	}
+}
+
+func TestSessionDedup_TTLExpiry_FullEnrichmentAgain(t *testing.T) {
+	cache := NewSessionEnrichmentCache(50*time.Millisecond, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{Description: "Test"}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+
+	// First access
+	result1 := NewToolResultText("result1")
+	enricher.enrich(context.Background(), result1, request, pc)
+
+	// Wait for TTL to expire
+	time.Sleep(60 * time.Millisecond)
+
+	// Third access after expiry - should get full enrichment again
+	result3 := NewToolResultText("result3")
+	enriched3, _ := enricher.enrich(context.Background(), result3, request, pc)
+
+	textContent := enriched3.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	json.Unmarshal([]byte(textContent.Text), &data)
+	if _, ok := data["semantic_context"]; !ok {
+		t.Error("expected full semantic_context after TTL expiry")
+	}
+}
+
+func TestSessionDedup_SessionIsolation(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{Description: "Test"}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+
+	// Session A first access
+	pcA := &PlatformContext{ToolkitKind: "trino", SessionID: "session-A"}
+	resultA := NewToolResultText("resultA")
+	enrichedA, _ := enricher.enrich(context.Background(), resultA, request, pcA)
+	if len(enrichedA.Content) != 2 {
+		t.Fatalf("session A first access: expected 2 content items, got %d", len(enrichedA.Content))
+	}
+
+	// Session B first access - should also get full enrichment (isolated)
+	pcB := &PlatformContext{ToolkitKind: "trino", SessionID: "session-B"}
+	resultB := NewToolResultText("resultB")
+	enrichedB, _ := enricher.enrich(context.Background(), resultB, request, pcB)
+	if len(enrichedB.Content) != 2 {
+		t.Fatalf("session B first access: expected 2 content items, got %d", len(enrichedB.Content))
+	}
+
+	// Verify session B got full enrichment (not reference)
+	textContent := enrichedB.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	json.Unmarshal([]byte(textContent.Text), &data)
+	if _, ok := data["semantic_context"]; !ok {
+		t.Error("session B should get full semantic_context on first access")
+	}
+}
+
+func TestSessionDedup_EnabledByDefault(t *testing.T) {
+	// When SessionCache is non-nil, dedup is active
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{Description: "Test"}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+
+	// First call
+	enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+	// Second call should be deduped
+	result2 := NewToolResultText("r2")
+	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+	textContent := enriched2.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	json.Unmarshal([]byte(textContent.Text), &data)
+	if _, ok := data["metadata_reference"]; !ok {
+		t.Error("dedup should be active (reference mode) by default when cache is configured")
+	}
+}
+
+func TestSessionDedup_DisabledFallback(t *testing.T) {
+	callCount := 0
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				callCount++
+				return &semantic.TableContext{Description: "Test"}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       nil, // Disabled
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+
+	// Both calls should get full enrichment
+	enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+	result2 := NewToolResultText("r2")
+	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+	textContent := enriched2.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	json.Unmarshal([]byte(textContent.Text), &data)
+	if _, ok := data["semantic_context"]; !ok {
+		t.Error("with nil cache, should always get full semantic_context")
+	}
+	if callCount != 2 {
+		t.Errorf("expected provider called twice (no dedup), got %d", callCount)
+	}
+}
+
+func TestSessionDedup_ConfigurableModes(t *testing.T) {
+	makeEnricher := func(mode DedupMode) *semanticEnricher {
+		return &semanticEnricher{
+			semanticProvider: &mockSemanticProvider{
+				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+					return &semantic.TableContext{
+						Description: "Test table",
+						Tags:        []string{"tag1"},
+					}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichTrinoResults: true,
+				SessionCache:       NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute),
+				DedupMode:          mode,
+			},
+		}
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+
+	t.Run("reference mode", func(t *testing.T) {
+		enricher := makeEnricher(DedupModeReference)
+		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+
+		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		result2 := NewToolResultText("r2")
+		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+		textContent := enriched2.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		json.Unmarshal([]byte(textContent.Text), &data)
+		if _, ok := data["metadata_reference"]; !ok {
+			t.Error("reference mode: expected metadata_reference")
+		}
+	})
+
+	t.Run("summary mode", func(t *testing.T) {
+		enricher := makeEnricher(DedupModeSummary)
+		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+
+		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		result2 := NewToolResultText("r2")
+		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+		textContent := enriched2.Content[1].(*mcp.TextContent)
+		var data map[string]any
+		json.Unmarshal([]byte(textContent.Text), &data)
+		if _, ok := data["semantic_context"]; !ok {
+			t.Error("summary mode: expected semantic_context")
+		}
+		if _, ok := data["note"]; !ok {
+			t.Error("summary mode: expected note about summary")
+		}
+	})
+
+	t.Run("none mode", func(t *testing.T) {
+		enricher := makeEnricher(DedupModeNone)
+		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+
+		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		result2 := NewToolResultText("r2")
+		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+		// "none" mode should NOT add any enrichment content on second access
+		if len(enriched2.Content) != 1 {
+			t.Errorf("none mode: expected 1 content item (original only), got %d", len(enriched2.Content))
+		}
+	})
+}
+
+func TestSessionDedup_StdioTransport(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{Description: "Test"}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+
+	// Use "stdio" as session ID (as extractSessionID would return for stdio transport)
+	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "stdio"}
+
+	// First call - full enrichment
+	result1 := NewToolResultText("r1")
+	enriched1, _ := enricher.enrich(context.Background(), result1, request, pc)
+	if len(enriched1.Content) != 2 {
+		t.Fatalf("first call: expected 2 content items, got %d", len(enriched1.Content))
+	}
+
+	// Second call - should be deduped even with "stdio" session
+	result2 := NewToolResultText("r2")
+	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+
+	textContent := enriched2.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	json.Unmarshal([]byte(textContent.Text), &data)
+	if _, ok := data["metadata_reference"]; !ok {
+		t.Error("stdio transport: expected metadata_reference on second access")
+	}
+}
+
+func TestExtractTableKeysFromRequest(t *testing.T) {
+	t.Run("sql with single table", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"sql": "SELECT * FROM catalog.schema.users WHERE id = 1",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		keys := extractTableKeysFromRequest(request)
+		if len(keys) != 1 || keys[0] != "catalog.schema.users" {
+			t.Errorf("expected [catalog.schema.users], got %v", keys)
+		}
+	})
+
+	t.Run("explicit table parameter", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"table": "catalog.schema.users",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		keys := extractTableKeysFromRequest(request)
+		if len(keys) != 1 || keys[0] != "catalog.schema.users" {
+			t.Errorf("expected [catalog.schema.users], got %v", keys)
+		}
+	})
+
+	t.Run("no table found", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"other": "value",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		keys := extractTableKeysFromRequest(request)
+		if len(keys) != 0 {
+			t.Errorf("expected 0 keys, got %d", len(keys))
+		}
+	})
+}
+
+func TestAppendMetadataReference(t *testing.T) {
+	result := NewToolResultText("original")
+	tableKeys := []string{"catalog.schema.table1", "catalog.schema.table2"}
+
+	enriched := appendMetadataReference(result, tableKeys)
+
+	if len(enriched.Content) != 2 {
+		t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
+	}
+
+	textContent := enriched.Content[1].(*mcp.TextContent)
+	var data map[string]any
+	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	ref, ok := data["metadata_reference"].(map[string]any)
+	if !ok {
+		t.Fatal("expected metadata_reference in output")
+	}
+	tables, ok := ref["tables"].([]any)
+	if !ok || len(tables) != 2 {
+		t.Errorf("expected 2 tables in reference, got %v", ref["tables"])
+	}
+	if _, ok := ref["note"].(string); !ok {
+		t.Error("expected note in reference")
+	}
+}
