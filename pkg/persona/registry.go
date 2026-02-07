@@ -2,6 +2,7 @@ package persona
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 )
 
@@ -106,17 +107,15 @@ func (r *Registry) GetForRoles(roles []string) (*Persona, bool) {
 // matchesAnyRole checks if any persona role matches any user role.
 func matchesAnyRole(personaRoles, userRoles []string) bool {
 	for _, pr := range personaRoles {
-		for _, ur := range userRoles {
-			if pr == ur {
-				return true
-			}
+		if slices.Contains(userRoles, pr) {
+			return true
 		}
 	}
 	return false
 }
 
 // LoadFromConfig loads personas from a configuration map.
-func (r *Registry) LoadFromConfig(config map[string]*PersonaConfig) error {
+func (r *Registry) LoadFromConfig(config map[string]*Config) error {
 	for name, cfg := range config {
 		p := &Persona{
 			Name:        name,
@@ -143,8 +142,8 @@ func (r *Registry) LoadFromConfig(config map[string]*PersonaConfig) error {
 	return nil
 }
 
-// PersonaConfig is the configuration format for personas.
-type PersonaConfig struct {
+// Config is the configuration format for personas.
+type Config struct {
 	DisplayName string            `yaml:"display_name"`
 	Description string            `yaml:"description,omitempty"`
 	Roles       []string          `yaml:"roles"`
