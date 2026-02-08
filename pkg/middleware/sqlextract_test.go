@@ -4,6 +4,34 @@ import (
 	"testing"
 )
 
+// Test constants for SQL extraction tests.
+const (
+	sqlTestSourceFROM    = "FROM"
+	sqlTestCatalogES     = "elasticsearch"
+	sqlTestSchemaDefault = "default"
+	sqlTestSourceTF      = "TABLE_FUNCTION"
+)
+
+// assertTableRef validates a single TableRef against expected values.
+func assertTableRef(t *testing.T, idx int, got, exp TableRef) {
+	t.Helper()
+	if got.Catalog != exp.Catalog {
+		t.Errorf("table[%d] catalog: expected %q, got %q", idx, exp.Catalog, got.Catalog)
+	}
+	if got.Schema != exp.Schema {
+		t.Errorf("table[%d] schema: expected %q, got %q", idx, exp.Schema, got.Schema)
+	}
+	if got.Table != exp.Table {
+		t.Errorf("table[%d] table: expected %q, got %q", idx, exp.Table, got.Table)
+	}
+	if got.FullPath != exp.FullPath {
+		t.Errorf("table[%d] fullPath: expected %q, got %q", idx, exp.FullPath, got.FullPath)
+	}
+	if got.Source != exp.Source {
+		t.Errorf("table[%d] source: expected %q, got %q", idx, exp.Source, got.Source)
+	}
+}
+
 func TestExtractTablesFromSQL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -14,51 +42,51 @@ func TestExtractTablesFromSQL(t *testing.T) {
 			name: "simple SELECT",
 			sql:  "SELECT * FROM users",
 			expected: []TableRef{
-				{Table: "users", FullPath: "users", Source: "FROM"},
+				{Table: "users", FullPath: "users", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "two-part name (schema.table)",
 			sql:  "SELECT * FROM public.users",
 			expected: []TableRef{
-				{Schema: "public", Table: "users", FullPath: "public.users", Source: "FROM"},
+				{Schema: "public", Table: "users", FullPath: "public.users", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "three-part name (catalog.schema.table)",
 			sql:  "SELECT * FROM cassandra.prod_fuse.location",
 			expected: []TableRef{
-				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: "FROM"},
+				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "JOIN query",
 			sql:  "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id",
 			expected: []TableRef{
-				{Table: "orders", FullPath: "orders", Source: "FROM"},
-				{Table: "customers", FullPath: "customers", Source: "FROM"},
+				{Table: "orders", FullPath: "orders", Source: sqlTestSourceFROM},
+				{Table: "customers", FullPath: "customers", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "multiple JOINs with qualified names",
 			sql:  "SELECT * FROM catalog1.schema1.table1 t1 JOIN catalog2.schema2.table2 t2 ON t1.id = t2.id",
 			expected: []TableRef{
-				{Catalog: "catalog1", Schema: "schema1", Table: "table1", FullPath: "catalog1.schema1.table1", Source: "FROM"},
-				{Catalog: "catalog2", Schema: "schema2", Table: "table2", FullPath: "catalog2.schema2.table2", Source: "FROM"},
+				{Catalog: "catalog1", Schema: "schema1", Table: "table1", FullPath: "catalog1.schema1.table1", Source: sqlTestSourceFROM},
+				{Catalog: "catalog2", Schema: "schema2", Table: "table2", FullPath: "catalog2.schema2.table2", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name:     "ES raw_query single index",
 			sql:      "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', index => 'jakes-sale-2025', query => '{}'))",
-			expected: []TableRef{{Catalog: "elasticsearch", Schema: "default", Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: "TABLE_FUNCTION"}},
+			expected: []TableRef{{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: sqlTestSourceTF}},
 		},
 		{
 			name: "ES raw_query multiple indices",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'sales', index => 'idx1,idx2,idx3', query => '{}'))",
 			expected: []TableRef{
-				{Catalog: "elasticsearch", Schema: "sales", Table: "idx1", FullPath: "elasticsearch.sales.idx1", Source: "TABLE_FUNCTION"},
-				{Catalog: "elasticsearch", Schema: "sales", Table: "idx2", FullPath: "elasticsearch.sales.idx2", Source: "TABLE_FUNCTION"},
-				{Catalog: "elasticsearch", Schema: "sales", Table: "idx3", FullPath: "elasticsearch.sales.idx3", Source: "TABLE_FUNCTION"},
+				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx1", FullPath: "elasticsearch.sales.idx1", Source: sqlTestSourceTF},
+				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx2", FullPath: "elasticsearch.sales.idx2", Source: sqlTestSourceTF},
+				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx3", FullPath: "elasticsearch.sales.idx3", Source: sqlTestSourceTF},
 			},
 		},
 		{
@@ -79,9 +107,9 @@ parsed_agg AS (
 SELECT * FROM parsed_agg agg
 INNER JOIN cassandra.prod_fuse.location loc ON agg.location_id = loc.id`,
 			expected: []TableRef{
-				{Catalog: "elasticsearch", Schema: "default", Table: "jakes-sale-2024", FullPath: "elasticsearch.default.jakes-sale-2024", Source: "TABLE_FUNCTION"},
-				{Catalog: "elasticsearch", Schema: "default", Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: "TABLE_FUNCTION"},
-				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: "FROM"},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2024", FullPath: "elasticsearch.default.jakes-sale-2024", Source: sqlTestSourceTF},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: sqlTestSourceTF},
+				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: sqlTestSourceFROM},
 			},
 		},
 		{
@@ -106,22 +134,7 @@ INNER JOIN cassandra.prod_fuse.location loc ON agg.location_id = loc.id`,
 			}
 
 			for i, exp := range tt.expected {
-				got := result[i]
-				if got.Catalog != exp.Catalog {
-					t.Errorf("table[%d] catalog: expected %q, got %q", i, exp.Catalog, got.Catalog)
-				}
-				if got.Schema != exp.Schema {
-					t.Errorf("table[%d] schema: expected %q, got %q", i, exp.Schema, got.Schema)
-				}
-				if got.Table != exp.Table {
-					t.Errorf("table[%d] table: expected %q, got %q", i, exp.Table, got.Table)
-				}
-				if got.FullPath != exp.FullPath {
-					t.Errorf("table[%d] fullPath: expected %q, got %q", i, exp.FullPath, got.FullPath)
-				}
-				if got.Source != exp.Source {
-					t.Errorf("table[%d] source: expected %q, got %q", i, exp.Source, got.Source)
-				}
+				assertTableRef(t, i, result[i], exp)
 			}
 		})
 	}
@@ -195,15 +208,15 @@ func TestExtractESRawQuery(t *testing.T) {
 			name: "basic raw_query",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', index => 'my-index', query => '{}'))",
 			expected: []TableRef{
-				{Catalog: "elasticsearch", Schema: "default", Table: "my-index", FullPath: "elasticsearch.default.my-index", Source: "TABLE_FUNCTION"},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "my-index", FullPath: "elasticsearch.default.my-index", Source: sqlTestSourceTF},
 			},
 		},
 		{
 			name: "comma-separated indices",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'idx1, idx2', query => '{}'))",
 			expected: []TableRef{
-				{Catalog: "elasticsearch", Schema: "default", Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: "TABLE_FUNCTION"},
-				{Catalog: "elasticsearch", Schema: "default", Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: "TABLE_FUNCTION"},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: sqlTestSourceTF},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: sqlTestSourceTF},
 			},
 		},
 		{
@@ -220,8 +233,8 @@ func TestExtractESRawQuery(t *testing.T) {
 			name: "indices with empty entries after split",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'idx1, , idx2', query => '{}'))",
 			expected: []TableRef{
-				{Catalog: "elasticsearch", Schema: "default", Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: "TABLE_FUNCTION"},
-				{Catalog: "elasticsearch", Schema: "default", Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: "TABLE_FUNCTION"},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: sqlTestSourceTF},
+				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: sqlTestSourceTF},
 			},
 		},
 	}
