@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	fuzzDefaultAccessTTL  = 3600
+	fuzzDefaultRefreshTTL = 86400
+	fuzzDefaultCodeTTL    = 600
+)
+
 // newFuzzMockStorage creates a mock storage for fuzz testing that returns proper nil errors.
 func newFuzzMockStorage() *mockStorage {
 	clients := make(map[string]*Client)
@@ -76,7 +82,7 @@ func FuzzDCRRequest(f *testing.F) {
 		return
 	}
 
-	f.Fuzz(func(t *testing.T, clientName, redirectURI, grantType string) {
+	f.Fuzz(func(_ *testing.T, clientName, redirectURI, grantType string) {
 		var redirectURIs []string
 		if redirectURI != "" {
 			redirectURIs = []string{redirectURI}
@@ -99,12 +105,12 @@ func FuzzDCRRequest(f *testing.F) {
 
 // FuzzServerConfig fuzzes server configuration.
 func FuzzServerConfig(f *testing.F) {
-	f.Add("https://example.com", int64(3600), int64(86400), int64(600))
+	f.Add("https://example.com", int64(fuzzDefaultAccessTTL), int64(fuzzDefaultRefreshTTL), int64(fuzzDefaultCodeTTL))
 	f.Add("", int64(0), int64(0), int64(0))
 	f.Add("http://localhost", int64(1), int64(1), int64(1))
 	f.Add("invalid-url", int64(-1), int64(-1), int64(-1))
 
-	f.Fuzz(func(t *testing.T, issuer string, accessTTL, refreshTTL, authCodeTTL int64) {
+	f.Fuzz(func(_ *testing.T, issuer string, accessTTL, refreshTTL, authCodeTTL int64) {
 		storage := newFuzzMockStorage()
 		cfg := ServerConfig{
 			Issuer:          issuer,
@@ -125,7 +131,7 @@ func FuzzDCRConfig(f *testing.F) {
 	f.Add(true, "refresh_token")
 	f.Add(true, "client_credentials")
 
-	f.Fuzz(func(t *testing.T, enabled bool, grantType string) {
+	f.Fuzz(func(_ *testing.T, enabled bool, grantType string) {
 		var grantTypes []string
 		if grantType != "" {
 			grantTypes = []string{grantType}
