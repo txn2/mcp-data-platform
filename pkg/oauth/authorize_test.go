@@ -13,6 +13,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	testKeycloakHost   = "keycloak:8180"
+	testUpstreamClient = "mcp-server"
+)
+
 func TestHandleAuthorizeEndpoint(t *testing.T) {
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
 	client := &Client{
@@ -29,13 +34,13 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", nil)
+		req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -50,13 +55,13 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=invalid&redirect_uri=http://localhost:8080/callback", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=invalid&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -72,13 +77,13 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -102,7 +107,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			// No Upstream configured
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -125,13 +130,13 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -146,10 +151,10 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 
 		// Verify redirect URL points to Keycloak
 		u, _ := url.Parse(location)
-		if u.Host != "keycloak:8180" {
+		if u.Host != testKeycloakHost {
 			t.Errorf("expected redirect to keycloak, got %s", u.Host)
 		}
-		if u.Query().Get("client_id") != "mcp-server" {
+		if u.Query().Get("client_id") != testUpstreamClient {
 			t.Errorf("expected client_id=mcp-server, got %s", u.Query().Get("client_id"))
 		}
 	})
@@ -162,7 +167,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodPost, "/oauth/callback", nil)
+		req := httptest.NewRequest(http.MethodPost, "/oauth/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -175,7 +180,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&error_description=User+denied+access", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&error_description=User+denied+access", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -188,7 +193,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -201,7 +206,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc&state=invalid", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc&state=invalid", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -249,7 +254,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       mockKeycloak.URL + "/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
@@ -264,7 +269,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		}
 		_ = server.stateStore.Save("upstream-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=keycloak-code&state=upstream-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=keycloak-code&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -294,7 +299,7 @@ func TestBuildUpstreamAuthURL(t *testing.T) {
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
 			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     "mcp-server",
+			ClientID:     testUpstreamClient,
 			ClientSecret: "secret",
 			RedirectURI:  "http://localhost:8080/oauth/callback",
 		},
@@ -307,7 +312,7 @@ func TestBuildUpstreamAuthURL(t *testing.T) {
 		t.Fatalf("invalid URL: %v", err)
 	}
 
-	if u.Host != "keycloak:8180" {
+	if u.Host != testKeycloakHost {
 		t.Errorf("expected host keycloak:8180, got %s", u.Host)
 	}
 	if u.Path != "/realms/test/protocol/openid-connect/auth" {
@@ -316,7 +321,7 @@ func TestBuildUpstreamAuthURL(t *testing.T) {
 	if u.Query().Get("response_type") != "code" {
 		t.Errorf("expected response_type=code")
 	}
-	if u.Query().Get("client_id") != "mcp-server" {
+	if u.Query().Get("client_id") != testUpstreamClient {
 		t.Errorf("expected client_id=mcp-server")
 	}
 	if u.Query().Get("state") != "test-state" {
@@ -444,7 +449,7 @@ func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
 			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     "mcp-server",
+			ClientID:     testUpstreamClient,
 			ClientSecret: "secret",
 			RedirectURI:  "http://localhost:8080/oauth/callback",
 		},
@@ -473,7 +478,7 @@ func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
 		if u.Query().Get("prompt") != "" {
 			t.Errorf("expected no prompt param, got %q", u.Query().Get("prompt"))
 		}
-		if u.Query().Get("client_id") != "mcp-server" {
+		if u.Query().Get("client_id") != testUpstreamClient {
 			t.Errorf("expected client_id=mcp-server, got %q", u.Query().Get("client_id"))
 		}
 	})
@@ -485,7 +490,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
 			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     "mcp-server",
+			ClientID:     testUpstreamClient,
 			ClientSecret: "secret",
 			RedirectURI:  "http://localhost:8080/oauth/callback",
 		},
@@ -500,7 +505,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		}
 		_ = server.stateStore.Save("upstream-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -520,7 +525,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		if u.Query().Get("prompt") != "" {
 			t.Errorf("expected no prompt param on retry, got %q", u.Query().Get("prompt"))
 		}
-		if u.Host != "keycloak:8180" {
+		if u.Host != testKeycloakHost {
 			t.Errorf("expected redirect to keycloak, got %s", u.Host)
 		}
 
@@ -532,7 +537,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false for other errors", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&state=some-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&state=some-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -542,7 +547,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false when state is missing", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -552,7 +557,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false when state not found in store", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=nonexistent", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=nonexistent", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -571,7 +576,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		}
 		_ = server.stateStore.Save("loop-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -598,7 +603,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
@@ -614,7 +619,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		_ = server.stateStore.Save("upstream-state", state)
 
 		// Simulate Keycloak returning login_required (user has no session)
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -629,7 +634,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		}
 
 		// Should redirect to Keycloak without prompt=none
-		if u.Host != "keycloak:8180" {
+		if u.Host != testKeycloakHost {
 			t.Errorf("expected redirect to keycloak, got %s", u.Host)
 		}
 		if u.Query().Get("prompt") != "" {
@@ -646,7 +651,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
 				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     "mcp-server",
+				ClientID:     testUpstreamClient,
 				ClientSecret: "secret",
 				RedirectURI:  "http://localhost:8080/oauth/callback",
 			},
@@ -663,7 +668,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		_ = server.stateStore.Save("loop-state", state)
 
 		// login_required again after retry — should fall through to generic error handler
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
