@@ -15,6 +15,9 @@ const (
 	s3AdapterTestURNPrefixLen = 15
 	s3AdapterTestBucket       = "my-bucket"
 	s3AdapterTestConn         = "test-conn"
+	s3AdapterTestSize100      = 100
+	s3AdapterTestSize200      = 200
+	s3AdapterTestTotalSize    = 300
 )
 
 // mockS3Client implements the Client interface for testing.
@@ -306,8 +309,8 @@ func TestGetDatasetAvailability_Success(t *testing.T) {
 	mockClient := &mockS3Client{
 		listObjectsOutput: &s3client.ListObjectsOutput{
 			Objects: []s3client.ObjectInfo{
-				{Key: "file1.txt", Size: 100, LastModified: now},
-				{Key: "file2.txt", Size: 200, LastModified: now},
+				{Key: "file1.txt", Size: s3AdapterTestSize100, LastModified: now},
+				{Key: "file2.txt", Size: s3AdapterTestSize200, LastModified: now},
 			},
 			KeyCount: 2,
 		},
@@ -328,8 +331,8 @@ func TestGetDatasetAvailability_Success(t *testing.T) {
 	if result.ObjectCount != 2 {
 		t.Errorf("expected ObjectCount 2, got %d", result.ObjectCount)
 	}
-	if result.TotalSize != 300 {
-		t.Errorf("expected TotalSize 300, got %d", result.TotalSize)
+	if result.TotalSize != s3AdapterTestTotalSize {
+		t.Errorf("expected TotalSize %d, got %d", s3AdapterTestTotalSize, result.TotalSize)
 	}
 }
 
@@ -372,8 +375,8 @@ func TestListObjects(t *testing.T) {
 		mockClient := &mockS3Client{
 			listObjectsOutput: &s3client.ListObjectsOutput{
 				Objects: []s3client.ObjectInfo{
-					{Key: "file1.txt", Size: 100, LastModified: now},
-					{Key: "file2.txt", Size: 200, LastModified: now},
+					{Key: "file1.txt", Size: s3AdapterTestSize100, LastModified: now},
+					{Key: "file2.txt", Size: s3AdapterTestSize200, LastModified: now},
 				},
 				KeyCount: 2,
 			},
@@ -394,8 +397,8 @@ func TestListObjects(t *testing.T) {
 		if result[0].Key != "file1.txt" {
 			t.Errorf("expected first key 'file1.txt', got %q", result[0].Key)
 		}
-		if result[0].Size != 100 {
-			t.Errorf("expected first size 100, got %d", result[0].Size)
+		if result[0].Size != s3AdapterTestSize100 {
+			t.Errorf("expected first size %d, got %d", s3AdapterTestSize100, result[0].Size)
 		}
 	})
 
@@ -499,16 +502,21 @@ func TestAdapterResolveDataset(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if result.Bucket != tt.wantBucket {
-				t.Errorf("expected bucket %q, got %q", tt.wantBucket, result.Bucket)
-			}
-			if result.Prefix != tt.wantPrefix {
-				t.Errorf("expected prefix %q, got %q", tt.wantPrefix, result.Prefix)
-			}
-			if result.Connection != tt.wantConnection {
-				t.Errorf("expected connection %q, got %q", tt.wantConnection, result.Connection)
-			}
+			assertDatasetResult(t, result, tt.wantBucket, tt.wantPrefix, tt.wantConnection)
 		})
+	}
+}
+
+func assertDatasetResult(t *testing.T, result *storage.DatasetIdentifier, wantBucket, wantPrefix, wantConnection string) {
+	t.Helper()
+	if result.Bucket != wantBucket {
+		t.Errorf("expected bucket %q, got %q", wantBucket, result.Bucket)
+	}
+	if result.Prefix != wantPrefix {
+		t.Errorf("expected prefix %q, got %q", wantPrefix, result.Prefix)
+	}
+	if result.Connection != wantConnection {
+		t.Errorf("expected connection %q, got %q", wantConnection, result.Connection)
 	}
 }
 
