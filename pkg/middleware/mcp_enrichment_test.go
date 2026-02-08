@@ -21,6 +21,7 @@ const (
 	enrichTestMethodToolsCall = "tools/call"
 	enrichTestCallToolFmt     = "expected *mcp.CallToolResult, got %T"
 	enrichTestRowCount        = 1000
+	enrichTestDescribeTable   = "trino_describe_table"
 )
 
 func TestInferToolkitKind(t *testing.T) {
@@ -147,7 +148,7 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	wrapped := mw(mockHandler)
 
 	// Create request for trino_describe_table
-	req := createServerRequest(t, "trino_describe_table", map[string]any{
+	req := createServerRequest(t, enrichTestDescribeTable, map[string]any{
 		"catalog": "test",
 		"schema":  "public",
 		"table":   "users",
@@ -267,7 +268,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 
 	wrapped := mw(mockHandler)
 
-	req := createServerRequest(t, "trino_describe_table", map[string]any{
+	req := createServerRequest(t, enrichTestDescribeTable, map[string]any{
 		"catalog": "test",
 		"schema":  "public",
 		"table":   "users",
@@ -300,6 +301,69 @@ func TestBuildCallToolRequest(t *testing.T) {
 func TestBuildCallToolRequest_NilParams(t *testing.T) {
 	callReq := buildCallToolRequest(nil)
 	assert.Nil(t, callReq.Params)
+}
+
+func TestMCPSemanticEnrichmentMiddleware_SetsEnrichmentApplied(t *testing.T) {
+	// Create mock semantic provider that returns table context
+	mockProvider := &mockSemanticProvider{
+		getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+			return &semantic.TableContext{
+				Description: "Test table",
+				Owners:      []semantic.Owner{{Name: "team", Type: "group"}},
+			}, nil
+		},
+	}
+
+	mw := MCPSemanticEnrichmentMiddleware(
+		mockProvider, nil, nil,
+		EnrichmentConfig{EnrichTrinoResults: true},
+	)
+
+	// Mock handler
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "original"}},
+		}, nil
+	}
+
+	wrapped := mw(mockHandler)
+
+	// Set up PlatformContext to check the flag
+	pc := NewPlatformContext("req-enrich")
+	ctx := WithPlatformContext(context.Background(), pc)
+
+	req := createServerRequest(t, enrichTestDescribeTable, map[string]any{
+		"catalog": "c", "schema": "s", "table": "t",
+	})
+
+	_, err := wrapped(ctx, enrichTestMethodToolsCall, req)
+	require.NoError(t, err)
+
+	assert.True(t, pc.EnrichmentApplied, "EnrichmentApplied should be true after enrichment")
+}
+
+func TestMCPSemanticEnrichmentMiddleware_NoEnrichmentAppliedForUnknownTool(t *testing.T) {
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{
+		EnrichTrinoResults: true,
+	})
+
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "result"}},
+		}, nil
+	}
+
+	wrapped := mw(mockHandler)
+
+	pc := NewPlatformContext("req-no-enrich")
+	ctx := WithPlatformContext(context.Background(), pc)
+
+	req := createServerRequest(t, "custom_tool", map[string]any{})
+
+	_, err := wrapped(ctx, enrichTestMethodToolsCall, req)
+	require.NoError(t, err)
+
+	assert.False(t, pc.EnrichmentApplied, "EnrichmentApplied should be false for non-enrichable tool")
 }
 
 // Helper to create ServerRequest for testing.
