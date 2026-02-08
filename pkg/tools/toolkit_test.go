@@ -14,9 +14,9 @@ func TestNewToolkit(t *testing.T) {
 	}
 }
 
-func TestToolkit_RegisterTools(t *testing.T) {
+func TestToolkit_RegisterTools(_ *testing.T) {
 	toolkit := NewToolkit()
-	defer toolkit.Close()
+	defer func() { _ = toolkit.Close() }()
 
 	// Create a test server
 	server := mcp.NewServer(&mcp.Implementation{
@@ -30,7 +30,7 @@ func TestToolkit_RegisterTools(t *testing.T) {
 
 func TestToolkit_handleExampleTool(t *testing.T) {
 	toolkit := NewToolkit()
-	defer toolkit.Close()
+	defer func() { _ = toolkit.Close() }()
 
 	args := ExampleToolArgs{
 		Message: "Hello, World!",
