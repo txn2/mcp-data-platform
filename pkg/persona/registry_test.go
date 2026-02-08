@@ -138,7 +138,7 @@ func TestRegistry_LoadFromConfig(t *testing.T) {
 			Hints: map[string]string{
 				"default_catalog": "hive",
 			},
-			Priority: 50,
+			Priority: personaTestPriority50,
 		},
 		filterTestAdmin: {
 			DisplayName: "Administrator",
@@ -179,7 +179,7 @@ func verifyLoadedAnalystPersona(t *testing.T, reg *Registry) {
 	if analyst.Prompts.SystemPrefix != "You are a data analyst." {
 		t.Errorf("analyst SystemPrefix = %q", analyst.Prompts.SystemPrefix)
 	}
-	if analyst.Priority != 50 {
+	if analyst.Priority != personaTestPriority50 {
 		t.Errorf("analyst Priority = %d, want 50", analyst.Priority)
 	}
 }
