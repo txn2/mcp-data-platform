@@ -563,7 +563,7 @@ func (p *Platform) finalizeSetup() {
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport),
 	)
 
 	// 5. MCP Apps metadata (overall outermost) - injects _meta.ui into tools/list
