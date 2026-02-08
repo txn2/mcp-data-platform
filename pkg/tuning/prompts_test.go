@@ -7,12 +7,12 @@ import (
 )
 
 const (
-	testInstructions   = "Instructions"
-	testPrefix         = "Prefix"
-	testSuffix         = "Suffix"
-	testFileMode       = 0o644
-	testDirMode        = 0o750
-	testWriteFileErr   = "failed to write file: %v"
+	testInstructions = "Instructions"
+	testPrefix       = "Prefix"
+	testSuffix       = "Suffix"
+	testFileMode     = 0o644
+	testDirMode      = 0o750
+	testWriteFileErr = "failed to write file: %v"
 )
 
 func TestNewPromptManager(t *testing.T) {
