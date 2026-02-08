@@ -289,7 +289,7 @@ func TestToolkit_KindAndName(t *testing.T) {
 	if tk.Name() != "test-toolkit" {
 		t.Errorf("Name() = %q", tk.Name())
 	}
-	if tk.Connection() != "test" {
+	if tk.Connection() != trinoTestConnectionName {
 		t.Errorf("Connection() = %q, want 'test'", tk.Connection())
 	}
 }
@@ -352,7 +352,7 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	}
 }
 
-func TestToolkit_RegisterTools(t *testing.T) {
+func TestToolkit_RegisterTools(_ *testing.T) {
 	tk := newTestTrinoToolkit()
 	tk.RegisterTools(nil) // Should not panic
 
