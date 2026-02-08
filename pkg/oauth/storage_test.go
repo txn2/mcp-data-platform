@@ -5,11 +5,17 @@ import (
 	"time"
 )
 
+const (
+	testExampleCallback = "https://example.com/oauth/callback"
+	testLocalhostURI    = "http://localhost"
+	testLoopback127     = "http://127.0.0.1"
+)
+
 func TestClientValidRedirectURI(t *testing.T) {
 	client := &Client{
 		RedirectURIs: []string{
 			"http://localhost:8080/callback",
-			"https://example.com/oauth/callback",
+			testExampleCallback,
 		},
 	}
 
@@ -19,7 +25,7 @@ func TestClientValidRedirectURI(t *testing.T) {
 		expected bool
 	}{
 		{"valid localhost", "http://localhost:8080/callback", true},
-		{"valid example", "https://example.com/oauth/callback", true},
+		{"valid example", testExampleCallback, true},
 		{"invalid uri", "http://attacker.com/callback", false},
 		{"empty uri", "", false},
 	}
@@ -37,9 +43,9 @@ func TestClientValidRedirectURI(t *testing.T) {
 func TestClientValidRedirectURI_Loopback(t *testing.T) {
 	client := &Client{
 		RedirectURIs: []string{
-			"http://localhost",
-			"http://127.0.0.1",
-			"https://example.com/oauth/callback",
+			testLocalhostURI,
+			testLoopback127,
+			testExampleCallback,
 		},
 	}
 
@@ -50,11 +56,11 @@ func TestClientValidRedirectURI_Loopback(t *testing.T) {
 	}{
 		{"localhost with dynamic port", "http://localhost:52431/callback", true},
 		{"localhost with different port", "http://localhost:9999", true},
-		{"localhost exact match", "http://localhost", true},
+		{"localhost exact match", testLocalhostURI, true},
 		{"127.0.0.1 with dynamic port", "http://127.0.0.1:12345/callback", true},
 		{"127.0.0.1 with different port and path", "http://127.0.0.1:8080/oauth/cb", true},
-		{"127.0.0.1 exact match", "http://127.0.0.1", true},
-		{"non-loopback exact match", "https://example.com/oauth/callback", true},
+		{"127.0.0.1 exact match", testLoopback127, true},
+		{"non-loopback exact match", testExampleCallback, true},
 		{"non-loopback with port rejected", "https://example.com:8080/oauth/callback", false},
 		{"scheme mismatch on loopback", "https://localhost:1234", false},
 		{"attacker host rejected", "http://attacker.com/callback", false},
@@ -76,10 +82,10 @@ func TestIsLoopbackURI(t *testing.T) {
 		uri      string
 		expected bool
 	}{
-		{"localhost http", "http://localhost", true},
+		{"localhost http", testLocalhostURI, true},
 		{"localhost with port", "http://localhost:8080", true},
 		{"localhost with path", "http://localhost:8080/callback", true},
-		{"127.0.0.1 http", "http://127.0.0.1", true},
+		{"127.0.0.1 http", testLoopback127, true},
 		{"127.0.0.1 with port", "http://127.0.0.1:3000", true},
 		{"ipv6 loopback", "http://[::1]:8080", true},
 		{"https localhost not loopback", "https://localhost:443", false},
@@ -108,18 +114,18 @@ func TestMatchesRedirectURI(t *testing.T) {
 	}{
 		{"exact match non-loopback", "https://example.com/cb", "https://example.com/cb", true},
 		{"exact match loopback", "http://localhost:8080/cb", "http://localhost:8080/cb", true},
-		{"loopback different port", "http://localhost", "http://localhost:52431/callback", true},
+		{"loopback different port", testLocalhostURI, "http://localhost:52431/callback", true},
 		{"loopback different path", "http://localhost:8080", "http://localhost:8080/other", true},
-		{"127.0.0.1 different port", "http://127.0.0.1", "http://127.0.0.1:12345/callback", true},
+		{"127.0.0.1 different port", testLoopback127, "http://127.0.0.1:12345/callback", true},
 		{"ipv6 loopback different port", "http://[::1]", "http://[::1]:9999/cb", true},
 		{"non-loopback port mismatch", "https://example.com", "https://example.com:8080", false},
 		{"non-loopback path mismatch", "https://example.com/a", "https://example.com/b", false},
-		{"scheme mismatch loopback", "http://localhost", "https://localhost:1234", false},
-		{"host mismatch", "http://localhost", "http://127.0.0.1:1234", false},
+		{"scheme mismatch loopback", testLocalhostURI, "https://localhost:1234", false},
+		{"host mismatch", testLocalhostURI, "http://127.0.0.1:1234", false},
 		{"registered non-loopback requested loopback", "https://example.com", "http://localhost:1234", false},
-		{"registered loopback requested non-loopback", "http://localhost", "https://example.com", false},
-		{"empty registered", "", "http://localhost", false},
-		{"empty requested", "http://localhost", "", false},
+		{"registered loopback requested non-loopback", testLocalhostURI, "https://example.com", false},
+		{"empty registered", "", testLocalhostURI, false},
+		{"empty requested", testLocalhostURI, "", false},
 		{"both empty", "", "", true},
 	}
 
