@@ -16,6 +16,13 @@ import (
 // Note: The mockSemanticProvider and mockQueryProvider types used in these tests
 // are defined in semantic_test.go to avoid duplication.
 
+// Test constants for enrichment tests.
+const (
+	enrichTestMethodToolsCall = "tools/call"
+	enrichTestCallToolFmt     = "expected *mcp.CallToolResult, got %T"
+	enrichTestRowCount        = 1000
+)
+
 func TestInferToolkitKind(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -47,7 +54,7 @@ func TestMCPSemanticEnrichmentMiddleware_NonToolsCallPassthrough(t *testing.T) {
 
 	// Mock handler that tracks calls
 	handlerCalled := false
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		handlerCalled = true
 		return &mcp.ListResourcesResult{}, nil
 	}
@@ -68,7 +75,7 @@ func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
 
 	// Mock handler that returns error
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return nil, assert.AnError
 	}
 
@@ -77,7 +84,7 @@ func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 	// Create mock request using ServerRequest
 	req := createServerRequest(t, "trino_query", map[string]any{})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
@@ -88,7 +95,7 @@ func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
 
 	// Mock handler that returns error result
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "error message"}},
@@ -98,10 +105,11 @@ func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 	wrapped := mw(mockHandler)
 	req := createServerRequest(t, "trino_query", map[string]any{})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	require.NoError(t, err)
-	callResult := result.(*mcp.CallToolResult)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
 	assert.True(t, callResult.IsError)
 	assert.Len(t, callResult.Content, 1) // No enrichment added
 }
@@ -109,7 +117,7 @@ func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	// Create mock semantic provider
 	mockProvider := &mockSemanticProvider{
-		getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+		getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 			return &semantic.TableContext{
 				URN:         "urn:li:dataset:(urn:li:dataPlatform:postgres,test.public.users,PROD)",
 				Description: "User accounts table",
@@ -128,7 +136,7 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	)
 
 	// Mock handler returns basic Trino result
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "column_name | type\n-----------\nid | bigint"},
@@ -145,25 +153,27 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 		"table":   "users",
 	})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	require.NoError(t, err)
-	callResult := result.(*mcp.CallToolResult)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
 
-	// Should have original content plus enrichment
+	// Should have original content plus enrichment.
 	require.Len(t, callResult.Content, 2)
 
-	// Verify enrichment content
-	enrichmentText := callResult.Content[1].(*mcp.TextContent).Text
-	assert.Contains(t, enrichmentText, "semantic_context")
-	assert.Contains(t, enrichmentText, "User accounts table")
+	// Verify enrichment content.
+	tc, ok := callResult.Content[1].(*mcp.TextContent)
+	require.True(t, ok, "expected *TextContent, got %T", callResult.Content[1])
+	assert.Contains(t, tc.Text, "semantic_context")
+	assert.Contains(t, tc.Text, "User accounts table")
 }
 
 func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
-	rowCount := int64(1000)
+	rowCount := int64(enrichTestRowCount)
 	// Create mock query provider
 	mockProvider := &mockQueryProvider{
-		getTableAvailabilityFunc: func(ctx context.Context, urn string) (*query.TableAvailability, error) {
+		getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
 			return &query.TableAvailability{
 				Available:     true,
 				QueryTable:    "rdbms.public.test",
@@ -180,7 +190,7 @@ func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
 	)
 
 	// Mock handler returns DataHub search result with URN
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		resultJSON := `{"results":[{"urn":"urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)"}]}`
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: resultJSON}},
@@ -193,17 +203,19 @@ func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
 		"query": "test",
 	})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	require.NoError(t, err)
-	callResult := result.(*mcp.CallToolResult)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
 
-	// Should have original content plus query context enrichment
+	// Should have original content plus query context enrichment.
 	require.Len(t, callResult.Content, 2)
 
-	// Verify query context enrichment
-	enrichmentText := callResult.Content[1].(*mcp.TextContent).Text
-	assert.Contains(t, enrichmentText, "query_context")
+	// Verify query context enrichment.
+	tc, ok := callResult.Content[1].(*mcp.TextContent)
+	require.True(t, ok, "expected *TextContent, got %T", callResult.Content[1])
+	assert.Contains(t, tc.Text, "query_context")
 }
 
 func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
@@ -215,7 +227,7 @@ func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 	})
 
 	// Mock handler
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "result"}},
 		}, nil
@@ -226,16 +238,17 @@ func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 	// Use unknown tool name
 	req := createServerRequest(t, "custom_tool", map[string]any{})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	require.NoError(t, err)
-	callResult := result.(*mcp.CallToolResult)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
 	assert.Len(t, callResult.Content, 1) // No enrichment added
 }
 
 func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 	mockProvider := &mockSemanticProvider{
-		getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+		getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 			return &semantic.TableContext{Description: "Test"}, nil
 		},
 	}
@@ -246,7 +259,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 		EnrichmentConfig{EnrichTrinoResults: false},
 	)
 
-	mockHandler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "result"}},
 		}, nil
@@ -260,10 +273,11 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 		"table":   "users",
 	})
 
-	result, err := wrapped(context.Background(), "tools/call", req)
+	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
 
 	require.NoError(t, err)
-	callResult := result.(*mcp.CallToolResult)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
 	assert.Len(t, callResult.Content, 1) // No enrichment because disabled
 }
 

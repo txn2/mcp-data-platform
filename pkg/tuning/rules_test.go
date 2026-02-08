@@ -2,6 +2,14 @@ package tuning
 
 import "testing"
 
+const (
+	rulesTestQualityThreshold = 0.7
+	rulesTestMaxQueryLimit    = 10000
+	rulesTestMaxLimit5000     = 5000
+	rulesTestScoreGood        = 0.9
+	rulesTestScoreLow         = 0.5
+)
+
 func TestDefaultRules(t *testing.T) {
 	rules := DefaultRules()
 
@@ -11,114 +19,91 @@ func TestDefaultRules(t *testing.T) {
 	if !rules.WarnOnDeprecated {
 		t.Error("WarnOnDeprecated should be true by default")
 	}
-	if rules.QualityThreshold != 0.7 {
+	if rules.QualityThreshold != rulesTestQualityThreshold {
 		t.Errorf("QualityThreshold = %f, want 0.7", rules.QualityThreshold)
 	}
-	if rules.MaxQueryLimit != 10000 {
+	if rules.MaxQueryLimit != rulesTestMaxQueryLimit {
 		t.Errorf("MaxQueryLimit = %d, want 10000", rules.MaxQueryLimit)
 	}
 }
 
-func TestRuleEngine_CheckQueryExecution(t *testing.T) {
+func TestRuleEngine_NoViolations(t *testing.T) {
 	engine := NewRuleEngine(DefaultRules())
+	score := rulesTestScoreGood
+	metadata := QueryMetadata{QualityScore: &score, IsDeprecated: false, ContainsPII: false}
+	violations := engine.CheckQueryExecution(metadata)
+	if len(violations) != 0 {
+		t.Errorf("expected 0 violations, got %d", len(violations))
+	}
+}
 
-	t.Run("no violations", func(t *testing.T) {
-		score := 0.9
-		metadata := QueryMetadata{
-			QualityScore: &score,
-			IsDeprecated: false,
-			ContainsPII:  false,
-		}
-		violations := engine.CheckQueryExecution(metadata)
-		if len(violations) != 0 {
-			t.Errorf("expected 0 violations, got %d", len(violations))
-		}
+func TestRuleEngine_QualityThresholdViolation(t *testing.T) {
+	engine := NewRuleEngine(DefaultRules())
+	score := rulesTestScoreLow
+	violations := engine.CheckQueryExecution(QueryMetadata{QualityScore: &score})
+
+	assertViolationExists(t, violations, "quality_threshold", SeverityWarning)
+}
+
+func TestRuleEngine_DeprecatedDataViolation(t *testing.T) {
+	engine := NewRuleEngine(DefaultRules())
+	violations := engine.CheckQueryExecution(QueryMetadata{
+		IsDeprecated:    true,
+		DeprecationNote: "Use new_table instead",
 	})
 
-	t.Run("quality threshold violation", func(t *testing.T) {
-		score := 0.5
-		metadata := QueryMetadata{
-			QualityScore: &score,
-		}
-		violations := engine.CheckQueryExecution(metadata)
+	found := findViolation(violations, "deprecated_data")
+	if found == nil {
+		t.Fatal("expected deprecated_data violation")
+	}
+	if found.Suggestion != "Use new_table instead" {
+		t.Errorf("Suggestion = %q, want %q", found.Suggestion, "Use new_table instead")
+	}
+}
 
-		found := false
-		for _, v := range violations {
-			if v.Rule == "quality_threshold" {
-				found = true
-				if v.Severity != SeverityWarning {
-					t.Errorf("Severity = %v, want %v", v.Severity, SeverityWarning)
-				}
-			}
-		}
-		if !found {
-			t.Error("expected quality_threshold violation")
-		}
-	})
+func TestRuleEngine_PIIAccessDefault(t *testing.T) {
+	engine := NewRuleEngine(DefaultRules())
+	violations := engine.CheckQueryExecution(QueryMetadata{ContainsPII: true})
 
-	t.Run("deprecated data violation", func(t *testing.T) {
-		metadata := QueryMetadata{
-			IsDeprecated:    true,
-			DeprecationNote: "Use new_table instead",
+	for _, v := range violations {
+		if v.Rule == "pii_access" {
+			t.Error("unexpected pii_access violation (RequirePIIAcknowledgment is false)")
 		}
-		violations := engine.CheckQueryExecution(metadata)
+	}
+}
 
-		found := false
-		for _, v := range violations {
-			if v.Rule == "deprecated_data" {
-				found = true
-				if v.Suggestion != "Use new_table instead" {
-					t.Errorf("Suggestion = %q, want %q", v.Suggestion, "Use new_table instead")
-				}
-			}
-		}
-		if !found {
-			t.Error("expected deprecated_data violation")
-		}
-	})
+func TestRuleEngine_PIIAccessRequired(t *testing.T) {
+	piiEngine := NewRuleEngine(&Rules{RequirePIIAcknowledgment: true})
+	violations := piiEngine.CheckQueryExecution(QueryMetadata{ContainsPII: true})
 
-	t.Run("PII access (no violation by default)", func(t *testing.T) {
-		metadata := QueryMetadata{
-			ContainsPII: true,
-		}
-		violations := engine.CheckQueryExecution(metadata)
+	assertViolationExists(t, violations, "pii_access", SeverityInfo)
+}
 
-		// Default rules don't require PII acknowledgment
-		for _, v := range violations {
-			if v.Rule == "pii_access" {
-				t.Error("unexpected pii_access violation (RequirePIIAcknowledgment is false)")
-			}
+func findViolation(violations []Violation, rule string) *Violation {
+	for i := range violations {
+		if violations[i].Rule == rule {
+			return &violations[i]
 		}
-	})
+	}
+	return nil
+}
 
-	t.Run("PII access with acknowledgment required", func(t *testing.T) {
-		piiEngine := NewRuleEngine(&Rules{
-			RequirePIIAcknowledgment: true,
-		})
-		metadata := QueryMetadata{
-			ContainsPII: true,
-		}
-		violations := piiEngine.CheckQueryExecution(metadata)
-
-		found := false
-		for _, v := range violations {
-			if v.Rule == "pii_access" {
-				found = true
-				if v.Severity != SeverityInfo {
-					t.Errorf("Severity = %v, want %v", v.Severity, SeverityInfo)
-				}
-			}
-		}
-		if !found {
-			t.Error("expected pii_access violation when RequirePIIAcknowledgment is true")
-		}
-	})
+func assertViolationExists(t *testing.T, violations []Violation, rule string, severity Severity) {
+	t.Helper()
+	v := findViolation(violations, rule)
+	if v == nil {
+		t.Errorf("expected %s violation", rule)
+		return
+	}
+	if v.Severity != severity {
+		t.Errorf("Severity = %v, want %v", v.Severity, severity)
+	}
 }
 
 func TestRuleEngine_Methods(t *testing.T) {
 	rules := &Rules{
 		RequireDataHubCheck: true,
-		MaxQueryLimit:       5000,
+		MaxQueryLimit:       rulesTestMaxLimit5000,
 		Custom: map[string]any{
 			"custom_rule": "value",
 		},
@@ -132,7 +117,7 @@ func TestRuleEngine_Methods(t *testing.T) {
 	})
 
 	t.Run("GetMaxQueryLimit", func(t *testing.T) {
-		if engine.GetMaxQueryLimit() != 5000 {
+		if engine.GetMaxQueryLimit() != rulesTestMaxLimit5000 {
 			t.Errorf("GetMaxQueryLimit() = %d, want 5000", engine.GetMaxQueryLimit())
 		}
 	})
@@ -158,7 +143,7 @@ func TestRuleEngine_Methods(t *testing.T) {
 func TestNewRuleEngine_NilRules(t *testing.T) {
 	engine := NewRuleEngine(nil)
 	// Should use defaults
-	if engine.GetMaxQueryLimit() != 10000 {
+	if engine.GetMaxQueryLimit() != rulesTestMaxQueryLimit {
 		t.Errorf("GetMaxQueryLimit() = %d, want 10000 (default)", engine.GetMaxQueryLimit())
 	}
 }

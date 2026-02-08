@@ -8,6 +8,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
+const testAnonymousID = "anonymous"
+
 // mockAuthenticator is a mock for testing.
 type mockAuthenticator struct {
 	userInfo *middleware.UserInfo
@@ -87,14 +89,16 @@ func TestChainedAuthenticator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if userInfo.UserID != "anonymous" {
+		if userInfo.UserID != testAnonymousID {
 			t.Errorf("UserID = %q, want 'anonymous'", userInfo.UserID)
 		}
-		if userInfo.AuthType != "anonymous" {
+		if userInfo.AuthType != testAnonymousID {
 			t.Errorf("AuthType = %q", userInfo.AuthType)
 		}
 	})
+}
 
+func TestChainedAuthenticator_EmptyChain(t *testing.T) {
 	t.Run("empty chain fails", func(t *testing.T) {
 		chained := NewChainedAuthenticator(ChainedAuthConfig{})
 
@@ -111,7 +115,7 @@ func TestChainedAuthenticator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if userInfo.UserID != "anonymous" {
+		if userInfo.UserID != testAnonymousID {
 			t.Errorf("UserID = %q", userInfo.UserID)
 		}
 	})

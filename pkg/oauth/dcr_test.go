@@ -234,6 +234,10 @@ func TestDCRServiceRegister(t *testing.T) {
 			t.Error("expected client to require PKCE")
 		}
 	})
+}
+
+func TestDCRServiceRegister_ErrorsAndOptions(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("storage error", func(t *testing.T) {
 		storage := &mockStorage{

@@ -22,7 +22,7 @@ func TestPlatformContext(t *testing.T) {
 	t.Run("WithPlatformContext and GetPlatformContext", func(t *testing.T) {
 		pc := NewPlatformContext("req-456")
 		pc.UserID = "user123"
-		pc.ToolName = "test_tool"
+		pc.ToolName = mcpTestToolName
 
 		ctx := WithPlatformContext(context.Background(), pc)
 		got := GetPlatformContext(ctx)
@@ -33,8 +33,8 @@ func TestPlatformContext(t *testing.T) {
 		if got.UserID != "user123" {
 			t.Errorf("UserID = %q, want %q", got.UserID, "user123")
 		}
-		if got.ToolName != "test_tool" {
-			t.Errorf("ToolName = %q, want %q", got.ToolName, "test_tool")
+		if got.ToolName != mcpTestToolName {
+			t.Errorf("ToolName = %q, want %q", got.ToolName, mcpTestToolName)
 		}
 	})
 

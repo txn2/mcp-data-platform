@@ -10,7 +10,7 @@ type mockAuthorizer struct {
 	isAuthorizedFunc func(ctx context.Context, userID string, roles []string, toolName string) (bool, string, string)
 }
 
-func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (bool, string, string) {
+func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (authorized bool, persona, reason string) {
 	if m.isAuthorizedFunc != nil {
 		return m.isAuthorizedFunc(ctx, userID, roles, toolName)
 	}

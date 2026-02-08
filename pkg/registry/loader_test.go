@@ -57,7 +57,7 @@ func TestLoader_Load(t *testing.T) {
 		registry := NewRegistry()
 
 		// Register a test factory
-		registry.RegisterFactory("test", func(name string, config map[string]any) (Toolkit, error) {
+		registry.RegisterFactory("test", func(name string, _ map[string]any) (Toolkit, error) {
 			return &mockToolkit{
 				kind: "test",
 				name: name,
@@ -151,7 +151,7 @@ func TestLoader_LoadFromMap(t *testing.T) {
 	t.Run("enabled toolkit", func(t *testing.T) {
 		registry := NewRegistry()
 
-		registry.RegisterFactory("test", func(name string, config map[string]any) (Toolkit, error) {
+		registry.RegisterFactory("test", func(name string, _ map[string]any) (Toolkit, error) {
 			return &mockToolkit{
 				kind: "test",
 				name: name,

@@ -12,11 +12,11 @@ func TestInjectionLogger_LogInjectionAttempt(t *testing.T) {
 		var mu sync.Mutex
 
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				mu.Lock()
 				defer mu.Unlock()
 				logged = true
-				loggedMessage = format
+				loggedMessage = "called"
 			},
 		}
 
@@ -36,7 +36,7 @@ func TestInjectionLogger_LogInjectionAttempt(t *testing.T) {
 		var logged bool
 
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 			disabled: true,
@@ -49,7 +49,7 @@ func TestInjectionLogger_LogInjectionAttempt(t *testing.T) {
 		}
 	})
 
-	t.Run("does not log with nil logFunc", func(t *testing.T) {
+	t.Run("does not log with nil logFunc", func(_ *testing.T) {
 		logger := &InjectionLogger{
 			logFunc: nil,
 		}
@@ -65,7 +65,7 @@ func TestInjectionLogger_DetectAndLog(t *testing.T) {
 	t.Run("detects and logs injection", func(t *testing.T) {
 		var logged bool
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 		}
@@ -83,7 +83,7 @@ func TestInjectionLogger_DetectAndLog(t *testing.T) {
 	t.Run("does not log clean input", func(t *testing.T) {
 		var logged bool
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 		}
@@ -101,7 +101,7 @@ func TestInjectionLogger_DetectAndLog(t *testing.T) {
 	t.Run("handles empty input", func(t *testing.T) {
 		var logged bool
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 		}
@@ -121,7 +121,7 @@ func TestInjectionLogger_EnableDisable(t *testing.T) {
 	t.Run("disable stops logging", func(t *testing.T) {
 		var logged bool
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 		}
@@ -137,7 +137,7 @@ func TestInjectionLogger_EnableDisable(t *testing.T) {
 	t.Run("enable resumes logging", func(t *testing.T) {
 		var logged bool
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				logged = true
 			},
 			disabled: true,
@@ -157,12 +157,12 @@ func TestInjectionLogger_SetLogFunc(t *testing.T) {
 		var firstCalled, secondCalled bool
 
 		logger := &InjectionLogger{
-			logFunc: func(format string, args ...any) {
+			logFunc: func(_ string, _ ...any) {
 				firstCalled = true
 			},
 		}
 
-		logger.SetLogFunc(func(format string, args ...any) {
+		logger.SetLogFunc(func(_ string, _ ...any) {
 			secondCalled = true
 		})
 

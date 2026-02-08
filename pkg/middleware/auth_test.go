@@ -16,7 +16,7 @@ func (m *mockAuthenticator) Authenticate(ctx context.Context) (*UserInfo, error)
 	if m.authenticateFunc != nil {
 		return m.authenticateFunc(ctx)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock: nil means unauthenticated per interface contract
 }
 
 func TestNoopAuthenticator(t *testing.T) {

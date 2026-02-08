@@ -1,6 +1,7 @@
 package mcpapps
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -9,14 +10,24 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const resTestMaxRows = 500
+
+// assertCSPField checks that a CSP config map contains a key.
+func assertCSPField(t *testing.T, csp map[string]any, key string) {
+	t.Helper()
+	if _, ok := csp[key]; !ok {
+		t.Errorf("Expected %s in csp", key)
+	}
+}
+
 func TestCreateResourceHandler(t *testing.T) {
 	testdata := testdataDir(t)
 	app := &AppDefinition{
 		Name:        "test-app",
-		ResourceURI: "ui://test-app",
+		ResourceURI: regTestResourceURI,
 		ToolNames:   []string{"test_tool"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	handler := createResourceHandler(app)
@@ -24,7 +35,7 @@ func TestCreateResourceHandler(t *testing.T) {
 	t.Run("serves entry point", func(t *testing.T) {
 		req := &mcp.ReadResourceRequest{
 			Params: &mcp.ReadResourceParams{
-				URI: "ui://test-app",
+				URI: regTestResourceURI,
 			},
 		}
 
@@ -93,13 +104,13 @@ func TestCreateResourceHandler_ConfigInjection(t *testing.T) {
 
 	app := &AppDefinition{
 		Name:        "test-app",
-		ResourceURI: "ui://test-app",
+		ResourceURI: regTestResourceURI,
 		ToolNames:   []string{"test_tool"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 		Config: testConfig{
 			ChartCDN: "https://cdn.example.com/chart.js",
-			MaxRows:  500,
+			MaxRows:  resTestMaxRows,
 		},
 	}
 
@@ -107,7 +118,7 @@ func TestCreateResourceHandler_ConfigInjection(t *testing.T) {
 
 	req := &mcp.ReadResourceRequest{
 		Params: &mcp.ReadResourceParams{
-			URI: "ui://test-app",
+			URI: regTestResourceURI,
 		},
 	}
 
@@ -141,26 +152,26 @@ func TestExtractPath(t *testing.T) {
 	}{
 		{
 			name:       "base URI only",
-			requestURI: "ui://test-app",
-			baseURI:    "ui://test-app",
+			requestURI: regTestResourceURI,
+			baseURI:    regTestResourceURI,
 			want:       "",
 		},
 		{
 			name:       "with file path",
 			requestURI: "ui://test-app/style.css",
-			baseURI:    "ui://test-app",
+			baseURI:    regTestResourceURI,
 			want:       "/style.css",
 		},
 		{
 			name:       "with nested path",
 			requestURI: "ui://test-app/assets/images/logo.png",
-			baseURI:    "ui://test-app",
+			baseURI:    regTestResourceURI,
 			want:       "/assets/images/logo.png",
 		},
 		{
 			name:       "non-matching base",
 			requestURI: "ui://other-app/file.txt",
-			baseURI:    "ui://test-app",
+			baseURI:    regTestResourceURI,
 			want:       "",
 		},
 	}
@@ -187,8 +198,8 @@ func TestInjectConfig(t *testing.T) {
 		}
 
 		// Verify it's before </head>
-		idx := strings.Index(string(result), `<script id="app-config"`)
-		headIdx := strings.Index(string(result), `</head>`)
+		idx := bytes.Index(result, []byte(`<script id="app-config"`))
+		headIdx := bytes.Index(result, []byte(`</head>`))
 		if idx > headIdx {
 			t.Error("Config should be injected before </head>")
 		}
@@ -214,7 +225,7 @@ func TestInjectConfig(t *testing.T) {
 		result := injectConfig(content, nil)
 
 		// Should return unchanged
-		if string(result) != string(content) {
+		if !bytes.Equal(result, content) {
 			t.Error("Content should be unchanged with nil config")
 		}
 	})
@@ -226,7 +237,7 @@ func TestInjectConfig(t *testing.T) {
 		result := injectConfig(content, config)
 
 		// Should return unchanged when no </head> found
-		if string(result) != string(content) {
+		if !bytes.Equal(result, content) {
 			t.Error("Content should be unchanged when no </head> tag")
 		}
 	})
@@ -239,7 +250,7 @@ func TestInjectConfig(t *testing.T) {
 		result := injectConfig(content, config)
 
 		// Should return unchanged on marshal error
-		if string(result) != string(content) {
+		if !bytes.Equal(result, content) {
 			t.Error("Content should be unchanged on marshal error")
 		}
 	})
@@ -281,10 +292,10 @@ func TestRegisterResources(t *testing.T) {
 	registry := NewRegistry()
 	app := &AppDefinition{
 		Name:        "test-app",
-		ResourceURI: "ui://test-app",
+		ResourceURI: regTestResourceURI,
 		ToolNames:   []string{"test_tool"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 	_ = registry.Register(app)
 
@@ -300,7 +311,7 @@ func TestRegisterResources(t *testing.T) {
 func TestBuildResourceMeta(t *testing.T) {
 	t.Run("returns nil when not entry point", func(t *testing.T) {
 		app := &AppDefinition{
-			EntryPoint: "index.html",
+			EntryPoint: regTestEntryPoint,
 			CSP:        &CSPConfig{},
 		}
 		meta := buildResourceMeta("other.html", app)
@@ -311,10 +322,10 @@ func TestBuildResourceMeta(t *testing.T) {
 
 	t.Run("returns nil when CSP is nil", func(t *testing.T) {
 		app := &AppDefinition{
-			EntryPoint: "index.html",
+			EntryPoint: regTestEntryPoint,
 			CSP:        nil,
 		}
-		meta := buildResourceMeta("index.html", app)
+		meta := buildResourceMeta(regTestEntryPoint, app)
 		if meta != nil {
 			t.Error("Expected nil meta when CSP is nil")
 		}
@@ -322,14 +333,14 @@ func TestBuildResourceMeta(t *testing.T) {
 
 	t.Run("includes CSP domains", func(t *testing.T) {
 		app := &AppDefinition{
-			EntryPoint: "index.html",
+			EntryPoint: regTestEntryPoint,
 			CSP: &CSPConfig{
 				ResourceDomains: []string{"https://cdn.example.com"},
 				ConnectDomains:  []string{"https://api.example.com"},
 				FrameDomains:    []string{"https://frame.example.com"},
 			},
 		}
-		meta := buildResourceMeta("index.html", app)
+		meta := buildResourceMeta(regTestEntryPoint, app)
 		if meta == nil {
 			t.Fatal("Expected non-nil meta")
 		}
@@ -344,27 +355,21 @@ func TestBuildResourceMeta(t *testing.T) {
 			t.Fatal("Expected csp map in ui")
 		}
 
-		if _, ok := csp["resourceDomains"]; !ok {
-			t.Error("Expected resourceDomains in csp")
-		}
-		if _, ok := csp["connectDomains"]; !ok {
-			t.Error("Expected connectDomains in csp")
-		}
-		if _, ok := csp["frameDomains"]; !ok {
-			t.Error("Expected frameDomains in csp")
-		}
+		assertCSPField(t, csp, "resourceDomains")
+		assertCSPField(t, csp, "connectDomains")
+		assertCSPField(t, csp, "frameDomains")
 	})
 
 	t.Run("includes permissions", func(t *testing.T) {
 		app := &AppDefinition{
-			EntryPoint: "index.html",
+			EntryPoint: regTestEntryPoint,
 			CSP: &CSPConfig{
 				Permissions: &PermissionsConfig{
 					ClipboardWrite: &struct{}{},
 				},
 			},
 		}
-		meta := buildResourceMeta("index.html", app)
+		meta := buildResourceMeta(regTestEntryPoint, app)
 		if meta == nil {
 			t.Fatal("Expected non-nil meta")
 		}
@@ -452,14 +457,14 @@ func TestBuildResourceContents(t *testing.T) {
 
 func TestResolveMIMEType(t *testing.T) {
 	t.Run("entry point uses MCP App MIME type", func(t *testing.T) {
-		got := resolveMIMEType("index.html", "index.html")
+		got := resolveMIMEType(regTestEntryPoint, regTestEntryPoint)
 		if got != mcpAppMIMEType {
 			t.Errorf("Expected %q, got %q", mcpAppMIMEType, got)
 		}
 	})
 
 	t.Run("non-entry point uses file MIME type", func(t *testing.T) {
-		got := resolveMIMEType("style.css", "index.html")
+		got := resolveMIMEType("style.css", regTestEntryPoint)
 		if got != "text/css; charset=utf-8" {
 			t.Errorf("Expected CSS MIME type, got %q", got)
 		}
@@ -468,13 +473,13 @@ func TestResolveMIMEType(t *testing.T) {
 
 func TestResolveFilename(t *testing.T) {
 	app := &AppDefinition{
-		ResourceURI: "ui://test-app",
-		EntryPoint:  "index.html",
+		ResourceURI: regTestResourceURI,
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	t.Run("returns entry point for base URI", func(t *testing.T) {
-		got := resolveFilename("ui://test-app", app)
-		if got != "index.html" {
+		got := resolveFilename(regTestResourceURI, app)
+		if got != regTestEntryPoint {
 			t.Errorf("Expected index.html, got %q", got)
 		}
 	})
@@ -491,11 +496,11 @@ func TestReadAsset(t *testing.T) {
 	testdata := testdataDir(t)
 	app := &AppDefinition{
 		AssetsPath: testdata,
-		EntryPoint: "index.html",
+		EntryPoint: regTestEntryPoint,
 	}
 
 	t.Run("reads existing file", func(t *testing.T) {
-		content, err := readAsset(app, "index.html")
+		content, err := readAsset(app, regTestEntryPoint)
 		if err != nil {
 			t.Fatalf("readAsset returned error: %v", err)
 		}

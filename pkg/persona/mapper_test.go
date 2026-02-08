@@ -5,15 +5,22 @@ import (
 	"testing"
 )
 
+const (
+	mapperTestUnexpectedErr = "unexpected error: %v"
+	mapperTestNonStringVal  = 42
+	mapperTestRoles         = "roles"
+	mapperTestUser          = "user"
+)
+
 func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 	t.Run("empty claims", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
-			ClaimPath: "roles",
+			ClaimPath: mapperTestRoles,
 		}
 
 		roles, err := mapper.MapToRoles(map[string]any{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 0 {
 			t.Errorf("expected empty roles, got %v", roles)
@@ -22,15 +29,15 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 	t.Run("roles as []any", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
-			ClaimPath: "roles",
+			ClaimPath: mapperTestRoles,
 		}
 
 		claims := map[string]any{
-			"roles": []any{"admin", "user"},
+			mapperTestRoles: []any{"admin", mapperTestUser},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 roles, got %d", len(roles))
@@ -39,15 +46,15 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 	t.Run("roles as []string", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
-			ClaimPath: "roles",
+			ClaimPath: mapperTestRoles,
 		}
 
 		claims := map[string]any{
-			"roles": []string{"admin", "user"},
+			mapperTestRoles: []string{"admin", mapperTestUser},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 roles, got %d", len(roles))
@@ -61,12 +68,12 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 		claims := map[string]any{
 			"realm_access": map[string]any{
-				"roles": []any{"admin", "user"},
+				mapperTestRoles: []any{"admin", mapperTestUser},
 			},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 roles, got %d", len(roles))
@@ -75,16 +82,16 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 	t.Run("with role prefix filter", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
-			ClaimPath:  "roles",
+			ClaimPath:  mapperTestRoles,
 			RolePrefix: "app_",
 		}
 
 		claims := map[string]any{
-			"roles": []any{"app_admin", "other_role", "app_user"},
+			mapperTestRoles: []any{"app_admin", "other_role", "app_user"},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 roles with prefix, got %d: %v", len(roles), roles)
@@ -94,25 +101,25 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 	registry := NewRegistry()
-	admin := &Persona{Name: "admin", DisplayName: "Admin", Roles: []string{"admin"}}
-	user := &Persona{Name: "user", DisplayName: "User", Roles: []string{"user"}}
+	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin", Roles: []string{filterTestAdmin}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(admin)
 	_ = registry.Register(user)
-	registry.SetDefault("user")
+	registry.SetDefault(mapperTestUser)
 
 	t.Run("explicit mapping", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
 			PersonaMapping: map[string]string{
-				"admin_role": "admin",
+				"admin_role": filterTestAdmin,
 			},
 			Registry: registry,
 		}
 
 		persona, err := mapper.MapToPersona(context.Background(), []string{"admin_role"})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "admin" {
+		if persona.Name != filterTestAdmin {
 			t.Errorf("expected admin persona, got %q", persona.Name)
 		}
 	})
@@ -122,11 +129,11 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 			Registry: registry,
 		}
 
-		persona, err := mapper.MapToPersona(context.Background(), []string{"admin"})
+		persona, err := mapper.MapToPersona(context.Background(), []string{filterTestAdmin})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "admin" {
+		if persona.Name != filterTestAdmin {
 			t.Errorf("expected admin persona, got %q", persona.Name)
 		}
 	})
@@ -138,9 +145,9 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 
 		persona, err := mapper.MapToPersona(context.Background(), []string{"unknown_role"})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "user" {
+		if persona.Name != mapperTestUser {
 			t.Errorf("expected default user persona, got %q", persona.Name)
 		}
 	})
@@ -148,9 +155,9 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 
 func TestStaticRoleMapper(t *testing.T) {
 	registry := NewRegistry()
-	admin := &Persona{Name: "admin", DisplayName: "Admin"}
+	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin"}
 	_ = registry.Register(admin)
-	registry.SetDefault("admin")
+	registry.SetDefault(filterTestAdmin)
 
 	t.Run("MapToRoles returns empty", func(t *testing.T) {
 		mapper := &StaticRoleMapper{
@@ -159,7 +166,7 @@ func TestStaticRoleMapper(t *testing.T) {
 
 		roles, err := mapper.MapToRoles(map[string]any{"role": "admin"})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 0 {
 			t.Errorf("expected empty roles, got %v", roles)
@@ -168,15 +175,15 @@ func TestStaticRoleMapper(t *testing.T) {
 
 	t.Run("MapToPersona with default name", func(t *testing.T) {
 		mapper := &StaticRoleMapper{
-			DefaultPersonaName: "admin",
+			DefaultPersonaName: filterTestAdmin,
 			Registry:           registry,
 		}
 
 		persona, err := mapper.MapToPersona(context.Background(), nil)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "admin" {
+		if persona.Name != filterTestAdmin {
 			t.Errorf("expected admin persona, got %q", persona.Name)
 		}
 	})
@@ -188,9 +195,9 @@ func TestStaticRoleMapper(t *testing.T) {
 
 		persona, err := mapper.MapToPersona(context.Background(), nil)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "admin" {
+		if persona.Name != filterTestAdmin {
 			t.Errorf("expected admin persona from registry default, got %q", persona.Name)
 		}
 	})
@@ -198,7 +205,7 @@ func TestStaticRoleMapper(t *testing.T) {
 
 func TestChainedRoleMapper(t *testing.T) {
 	registry := NewRegistry()
-	admin := &Persona{Name: "admin", DisplayName: "Admin"}
+	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin"}
 	_ = registry.Register(admin)
 
 	t.Run("MapToRoles aggregates from all mappers", func(t *testing.T) {
@@ -221,7 +228,7 @@ func TestChainedRoleMapper(t *testing.T) {
 		}
 		roles, err := chained.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 roles, got %d: %v", len(roles), roles)
@@ -244,11 +251,11 @@ func TestChainedRoleMapper(t *testing.T) {
 
 		claims := map[string]any{
 			"roles1": []any{"admin"},
-			"roles2": []any{"admin", "user"},
+			"roles2": []any{"admin", mapperTestUser},
 		}
 		roles, err := chained.MapToRoles(claims)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		if len(roles) != 2 {
 			t.Errorf("expected 2 unique roles, got %d: %v", len(roles), roles)
@@ -257,7 +264,7 @@ func TestChainedRoleMapper(t *testing.T) {
 
 	t.Run("MapToPersona uses first match", func(t *testing.T) {
 		mapper1 := &OIDCRoleMapper{
-			PersonaMapping: map[string]string{"admin": "admin"},
+			PersonaMapping: map[string]string{filterTestAdmin: filterTestAdmin},
 			Registry:       registry,
 		}
 
@@ -265,11 +272,11 @@ func TestChainedRoleMapper(t *testing.T) {
 			Mappers: []RoleMapper{mapper1},
 		}
 
-		persona, err := chained.MapToPersona(context.Background(), []string{"admin"})
+		persona, err := chained.MapToPersona(context.Background(), []string{filterTestAdmin})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "admin" {
+		if persona.Name != filterTestAdmin {
 			t.Errorf("expected admin persona, got %q", persona.Name)
 		}
 	})
@@ -281,7 +288,7 @@ func TestChainedRoleMapper(t *testing.T) {
 
 		persona, err := chained.MapToPersona(context.Background(), nil)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
 		// Should return DefaultPersona
 		if persona == nil {
@@ -351,7 +358,7 @@ func TestOIDCRoleMapper_MapToPersona_NoMatch(t *testing.T) {
 
 	persona, err := mapper.MapToPersona(context.Background(), []string{"unknown_role"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should return DefaultPersona when nothing matches
 	if persona == nil {
@@ -370,7 +377,7 @@ func TestStaticRoleMapper_MapToPersona_NotFound(t *testing.T) {
 
 	persona, err := mapper.MapToPersona(context.Background(), nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should return DefaultPersona when persona name not found
 	if persona == nil {
@@ -388,7 +395,7 @@ func TestStaticRoleMapper_MapToPersona_NoDefault(t *testing.T) {
 
 	persona, err := mapper.MapToPersona(context.Background(), nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should return DefaultPersona when no default set in registry
 	if persona == nil {
@@ -406,7 +413,7 @@ func TestChainedRoleMapper_MapToRoles_WithError(t *testing.T) {
 
 	roles, err := chained.MapToRoles(map[string]any{})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	if len(roles) != 0 {
 		t.Errorf("expected empty roles from empty mappers, got %v", roles)
@@ -416,16 +423,16 @@ func TestChainedRoleMapper_MapToRoles_WithError(t *testing.T) {
 
 func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 	mapper := &OIDCRoleMapper{
-		ClaimPath: "roles",
+		ClaimPath: mapperTestRoles,
 	}
 
 	// roles contains a non-string value
 	claims := map[string]any{
-		"roles": []any{"admin", 42, "user"},
+		mapperTestRoles: []any{"admin", mapperTestNonStringVal, mapperTestUser},
 	}
 	roles, err := mapper.MapToRoles(claims)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should only include string values
 	if len(roles) != 2 {
@@ -435,9 +442,9 @@ func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 
 func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 	registry := NewRegistry()
-	user := &Persona{Name: "user", DisplayName: "User", Roles: []string{"user"}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(user)
-	registry.SetDefault("user")
+	registry.SetDefault(mapperTestUser)
 
 	mapper := &OIDCRoleMapper{
 		PersonaMapping: map[string]string{
@@ -449,27 +456,27 @@ func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 	// Should fallback to registry role matching or default when mapping target doesn't exist
 	persona, err := mapper.MapToPersona(context.Background(), []string{"admin_role"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should fall through to role matching or default persona
-	if persona.Name != "user" {
+	if persona.Name != mapperTestUser {
 		t.Errorf("expected fallback to default user persona, got %q", persona.Name)
 	}
 }
 
 func TestOIDCRoleMapper_MapToRoles_StringSliceWithPrefix(t *testing.T) {
 	mapper := &OIDCRoleMapper{
-		ClaimPath:  "roles",
+		ClaimPath:  mapperTestRoles,
 		RolePrefix: "app_",
 	}
 
 	// Test with []string type (not []any)
 	claims := map[string]any{
-		"roles": []string{"app_admin", "other_role", "app_user"},
+		mapperTestRoles: []string{"app_admin", "other_role", "app_user"},
 	}
 	roles, err := mapper.MapToRoles(claims)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	if len(roles) != 2 {
 		t.Errorf("expected 2 roles with prefix, got %d: %v", len(roles), roles)
@@ -491,7 +498,7 @@ func TestChainedRoleMapper_MapToPersona_AllMappersFail(t *testing.T) {
 
 	persona, err := chained.MapToPersona(context.Background(), []string{"unknown"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should return DefaultPersona when all mappers fail
 	if persona == nil {

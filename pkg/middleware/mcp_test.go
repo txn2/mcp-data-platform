@@ -10,6 +10,19 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
+// Test constants to avoid repeated string literals.
+const (
+	mcpTestUserID     = "user1"
+	mcpTestEmail      = "user1@example.com"
+	mcpTestPersona    = "analyst"
+	mcpTestToolName   = "test_tool"
+	mcpTestMethod     = "tools/call"
+	mcpTestStdio      = "stdio"
+	mcpTestErrFmt     = "unexpected error: %v"
+	mcpTestResultFmt  = "expected CallToolResult, got %T"
+	mcpTestPCExpected = "expected platform context to be set"
+)
+
 // mcpTestAuthenticator implements Authenticator for MCP middleware testing.
 type mcpTestAuthenticator struct {
 	userInfo *UserInfo
@@ -30,7 +43,7 @@ type mcpTestAuthorizer struct {
 	reason      string
 }
 
-func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (bool, string, string) {
+func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (authorized bool, persona, reason string) {
 	return m.authorized, m.personaName, m.reason
 }
 
@@ -71,21 +84,21 @@ func TestMCPToolCallMiddleware_AuthenticationFailure(t *testing.T) {
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on auth failure")
-		return nil, nil
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
 	}
 
 	handler := middleware(next)
-	req := newMCPTestRequest("test_tool")
+	req := newMCPTestRequest(mcpTestToolName)
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	// Result should be an error result
 	toolResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
-		t.Fatalf("expected CallToolResult, got %T", result)
+		t.Fatalf(mcpTestResultFmt, result)
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true")
@@ -95,7 +108,7 @@ func TestMCPToolCallMiddleware_AuthenticationFailure(t *testing.T) {
 func TestMCPToolCallMiddleware_AuthorizationFailure(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
 		userInfo: &UserInfo{
-			UserID: "user1",
+			UserID: mcpTestUserID,
 			Roles:  []string{"viewer"},
 		},
 	}
@@ -109,20 +122,20 @@ func TestMCPToolCallMiddleware_AuthorizationFailure(t *testing.T) {
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on authz failure")
-		return nil, nil
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
 	}
 
 	handler := middleware(next)
 	req := newMCPTestRequest("admin_tool")
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	toolResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
-		t.Fatalf("expected CallToolResult, got %T", result)
+		t.Fatalf(mcpTestResultFmt, result)
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true")
@@ -144,12 +157,12 @@ func TestMCPToolCallMiddleware_AuthorizationFailure(t *testing.T) {
 func TestMCPToolCallMiddleware_Success(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
 		userInfo: &UserInfo{
-			UserID: "user1",
-			Email:  "user1@example.com",
-			Roles:  []string{"analyst"},
+			UserID: mcpTestUserID,
+			Email:  mcpTestEmail,
+			Roles:  []string{mcpTestPersona},
 		},
 	}
-	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "analyst"}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
 	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
@@ -166,14 +179,14 @@ func TestMCPToolCallMiddleware_Success(t *testing.T) {
 		// Verify platform context was set
 		pc := GetPlatformContext(ctx)
 		if pc == nil {
-			t.Error("expected platform context to be set")
+			t.Error(mcpTestPCExpected)
 			return expectedResult, nil
 		}
-		if pc.UserID != "user1" {
-			t.Errorf("expected UserID 'user1', got %q", pc.UserID)
+		if pc.UserID != mcpTestUserID {
+			t.Errorf("expected UserID %q, got %q", mcpTestUserID, pc.UserID)
 		}
-		if pc.ToolName != "test_tool" {
-			t.Errorf("expected ToolName 'test_tool', got %q", pc.ToolName)
+		if pc.ToolName != mcpTestToolName {
+			t.Errorf("expected ToolName %q, got %q", mcpTestToolName, pc.ToolName)
 		}
 		if !pc.Authorized {
 			t.Error("expected Authorized to be true")
@@ -183,11 +196,11 @@ func TestMCPToolCallMiddleware_Success(t *testing.T) {
 	}
 
 	handler := middleware(next)
-	req := newMCPTestRequest("test_tool")
+	req := newMCPTestRequest(mcpTestToolName)
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	if !nextCalled {
@@ -240,7 +253,7 @@ func TestMCPToolCallMiddleware_NonToolsCallPassthrough(t *testing.T) {
 
 func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
-		userInfo: &UserInfo{UserID: "user1"},
+		userInfo: &UserInfo{UserID: mcpTestUserID},
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
@@ -248,7 +261,7 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with missing tool name")
-		return nil, nil
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
 	}
 
 	handler := middleware(next)
@@ -256,14 +269,14 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 	// Empty tool name
 	req := newMCPTestRequest("")
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	toolResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
-		t.Fatalf("expected CallToolResult, got %T", result)
+		t.Fatalf(mcpTestResultFmt, result)
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true for missing tool name")
@@ -272,7 +285,7 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 
 func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
-		userInfo: &UserInfo{UserID: "user1"},
+		userInfo: &UserInfo{UserID: mcpTestUserID},
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
@@ -280,7 +293,7 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with nil params")
-		return nil, nil
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
 	}
 
 	handler := middleware(next)
@@ -290,14 +303,14 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 		Params: nil,
 	}
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	toolResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
-		t.Fatalf("expected CallToolResult, got %T", result)
+		t.Fatalf(mcpTestResultFmt, result)
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true for nil params")
@@ -306,7 +319,7 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 
 func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
-		userInfo: &UserInfo{UserID: "user1"},
+		userInfo: &UserInfo{UserID: mcpTestUserID},
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
@@ -314,7 +327,7 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with wrong params type")
-		return nil, nil
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
 	}
 
 	handler := middleware(next)
@@ -324,14 +337,14 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 		Params: &mcp.ListToolsParams{},
 	}
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	toolResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
-		t.Fatalf("expected CallToolResult, got %T", result)
+		t.Fatalf(mcpTestResultFmt, result)
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true for wrong params type")
@@ -341,14 +354,14 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
 		userInfo: &UserInfo{
-			UserID: "user1",
-			Email:  "user1@example.com",
-			Roles:  []string{"analyst"},
+			UserID: mcpTestUserID,
+			Email:  mcpTestEmail,
+			Roles:  []string{mcpTestPersona},
 		},
 	}
 	authorizer := &mcpTestAuthorizer{
 		authorized:  true,
-		personaName: "analyst",
+		personaName: mcpTestPersona,
 	}
 	toolkitLookup := &mcpTestToolkitLookup{
 		kind:       "trino",
@@ -369,7 +382,7 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 		// Verify platform context has all fields populated
 		pc := GetPlatformContext(ctx)
 		if pc == nil {
-			t.Fatal("expected platform context to be set")
+			t.Fatal(mcpTestPCExpected)
 		}
 		if pc.ToolName != "trino_query" {
 			t.Errorf("expected ToolName 'trino_query', got %q", pc.ToolName)
@@ -383,11 +396,11 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 		if pc.Connection != "prod-trino" {
 			t.Errorf("expected Connection 'prod-trino', got %q", pc.Connection)
 		}
-		if pc.PersonaName != "analyst" {
-			t.Errorf("expected PersonaName 'analyst', got %q", pc.PersonaName)
+		if pc.PersonaName != mcpTestPersona {
+			t.Errorf("expected PersonaName %q, got %q", mcpTestPersona, pc.PersonaName)
 		}
-		if pc.UserID != "user1" {
-			t.Errorf("expected UserID 'user1', got %q", pc.UserID)
+		if pc.UserID != mcpTestUserID {
+			t.Errorf("expected UserID %q, got %q", mcpTestUserID, pc.UserID)
 		}
 
 		return expectedResult, nil
@@ -396,9 +409,9 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 	handler := middleware(next)
 	req := newMCPTestRequest("trino_query")
 
-	result, err := handler(context.Background(), "tools/call", req)
+	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 
 	if result != expectedResult {
@@ -409,13 +422,13 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
 		userInfo: &UserInfo{
-			UserID: "user1",
-			Roles:  []string{"analyst"},
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
 		},
 	}
 	authorizer := &mcpTestAuthorizer{
 		authorized:  true,
-		personaName: "analyst",
+		personaName: mcpTestPersona,
 	}
 	toolkitLookup := &mcpTestToolkitLookup{
 		found: false, // Tool not found in any toolkit
@@ -433,7 +446,7 @@ func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 		// Verify platform context - toolkit fields should be empty
 		pc := GetPlatformContext(ctx)
 		if pc == nil {
-			t.Fatal("expected platform context to be set")
+			t.Fatal(mcpTestPCExpected)
 		}
 		if pc.ToolkitKind != "" {
 			t.Errorf("expected empty ToolkitKind, got %q", pc.ToolkitKind)
@@ -445,8 +458,8 @@ func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 			t.Errorf("expected empty Connection, got %q", pc.Connection)
 		}
 		// PersonaName should still be populated
-		if pc.PersonaName != "analyst" {
-			t.Errorf("expected PersonaName 'analyst', got %q", pc.PersonaName)
+		if pc.PersonaName != mcpTestPersona {
+			t.Errorf("expected PersonaName %q, got %q", mcpTestPersona, pc.PersonaName)
 		}
 
 		return expectedResult, nil
@@ -455,9 +468,9 @@ func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 	handler := middleware(next)
 	req := newMCPTestRequest("unknown_tool")
 
-	_, err := handler(context.Background(), "tools/call", req)
+	_, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 }
 
@@ -527,16 +540,16 @@ func newMCPTestRequestWithExtra(toolName string, headers http.Header) *mcp.Serve
 func TestExtractSessionID(t *testing.T) {
 	t.Run("nil request returns stdio", func(t *testing.T) {
 		result := extractSessionID(nil)
-		if result != "stdio" {
-			t.Errorf("extractSessionID(nil) = %q, want %q", result, "stdio")
+		if result != mcpTestStdio {
+			t.Errorf("extractSessionID(nil) = %q, want %q", result, mcpTestStdio)
 		}
 	})
 
 	t.Run("request without session returns stdio", func(t *testing.T) {
-		req := newMCPTestRequest("test_tool")
+		req := newMCPTestRequest(mcpTestToolName)
 		result := extractSessionID(req)
-		if result != "stdio" {
-			t.Errorf("extractSessionID() = %q, want %q", result, "stdio")
+		if result != mcpTestStdio {
+			t.Errorf("extractSessionID() = %q, want %q", result, mcpTestStdio)
 		}
 	})
 }
@@ -544,22 +557,22 @@ func TestExtractSessionID(t *testing.T) {
 func TestMCPToolCallMiddleware_SessionIDPopulated(t *testing.T) {
 	authenticator := &mcpTestAuthenticator{
 		userInfo: &UserInfo{
-			UserID: "user1",
-			Roles:  []string{"analyst"},
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
 		},
 	}
-	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "analyst"}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
 	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil)
 
 	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		pc := GetPlatformContext(ctx)
 		if pc == nil {
-			t.Fatal("expected platform context to be set")
+			t.Fatal(mcpTestPCExpected)
 		}
 		// For a test request without session, should default to "stdio"
-		if pc.SessionID != "stdio" {
-			t.Errorf("expected SessionID 'stdio', got %q", pc.SessionID)
+		if pc.SessionID != mcpTestStdio {
+			t.Errorf("expected SessionID %q, got %q", mcpTestStdio, pc.SessionID)
 		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
@@ -567,11 +580,11 @@ func TestMCPToolCallMiddleware_SessionIDPopulated(t *testing.T) {
 	}
 
 	handler := middleware(next)
-	req := newMCPTestRequest("test_tool")
+	req := newMCPTestRequest(mcpTestToolName)
 
-	_, err := handler(context.Background(), "tools/call", req)
+	_, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(mcpTestErrFmt, err)
 	}
 }
 
@@ -606,13 +619,13 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 
 	t.Run("bearer token from RequestExtra", func(t *testing.T) {
 		capture.capturedToken = ""
-		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+		req := newMCPTestRequestWithExtra(mcpTestToolName, http.Header{
 			"Authorization": {"Bearer streamable-token"},
 		})
 
-		_, err := handler(context.Background(), "tools/call", req)
+		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mcpTestErrFmt, err)
 		}
 
 		if capture.capturedToken != "streamable-token" {
@@ -622,13 +635,13 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 
 	t.Run("api key from RequestExtra", func(t *testing.T) {
 		capture.capturedToken = ""
-		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+		req := newMCPTestRequestWithExtra(mcpTestToolName, http.Header{
 			"X-Api-Key": {"my-api-key"},
 		})
 
-		_, err := handler(context.Background(), "tools/call", req)
+		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mcpTestErrFmt, err)
 		}
 
 		if capture.capturedToken != "my-api-key" {
@@ -638,16 +651,16 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 
 	t.Run("existing context token takes precedence", func(t *testing.T) {
 		capture.capturedToken = ""
-		req := newMCPTestRequestWithExtra("test_tool", http.Header{
+		req := newMCPTestRequestWithExtra(mcpTestToolName, http.Header{
 			"Authorization": {"Bearer extra-token"},
 		})
 
 		// Pre-set token in context (as SSE HTTP middleware would do)
 		ctx := WithToken(context.Background(), "sse-token")
 
-		_, err := handler(ctx, "tools/call", req)
+		_, err := handler(ctx, mcpTestMethod, req)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mcpTestErrFmt, err)
 		}
 
 		if capture.capturedToken != "sse-token" {
@@ -657,11 +670,11 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 
 	t.Run("nil extra does not panic", func(t *testing.T) {
 		capture.capturedToken = ""
-		req := newMCPTestRequest("test_tool")
+		req := newMCPTestRequest(mcpTestToolName)
 
-		_, err := handler(context.Background(), "tools/call", req)
+		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(mcpTestErrFmt, err)
 		}
 		// Token should be empty since there's no Extra and no context token
 		if capture.capturedToken != "" {

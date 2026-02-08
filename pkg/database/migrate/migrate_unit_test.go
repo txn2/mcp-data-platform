@@ -9,6 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	migrateTestFileCount    = 6
+	migrateTestSuccess      = "success"
+	migrateTestFactoryError = "factory error"
+)
+
 // mockMigrator implements the migrator interface for testing.
 type mockMigrator struct {
 	upErr      error
@@ -19,16 +25,18 @@ type mockMigrator struct {
 	versionErr error
 }
 
-func (m *mockMigrator) Up() error                    { return m.upErr }
-func (m *mockMigrator) Down() error                  { return m.downErr }
-func (m *mockMigrator) Steps(_ int) error            { return m.stepsErr }
-func (m *mockMigrator) Version() (uint, bool, error) { return m.versionVal, m.dirty, m.versionErr }
+func (m *mockMigrator) Up() error         { return m.upErr }
+func (m *mockMigrator) Down() error       { return m.downErr }
+func (m *mockMigrator) Steps(_ int) error { return m.stepsErr }
+func (m *mockMigrator) Version() (version uint, dirty bool, err error) {
+	return m.versionVal, m.dirty, m.versionErr
+}
 
 func TestMigrationsEmbedded(t *testing.T) {
 	entries, err := migrations.ReadDir("migrations")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, entries)
-	assert.Len(t, entries, 6)
+	assert.Len(t, entries, migrateTestFileCount)
 
 	expectedFiles := []string{
 		"000001_oauth_clients.up.sql",
@@ -94,7 +102,7 @@ func TestRun(t *testing.T) {
 	origFactory := migratorFactory
 	defer func() { migratorFactory = origFactory }()
 
-	t.Run("success", func(t *testing.T) {
+	t.Run(migrateTestSuccess, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return &mockMigrator{versionVal: 2}, nil
 		}
@@ -122,7 +130,7 @@ func TestRun(t *testing.T) {
 		assert.Contains(t, err.Error(), "running migrations")
 	})
 
-	t.Run("factory error", func(t *testing.T) {
+	t.Run(migrateTestFactoryError, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return nil, errors.New("factory failed")
 		}
@@ -165,7 +173,7 @@ func TestVersion(t *testing.T) {
 	origFactory := migratorFactory
 	defer func() { migratorFactory = origFactory }()
 
-	t.Run("success", func(t *testing.T) {
+	t.Run(migrateTestSuccess, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return &mockMigrator{versionVal: 5, dirty: false}, nil
 		}
@@ -176,7 +184,7 @@ func TestVersion(t *testing.T) {
 		assert.False(t, dirty)
 	})
 
-	t.Run("factory error", func(t *testing.T) {
+	t.Run(migrateTestFactoryError, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return nil, errors.New("factory failed")
 		}
@@ -190,7 +198,7 @@ func TestDown(t *testing.T) {
 	origFactory := migratorFactory
 	defer func() { migratorFactory = origFactory }()
 
-	t.Run("success", func(t *testing.T) {
+	t.Run(migrateTestSuccess, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return &mockMigrator{}, nil
 		}
@@ -218,7 +226,7 @@ func TestDown(t *testing.T) {
 		assert.Contains(t, err.Error(), "rolling back migrations")
 	})
 
-	t.Run("factory error", func(t *testing.T) {
+	t.Run(migrateTestFactoryError, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return nil, errors.New("factory failed")
 		}
@@ -232,7 +240,7 @@ func TestSteps(t *testing.T) {
 	origFactory := migratorFactory
 	defer func() { migratorFactory = origFactory }()
 
-	t.Run("success", func(t *testing.T) {
+	t.Run(migrateTestSuccess, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return &mockMigrator{}, nil
 		}
@@ -260,7 +268,7 @@ func TestSteps(t *testing.T) {
 		assert.Contains(t, err.Error(), "stepping migrations")
 	})
 
-	t.Run("factory error", func(t *testing.T) {
+	t.Run(migrateTestFactoryError, func(t *testing.T) {
 		migratorFactory = func(_ *sql.DB) (migrator, error) {
 			return nil, errors.New("factory failed")
 		}

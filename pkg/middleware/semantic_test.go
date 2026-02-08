@@ -13,6 +13,108 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
+// Test constants for semantic tests.
+const (
+	semTestBucket          = "my-bucket"
+	semTestMock            = "mock"
+	semTestTable           = "table"
+	semTestSchema          = "schema"
+	semTestURNKey          = "urn"
+	semTestQualityScore    = 95.0
+	semTestURNCount        = 4
+	semTestYear            = 2026
+	semTestCatalogSchTable = "catalog.schema.table"
+	semTestTrino           = "trino"
+	semTestSemanticCtx     = "semantic_context"
+	semTestSession1        = "session-1"
+	semTestDescTest        = "Test"
+	semTestDescTestTable   = "Test table"
+	semTestMetadataRef     = "metadata_reference"
+	semTestDay             = 15
+	semTestHour            = 10
+	semTestMinute          = 30
+)
+
+// requireTextContent extracts and returns the TextContent at the given index,
+// failing the test if the type assertion fails.
+func requireTextContent(t *testing.T, result *mcp.CallToolResult) *mcp.TextContent {
+	t.Helper()
+	tc, ok := result.Content[1].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent at index 1, got %T", result.Content[1])
+	}
+	return tc
+}
+
+// requireUnmarshalJSON unmarshals JSON from a string into a map, failing the test on error.
+func requireUnmarshalJSON(t *testing.T, text string) map[string]any {
+	t.Helper()
+	var data map[string]any
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	return data
+}
+
+// requireEnrich calls enricher.enrich and fails the test on error.
+func requireEnrich(t *testing.T, enricher *semanticEnricher, result *mcp.CallToolResult, request mcp.CallToolRequest, pc *PlatformContext) *mcp.CallToolResult {
+	t.Helper()
+	enriched, err := enricher.enrich(context.Background(), result, request, pc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return enriched
+}
+
+// requireNoErr fails the test if err is non-nil.
+func requireNoErr(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// requireContentLen fails if the enriched result does not have exactly n content items.
+func requireContentLen(t *testing.T, enriched *mcp.CallToolResult, n int) {
+	t.Helper()
+	if len(enriched.Content) != n {
+		t.Fatalf("expected %d content items, got %d", n, len(enriched.Content))
+	}
+}
+
+// requireSemanticCtxMap extracts the semantic_context map from the enriched result's
+// second content item (index 1), failing the test if extraction fails.
+func requireSemanticCtxMap(t *testing.T, enriched *mcp.CallToolResult) map[string]any {
+	t.Helper()
+	tc := requireTextContent(t, enriched)
+	data := requireUnmarshalJSON(t, tc.Text)
+	semCtx, ok := data[semTestSemanticCtx].(map[string]any)
+	if !ok {
+		t.Fatal("expected semantic_context in enrichment")
+	}
+	return semCtx
+}
+
+// assertFieldsPresent checks that all named fields exist in the given map.
+func assertFieldsPresent(t *testing.T, m map[string]any, fields []string) {
+	t.Helper()
+	for _, field := range fields {
+		if _, exists := m[field]; !exists {
+			t.Errorf("expected field %q to be present, but it was missing", field)
+		}
+	}
+}
+
+// assertFieldsAbsent checks that all named fields do NOT exist in the given map.
+func assertFieldsAbsent(t *testing.T, m map[string]any, fields []string) {
+	t.Helper()
+	for _, field := range fields {
+		if _, exists := m[field]; exists {
+			t.Errorf("expected field %q to be absent, but it was present", field)
+		}
+	}
+}
+
 func TestExtractTableFromRequest(t *testing.T) {
 	t.Run("empty arguments", func(t *testing.T) {
 		request := mcp.CallToolRequest{
@@ -178,8 +280,8 @@ func TestParseTableIdentifier(t *testing.T) {
 		},
 		{
 			name:      "one part",
-			input:     "table",
-			wantTable: "table",
+			input:     semTestTable,
+			wantTable: semTestTable,
 		},
 		{
 			name:      "empty",
@@ -209,9 +311,9 @@ func TestSplitTableName(t *testing.T) {
 		input    string
 		expected []string
 	}{
-		{"catalog.schema.table", []string{"catalog", "schema", "table"}},
-		{"schema.table", []string{"schema", "table"}},
-		{"table", []string{"table"}},
+		{"catalog.schema.table", []string{"catalog", semTestSchema, semTestTable}},
+		{"schema.table", []string{semTestSchema, semTestTable}},
+		{semTestTable, []string{semTestTable}},
 		{"", nil},
 		{"...", nil},
 	}
@@ -279,7 +381,7 @@ func TestExtractURNsFromMap(t *testing.T) {
 	}
 
 	urns := extractURNsFromMap(data)
-	if len(urns) != 4 {
+	if len(urns) != semTestURNCount {
 		t.Errorf("expected 4 URNs, got %d: %v", len(urns), urns)
 	}
 }
@@ -288,34 +390,23 @@ func TestAppendSemanticContext(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		result := NewToolResultText("original")
 		enriched, err := appendSemanticContextWithColumns(result, nil, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with context", func(t *testing.T) {
 		result := NewToolResultText("original")
 		ctx := &semantic.TableContext{
-			Description: "Test table",
+			Description: semTestDescTestTable,
 			Tags:        []string{"important"},
 		}
 		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("includes all fields when populated", func(t *testing.T) {
 		result := NewToolResultText("original")
-		now := new(testing.T) // Use a non-nil time pointer
-		_ = now
-		testTime := new(timePointer)
 		ctx := &semantic.TableContext{
 			URN:         "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
 			Description: "User table",
@@ -329,42 +420,19 @@ func TestAppendSemanticContext(t *testing.T) {
 				"owner_team": "platform",
 				"sla":        "tier1",
 			},
-			LastModified: testTime.getTime(),
+			LastModified: testTimePointer(),
 		}
 		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 
-		// Parse the enrichment JSON to verify all fields
-		if len(enriched.Content) != 2 {
-			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		semanticCtx := requireSemanticCtxMap(t, enriched)
 
-		textContent, ok := enriched.Content[1].(*mcp.TextContent)
-		if !ok {
-			t.Fatal("expected TextContent")
-		}
+		assertFieldsPresent(t, semanticCtx, []string{
+			"urn", "description", "owners", "tags",
+			"glossary_terms", "domain", "custom_properties", "last_modified",
+		})
 
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse enrichment JSON: %v", err)
-		}
-
-		semanticCtx, ok := data["semantic_context"].(map[string]any)
-		if !ok {
-			t.Fatal("expected semantic_context in enrichment")
-		}
-
-		// Verify all expected fields are present
-		expectedFields := []string{"urn", "description", "owners", "tags", "glossary_terms", "domain", "custom_properties", "last_modified"}
-		for _, field := range expectedFields {
-			if _, exists := semanticCtx[field]; !exists {
-				t.Errorf("expected field %q in semantic_context, but it was missing", field)
-			}
-		}
-
-		// Verify specific values
 		if semanticCtx["urn"] != ctx.URN {
 			t.Errorf("expected urn %q, got %v", ctx.URN, semanticCtx["urn"])
 		}
@@ -377,49 +445,20 @@ func TestAppendSemanticContext(t *testing.T) {
 		result := NewToolResultText("original")
 		ctx := &semantic.TableContext{
 			Description: "Minimal table",
-			// All other fields are empty/nil
 		}
 		enriched, err := appendSemanticContextWithColumns(result, ctx, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 
-		textContent, ok := enriched.Content[1].(*mcp.TextContent)
-		if !ok {
-			t.Fatal("expected TextContent")
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse enrichment JSON: %v", err)
-		}
-
-		semanticCtx, ok := data["semantic_context"].(map[string]any)
-		if !ok {
-			t.Fatal("expected semantic_context in enrichment")
-		}
-
-		// URN, glossary_terms, custom_properties, and last_modified should not be present when empty
-		if _, exists := semanticCtx["urn"]; exists {
-			t.Error("urn should be omitted when empty")
-		}
-		if _, exists := semanticCtx["glossary_terms"]; exists {
-			t.Error("glossary_terms should be omitted when empty")
-		}
-		if _, exists := semanticCtx["custom_properties"]; exists {
-			t.Error("custom_properties should be omitted when empty")
-		}
-		if _, exists := semanticCtx["last_modified"]; exists {
-			t.Error("last_modified should be omitted when nil")
-		}
+		semanticCtx := requireSemanticCtxMap(t, enriched)
+		assertFieldsAbsent(t, semanticCtx, []string{
+			"urn", "glossary_terms", "custom_properties", "last_modified",
+		})
 	})
 }
 
-// timePointer is a helper for creating time.Time pointers in tests.
-type timePointer struct{}
-
-func (tp *timePointer) getTime() *time.Time {
-	t := time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)
+// testTimePointer returns a pointer to a fixed time.Time for testing.
+func testTimePointer() *time.Time {
+	t := time.Date(semTestYear, 1, semTestDay, semTestHour, semTestMinute, 0, 0, time.UTC)
 	return &t
 }
 
@@ -430,9 +469,7 @@ func TestAppendQueryContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with contexts", func(t *testing.T) {
@@ -444,9 +481,7 @@ func TestAppendQueryContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -463,14 +498,14 @@ func TestExtractS3PathFromRequest(t *testing.T) {
 
 	t.Run("bucket and prefix", func(t *testing.T) {
 		args, _ := json.Marshal(map[string]any{
-			"bucket": "my-bucket",
+			"bucket": semTestBucket,
 			"prefix": "data/",
 		})
 		request := mcp.CallToolRequest{
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 		bucket, prefix := extractS3PathFromRequest(request)
-		if bucket != "my-bucket" {
+		if bucket != semTestBucket {
 			t.Errorf("expected bucket 'my-bucket', got %q", bucket)
 		}
 		if prefix != "data/" {
@@ -480,14 +515,14 @@ func TestExtractS3PathFromRequest(t *testing.T) {
 
 	t.Run("key without prefix", func(t *testing.T) {
 		args, _ := json.Marshal(map[string]any{
-			"bucket": "my-bucket",
+			"bucket": semTestBucket,
 			"key":    "data/subdir/file.parquet",
 		})
 		request := mcp.CallToolRequest{
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 		bucket, prefix := extractS3PathFromRequest(request)
-		if bucket != "my-bucket" {
+		if bucket != semTestBucket {
 			t.Errorf("expected bucket 'my-bucket', got %q", bucket)
 		}
 		if prefix != "data/subdir" {
@@ -497,14 +532,14 @@ func TestExtractS3PathFromRequest(t *testing.T) {
 
 	t.Run("key at root", func(t *testing.T) {
 		args, _ := json.Marshal(map[string]any{
-			"bucket": "my-bucket",
+			"bucket": semTestBucket,
 			"key":    "file.parquet",
 		})
 		request := mcp.CallToolRequest{
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 		bucket, prefix := extractS3PathFromRequest(request)
-		if bucket != "my-bucket" {
+		if bucket != semTestBucket {
 			t.Errorf("expected bucket 'my-bucket', got %q", bucket)
 		}
 		if prefix != "" {
@@ -552,9 +587,7 @@ func TestAppendStorageContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with contexts", func(t *testing.T) {
@@ -566,9 +599,7 @@ func TestAppendStorageContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -579,9 +610,7 @@ func TestAppendS3SemanticContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with contexts", func(t *testing.T) {
@@ -593,9 +622,7 @@ func TestAppendS3SemanticContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -612,13 +639,13 @@ func TestBuildTableSemanticContext(t *testing.T) {
 		Deprecation: &semantic.Deprecation{Deprecated: true, Note: "deprecated"},
 	}
 
-	score := 95.0
+	score := semTestQualityScore
 	tableCtx.QualityScore = &score
 
 	result := buildTableSemanticContext(sr, tableCtx)
 
-	if result["urn"] != "urn:li:dataset:1" {
-		t.Errorf("unexpected urn: %v", result["urn"])
+	if result[semTestURNKey] != "urn:li:dataset:1" {
+		t.Errorf("unexpected urn: %v", result[semTestURNKey])
 	}
 	if result["name"] != "test_table" {
 		t.Errorf("unexpected name: %v", result["name"])
@@ -629,7 +656,7 @@ func TestBuildTableSemanticContext(t *testing.T) {
 	if result["domain"] != "Finance" {
 		t.Errorf("unexpected domain: %v", result["domain"])
 	}
-	if result["quality_score"] != 95.0 {
+	if result["quality_score"] != semTestQualityScore {
 		t.Errorf("unexpected quality_score: %v", result["quality_score"])
 	}
 }
@@ -640,93 +667,93 @@ type mockSemanticProvider struct {
 	searchTablesFunc    func(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
 }
 
-func (m *mockSemanticProvider) Name() string { return "mock" }
+func (*mockSemanticProvider) Name() string { return semTestMock }
 func (m *mockSemanticProvider) GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 	if m.getTableContextFunc != nil {
 		return m.getTableContextFunc(ctx, table)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockSemanticProvider) GetColumnContext(_ context.Context, _ semantic.ColumnIdentifier) (*semantic.ColumnContext, error) {
-	return nil, nil
+func (*mockSemanticProvider) GetColumnContext(_ context.Context, _ semantic.ColumnIdentifier) (*semantic.ColumnContext, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockSemanticProvider) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
-	return nil, nil
+func (*mockSemanticProvider) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockSemanticProvider) GetLineage(_ context.Context, _ semantic.TableIdentifier, _ semantic.LineageDirection, _ int) (*semantic.LineageInfo, error) {
-	return nil, nil
+func (*mockSemanticProvider) GetLineage(_ context.Context, _ semantic.TableIdentifier, _ semantic.LineageDirection, _ int) (*semantic.LineageInfo, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*semantic.GlossaryTerm, error) {
-	return nil, nil
+func (*mockSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*semantic.GlossaryTerm, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
 func (m *mockSemanticProvider) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	if m.searchTablesFunc != nil {
 		return m.searchTablesFunc(ctx, filter)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
-func (m *mockSemanticProvider) Close() error { return nil }
+func (*mockSemanticProvider) Close() error { return nil }
 
 // mockQueryProvider implements query.Provider for testing.
 type mockQueryProvider struct {
 	getTableAvailabilityFunc func(ctx context.Context, urn string) (*query.TableAvailability, error)
 }
 
-func (m *mockQueryProvider) Name() string { return "mock" }
-func (m *mockQueryProvider) ResolveTable(_ context.Context, _ string) (*query.TableIdentifier, error) {
-	return nil, nil
+func (*mockQueryProvider) Name() string { return semTestMock }
+func (*mockQueryProvider) ResolveTable(_ context.Context, _ string) (*query.TableIdentifier, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
 func (m *mockQueryProvider) GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error) {
 	if m.getTableAvailabilityFunc != nil {
 		return m.getTableAvailabilityFunc(ctx, urn)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.Example, error) {
-	return nil, nil
+func (*mockQueryProvider) GetQueryExamples(_ context.Context, _ string) ([]query.Example, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockQueryProvider) GetExecutionContext(_ context.Context, _ []string) (*query.ExecutionContext, error) {
-	return nil, nil
+func (*mockQueryProvider) GetExecutionContext(_ context.Context, _ []string) (*query.ExecutionContext, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockQueryProvider) GetTableSchema(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
-	return nil, nil
+func (*mockQueryProvider) GetTableSchema(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
-func (m *mockQueryProvider) Close() error { return nil }
+func (*mockQueryProvider) Close() error { return nil }
 
 // mockStorageProvider implements storage.Provider for testing.
 type mockStorageProvider struct {
 	getDatasetAvailabilityFunc func(ctx context.Context, urn string) (*storage.DatasetAvailability, error)
 }
 
-func (m *mockStorageProvider) Name() string { return "mock" }
-func (m *mockStorageProvider) ResolveDataset(_ context.Context, _ string) (*storage.DatasetIdentifier, error) {
-	return nil, nil
+func (*mockStorageProvider) Name() string { return semTestMock }
+func (*mockStorageProvider) ResolveDataset(_ context.Context, _ string) (*storage.DatasetIdentifier, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
 func (m *mockStorageProvider) GetDatasetAvailability(ctx context.Context, urn string) (*storage.DatasetAvailability, error) {
 	if m.getDatasetAvailabilityFunc != nil {
 		return m.getDatasetAvailabilityFunc(ctx, urn)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockStorageProvider) GetAccessExamples(_ context.Context, _ string) ([]storage.AccessExample, error) {
-	return nil, nil
+func (*mockStorageProvider) GetAccessExamples(_ context.Context, _ string) ([]storage.AccessExample, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (m *mockStorageProvider) ListObjects(_ context.Context, _ storage.DatasetIdentifier, _ int) ([]storage.ObjectInfo, error) {
-	return nil, nil
+func (*mockStorageProvider) ListObjects(_ context.Context, _ storage.DatasetIdentifier, _ int) ([]storage.ObjectInfo, error) {
+	return nil, nil //nolint:nilnil // test mock returns zero values
 }
-func (m *mockStorageProvider) Close() error { return nil }
+func (*mockStorageProvider) Close() error { return nil }
 
 func TestEnrichTrinoResult(t *testing.T) {
 	t.Run("no table in request", func(t *testing.T) {
@@ -737,12 +764,8 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with table and semantic context", func(t *testing.T) {
@@ -750,7 +773,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 		provider := &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return &semantic.TableContext{
-					Description: "Test table",
+					Description: semTestDescTestTable,
 					Tags:        []string{"tag1"},
 				}, nil
 			},
@@ -761,12 +784,8 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("semantic provider error", func(t *testing.T) {
@@ -782,13 +801,9 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// Should return original result without error
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with SQL query parameter extracts tables", func(t *testing.T) {
@@ -809,13 +824,9 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// Should have original + semantic context
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("with SQL query no tables found falls back to empty", func(t *testing.T) {
@@ -829,13 +840,9 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// No tables found, no enrichment
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with column context error continues", func(t *testing.T) {
@@ -843,7 +850,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 		provider := &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return &semantic.TableContext{
-					Description: "Test table",
+					Description: semTestDescTestTable,
 				}, nil
 			},
 		}
@@ -854,13 +861,9 @@ func TestEnrichTrinoResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// Should still have enrichment even if columns fail
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -871,12 +874,8 @@ func TestEnrichDataHubResult(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with URNs and query context", func(t *testing.T) {
@@ -899,12 +898,8 @@ func TestEnrichDataHubResult(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("query provider error continues", func(t *testing.T) {
@@ -924,13 +919,9 @@ func TestEnrichDataHubResult(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// Should return original result (error on GetTableAvailability is skipped)
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("URN from request added if not in result", func(t *testing.T) {
@@ -953,12 +944,8 @@ func TestEnrichDataHubResult(t *testing.T) {
 		}
 
 		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 		if len(urnsCalled) != 1 || urnsCalled[0] != "urn:li:dataset:from_request" {
 			t.Errorf("expected URN from request to be called, got %v", urnsCalled)
 		}
@@ -991,9 +978,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 		}
 
 		_, err := enrichDataHubResult(context.Background(), result, request, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 		// Should only be called once, not twice
 		if len(urnsCalled) != 1 {
 			t.Errorf("expected URN to be called once (not duplicated), got %d calls", len(urnsCalled))
@@ -1013,9 +998,7 @@ func TestEnrichS3Result(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("no matching datasets", func(t *testing.T) {
@@ -1025,7 +1008,7 @@ func TestEnrichS3Result(t *testing.T) {
 				return nil, nil
 			},
 		}
-		args, _ := json.Marshal(map[string]any{"bucket": "my-bucket"})
+		args, _ := json.Marshal(map[string]any{"bucket": semTestBucket})
 		request := mcp.CallToolRequest{
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
@@ -1034,9 +1017,7 @@ func TestEnrichS3Result(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with matching datasets", func(t *testing.T) {
@@ -1053,7 +1034,7 @@ func TestEnrichS3Result(t *testing.T) {
 				}, nil
 			},
 		}
-		args, _ := json.Marshal(map[string]any{"bucket": "my-bucket", "prefix": "data/"})
+		args, _ := json.Marshal(map[string]any{"bucket": semTestBucket, "prefix": "data/"})
 		request := mcp.CallToolRequest{
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
@@ -1062,9 +1043,7 @@ func TestEnrichS3Result(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -1084,9 +1063,7 @@ func TestEnrichDataHubStorageResult(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("with S3 URNs and storage context", func(t *testing.T) {
@@ -1111,9 +1088,7 @@ func TestEnrichDataHubStorageResult(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -1122,7 +1097,7 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		enricher := &semanticEnricher{
 			semanticProvider: &mockSemanticProvider{
 				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-					return &semantic.TableContext{Description: "Test"}, nil
+					return &semantic.TableContext{Description: semTestDescTest}, nil
 				},
 			},
 			cfg: EnrichmentConfig{EnrichTrinoResults: true},
@@ -1136,12 +1111,8 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("trino toolkit with enrichment disabled", func(t *testing.T) {
@@ -1155,12 +1126,8 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("s3 toolkit with enrichment enabled", func(t *testing.T) {
@@ -1172,13 +1139,13 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 					}, nil
 				},
 				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-					return &semantic.TableContext{Description: "Test"}, nil
+					return &semantic.TableContext{Description: semTestDescTest}, nil
 				},
 			},
 			cfg: EnrichmentConfig{EnrichS3Results: true},
 		}
 
-		args, _ := json.Marshal(map[string]any{"bucket": "my-bucket", "prefix": "data/"})
+		args, _ := json.Marshal(map[string]any{"bucket": semTestBucket, "prefix": "data/"})
 		result := NewToolResultText("original")
 		pc := &PlatformContext{ToolkitKind: "s3"}
 		request := mcp.CallToolRequest{
@@ -1186,12 +1153,8 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("s3 toolkit with enrichment disabled", func(t *testing.T) {
@@ -1205,12 +1168,8 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("trino toolkit with nil provider", func(t *testing.T) {
@@ -1220,16 +1179,12 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		}
 
 		result := NewToolResultText("original")
-		pc := &PlatformContext{ToolkitKind: "trino"}
+		pc := &PlatformContext{ToolkitKind: semTestTrino}
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item (no enrichment without provider), got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("unknown toolkit", func(t *testing.T) {
@@ -1240,12 +1195,8 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 }
 
@@ -1308,9 +1259,7 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("enriches with storage context", func(t *testing.T) {
@@ -1338,9 +1287,7 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 2)
 	})
 
 	t.Run("enriches with both query and storage context", func(t *testing.T) {
@@ -1397,9 +1344,7 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item, got %d", len(enriched.Content))
-		}
+		requireContentLen(t, enriched, 1)
 	})
 }
 
@@ -1428,12 +1373,8 @@ func TestEnricherEnrichDataHubPath(t *testing.T) {
 		request := mcp.CallToolRequest{}
 
 		enriched, err := enricher.enrich(context.Background(), result, request, pc)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -1487,10 +1428,12 @@ func TestBuildColumnInfo(t *testing.T) {
 		if info["description"] != "Test description" {
 			t.Errorf("expected description 'Test description', got %v", info["description"])
 		}
-		if info["is_pii"] != true {
+		piiVal, _ := info["is_pii"].(bool)
+		if !piiVal {
 			t.Error("expected is_pii=true")
 		}
-		if info["is_sensitive"] != false {
+		sensitiveVal, _ := info["is_sensitive"].(bool)
+		if sensitiveVal {
 			t.Error("expected is_sensitive=false")
 		}
 		if _, exists := info["inherited_from"]; exists {
@@ -1616,7 +1559,7 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 	t.Run("with column context and inheritance", func(t *testing.T) {
 		result := NewToolResultText("original")
 		tableCtx := &semantic.TableContext{
-			Description: "Test table",
+			Description: semTestDescTestTable,
 			URN:         "urn:li:dataset:test",
 		}
 		columnsCtx := map[string]*semantic.ColumnContext{
@@ -1637,23 +1580,11 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 		}
 
 		enriched, err := appendSemanticContextWithColumns(result, tableCtx, columnsCtx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 
-		if len(enriched.Content) != 2 {
-			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
-		}
-
-		textContent, ok := enriched.Content[1].(*mcp.TextContent)
-		if !ok {
-			t.Fatal("expected TextContent")
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
 
 		colCtx, ok := data["column_context"].(map[string]any)
 		if !ok {
@@ -1682,7 +1613,7 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 
 	t.Run("with column context no inheritance", func(t *testing.T) {
 		result := NewToolResultText("original")
-		tableCtx := &semantic.TableContext{Description: "Test table"}
+		tableCtx := &semantic.TableContext{Description: semTestDescTestTable}
 		columnsCtx := map[string]*semantic.ColumnContext{
 			"name": {Description: "Name field"},
 		}
@@ -1692,11 +1623,8 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
+		textContent := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, textContent.Text)
 
 		if _, ok := data["column_context"]; !ok {
 			t.Error("expected column_context")
@@ -1827,7 +1755,7 @@ func TestBuildAdditionalTableContext(t *testing.T) {
 	ref := TableRef{FullPath: "catalog.schema.table"}
 	ctx := &semantic.TableContext{
 		URN:         "urn:li:dataset:test",
-		Description: "Test table",
+		Description: semTestDescTestTable,
 		Tags:        []string{"tag1", "tag2"},
 		Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
 		Deprecation: &semantic.Deprecation{Deprecated: true, Note: "Use new_table"},
@@ -1835,22 +1763,24 @@ func TestBuildAdditionalTableContext(t *testing.T) {
 
 	result := buildAdditionalTableContext(ref, ctx)
 
-	if result["table"] != "catalog.schema.table" {
-		t.Errorf("expected table catalog.schema.table, got %v", result["table"])
+	if result[semTestTable] != semTestCatalogSchTable {
+		t.Errorf("expected table %s, got %v", semTestCatalogSchTable, result[semTestTable])
 	}
-	if result["description"] != "Test table" {
+	if result["description"] != semTestDescTestTable {
 		t.Errorf("expected description Test table, got %v", result["description"])
 	}
-	if result["urn"] != "urn:li:dataset:test" {
-		t.Errorf("expected urn, got %v", result["urn"])
+	if result[semTestURNKey] != "urn:li:dataset:test" {
+		t.Errorf("expected urn, got %v", result[semTestURNKey])
 	}
 	if result["deprecation"] == nil {
 		t.Error("expected deprecation to be set")
 	}
-	if len(result["tags"].([]string)) != 2 {
+	tags, ok := result["tags"].([]string)
+	if !ok || len(tags) != 2 {
 		t.Errorf("expected 2 tags, got %v", result["tags"])
 	}
-	if len(result["owners"].([]semantic.Owner)) != 1 {
+	owners, ok := result["owners"].([]semantic.Owner)
+	if !ok || len(owners) != 1 {
 		t.Errorf("expected 1 owner, got %v", result["owners"])
 	}
 }
@@ -1859,12 +1789,8 @@ func TestAppendSemanticContextWithAdditional(t *testing.T) {
 	t.Run("nil context returns original", func(t *testing.T) {
 		result := &mcp.CallToolResult{Content: []mcp.Content{}}
 		enriched, err := appendSemanticContextWithAdditional(result, nil, nil, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 0 {
-			t.Errorf("expected no content added, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 0)
 	})
 
 	t.Run("adds semantic context with additional tables", func(t *testing.T) {
@@ -1880,25 +1806,11 @@ func TestAppendSemanticContextWithAdditional(t *testing.T) {
 		}
 
 		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, nil, additionalTables)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		if _, ok := data["semantic_context"]; !ok {
-			t.Error("expected semantic_context")
-		}
-		if _, ok := data["additional_tables"]; !ok {
-			t.Error("expected additional_tables")
-		}
+		data := requireUnmarshalJSON(t, requireTextContent(t, enriched).Text)
+		assertFieldsPresent(t, data, []string{semTestSemanticCtx, "additional_tables"})
 	})
 
 	t.Run("adds column context with inheritance sources", func(t *testing.T) {
@@ -1922,25 +1834,11 @@ func TestAppendSemanticContextWithAdditional(t *testing.T) {
 		}
 
 		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, columnsCtx, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		if _, ok := data["column_context"]; !ok {
-			t.Error("expected column_context")
-		}
-		if _, ok := data["inheritance_sources"]; !ok {
-			t.Error("expected inheritance_sources")
-		}
+		data := requireUnmarshalJSON(t, requireTextContent(t, enriched).Text)
+		assertFieldsPresent(t, data, []string{"column_context", "inheritance_sources"})
 	})
 
 	t.Run("no additional tables omits additional_tables key", func(t *testing.T) {
@@ -1952,19 +1850,10 @@ func TestAppendSemanticContextWithAdditional(t *testing.T) {
 		}
 
 		enriched, err := appendSemanticContextWithAdditional(result, tableCtx, nil, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		requireNoErr(t, err)
 
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		if _, ok := data["additional_tables"]; ok {
-			t.Error("additional_tables should not exist when empty")
-		}
+		data := requireUnmarshalJSON(t, requireTextContent(t, enriched).Text)
+		assertFieldsAbsent(t, data, []string{"additional_tables"})
 	})
 }
 
@@ -1974,12 +1863,8 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		provider := &mockSemanticProvider{}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, []TableRef{}, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 0 {
-			t.Errorf("expected no content, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 0)
 	})
 
 	t.Run("enriches with semantic context", func(t *testing.T) {
@@ -1987,7 +1872,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			&mcp.TextContent{Text: "query results"},
 		}}
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return &semantic.TableContext{
 					Description: "Table: " + table.Table,
 					Owners:      []semantic.Owner{{Name: "owner", Email: "owner@test.com"}},
@@ -2001,25 +1886,11 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(enriched.Content) != 2 {
-			t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 
-		textContent := enriched.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-			t.Fatalf("failed to parse JSON: %v", err)
-		}
-
-		if _, ok := data["semantic_context"]; !ok {
-			t.Error("expected semantic_context")
-		}
-		if _, ok := data["additional_tables"]; !ok {
-			t.Error("expected additional_tables for multi-table query")
-		}
+		data := requireUnmarshalJSON(t, requireTextContent(t, enriched).Text)
+		assertFieldsPresent(t, data, []string{semTestSemanticCtx, "additional_tables"})
 	})
 
 	t.Run("primary table GetTableContext fails returns original", func(t *testing.T) {
@@ -2027,7 +1898,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			&mcp.TextContent{Text: "query results"},
 		}}
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return nil, context.Canceled
 			},
 		}
@@ -2037,13 +1908,8 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		// Should return original result without enrichment when primary table fails
-		if len(enriched.Content) != 1 {
-			t.Errorf("expected 1 content item (original), got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
 	})
 
 	t.Run("additional table GetTableContext fails continues", func(t *testing.T) {
@@ -2052,7 +1918,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		}}
 		callCount := 0
 		provider := &mockSemanticProvider{
-			getTableContextFunc: func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				callCount++
 				if callCount == 1 {
 					// Primary table succeeds
@@ -2072,13 +1938,8 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		}
 
 		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		// Should still have enrichment from primary table
-		if len(enriched.Content) != 2 {
-			t.Errorf("expected 2 content items, got %d", len(enriched.Content))
-		}
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
 	})
 }
 
@@ -2102,17 +1963,14 @@ func TestSessionDedup_FirstAccess_FullEnrichment(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
 	result := NewToolResultText("original")
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: semTestSession1}
 
-	enriched, err := enricher.enrich(context.Background(), result, request, pc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	enriched := requireEnrich(t, enricher, result, request, pc)
 
 	// Should have full enrichment (original + semantic_context)
 	if len(enriched.Content) != 2 {
@@ -2120,15 +1978,12 @@ func TestSessionDedup_FirstAccess_FullEnrichment(t *testing.T) {
 	}
 
 	// Verify it's full semantic_context (not a reference)
-	textContent := enriched.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
-	}
-	if _, ok := data["semantic_context"]; !ok {
+	textContent := requireTextContent(t, enriched)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestSemanticCtx]; !ok {
 		t.Error("expected semantic_context in enrichment")
 	}
-	if _, ok := data["metadata_reference"]; ok {
+	if _, ok := data[semTestMetadataRef]; ok {
 		t.Error("should NOT have metadata_reference on first access")
 	}
 }
@@ -2139,7 +1994,7 @@ func TestSessionDedup_SecondAccess_MinimalReference(t *testing.T) {
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				return &semantic.TableContext{
-					Description: "Test table",
+					Description: semTestDescTestTable,
 					Tags:        []string{"test"},
 				}, nil
 			},
@@ -2155,31 +2010,28 @@ func TestSessionDedup_SecondAccess_MinimalReference(t *testing.T) {
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: semTestSession1}
 
 	// First access - full enrichment
 	result1 := NewToolResultText("result1")
-	enriched1, _ := enricher.enrich(context.Background(), result1, request, pc)
+	enriched1 := requireEnrich(t, enricher, result1, request, pc)
 	if len(enriched1.Content) != 2 {
 		t.Fatalf("first access: expected 2 content items, got %d", len(enriched1.Content))
 	}
 
 	// Second access - should get reference
 	result2 := NewToolResultText("result2")
-	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+	enriched2 := requireEnrich(t, enricher, result2, request, pc)
 	if len(enriched2.Content) != 2 {
 		t.Fatalf("second access: expected 2 content items, got %d", len(enriched2.Content))
 	}
 
-	textContent := enriched2.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
-	}
-	if _, ok := data["metadata_reference"]; !ok {
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestMetadataRef]; !ok {
 		t.Error("expected metadata_reference on second access")
 	}
-	if _, ok := data["semantic_context"]; ok {
+	if _, ok := data[semTestSemanticCtx]; ok {
 		t.Error("should NOT have full semantic_context on second access with reference mode")
 	}
 }
@@ -2189,7 +2041,7 @@ func TestSessionDedup_TTLExpiry_FullEnrichmentAgain(t *testing.T) {
 	enricher := &semanticEnricher{
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-				return &semantic.TableContext{Description: "Test"}, nil
+				return &semantic.TableContext{Description: semTestDescTest}, nil
 			},
 		},
 		cfg: EnrichmentConfig{
@@ -2199,27 +2051,26 @@ func TestSessionDedup_TTLExpiry_FullEnrichmentAgain(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: semTestSession1}
 
 	// First access
 	result1 := NewToolResultText("result1")
-	enricher.enrich(context.Background(), result1, request, pc)
+	requireEnrich(t, enricher, result1, request, pc)
 
 	// Wait for TTL to expire
 	time.Sleep(60 * time.Millisecond)
 
 	// Third access after expiry - should get full enrichment again
 	result3 := NewToolResultText("result3")
-	enriched3, _ := enricher.enrich(context.Background(), result3, request, pc)
+	enriched3 := requireEnrich(t, enricher, result3, request, pc)
 
-	textContent := enriched3.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	json.Unmarshal([]byte(textContent.Text), &data)
-	if _, ok := data["semantic_context"]; !ok {
+	textContent := requireTextContent(t, enriched3)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestSemanticCtx]; !ok {
 		t.Error("expected full semantic_context after TTL expiry")
 	}
 }
@@ -2229,7 +2080,7 @@ func TestSessionDedup_SessionIsolation(t *testing.T) {
 	enricher := &semanticEnricher{
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-				return &semantic.TableContext{Description: "Test"}, nil
+				return &semantic.TableContext{Description: semTestDescTest}, nil
 			},
 		},
 		cfg: EnrichmentConfig{
@@ -2239,32 +2090,31 @@ func TestSessionDedup_SessionIsolation(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
 
 	// Session A first access
-	pcA := &PlatformContext{ToolkitKind: "trino", SessionID: "session-A"}
+	pcA := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "session-A"}
 	resultA := NewToolResultText("resultA")
-	enrichedA, _ := enricher.enrich(context.Background(), resultA, request, pcA)
+	enrichedA := requireEnrich(t, enricher, resultA, request, pcA)
 	if len(enrichedA.Content) != 2 {
 		t.Fatalf("session A first access: expected 2 content items, got %d", len(enrichedA.Content))
 	}
 
 	// Session B first access - should also get full enrichment (isolated)
-	pcB := &PlatformContext{ToolkitKind: "trino", SessionID: "session-B"}
+	pcB := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "session-B"}
 	resultB := NewToolResultText("resultB")
-	enrichedB, _ := enricher.enrich(context.Background(), resultB, request, pcB)
+	enrichedB := requireEnrich(t, enricher, resultB, request, pcB)
 	if len(enrichedB.Content) != 2 {
 		t.Fatalf("session B first access: expected 2 content items, got %d", len(enrichedB.Content))
 	}
 
 	// Verify session B got full enrichment (not reference)
-	textContent := enrichedB.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	json.Unmarshal([]byte(textContent.Text), &data)
-	if _, ok := data["semantic_context"]; !ok {
+	textContent := requireTextContent(t, enrichedB)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestSemanticCtx]; !ok {
 		t.Error("session B should get full semantic_context on first access")
 	}
 }
@@ -2275,7 +2125,7 @@ func TestSessionDedup_EnabledByDefault(t *testing.T) {
 	enricher := &semanticEnricher{
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-				return &semantic.TableContext{Description: "Test"}, nil
+				return &semantic.TableContext{Description: semTestDescTest}, nil
 			},
 		},
 		cfg: EnrichmentConfig{
@@ -2285,22 +2135,21 @@ func TestSessionDedup_EnabledByDefault(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: semTestSession1}
 
 	// First call
-	enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+	requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
 	// Second call should be deduped
 	result2 := NewToolResultText("r2")
-	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+	enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
-	textContent := enriched2.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	json.Unmarshal([]byte(textContent.Text), &data)
-	if _, ok := data["metadata_reference"]; !ok {
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestMetadataRef]; !ok {
 		t.Error("dedup should be active (reference mode) by default when cache is configured")
 	}
 }
@@ -2311,7 +2160,7 @@ func TestSessionDedup_DisabledFallback(t *testing.T) {
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 				callCount++
-				return &semantic.TableContext{Description: "Test"}, nil
+				return &semantic.TableContext{Description: semTestDescTest}, nil
 			},
 		},
 		cfg: EnrichmentConfig{
@@ -2321,21 +2170,20 @@ func TestSessionDedup_DisabledFallback(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "session-1"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: semTestSession1}
 
 	// Both calls should get full enrichment
-	enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+	requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
 	result2 := NewToolResultText("r2")
-	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+	enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
-	textContent := enriched2.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	json.Unmarshal([]byte(textContent.Text), &data)
-	if _, ok := data["semantic_context"]; !ok {
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestSemanticCtx]; !ok {
 		t.Error("with nil cache, should always get full semantic_context")
 	}
 	if callCount != 2 {
@@ -2349,7 +2197,7 @@ func TestSessionDedup_ConfigurableModes(t *testing.T) {
 			semanticProvider: &mockSemanticProvider{
 				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
 					return &semantic.TableContext{
-						Description: "Test table",
+						Description: semTestDescTestTable,
 						Tags:        []string{"tag1"},
 					}, nil
 				},
@@ -2362,39 +2210,37 @@ func TestSessionDedup_ConfigurableModes(t *testing.T) {
 		}
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
 
 	t.Run("reference mode", func(t *testing.T) {
 		enricher := makeEnricher(DedupModeReference)
-		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+		pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
 
-		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
 		result2 := NewToolResultText("r2")
-		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+		enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
-		textContent := enriched2.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		json.Unmarshal([]byte(textContent.Text), &data)
-		if _, ok := data["metadata_reference"]; !ok {
+		textContent := requireTextContent(t, enriched2)
+		data := requireUnmarshalJSON(t, textContent.Text)
+		if _, ok := data[semTestMetadataRef]; !ok {
 			t.Error("reference mode: expected metadata_reference")
 		}
 	})
 
 	t.Run("summary mode", func(t *testing.T) {
 		enricher := makeEnricher(DedupModeSummary)
-		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+		pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
 
-		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
 		result2 := NewToolResultText("r2")
-		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+		enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
-		textContent := enriched2.Content[1].(*mcp.TextContent)
-		var data map[string]any
-		json.Unmarshal([]byte(textContent.Text), &data)
-		if _, ok := data["semantic_context"]; !ok {
+		textContent := requireTextContent(t, enriched2)
+		data := requireUnmarshalJSON(t, textContent.Text)
+		if _, ok := data[semTestSemanticCtx]; !ok {
 			t.Error("summary mode: expected semantic_context")
 		}
 		if _, ok := data["note"]; !ok {
@@ -2404,11 +2250,11 @@ func TestSessionDedup_ConfigurableModes(t *testing.T) {
 
 	t.Run("none mode", func(t *testing.T) {
 		enricher := makeEnricher(DedupModeNone)
-		pc := &PlatformContext{ToolkitKind: "trino", SessionID: "s1"}
+		pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
 
-		enricher.enrich(context.Background(), NewToolResultText("r1"), request, pc)
+		requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
 		result2 := NewToolResultText("r2")
-		enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+		enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
 		// "none" mode should NOT add any enrichment content on second access
 		if len(enriched2.Content) != 1 {
@@ -2422,7 +2268,7 @@ func TestSessionDedup_StdioTransport(t *testing.T) {
 	enricher := &semanticEnricher{
 		semanticProvider: &mockSemanticProvider{
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-				return &semantic.TableContext{Description: "Test"}, nil
+				return &semantic.TableContext{Description: semTestDescTest}, nil
 			},
 		},
 		cfg: EnrichmentConfig{
@@ -2432,29 +2278,28 @@ func TestSessionDedup_StdioTransport(t *testing.T) {
 		},
 	}
 
-	args, _ := json.Marshal(map[string]any{"table": "catalog.schema.table"})
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{Arguments: args},
 	}
 
 	// Use "stdio" as session ID (as extractSessionID would return for stdio transport)
-	pc := &PlatformContext{ToolkitKind: "trino", SessionID: "stdio"}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "stdio"}
 
 	// First call - full enrichment
 	result1 := NewToolResultText("r1")
-	enriched1, _ := enricher.enrich(context.Background(), result1, request, pc)
+	enriched1 := requireEnrich(t, enricher, result1, request, pc)
 	if len(enriched1.Content) != 2 {
 		t.Fatalf("first call: expected 2 content items, got %d", len(enriched1.Content))
 	}
 
 	// Second call - should be deduped even with "stdio" session
 	result2 := NewToolResultText("r2")
-	enriched2, _ := enricher.enrich(context.Background(), result2, request, pc)
+	enriched2 := requireEnrich(t, enricher, result2, request, pc)
 
-	textContent := enriched2.Content[1].(*mcp.TextContent)
-	var data map[string]any
-	json.Unmarshal([]byte(textContent.Text), &data)
-	if _, ok := data["metadata_reference"]; !ok {
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+	if _, ok := data[semTestMetadataRef]; !ok {
 		t.Error("stdio transport: expected metadata_reference on second access")
 	}
 }
@@ -2510,13 +2355,16 @@ func TestAppendMetadataReference(t *testing.T) {
 		t.Fatalf("expected 2 content items, got %d", len(enriched.Content))
 	}
 
-	textContent := enriched.Content[1].(*mcp.TextContent)
+	textContent, ok := enriched.Content[1].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected *mcp.TextContent, got %T", enriched.Content[1])
+	}
 	var data map[string]any
 	if err := json.Unmarshal([]byte(textContent.Text), &data); err != nil {
 		t.Fatalf("failed to parse JSON: %v", err)
 	}
 
-	ref, ok := data["metadata_reference"].(map[string]any)
+	ref, ok := data[semTestMetadataRef].(map[string]any)
 	if !ok {
 		t.Fatal("expected metadata_reference in output")
 	}

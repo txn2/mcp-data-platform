@@ -1,7 +1,9 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,17 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	testServerUserID   = "user-123"
+	testDCRRequestBody = `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+	testClientID       = "client-123"
+	testRedirectURI    = "http://localhost:8080/callback"
+	testDBError        = "database error"
+	testScopeRead      = "read"
+	testSecret         = "secret"
+	errCreateServer    = "failed to create server: %v"
 )
 
 func TestNewServer(t *testing.T) {
@@ -64,13 +77,13 @@ func TestNewServer(t *testing.T) {
 
 func TestServerAuthorize(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("successful authorization", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 			RequirePKCE:  false,
 		}
@@ -86,10 +99,10 @@ func TestServerAuthorize(t *testing.T) {
 
 		code, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "code",
-			ClientID:     "client-123",
-			RedirectURI:  "http://localhost:8080/callback",
-			Scope:        "read",
-		}, "user-123", map[string]any{"role": "admin"})
+			ClientID:     testClientID,
+			RedirectURI:  testRedirectURI,
+			Scope:        testScopeRead,
+		}, testServerUserID, map[string]any{"role": "admin"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -108,8 +121,8 @@ func TestServerAuthorize(t *testing.T) {
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "code",
 			ClientID:     "invalid",
-			RedirectURI:  "http://localhost:8080/callback",
-		}, "user-123", nil)
+			RedirectURI:  testRedirectURI,
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for invalid client")
@@ -118,7 +131,7 @@ func TestServerAuthorize(t *testing.T) {
 
 	t.Run("inactive client", func(t *testing.T) {
 		client := &Client{
-			ClientID: "client-123",
+			ClientID: testClientID,
 			Active:   false,
 		}
 		storage := &mockStorage{
@@ -130,19 +143,23 @@ func TestServerAuthorize(t *testing.T) {
 
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "code",
-			ClientID:     "client-123",
-			RedirectURI:  "http://localhost:8080/callback",
-		}, "user-123", nil)
+			ClientID:     testClientID,
+			RedirectURI:  testRedirectURI,
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for inactive client")
 		}
 	})
+}
+
+func TestServerAuthorize_Validation(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("invalid redirect URI", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			ClientID:     testClientID,
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 		}
 		storage := &mockStorage{
@@ -154,9 +171,9 @@ func TestServerAuthorize(t *testing.T) {
 
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "code",
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			RedirectURI:  "http://attacker.com/callback",
-		}, "user-123", nil)
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for invalid redirect URI")
@@ -165,8 +182,8 @@ func TestServerAuthorize(t *testing.T) {
 
 	t.Run("unsupported response type", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			ClientID:     testClientID,
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 		}
 		storage := &mockStorage{
@@ -178,9 +195,9 @@ func TestServerAuthorize(t *testing.T) {
 
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "token",
-			ClientID:     "client-123",
-			RedirectURI:  "http://localhost:8080/callback",
-		}, "user-123", nil)
+			ClientID:     testClientID,
+			RedirectURI:  testRedirectURI,
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for unsupported response type")
@@ -189,8 +206,8 @@ func TestServerAuthorize(t *testing.T) {
 
 	t.Run("PKCE required but missing", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			ClientID:     testClientID,
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 			RequirePKCE:  true,
 		}
@@ -203,9 +220,9 @@ func TestServerAuthorize(t *testing.T) {
 
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType: "code",
-			ClientID:     "client-123",
-			RedirectURI:  "http://localhost:8080/callback",
-		}, "user-123", nil)
+			ClientID:     testClientID,
+			RedirectURI:  testRedirectURI,
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for missing PKCE")
@@ -214,8 +231,8 @@ func TestServerAuthorize(t *testing.T) {
 
 	t.Run("PKCE invalid method", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			ClientID:     testClientID,
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 			RequirePKCE:  true,
 		}
@@ -228,11 +245,11 @@ func TestServerAuthorize(t *testing.T) {
 
 		_, err := server.Authorize(ctx, AuthorizationRequest{
 			ResponseType:        "code",
-			ClientID:            "client-123",
-			RedirectURI:         "http://localhost:8080/callback",
+			ClientID:            testClientID,
+			RedirectURI:         testRedirectURI,
 			CodeChallenge:       "challenge",
 			CodeChallengeMethod: "invalid",
-		}, "user-123", nil)
+		}, testServerUserID, nil)
 
 		if err == nil {
 			t.Error("expected error for invalid PKCE method")
@@ -307,7 +324,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	}, storage)
 
 	t.Run("metadata endpoint", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -321,7 +338,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("metadata endpoint advertises paths without oauth prefix", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -340,7 +357,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("token endpoint wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/token", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/token", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -351,7 +368,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("register endpoint wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/register", nil)
+		req := httptest.NewRequest(http.MethodGet, "/oauth/register", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -362,7 +379,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/unknown", nil)
+		req := httptest.NewRequest(http.MethodGet, "/unknown", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -383,9 +400,17 @@ func TestServerHTTPHandlers(t *testing.T) {
 			t.Errorf("expected status 400, got %d", w.Code)
 		}
 	})
+}
+
+func TestServerHTTPHandlers_Register(t *testing.T) {
+	storage := &mockStorage{}
+	server, _ := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		DCR:    DCRConfig{Enabled: true},
+	}, storage)
 
 	t.Run("register endpoint with valid JSON", func(t *testing.T) {
-		body := `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+		body := testDCRRequestBody
 		req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -432,7 +457,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("token endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/token", nil)
+		req := httptest.NewRequest(http.MethodGet, "/token", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -443,7 +468,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("register endpoint without oauth prefix", func(t *testing.T) {
-		body := `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+		body := testDCRRequestBody
 		req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -456,7 +481,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("register endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/register", nil)
+		req := httptest.NewRequest(http.MethodGet, "/register", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -467,7 +492,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("authorize endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/authorize", nil)
+		req := httptest.NewRequest(http.MethodPost, "/authorize", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -478,7 +503,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("callback endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/callback", nil)
+		req := httptest.NewRequest(http.MethodPost, "/callback", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -492,7 +517,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 func TestBuildAuthorizationURL(t *testing.T) {
 	url := BuildAuthorizationURL(
 		"http://localhost:8080",
-		"client-123",
+		testClientID,
 		"http://localhost:3000/callback",
 		"read write",
 		"state123",
@@ -521,23 +546,23 @@ func TestBuildAuthorizationURL(t *testing.T) {
 
 func TestHandleAuthorizationCodeGrant(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("successful authorization code grant", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 		}
 		authCode := &AuthorizationCode{
 			ID:          "code-id-1",
 			Code:        "valid-code",
-			ClientID:    "client-123",
-			UserID:      "user-123",
+			ClientID:    testClientID,
+			UserID:      testServerUserID,
 			UserClaims:  map[string]any{"role": "admin"},
-			RedirectURI: "http://localhost:8080/callback",
-			Scope:       "read",
+			RedirectURI: testRedirectURI,
+			Scope:       testScopeRead,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 			CreatedAt:   time.Now(),
@@ -562,9 +587,9 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		resp, err := server.Token(ctx, TokenRequest{
 			GrantType:    "authorization_code",
 			Code:         "valid-code",
-			RedirectURI:  "http://localhost:8080/callback",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
+			RedirectURI:  testRedirectURI,
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -585,6 +610,10 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			t.Error("access token and refresh token must be different")
 		}
 	})
+}
+
+func TestHandleAuthorizationCodeGrant_Errors(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("invalid authorization code", func(t *testing.T) {
 		storage := &mockStorage{
@@ -607,8 +636,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 	t.Run("authorization code already used", func(t *testing.T) {
 		authCode := &AuthorizationCode{
 			Code:        "used-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 			Used:        true,
 		}
 
@@ -622,20 +651,24 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:   "authorization_code",
 			Code:        "used-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 		})
 
 		if err == nil {
 			t.Error("expected error for used code")
 		}
 	})
+}
+
+func TestHandleAuthorizationCodeGrant_Validation(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("authorization code expired", func(t *testing.T) {
 		authCode := &AuthorizationCode{
 			Code:        "expired-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 			ExpiresAt:   time.Now().Add(-time.Hour),
 			Used:        false,
 		}
@@ -650,8 +683,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:   "authorization_code",
 			Code:        "expired-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 		})
 
 		if err == nil {
@@ -662,8 +695,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 	t.Run("client_id mismatch", func(t *testing.T) {
 		authCode := &AuthorizationCode{
 			Code:        "valid-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 		}
@@ -679,7 +712,7 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			GrantType:   "authorization_code",
 			Code:        "valid-code",
 			ClientID:    "other-client",
-			RedirectURI: "http://localhost:8080/callback",
+			RedirectURI: testRedirectURI,
 		})
 
 		if err == nil {
@@ -690,8 +723,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 	t.Run("redirect_uri mismatch", func(t *testing.T) {
 		authCode := &AuthorizationCode{
 			Code:        "valid-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 		}
@@ -706,7 +739,7 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:   "authorization_code",
 			Code:        "valid-code",
-			ClientID:    "client-123",
+			ClientID:    testClientID,
 			RedirectURI: "http://attacker.com/callback",
 		})
 
@@ -714,23 +747,28 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			t.Error("expected error for redirect_uri mismatch")
 		}
 	})
+}
+
+func TestHandleAuthorizationCodeGrant_Loopback(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("loopback redirect_uri with different port succeeds", func(t *testing.T) {
 		// RFC 8252 Section 7.3: loopback URIs match by scheme+host only.
 		// Code was issued with one dynamic port, token exchange uses another.
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 			RedirectURIs: []string{"http://localhost"},
 			Active:       true,
 		}
 		authCode := &AuthorizationCode{
 			Code:        "loopback-code",
-			ClientID:    "client-123",
-			UserID:      "user-123",
+			ClientID:    testClientID,
+			UserID:      testServerUserID,
 			UserClaims:  map[string]any{"role": "admin"},
 			RedirectURI: "http://localhost:52431/callback",
-			Scope:       "read",
+			Scope:       testScopeRead,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 		}
@@ -755,8 +793,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			GrantType:    "authorization_code",
 			Code:         "loopback-code",
 			RedirectURI:  "http://localhost:52431/callback",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -770,17 +808,17 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		// Code stored with port 52431, token exchange uses port 63000.
 		// Both are loopback, so this should succeed per RFC 8252.
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 			RedirectURIs: []string{"http://127.0.0.1"},
 			Active:       true,
 		}
 		authCode := &AuthorizationCode{
 			Code:        "loopback-port-code",
-			ClientID:    "client-123",
-			UserID:      "user-123",
+			ClientID:    testClientID,
+			UserID:      testServerUserID,
 			RedirectURI: "http://127.0.0.1:52431/callback",
-			Scope:       "read",
+			Scope:       testScopeRead,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 		}
@@ -805,8 +843,8 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			GrantType:    "authorization_code",
 			Code:         "loopback-port-code",
 			RedirectURI:  "http://127.0.0.1:63000/callback",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -815,16 +853,21 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			t.Error("expected non-empty access token")
 		}
 	})
+}
+
+func TestHandleAuthorizationCodeGrant_PKCE(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("invalid client credentials", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 		}
 		authCode := &AuthorizationCode{
 			Code:        "valid-code",
-			ClientID:    "client-123",
-			RedirectURI: "http://localhost:8080/callback",
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
 			ExpiresAt:   time.Now().Add(10 * time.Minute),
 			Used:        false,
 		}
@@ -842,9 +885,9 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:    "authorization_code",
 			Code:         "valid-code",
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: "wrong-secret",
-			RedirectURI:  "http://localhost:8080/callback",
+			RedirectURI:  testRedirectURI,
 		})
 
 		if err == nil {
@@ -857,16 +900,16 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		codeChallenge, _ := GenerateCodeChallenge(codeVerifier, PKCEMethodS256)
 
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
-			RedirectURIs: []string{"http://localhost:8080/callback"},
+			RedirectURIs: []string{testRedirectURI},
 			Active:       true,
 		}
 		authCode := &AuthorizationCode{
 			Code:          "pkce-code",
-			ClientID:      "client-123",
-			UserID:        "user-123",
-			RedirectURI:   "http://localhost:8080/callback",
+			ClientID:      testClientID,
+			UserID:        testServerUserID,
+			RedirectURI:   testRedirectURI,
 			CodeChallenge: codeChallenge,
 			ExpiresAt:     time.Now().Add(10 * time.Minute),
 			Used:          false,
@@ -891,9 +934,9 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		resp, err := server.Token(ctx, TokenRequest{
 			GrantType:    "authorization_code",
 			Code:         "pkce-code",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/callback",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
+			RedirectURI:  testRedirectURI,
 			CodeVerifier: codeVerifier,
 		})
 		if err != nil {
@@ -906,13 +949,13 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 
 	t.Run("PKCE verification missing verifier", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 		}
 		authCode := &AuthorizationCode{
 			Code:          "pkce-code",
-			ClientID:      "client-123",
-			RedirectURI:   "http://localhost:8080/callback",
+			ClientID:      testClientID,
+			RedirectURI:   testRedirectURI,
 			CodeChallenge: "some-challenge",
 			ExpiresAt:     time.Now().Add(10 * time.Minute),
 			Used:          false,
@@ -931,9 +974,9 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:    "authorization_code",
 			Code:         "pkce-code",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/callback",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
+			RedirectURI:  testRedirectURI,
 		})
 
 		if err == nil {
@@ -946,14 +989,14 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		codeChallenge, _ := GenerateCodeChallenge(correctVerifier, PKCEMethodS256)
 
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 			Active:       true,
 		}
 		authCode := &AuthorizationCode{
 			Code:          "pkce-code",
-			ClientID:      "client-123",
-			RedirectURI:   "http://localhost:8080/callback",
+			ClientID:      testClientID,
+			RedirectURI:   testRedirectURI,
 			CodeChallenge: codeChallenge,
 			ExpiresAt:     time.Now().Add(10 * time.Minute),
 			Used:          false,
@@ -972,9 +1015,9 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:    "authorization_code",
 			Code:         "pkce-code",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/callback",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
+			RedirectURI:  testRedirectURI,
 			CodeVerifier: "wrong-verifier-that-does-not-match",
 		})
 
@@ -986,21 +1029,21 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 
 func TestHandleRefreshTokenGrant(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("successful refresh token grant", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 			Active:       true,
 		}
 		refreshToken := &RefreshToken{
 			ID:         "token-id-1",
 			Token:      "valid-refresh-token",
-			ClientID:   "client-123",
-			UserID:     "user-123",
+			ClientID:   testClientID,
+			UserID:     testServerUserID,
 			UserClaims: map[string]any{"role": "admin"},
-			Scope:      "read",
+			Scope:      testScopeRead,
 			ExpiresAt:  time.Now().Add(24 * time.Hour),
 			CreatedAt:  time.Now(),
 		}
@@ -1024,8 +1067,8 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 		resp, err := server.Token(ctx, TokenRequest{
 			GrantType:    "refresh_token",
 			RefreshToken: "valid-refresh-token",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1046,6 +1089,10 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 			t.Errorf("expected ExpiresIn > 0, got %d", resp.ExpiresIn)
 		}
 	})
+}
+
+func TestHandleRefreshTokenGrant_Errors(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("invalid refresh token", func(t *testing.T) {
 		storage := &mockStorage{
@@ -1068,7 +1115,7 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 	t.Run("expired refresh token", func(t *testing.T) {
 		refreshToken := &RefreshToken{
 			Token:     "expired-token",
-			ClientID:  "client-123",
+			ClientID:  testClientID,
 			ExpiresAt: time.Now().Add(-time.Hour),
 		}
 
@@ -1085,7 +1132,7 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:    "refresh_token",
 			RefreshToken: "expired-token",
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 		})
 
 		if err == nil {
@@ -1096,7 +1143,7 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 	t.Run("client_id mismatch", func(t *testing.T) {
 		refreshToken := &RefreshToken{
 			Token:     "valid-token",
-			ClientID:  "client-123",
+			ClientID:  testClientID,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		}
 
@@ -1117,15 +1164,20 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 			t.Error("expected error for client_id mismatch")
 		}
 	})
+}
+
+func TestHandleRefreshTokenGrant_Credentials(t *testing.T) {
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	t.Run("invalid client credentials", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 		}
 		refreshToken := &RefreshToken{
 			Token:     "valid-token",
-			ClientID:  "client-123",
+			ClientID:  testClientID,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		}
 
@@ -1142,7 +1194,7 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 		_, err := server.Token(ctx, TokenRequest{
 			GrantType:    "refresh_token",
 			RefreshToken: "valid-token",
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: "wrong-secret",
 		})
 
@@ -1153,14 +1205,14 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 
 	t.Run("refresh token with scope override", func(t *testing.T) {
 		client := &Client{
-			ClientID:     "client-123",
+			ClientID:     testClientID,
 			ClientSecret: string(hashedSecret),
 			Active:       true,
 		}
 		refreshToken := &RefreshToken{
 			Token:     "valid-token",
-			ClientID:  "client-123",
-			UserID:    "user-123",
+			ClientID:  testClientID,
+			UserID:    testServerUserID,
 			Scope:     "read write",
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		}
@@ -1184,32 +1236,32 @@ func TestHandleRefreshTokenGrant(t *testing.T) {
 		resp, err := server.Token(ctx, TokenRequest{
 			GrantType:    "refresh_token",
 			RefreshToken: "valid-token",
-			ClientID:     "client-123",
-			ClientSecret: "secret",
-			Scope:        "read",
+			ClientID:     testClientID,
+			ClientSecret: testSecret,
+			Scope:        testScopeRead,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if resp.Scope != "read" {
+		if resp.Scope != testScopeRead {
 			t.Errorf("expected scope 'read', got %q", resp.Scope)
 		}
 	})
 }
 
 func TestTokenEndpointBasicAuth(t *testing.T) {
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
-		RedirectURIs: []string{"http://localhost:8080/callback"},
+		RedirectURIs: []string{testRedirectURI},
 		Active:       true,
 	}
 	authCode := &AuthorizationCode{
 		Code:        "valid-code",
-		ClientID:    "client-123",
-		UserID:      "user-123",
-		RedirectURI: "http://localhost:8080/callback",
+		ClientID:    testClientID,
+		UserID:      testServerUserID,
+		RedirectURI: testRedirectURI,
 		ExpiresAt:   time.Now().Add(10 * time.Minute),
 		Used:        false,
 	}
@@ -1233,7 +1285,7 @@ func TestTokenEndpointBasicAuth(t *testing.T) {
 	body := "grant_type=authorization_code&code=valid-code&redirect_uri=http://localhost:8080/callback"
 	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth("client-123", "secret")
+	req.SetBasicAuth(testClientID, testSecret)
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -1289,12 +1341,12 @@ func TestStartCleanupRoutine(t *testing.T) {
 
 func TestAuthorizeSaveCodeError(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
-		RedirectURIs: []string{"http://localhost:8080/callback"},
+		RedirectURIs: []string{testRedirectURI},
 		Active:       true,
 		RequirePKCE:  false,
 	}
@@ -1303,17 +1355,17 @@ func TestAuthorizeSaveCodeError(t *testing.T) {
 			return client, nil
 		},
 		saveAuthorizationCodeFunc: func(_ context.Context, _ *AuthorizationCode) error {
-			return fmt.Errorf("database error")
+			return errors.New(testDBError)
 		},
 	}
 	server, _ := NewServer(ServerConfig{}, storage)
 
 	_, err := server.Authorize(ctx, AuthorizationRequest{
 		ResponseType: "code",
-		ClientID:     "client-123",
-		RedirectURI:  "http://localhost:8080/callback",
-		Scope:        "read",
-	}, "user-123", nil)
+		ClientID:     testClientID,
+		RedirectURI:  testRedirectURI,
+		Scope:        testScopeRead,
+	}, testServerUserID, nil)
 
 	if err == nil {
 		t.Error("expected error for save failure")
@@ -1322,19 +1374,19 @@ func TestAuthorizeSaveCodeError(t *testing.T) {
 
 func TestGenerateTokensSaveRefreshError(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
-		RedirectURIs: []string{"http://localhost:8080/callback"},
+		RedirectURIs: []string{testRedirectURI},
 		Active:       true,
 	}
 	authCode := &AuthorizationCode{
 		Code:        "valid-code",
-		ClientID:    "client-123",
-		UserID:      "user-123",
-		RedirectURI: "http://localhost:8080/callback",
+		ClientID:    testClientID,
+		UserID:      testServerUserID,
+		RedirectURI: testRedirectURI,
 		ExpiresAt:   time.Now().Add(10 * time.Minute),
 		Used:        false,
 	}
@@ -1350,7 +1402,7 @@ func TestGenerateTokensSaveRefreshError(t *testing.T) {
 			return nil
 		},
 		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
-			return fmt.Errorf("database error")
+			return errors.New(testDBError)
 		},
 	}
 	server, _ := NewServer(ServerConfig{}, storage)
@@ -1358,9 +1410,9 @@ func TestGenerateTokensSaveRefreshError(t *testing.T) {
 	_, err := server.Token(ctx, TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         "valid-code",
-		RedirectURI:  "http://localhost:8080/callback",
-		ClientID:     "client-123",
-		ClientSecret: "secret",
+		RedirectURI:  testRedirectURI,
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
 	})
 
 	if err == nil {
@@ -1371,19 +1423,19 @@ func TestGenerateTokensSaveRefreshError(t *testing.T) {
 func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 	// Delete refresh token errors are ignored (the token rotation proceeds)
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
 		Active:       true,
 	}
 	refreshToken := &RefreshToken{
 		Token:      "valid-token",
-		ClientID:   "client-123",
-		UserID:     "user-123",
+		ClientID:   testClientID,
+		UserID:     testServerUserID,
 		UserClaims: map[string]any{"role": "admin"},
-		Scope:      "read",
+		Scope:      testScopeRead,
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
 
@@ -1395,7 +1447,7 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 			return refreshToken, nil
 		},
 		deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
-			return fmt.Errorf("database error") // Error is ignored
+			return errors.New(testDBError) // Error is ignored
 		},
 		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
 			return nil
@@ -1406,8 +1458,8 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 	resp, err := server.Token(ctx, TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: "valid-token",
-		ClientID:     "client-123",
-		ClientSecret: "secret",
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
 	})
 	// Should succeed despite delete error
 	if err != nil {
@@ -1421,7 +1473,7 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 func TestHandleRegisterEndpointStorageError(t *testing.T) {
 	storage := &mockStorage{
 		createClientFunc: func(_ context.Context, _ *Client) error {
-			return fmt.Errorf("database error")
+			return errors.New(testDBError)
 		},
 	}
 	server, _ := NewServer(ServerConfig{
@@ -1429,7 +1481,7 @@ func TestHandleRegisterEndpointStorageError(t *testing.T) {
 		DCR:    DCRConfig{Enabled: true},
 	}, storage)
 
-	body := `{"client_name":"Test","redirect_uris":["http://localhost:8080"]}`
+	body := testDCRRequestBody
 	req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1444,20 +1496,20 @@ func TestHandleRegisterEndpointStorageError(t *testing.T) {
 
 func TestGenerateTokensSaveError(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	authCode := &AuthorizationCode{
 		Code:        "valid-code",
-		ClientID:    "client-123",
-		RedirectURI: "http://localhost:8080/callback",
-		UserID:      "user-123",
-		Scope:       "read",
+		ClientID:    testClientID,
+		RedirectURI: testRedirectURI,
+		UserID:      testServerUserID,
+		Scope:       testScopeRead,
 		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
-		RedirectURIs: []string{"http://localhost:8080/callback"},
+		RedirectURIs: []string{testRedirectURI},
 		Active:       true,
 	}
 
@@ -1480,9 +1532,9 @@ func TestGenerateTokensSaveError(t *testing.T) {
 	_, err := server.Token(ctx, TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         "valid-code",
-		RedirectURI:  "http://localhost:8080/callback",
-		ClientID:     "client-123",
-		ClientSecret: "secret",
+		RedirectURI:  testRedirectURI,
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
 	})
 
 	if err == nil {
@@ -1495,15 +1547,15 @@ func TestGenerateTokensSaveError(t *testing.T) {
 
 func TestValidatePKCEPlain(t *testing.T) {
 	ctx := context.Background()
-	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
 	codeVerifier := "plain-code-verifier-123456"
 	codeChallenge := codeVerifier // plain method uses verifier directly
 
 	client := &Client{
-		ClientID:     "client-123",
+		ClientID:     testClientID,
 		ClientSecret: string(hashedSecret),
-		RedirectURIs: []string{"http://localhost:8080/callback"},
+		RedirectURIs: []string{testRedirectURI},
 		Active:       true,
 		RequirePKCE:  true,
 	}
@@ -1521,12 +1573,12 @@ func TestValidatePKCEPlain(t *testing.T) {
 	// Authorize with plain PKCE
 	code, err := server.Authorize(ctx, AuthorizationRequest{
 		ResponseType:        "code",
-		ClientID:            "client-123",
-		RedirectURI:         "http://localhost:8080/callback",
-		Scope:               "read",
+		ClientID:            testClientID,
+		RedirectURI:         testRedirectURI,
+		Scope:               testScopeRead,
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: "plain",
-	}, "user-123", nil)
+	}, testServerUserID, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1551,7 +1603,7 @@ func TestGenerateAccessToken_JWT(t *testing.T) {
 		AccessTokenTTL: time.Hour,
 	}, storage)
 	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
+		t.Fatalf(errCreateServer, err)
 	}
 
 	t.Run("generates valid JWT", func(t *testing.T) {
@@ -1563,13 +1615,13 @@ func TestGenerateAccessToken_JWT(t *testing.T) {
 			},
 		}
 
-		resp, err := server.generateTokens(context.Background(), client, "user-123", userClaims, "openid profile")
+		resp, err := server.generateTokens(context.Background(), client, testServerUserID, userClaims, "openid profile")
 		if err != nil {
 			t.Fatalf("failed to generate tokens: %v", err)
 		}
 
 		// Parse the JWT without verification first to see the claims
-		token, err := jwt.Parse(resp.AccessToken, func(t *jwt.Token) (any, error) {
+		token, err := jwt.Parse(resp.AccessToken, func(_ *jwt.Token) (any, error) {
 			return signingKey, nil
 		})
 		if err != nil {
@@ -1585,7 +1637,7 @@ func TestGenerateAccessToken_JWT(t *testing.T) {
 		if claims["iss"] != issuer {
 			t.Errorf("expected issuer %q, got %q", issuer, claims["iss"])
 		}
-		if claims["sub"] != "user-123" {
+		if claims["sub"] != testServerUserID {
 			t.Errorf("expected sub 'user-123', got %q", claims["sub"])
 		}
 		if claims["aud"] != "test-client" {
@@ -1604,38 +1656,55 @@ func TestGenerateAccessToken_JWT(t *testing.T) {
 			t.Errorf("expected email in nested claims")
 		}
 	})
+}
 
-	t.Run("JWT is verifiable", func(t *testing.T) {
-		client := &Client{ClientID: "test-client"}
+func TestGenerateAccessToken_JWT_Verification(t *testing.T) {
+	signingKey := []byte("test-signing-key-at-least-32-bytes-long")
 
-		resp, err := server.generateTokens(context.Background(), client, "user-456", nil, "read")
-		if err != nil {
-			t.Fatalf("failed to generate tokens: %v", err)
-		}
+	storage := &mockStorage{
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
 
-		// Verify with correct key
-		token, err := jwt.Parse(resp.AccessToken, func(t *jwt.Token) (any, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return signingKey, nil
-		})
-		if err != nil {
-			t.Fatalf("failed to verify JWT: %v", err)
-		}
-		if !token.Valid {
-			t.Error("token should be valid")
-		}
+	server, err := NewServer(ServerConfig{
+		Issuer:         "https://oauth.example.com",
+		SigningKey:     signingKey,
+		AccessTokenTTL: time.Hour,
+	}, storage)
+	if err != nil {
+		t.Fatalf(errCreateServer, err)
+	}
 
-		// Verify with wrong key fails
-		wrongKey := []byte("wrong-key-at-least-32-bytes-long")
-		_, err = jwt.Parse(resp.AccessToken, func(_ *jwt.Token) (any, error) {
-			return wrongKey, nil
-		})
-		if err == nil {
-			t.Error("expected verification to fail with wrong key")
+	client := &Client{ClientID: "test-client"}
+
+	resp, err := server.generateTokens(context.Background(), client, "user-456", nil, testScopeRead)
+	if err != nil {
+		t.Fatalf("failed to generate tokens: %v", err)
+	}
+
+	// Verify with correct key
+	token, err := jwt.Parse(resp.AccessToken, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
+		return signingKey, nil
 	})
+	if err != nil {
+		t.Fatalf("failed to verify JWT: %v", err)
+	}
+	if !token.Valid {
+		t.Error("token should be valid")
+	}
+
+	// Verify with wrong key fails
+	wrongKey := []byte("wrong-key-at-least-32-bytes-long")
+	_, err = jwt.Parse(resp.AccessToken, func(_ *jwt.Token) (any, error) {
+		return wrongKey, nil
+	})
+	if err == nil {
+		t.Error("expected verification to fail with wrong key")
+	}
 }
 
 func TestGenerateAccessToken_NoSigningKey(t *testing.T) {
@@ -1651,11 +1720,11 @@ func TestGenerateAccessToken_NoSigningKey(t *testing.T) {
 		AccessTokenTTL: time.Hour,
 	}, storage)
 	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
+		t.Fatalf(errCreateServer, err)
 	}
 
 	client := &Client{ClientID: "test-client"}
-	resp, err := server.generateTokens(context.Background(), client, "user-123", nil, "read")
+	resp, err := server.generateTokens(context.Background(), client, testServerUserID, nil, testScopeRead)
 	if err != nil {
 		t.Fatalf("failed to generate tokens: %v", err)
 	}
@@ -1688,10 +1757,10 @@ func TestServerSigningKey(t *testing.T) {
 		SigningKey: signingKey,
 	}, storage)
 	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
+		t.Fatalf(errCreateServer, err)
 	}
 
-	if string(server.SigningKey()) != string(signingKey) {
+	if !bytes.Equal(server.SigningKey(), signingKey) {
 		t.Error("SigningKey() should return the configured signing key")
 	}
 

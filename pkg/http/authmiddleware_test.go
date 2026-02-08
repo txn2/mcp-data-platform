@@ -1,4 +1,4 @@
-package http
+package http //nolint:revive // var-naming: intentional package name to match directory
 
 import (
 	"net/http"
@@ -15,7 +15,7 @@ func TestAuthMiddleware(t *testing.T) {
 			extractedToken = auth.GetToken(r.Context())
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer test-token-123")
 		rr := httptest.NewRecorder()
 
@@ -32,7 +32,7 @@ func TestAuthMiddleware(t *testing.T) {
 			extractedToken = auth.GetToken(r.Context())
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.Header.Set("X-API-Key", "api-key-456")
 		rr := httptest.NewRecorder()
 
@@ -49,7 +49,7 @@ func TestAuthMiddleware(t *testing.T) {
 			extractedToken = auth.GetToken(r.Context())
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer bearer-token")
 		req.Header.Set("X-API-Key", "api-key")
 		rr := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestAuthMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -75,7 +75,9 @@ func TestAuthMiddleware(t *testing.T) {
 			t.Errorf("expected status 401, got %d", rr.Code)
 		}
 	})
+}
 
+func TestAuthMiddleware_AllowsAndRequires(t *testing.T) {
 	t.Run("allows request when auth not required and no token", func(t *testing.T) {
 		handlerCalled := false
 		handler := AuthMiddleware(false)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -83,7 +85,7 @@ func TestAuthMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -103,7 +105,7 @@ func TestAuthMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer valid-token")
 		rr := httptest.NewRecorder()
 
@@ -123,7 +125,7 @@ func TestRequireAuth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -140,7 +142,7 @@ func TestOptionalAuth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -159,7 +161,7 @@ func TestMCPAuthGateway(t *testing.T) {
 		rmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
 		handler := MCPAuthGateway(rmURL)(okHandler)
 
-		req := httptest.NewRequest("POST", "/", nil)
+		req := httptest.NewRequest("POST", "/", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -177,7 +179,7 @@ func TestMCPAuthGateway(t *testing.T) {
 	t.Run("returns 401 with plain Bearer when no resource metadata URL", func(t *testing.T) {
 		handler := MCPAuthGateway("")(okHandler)
 
-		req := httptest.NewRequest("POST", "/", nil)
+		req := httptest.NewRequest("POST", "/", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -197,7 +199,7 @@ func TestMCPAuthGateway(t *testing.T) {
 		})
 		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(inner)
 
-		req := httptest.NewRequest("POST", "/", nil)
+		req := httptest.NewRequest("POST", "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer some-token")
 		rr := httptest.NewRecorder()
 
@@ -215,7 +217,7 @@ func TestMCPAuthGateway(t *testing.T) {
 		})
 		handler := MCPAuthGateway("https://mcp.example.com/.well-known/oauth-protected-resource")(inner)
 
-		req := httptest.NewRequest("POST", "/", nil)
+		req := httptest.NewRequest("POST", "/", http.NoBody)
 		req.Header.Set("X-API-Key", "some-api-key")
 		rr := httptest.NewRecorder()
 
@@ -229,7 +231,7 @@ func TestMCPAuthGateway(t *testing.T) {
 	t.Run("rejects Authorization header without Bearer prefix", func(t *testing.T) {
 		handler := MCPAuthGateway("")(okHandler)
 
-		req := httptest.NewRequest("POST", "/", nil)
+		req := httptest.NewRequest("POST", "/", http.NoBody)
 		req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 		rr := httptest.NewRecorder()
 
@@ -249,7 +251,7 @@ func TestRequireAuthWithOAuth(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/sse", nil)
+		req := httptest.NewRequest("GET", "/sse", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -269,7 +271,7 @@ func TestRequireAuthWithOAuth(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/sse", nil)
+		req := httptest.NewRequest("GET", "/sse", http.NoBody)
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
@@ -288,13 +290,13 @@ func TestRequireAuthWithOAuth(t *testing.T) {
 			extractedToken = auth.GetToken(r.Context())
 		}))
 
-		req := httptest.NewRequest("GET", "/sse", nil)
+		req := httptest.NewRequest("GET", "/sse", http.NoBody)
 		req.Header.Set("Authorization", "Bearer my-oauth-token")
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
 
-		if extractedToken != "my-oauth-token" {
+		if extractedToken != "my-oauth-token" { //nolint:gosec // G101: test fixture, not a credential
 			t.Errorf("expected token 'my-oauth-token', got %q", extractedToken)
 		}
 	})
@@ -305,7 +307,7 @@ func TestRequireAuthWithOAuth(t *testing.T) {
 			extractedToken = auth.GetToken(r.Context())
 		}))
 
-		req := httptest.NewRequest("GET", "/sse", nil)
+		req := httptest.NewRequest("GET", "/sse", http.NoBody)
 		req.Header.Set("X-API-Key", "my-api-key")
 		rr := httptest.NewRecorder()
 

@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+const (
+	testInstructions = "Instructions"
+	testPrefix       = "Prefix"
+	testSuffix       = "Suffix"
+	testFileMode     = 0o644
+	testDirMode      = 0o750
+	testWriteFileErr = "failed to write file: %v"
+)
+
 func TestNewPromptManager(t *testing.T) {
 	pm := NewPromptManager(PromptConfig{
 		PromptsDir: "/some/dir",
@@ -22,122 +31,114 @@ func TestNewPromptManager(t *testing.T) {
 	}
 }
 
-func TestPromptManagerLoadPrompts(t *testing.T) {
-	t.Run("empty prompts dir", func(t *testing.T) {
-		pm := NewPromptManager(PromptConfig{
-			PromptsDir: "",
-		})
-
-		err := pm.LoadPrompts()
-		if err != nil {
-			t.Errorf("LoadPrompts() error = %v", err)
-		}
+func TestPromptManagerLoadPrompts_EmptyDir(t *testing.T) {
+	pm := NewPromptManager(PromptConfig{
+		PromptsDir: "",
 	})
 
-	t.Run("nonexistent directory", func(t *testing.T) {
-		pm := NewPromptManager(PromptConfig{
-			PromptsDir: "/nonexistent/path/that/does/not/exist",
-		})
+	err := pm.LoadPrompts()
+	if err != nil {
+		t.Errorf("LoadPrompts() error = %v", err)
+	}
+}
 
-		err := pm.LoadPrompts()
-		if err != nil {
-			t.Errorf("LoadPrompts() error = %v (should return nil for nonexistent dir)", err)
-		}
+func TestPromptManagerLoadPrompts_NonexistentDir(t *testing.T) {
+	pm := NewPromptManager(PromptConfig{
+		PromptsDir: "/nonexistent/path/that/does/not/exist",
 	})
 
-	t.Run("path is file not directory", func(t *testing.T) {
-		dir := t.TempDir()
-		filePath := filepath.Join(dir, "not_a_dir")
-		if err := os.WriteFile(filePath, []byte("file content"), 0o644); err != nil {
-			t.Fatalf("failed to create file: %v", err)
-		}
+	err := pm.LoadPrompts()
+	if err != nil {
+		t.Errorf("LoadPrompts() error = %v (should return nil for nonexistent dir)", err)
+	}
+}
 
-		pm := NewPromptManager(PromptConfig{
-			PromptsDir: filePath,
-		})
+func TestPromptManagerLoadPrompts_FileNotDir(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "not_a_dir")
+	if err := os.WriteFile(filePath, []byte("file content"), testFileMode); err != nil {
+		t.Fatalf("failed to create file: %v", err)
+	}
 
-		err := pm.LoadPrompts()
-		if err == nil {
-			t.Error("LoadPrompts() expected error when path is a file, not directory")
-		}
+	pm := NewPromptManager(PromptConfig{
+		PromptsDir: filePath,
 	})
 
-	t.Run("load txt files", func(t *testing.T) {
-		dir := t.TempDir()
+	err := pm.LoadPrompts()
+	if err == nil {
+		t.Error("LoadPrompts() expected error when path is a file, not directory")
+	}
+}
 
-		// Create test prompt files
-		if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), 0o644); err != nil {
-			t.Fatalf("failed to write file: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), 0o644); err != nil {
-			t.Fatalf("failed to write file: %v", err)
-		}
-		// Create a file that should be ignored
-		if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), 0o644); err != nil {
-			t.Fatalf("failed to write file: %v", err)
-		}
+func TestPromptManagerLoadPrompts_TxtFiles(t *testing.T) {
+	dir := t.TempDir()
 
-		pm := NewPromptManager(PromptConfig{
-			PromptsDir: dir,
-		})
+	if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
+	}
 
-		if err := pm.LoadPrompts(); err != nil {
-			t.Fatalf("LoadPrompts() error = %v", err)
-		}
-
-		// Check txt file loaded
-		content, ok := pm.Get("greeting")
-		if !ok {
-			t.Error("greeting prompt not loaded")
-		}
-		if content != "Hello, {{name}}!" {
-			t.Errorf("greeting content = %q", content)
-		}
-
-		// Check md file loaded
-		content, ok = pm.Get("farewell")
-		if !ok {
-			t.Error("farewell prompt not loaded")
-		}
-		if content != "Goodbye!" {
-			t.Errorf("farewell content = %q", content)
-		}
-
-		// Check json file was ignored
-		_, ok = pm.Get("ignored")
-		if ok {
-			t.Error("ignored.json should not have been loaded")
-		}
+	pm := NewPromptManager(PromptConfig{
+		PromptsDir: dir,
 	})
 
-	t.Run("skips directories", func(t *testing.T) {
-		dir := t.TempDir()
+	if err := pm.LoadPrompts(); err != nil {
+		t.Fatalf("LoadPrompts() error = %v", err)
+	}
 
-		// Create a subdirectory
-		subdir := filepath.Join(dir, "subdir")
-		if err := os.Mkdir(subdir, 0o755); err != nil {
-			t.Fatalf("failed to create subdir: %v", err)
-		}
+	assertPromptContent(t, pm, "greeting", "Hello, {{name}}!")
+	assertPromptContent(t, pm, "farewell", "Goodbye!")
+	assertPromptNotLoaded(t, pm, "ignored")
+}
 
-		// Create a file inside subdir (should be ignored)
-		if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), 0o644); err != nil {
-			t.Fatalf("failed to write file: %v", err)
-		}
+func TestPromptManagerLoadPrompts_SkipsDirs(t *testing.T) {
+	dir := t.TempDir()
 
-		pm := NewPromptManager(PromptConfig{
-			PromptsDir: dir,
-		})
+	subdir := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(subdir, testDirMode); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
 
-		if err := pm.LoadPrompts(); err != nil {
-			t.Fatalf("LoadPrompts() error = %v", err)
-		}
+	if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
+	}
 
-		// Should not have loaded the nested file
-		_, ok := pm.Get("nested")
-		if ok {
-			t.Error("nested file should not have been loaded")
-		}
+	pm := NewPromptManager(PromptConfig{
+		PromptsDir: dir,
 	})
+
+	if err := pm.LoadPrompts(); err != nil {
+		t.Fatalf("LoadPrompts() error = %v", err)
+	}
+
+	assertPromptNotLoaded(t, pm, "nested")
+}
+
+// assertPromptContent checks that a prompt exists with the expected content.
+func assertPromptContent(t *testing.T, pm *PromptManager, name, expectedContent string) {
+	t.Helper()
+	content, ok := pm.Get(name)
+	if !ok {
+		t.Errorf("%s prompt not loaded", name)
+		return
+	}
+	if content != expectedContent {
+		t.Errorf("%s content = %q, want %q", name, content, expectedContent)
+	}
+}
+
+// assertPromptNotLoaded checks that a prompt was not loaded.
+func assertPromptNotLoaded(t *testing.T, pm *PromptManager, name string) {
+	t.Helper()
+	_, ok := pm.Get(name)
+	if ok {
+		t.Errorf("%s should not have been loaded", name)
+	}
 }
 
 func TestIsPromptFile(t *testing.T) {
@@ -232,14 +233,14 @@ func TestBuildSystemPrompt(t *testing.T) {
 		suffix       string
 		expected     string
 	}{
-		{"all parts", "Prefix", "Instructions", "Suffix", "Prefix\n\nInstructions\n\nSuffix"},
-		{"no prefix", "", "Instructions", "Suffix", "Instructions\n\nSuffix"},
-		{"no suffix", "Prefix", "Instructions", "", "Prefix\n\nInstructions"},
-		{"only instructions", "", "Instructions", "", "Instructions"},
-		{"only prefix", "Prefix", "", "", "Prefix"},
-		{"only suffix", "", "", "Suffix", "Suffix"},
+		{"all parts", testPrefix, testInstructions, testSuffix, "Prefix\n\nInstructions\n\nSuffix"},
+		{"no prefix", "", testInstructions, testSuffix, "Instructions\n\nSuffix"},
+		{"no suffix", testPrefix, testInstructions, "", "Prefix\n\nInstructions"},
+		{"only instructions", "", testInstructions, "", testInstructions},
+		{"only prefix", testPrefix, "", "", testPrefix},
+		{"only suffix", "", "", testSuffix, testSuffix},
 		{"empty", "", "", "", ""},
-		{"prefix and suffix", "Prefix", "", "Suffix", "Prefix\n\nSuffix"},
+		{"prefix and suffix", testPrefix, "", testSuffix, "Prefix\n\nSuffix"},
 	}
 
 	for _, tt := range tests {

@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// Test constants for audit tests.
+const (
+	testAuditUserID      = "user123"
+	testAuditPersona     = "analyst"
+	testAuditToolName    = "trino_query"
+	testAuditToolkit     = "trino"
+	testAuditDurationMS  = 100
+	testAuditQualityHigh = 95.0
+)
+
 // mockAuditLogger implements AuditLogger for testing.
 type mockAuditLogger struct {
 	mu     sync.Mutex
@@ -26,10 +36,52 @@ func TestNoopAuditLogger(t *testing.T) {
 	logger := &NoopAuditLogger{}
 	err := logger.Log(context.Background(), AuditEvent{
 		ToolName: "test_tool",
-		UserID:   "user123",
+		UserID:   testAuditUserID,
 	})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// assertAuditEventFields is a helper that validates all fields of an AuditEvent
+// after a JSON round-trip to reduce cognitive complexity of the calling test.
+func assertAuditEventFields(t *testing.T, got, want AuditEvent) {
+	t.Helper()
+	if !got.Timestamp.Equal(want.Timestamp) {
+		t.Errorf("Timestamp = %v, want %v", got.Timestamp, want.Timestamp)
+	}
+	if got.RequestID != want.RequestID {
+		t.Errorf("RequestID = %q, want %q", got.RequestID, want.RequestID)
+	}
+	if got.UserID != want.UserID {
+		t.Errorf("UserID = %q, want %q", got.UserID, want.UserID)
+	}
+	if got.UserEmail != want.UserEmail {
+		t.Errorf("UserEmail = %q, want %q", got.UserEmail, want.UserEmail)
+	}
+	if got.Persona != want.Persona {
+		t.Errorf("Persona = %q, want %q", got.Persona, want.Persona)
+	}
+	if got.ToolName != want.ToolName {
+		t.Errorf("ToolName = %q, want %q", got.ToolName, want.ToolName)
+	}
+	if got.ToolkitKind != want.ToolkitKind {
+		t.Errorf("ToolkitKind = %q, want %q", got.ToolkitKind, want.ToolkitKind)
+	}
+	if got.ToolkitName != want.ToolkitName {
+		t.Errorf("ToolkitName = %q, want %q", got.ToolkitName, want.ToolkitName)
+	}
+	if got.Connection != want.Connection {
+		t.Errorf("Connection = %q, want %q", got.Connection, want.Connection)
+	}
+	if got.Success != want.Success {
+		t.Errorf("Success = %v, want %v", got.Success, want.Success)
+	}
+	if got.ErrorMessage != want.ErrorMessage {
+		t.Errorf("ErrorMessage = %q, want %q", got.ErrorMessage, want.ErrorMessage)
+	}
+	if got.DurationMS != want.DurationMS {
+		t.Errorf("DurationMS = %d, want %d", got.DurationMS, want.DurationMS)
 	}
 }
 
@@ -38,20 +90,20 @@ func TestAuditEvent(t *testing.T) {
 	event := AuditEvent{
 		Timestamp:    now,
 		RequestID:    "req-123",
-		UserID:       "user123",
+		UserID:       testAuditUserID,
 		UserEmail:    "user@test.com",
-		Persona:      "analyst",
-		ToolName:     "trino_query",
-		ToolkitKind:  "trino",
+		Persona:      testAuditPersona,
+		ToolName:     testAuditToolName,
+		ToolkitKind:  testAuditToolkit,
 		ToolkitName:  "main-trino",
 		Connection:   "prod",
 		Parameters:   map[string]any{"query": "SELECT 1"},
 		Success:      true,
 		ErrorMessage: "",
-		DurationMS:   100,
+		DurationMS:   testAuditDurationMS,
 	}
 
-	// Verify JSON marshaling
+	// Verify JSON marshaling.
 	data, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -63,45 +115,12 @@ func TestAuditEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify ALL 12 fields survive JSON round-trip
-	if !unmarshaled.Timestamp.Equal(now) {
-		t.Errorf("Timestamp = %v, want %v", unmarshaled.Timestamp, now)
-	}
-	if unmarshaled.RequestID != "req-123" {
-		t.Errorf("RequestID = %q, want %q", unmarshaled.RequestID, "req-123")
-	}
-	if unmarshaled.UserID != "user123" {
-		t.Errorf("UserID = %q, want %q", unmarshaled.UserID, "user123")
-	}
-	if unmarshaled.UserEmail != "user@test.com" {
-		t.Errorf("UserEmail = %q, want %q", unmarshaled.UserEmail, "user@test.com")
-	}
-	if unmarshaled.Persona != "analyst" {
-		t.Errorf("Persona = %q, want %q", unmarshaled.Persona, "analyst")
-	}
-	if unmarshaled.ToolName != "trino_query" {
-		t.Errorf("ToolName = %q, want %q", unmarshaled.ToolName, "trino_query")
-	}
-	if unmarshaled.ToolkitKind != "trino" {
-		t.Errorf("ToolkitKind = %q, want %q", unmarshaled.ToolkitKind, "trino")
-	}
-	if unmarshaled.ToolkitName != "main-trino" {
-		t.Errorf("ToolkitName = %q, want %q", unmarshaled.ToolkitName, "main-trino")
-	}
-	if unmarshaled.Connection != "prod" {
-		t.Errorf("Connection = %q, want %q", unmarshaled.Connection, "prod")
-	}
+	// Verify ALL 12 fields survive JSON round-trip.
+	assertAuditEventFields(t, unmarshaled, event)
+
+	// Verify parameters separately (not compared in assertAuditEventFields).
 	if unmarshaled.Parameters["query"] != "SELECT 1" {
 		t.Errorf("Parameters[query] = %v, want 'SELECT 1'", unmarshaled.Parameters["query"])
-	}
-	if !unmarshaled.Success {
-		t.Errorf("Success = false, want true")
-	}
-	if unmarshaled.ErrorMessage != "" {
-		t.Errorf("ErrorMessage = %q, want empty", unmarshaled.ErrorMessage)
-	}
-	if unmarshaled.DurationMS != 100 {
-		t.Errorf("DurationMS = %d, want 100", unmarshaled.DurationMS)
 	}
 }
 

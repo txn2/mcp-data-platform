@@ -11,6 +11,22 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const (
+	dhAdapterTestMaxHops       = 3
+	dhAdapterTestInheritLen    = 3
+	dhAdapterTestColumnsLen    = 3
+	dhAdapterTestTimestampMs   = 1700000000000
+	dhAdapterTestPropsIntVal   = 123
+	dhAdapterTestLineageDepth  = 3
+	dhAdapterTestUnexpectedErr = "unexpected error: %v"
+	dhAdapterTestPlatformTrino = "trino"
+	dhAdapterTestTableUsers    = "users"
+	dhAdapterTestCatalogRdbms  = "rdbms"
+	dhAdapterTestSchemaPublic  = "public"
+	dhAdapterTestPlatformPG    = "postgres"
+	dhAdapterTestExpectedErr   = "expected error"
+)
+
 // mockDataHubClient implements the Client interface for testing.
 type mockDataHubClient struct {
 	searchFunc           func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
@@ -87,94 +103,77 @@ func (m *mockDataHubClient) Close() error {
 	return nil
 }
 
-func TestNewWithClient(t *testing.T) {
-	t.Run("nil client returns error", func(t *testing.T) {
-		_, err := NewWithClient(Config{}, nil)
-		if err == nil {
-			t.Error("expected error for nil client")
-		}
-	})
+func TestNewWithClient_NilClient(t *testing.T) {
+	_, err := NewWithClient(Config{}, nil)
+	if err == nil {
+		t.Error("expected error for nil client")
+	}
+}
 
-	t.Run("valid client", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.Name() != "datahub" {
-			t.Errorf("expected name 'datahub', got %q", adapter.Name())
-		}
-	})
+func TestNewWithClient_ValidClient(t *testing.T) {
+	mock := &mockDataHubClient{}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if adapter.Name() != "datahub" {
+		t.Errorf("expected name 'datahub', got %q", adapter.Name())
+	}
+	if adapter.cfg.Platform != dhAdapterTestPlatformTrino {
+		t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
+	}
+}
 
-	t.Run("defaults applied", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.cfg.Platform != "trino" {
-			t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
-		}
-	})
+func TestNewWithClient_Debug(t *testing.T) {
+	mock := &mockDataHubClient{}
 
-	t.Run("debug config stored", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{Debug: true}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !adapter.cfg.Debug {
-			t.Error("expected Debug to be true")
-		}
-	})
+	adapter, err := NewWithClient(Config{Debug: true}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if !adapter.cfg.Debug {
+		t.Error("expected Debug to be true")
+	}
 
-	t.Run("debug defaults to false", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.cfg.Debug {
-			t.Error("expected Debug to default to false")
-		}
-	})
+	adapter2, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if adapter2.cfg.Debug {
+		t.Error("expected Debug to default to false")
+	}
+}
 
-	t.Run("lineage config stored correctly", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		lineageCfg := LineageConfig{
-			Enabled:             true,
-			MaxHops:             3,
-			Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-			ConflictResolution:  "nearest",
-			PreferColumnLineage: true,
-		}
-		cfg := Config{
-			URL:     "http://datahub.example.com",
-			Lineage: lineageCfg,
-		}
-		adapter, err := NewWithClient(cfg, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+func TestNewWithClient_LineageConfig(t *testing.T) {
+	mock := &mockDataHubClient{}
+	lineageCfg := LineageConfig{
+		Enabled:             true,
+		MaxHops:             dhAdapterTestMaxHops,
+		Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+		ConflictResolution:  "nearest",
+		PreferColumnLineage: true,
+	}
+	adapter, err := NewWithClient(Config{URL: "http://datahub.example.com", Lineage: lineageCfg}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
 
-		// Verify lineage config is accessible via the getter
-		gotCfg := adapter.LineageConfig()
-		if !gotCfg.Enabled {
-			t.Error("LineageConfig().Enabled = false, want true")
-		}
-		if gotCfg.MaxHops != 3 {
-			t.Errorf("LineageConfig().MaxHops = %d, want 3", gotCfg.MaxHops)
-		}
-		if len(gotCfg.Inherit) != 3 {
-			t.Errorf("LineageConfig().Inherit len = %d, want 3", len(gotCfg.Inherit))
-		}
-		if gotCfg.ConflictResolution != "nearest" {
-			t.Errorf("LineageConfig().ConflictResolution = %q, want %q", gotCfg.ConflictResolution, "nearest")
-		}
-		if !gotCfg.PreferColumnLineage {
-			t.Error("LineageConfig().PreferColumnLineage = false, want true")
-		}
-	})
+	gotCfg := adapter.LineageConfig()
+	if !gotCfg.Enabled {
+		t.Error("LineageConfig().Enabled = false, want true")
+	}
+	if gotCfg.MaxHops != dhAdapterTestMaxHops {
+		t.Errorf("LineageConfig().MaxHops = %d, want %d", gotCfg.MaxHops, dhAdapterTestMaxHops)
+	}
+	if len(gotCfg.Inherit) != dhAdapterTestInheritLen {
+		t.Errorf("LineageConfig().Inherit len = %d, want %d", len(gotCfg.Inherit), dhAdapterTestInheritLen)
+	}
+	if gotCfg.ConflictResolution != "nearest" {
+		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", gotCfg.ConflictResolution, "nearest")
+	}
+	if !gotCfg.PreferColumnLineage {
+		t.Error("LineageConfig().PreferColumnLineage = false, want true")
+	}
 }
 
 func TestAdapterName(t *testing.T) {
@@ -193,7 +192,7 @@ func TestGetTableContext(t *testing.T) {
 			return &types.Entity{
 				URN:          "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)",
 				Description:  "Test table",
-				LastModified: 1700000000000,
+				LastModified: dhAdapterTestTimestampMs,
 				Owners: []types.Owner{
 					{URN: "urn:li:corpuser:owner1", Name: "Owner One", Email: "owner1@example.com", Type: types.OwnershipTypeTechnicalOwner},
 				},
@@ -217,11 +216,11 @@ func TestGetTableContext(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 
 	result, err := adapter.GetTableContext(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
 	if result.Description != "Test table" {
@@ -265,7 +264,7 @@ func TestGetColumnContext(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 
 	t.Run("found column", func(t *testing.T) {
 		result, err := adapter.GetColumnContext(ctx, semantic.ColumnIdentifier{
@@ -273,7 +272,7 @@ func TestGetColumnContext(t *testing.T) {
 			Column:          "email",
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
 		}
 		if result.Name != "email" {
 			t.Errorf("expected name 'email', got %q", result.Name)
@@ -311,15 +310,15 @@ func TestGetColumnsContext(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 
 	result, err := adapter.GetColumnsContext(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
-	if len(result) != 3 {
-		t.Errorf("expected 3 columns, got %d", len(result))
+	if len(result) != dhAdapterTestColumnsLen {
+		t.Errorf("expected %d columns, got %d", dhAdapterTestColumnsLen, len(result))
 	}
 	// Nested field should be extracted as just "field"
 	if _, ok := result["field"]; !ok {
@@ -334,8 +333,8 @@ func TestGetLineage(t *testing.T) {
 		getLineageFunc: func(_ context.Context, _ string, _ ...dhclient.LineageOption) (*types.LineageResult, error) {
 			return &types.LineageResult{
 				Nodes: []types.LineageNode{
-					{URN: "urn:li:dataset:1", Name: "source_table", Type: "DATASET", Platform: "trino", Level: 1},
-					{URN: "urn:li:dataset:2", Name: "target_table", Type: "DATASET", Platform: "trino", Level: 0},
+					{URN: "urn:li:dataset:1", Name: "source_table", Type: "DATASET", Platform: dhAdapterTestPlatformTrino, Level: 1},
+					{URN: "urn:li:dataset:2", Name: "target_table", Type: "DATASET", Platform: dhAdapterTestPlatformTrino, Level: 0},
 				},
 				Edges: []types.LineageEdge{
 					{Source: "urn:li:dataset:1", Target: "urn:li:dataset:2"},
@@ -343,12 +342,12 @@ func TestGetLineage(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 
 	t.Run("upstream lineage", func(t *testing.T) {
-		result, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageUpstream, 3)
+		result, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageUpstream, dhAdapterTestLineageDepth)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
 		}
 		if result.Direction != semantic.LineageUpstream {
 			t.Errorf("expected upstream direction")
@@ -359,9 +358,9 @@ func TestGetLineage(t *testing.T) {
 	})
 
 	t.Run("downstream lineage", func(t *testing.T) {
-		result, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageDownstream, 3)
+		result, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageDownstream, dhAdapterTestLineageDepth)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
 		}
 		if result.Direction != semantic.LineageDownstream {
 			t.Errorf("expected downstream direction")
@@ -385,7 +384,7 @@ func TestGetGlossaryTerm(t *testing.T) {
 
 	result, err := adapter.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:revenue")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
 	if result.Name != "Revenue" {
@@ -405,8 +404,8 @@ func TestSearchTables(t *testing.T) {
 				Entities: []types.SearchEntity{
 					{
 						URN:         "urn:li:dataset:1",
-						Name:        "users",
-						Platform:    "trino",
+						Name:        dhAdapterTestTableUsers,
+						Platform:    dhAdapterTestPlatformTrino,
 						Description: "User table",
 						Tags:        []types.Tag{{Name: "important"}},
 						Domain:      &types.Domain{Name: "Core"},
@@ -421,18 +420,18 @@ func TestSearchTables(t *testing.T) {
 	adapter, _ := NewWithClient(Config{}, mock)
 
 	results, err := adapter.SearchTables(ctx, semantic.SearchFilter{
-		Query:  "users",
+		Query:  dhAdapterTestTableUsers,
 		Limit:  10,
 		Offset: 0,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Name != "users" {
+	if results[0].Name != dhAdapterTestTableUsers {
 		t.Errorf("expected name 'users', got %q", results[0].Name)
 	}
 	if results[0].Domain != "Core" {
@@ -488,34 +487,39 @@ func TestResolveURN(t *testing.T) {
 			result, err := adapter.ResolveURN(ctx, tt.urn)
 			if tt.wantErr {
 				if err == nil {
-					t.Error("expected error")
+					t.Error(dhAdapterTestExpectedErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf(dhAdapterTestUnexpectedErr, err)
 			}
-			if result.Catalog != tt.wantCatalog {
-				t.Errorf("expected catalog %q, got %q", tt.wantCatalog, result.Catalog)
-			}
-			if result.Schema != tt.wantSchema {
-				t.Errorf("expected schema %q, got %q", tt.wantSchema, result.Schema)
-			}
-			if result.Table != tt.wantTable {
-				t.Errorf("expected table %q, got %q", tt.wantTable, result.Table)
-			}
+			assertResolvedURN(t, result, tt.wantCatalog, tt.wantSchema, tt.wantTable)
 		})
+	}
+}
+
+func assertResolvedURN(t *testing.T, result *semantic.TableIdentifier, wantCatalog, wantSchema, wantTable string) {
+	t.Helper()
+	if result.Catalog != wantCatalog {
+		t.Errorf("expected catalog %q, got %q", wantCatalog, result.Catalog)
+	}
+	if result.Schema != wantSchema {
+		t.Errorf("expected schema %q, got %q", wantSchema, result.Schema)
+	}
+	if result.Table != wantTable {
+		t.Errorf("expected table %q, got %q", wantTable, result.Table)
 	}
 }
 
 func TestBuildURN(t *testing.T) {
 	mock := &mockDataHubClient{}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 	ctx := context.Background()
 
-	urn, err := adapter.BuildURN(ctx, semantic.TableIdentifier{Catalog: "hive", Schema: "analytics", Table: "users"})
+	urn, err := adapter.BuildURN(ctx, semantic.TableIdentifier{Catalog: "hive", Schema: "analytics", Table: dhAdapterTestTableUsers})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
 	expected := "urn:li:dataset:(urn:li:dataPlatform:trino,hive.analytics.users,PROD)"
@@ -536,43 +540,43 @@ func TestBuildDatasetURNWithCatalogMapping(t *testing.T) {
 	}{
 		{
 			name:           "no mapping configured - uses original catalog",
-			platform:       "trino",
+			platform:       dhAdapterTestPlatformTrino,
 			catalogMapping: nil,
-			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			table:          semantic.TableIdentifier{Catalog: dhAdapterTestCatalogRdbms, Schema: dhAdapterTestSchemaPublic, Table: dhAdapterTestTableUsers},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.users,PROD)",
 		},
 		{
 			name:           "catalog mapping applied",
-			platform:       "postgres",
-			catalogMapping: map[string]string{"rdbms": "warehouse"},
-			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			platform:       dhAdapterTestPlatformPG,
+			catalogMapping: map[string]string{dhAdapterTestCatalogRdbms: "warehouse"},
+			table:          semantic.TableIdentifier{Catalog: dhAdapterTestCatalogRdbms, Schema: dhAdapterTestSchemaPublic, Table: dhAdapterTestTableUsers},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
 		},
 		{
 			name:           "catalog not in mapping - uses original",
-			platform:       "postgres",
+			platform:       dhAdapterTestPlatformPG,
 			catalogMapping: map[string]string{"iceberg": "datalake"},
-			table:          semantic.TableIdentifier{Catalog: "rdbms", Schema: "public", Table: "users"},
+			table:          semantic.TableIdentifier{Catalog: dhAdapterTestCatalogRdbms, Schema: dhAdapterTestSchemaPublic, Table: dhAdapterTestTableUsers},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,rdbms.public.users,PROD)",
 		},
 		{
 			name:           "empty catalog - schema.table only",
-			platform:       "postgres",
-			catalogMapping: map[string]string{"rdbms": "warehouse"},
-			table:          semantic.TableIdentifier{Schema: "public", Table: "users"},
+			platform:       dhAdapterTestPlatformPG,
+			catalogMapping: map[string]string{dhAdapterTestCatalogRdbms: "warehouse"},
+			table:          semantic.TableIdentifier{Schema: dhAdapterTestSchemaPublic, Table: dhAdapterTestTableUsers},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,public.users,PROD)",
 		},
 		{
 			name:           "table only - no catalog or schema",
-			platform:       "postgres",
+			platform:       dhAdapterTestPlatformPG,
 			catalogMapping: nil,
-			table:          semantic.TableIdentifier{Table: "users"},
+			table:          semantic.TableIdentifier{Table: dhAdapterTestTableUsers},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,users,PROD)",
 		},
 		{
 			name:           "multiple catalog mappings",
-			platform:       "postgres",
-			catalogMapping: map[string]string{"rdbms": "warehouse", "iceberg": "datalake"},
+			platform:       dhAdapterTestPlatformPG,
+			catalogMapping: map[string]string{dhAdapterTestCatalogRdbms: "warehouse", "iceberg": "datalake"},
 			table:          semantic.TableIdentifier{Catalog: "iceberg", Schema: "analytics", Table: "events"},
 			expectedURN:    "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
 		},
@@ -608,122 +612,96 @@ func TestAdapterClose(t *testing.T) {
 
 	err := adapter.Close()
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Errorf(dhAdapterTestUnexpectedErr, err)
 	}
 	if !closed {
 		t.Error("expected client to be closed")
 	}
 }
 
-func TestConvertFunctions(t *testing.T) {
-	t.Run("convertOwners", func(t *testing.T) {
-		owners := []types.Owner{
-			{URN: "urn:1", Name: "Owner1", Email: "o1@test.com", Type: types.OwnershipTypeTechnicalOwner},
-			{URN: "urn:2", Name: "Owner2", Email: "o2@test.com", Type: types.OwnershipTypeBusinessOwner},
-		}
-		result := convertOwners(owners)
-		if len(result) != 2 {
-			t.Errorf("expected 2 owners, got %d", len(result))
-		}
-	})
+func TestConvertOwners(t *testing.T) {
+	owners := []types.Owner{
+		{URN: "urn:1", Name: "Owner1", Email: "o1@test.com", Type: types.OwnershipTypeTechnicalOwner},
+		{URN: "urn:2", Name: "Owner2", Email: "o2@test.com", Type: types.OwnershipTypeBusinessOwner},
+	}
+	result := convertOwners(owners)
+	if len(result) != 2 {
+		t.Errorf("expected 2 owners, got %d", len(result))
+	}
+}
 
-	t.Run("convertTags", func(t *testing.T) {
-		tags := []types.Tag{{Name: "tag1"}, {Name: "tag2"}}
-		result := convertTags(tags)
-		if len(result) != 2 || result[0] != "tag1" {
-			t.Error("tags not converted correctly")
-		}
-	})
+func TestConvertTags(t *testing.T) {
+	tags := []types.Tag{{Name: "tag1"}, {Name: "tag2"}}
+	result := convertTags(tags)
+	if len(result) != 2 || result[0] != "tag1" {
+		t.Error("tags not converted correctly")
+	}
+}
 
-	t.Run("convertDomain nil", func(t *testing.T) {
-		result := convertDomain(nil)
-		if result != nil {
-			t.Error("expected nil for nil domain")
-		}
-	})
+func TestConvertDomainAndDeprecation(t *testing.T) {
+	if convertDomain(nil) != nil {
+		t.Error("expected nil for nil domain")
+	}
+	if convertDeprecation(nil) != nil {
+		t.Error("expected nil for nil deprecation")
+	}
 
-	t.Run("convertDeprecation nil", func(t *testing.T) {
-		result := convertDeprecation(nil)
-		if result != nil {
-			t.Error("expected nil for nil deprecation")
-		}
-	})
+	dep := &types.Deprecation{Deprecated: true, Note: "test", DecommissionTime: dhAdapterTestTimestampMs}
+	result := convertDeprecation(dep)
+	if result.DecommDate == nil {
+		t.Error("expected decommission date to be set")
+	}
+}
 
-	t.Run("convertDeprecation with decommission time", func(t *testing.T) {
-		dep := &types.Deprecation{
-			Deprecated:       true,
-			Note:             "test",
-			DecommissionTime: 1700000000000,
-		}
-		result := convertDeprecation(dep)
-		if result.DecommDate == nil {
-			t.Error("expected decommission date to be set")
-		}
-	})
+func TestConvertProperties(t *testing.T) {
+	if convertProperties(nil) != nil {
+		t.Error("expected nil for nil properties")
+	}
 
-	t.Run("convertProperties empty", func(t *testing.T) {
-		result := convertProperties(nil)
-		if result != nil {
-			t.Error("expected nil for nil properties")
-		}
-	})
+	props := map[string]any{"key1": "value1", "key2": dhAdapterTestPropsIntVal, "key3": "value3"}
+	result := convertProperties(props)
+	if len(result) != 2 {
+		t.Errorf("expected 2 properties, got %d", len(result))
+	}
+}
 
-	t.Run("convertProperties with values", func(t *testing.T) {
-		props := map[string]any{
-			"key1": "value1",
-			"key2": 123, // non-string should be skipped
-			"key3": "value3",
-		}
-		result := convertProperties(props)
-		if len(result) != 2 {
-			t.Errorf("expected 2 properties, got %d", len(result))
-		}
-	})
+func TestConvertTimestamp(t *testing.T) {
+	if convertTimestamp(0) != nil {
+		t.Error("expected nil for zero timestamp")
+	}
+	if convertTimestamp(dhAdapterTestTimestampMs) == nil {
+		t.Error("expected non-nil timestamp")
+	}
+}
 
-	t.Run("convertTimestamp zero", func(t *testing.T) {
-		result := convertTimestamp(0)
-		if result != nil {
-			t.Error("expected nil for zero timestamp")
+func TestExtractFieldName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{"nested.field", "field"},
+		{"deeply.nested.field", "field"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		result := extractFieldName(tt.input)
+		if result != tt.expected {
+			t.Errorf("extractFieldName(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
-	})
+	}
+}
 
-	t.Run("convertTimestamp valid", func(t *testing.T) {
-		result := convertTimestamp(1700000000000)
-		if result == nil {
-			t.Error("expected non-nil timestamp")
-		}
-	})
-
-	t.Run("extractFieldName", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected string
-		}{
-			{"simple", "simple"},
-			{"nested.field", "field"},
-			{"deeply.nested.field", "field"},
-			{"", ""},
-		}
-		for _, tt := range tests {
-			result := extractFieldName(tt.input)
-			if result != tt.expected {
-				t.Errorf("extractFieldName(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		}
-	})
-
-	t.Run("ownerTypeToSemantic", func(t *testing.T) {
-		if ownerTypeToSemantic(types.OwnershipTypeTechnicalOwner) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion")
-		}
-		if ownerTypeToSemantic(types.OwnershipTypeBusinessOwner) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion")
-		}
-		// Test default case with an unknown type
-		if ownerTypeToSemantic(types.OwnershipType("unknown")) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion for unknown type")
-		}
-	})
+func TestOwnerTypeToSemantic(t *testing.T) {
+	if ownerTypeToSemantic(types.OwnershipTypeTechnicalOwner) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion")
+	}
+	if ownerTypeToSemantic(types.OwnershipTypeBusinessOwner) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion")
+	}
+	if ownerTypeToSemantic(types.OwnershipType("unknown")) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion for unknown type")
+	}
 }
 
 func TestGetTableContextError(t *testing.T) {
@@ -737,7 +715,7 @@ func TestGetTableContextError(t *testing.T) {
 
 	_, err := adapter.GetTableContext(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"})
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -755,7 +733,7 @@ func TestGetColumnContextError(t *testing.T) {
 		Column:          "col",
 	})
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -770,7 +748,7 @@ func TestGetColumnsContextError(t *testing.T) {
 
 	_, err := adapter.GetColumnsContext(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"})
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -783,9 +761,9 @@ func TestGetLineageError(t *testing.T) {
 	}
 	adapter, _ := NewWithClient(Config{}, mock)
 
-	_, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageUpstream, 3)
+	_, err := adapter.GetLineage(ctx, semantic.TableIdentifier{Schema: "schema", Table: "table"}, semantic.LineageUpstream, dhAdapterTestLineageDepth)
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -793,7 +771,7 @@ func TestGetGlossaryTermNotFound(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockDataHubClient{
 		getGlossaryTermFunc: func(_ context.Context, _ string) (*types.GlossaryTerm, error) {
-			return nil, nil // returns nil without error (not found case)
+			return nil, nil //nolint:nilnil // test mock: simulates not-found case
 		},
 	}
 	adapter, _ := NewWithClient(Config{}, mock)
@@ -815,7 +793,7 @@ func TestGetGlossaryTermError(t *testing.T) {
 
 	_, err := adapter.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:notfound")
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -830,7 +808,7 @@ func TestSearchTablesError(t *testing.T) {
 
 	_, err := adapter.SearchTables(ctx, semantic.SearchFilter{Query: "test"})
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -856,7 +834,7 @@ func TestSearchTablesWithFilters(t *testing.T) {
 		Offset: 10,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
@@ -873,7 +851,7 @@ func TestAdapterCloseError(t *testing.T) {
 
 	err := adapter.Close()
 	if err == nil {
-		t.Error("expected error")
+		t.Error(dhAdapterTestExpectedErr)
 	}
 }
 
@@ -914,14 +892,14 @@ func TestFieldToColumnContextEdgeCases(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Platform: "trino"}, mock)
+	adapter, _ := NewWithClient(Config{Platform: dhAdapterTestPlatformTrino}, mock)
 
 	result, err := adapter.GetColumnContext(ctx, semantic.ColumnIdentifier{
 		TableIdentifier: semantic.TableIdentifier{Schema: "schema", Table: "table"},
 		Column:          "pii_field",
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
 	}
 
 	if !result.IsPII {

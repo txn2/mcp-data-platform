@@ -2,6 +2,13 @@ package persona
 
 import "testing"
 
+const (
+	personaTestAdminPriority = 100
+	personaTestDefault       = "default"
+	personaTestAnalyst       = "analyst"
+	personaTestPriority50    = 50
+)
+
 func TestDefaultPersona(t *testing.T) {
 	p := DefaultPersona()
 
@@ -26,8 +33,8 @@ func TestAdminPersona(t *testing.T) {
 	if p.Name != "admin" {
 		t.Errorf("Name = %q, want %q", p.Name, "admin")
 	}
-	if p.Priority != 100 {
-		t.Errorf("Priority = %d, want %d", p.Priority, 100)
+	if p.Priority != personaTestAdminPriority {
+		t.Errorf("Priority = %d, want %d", p.Priority, personaTestAdminPriority)
 	}
 	if len(p.Roles) != 1 || p.Roles[0] != "admin" {
 		t.Error("expected Roles to contain \"admin\"")

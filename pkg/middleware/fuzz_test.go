@@ -22,7 +22,7 @@ func FuzzParseTableIdentifier(f *testing.F) {
 	f.Add("table with spaces")
 	f.Add("table\twith\ttabs")
 
-	f.Fuzz(func(t *testing.T, name string) {
+	f.Fuzz(func(_ *testing.T, name string) {
 		// Should never panic
 		_ = parseTableIdentifier(name)
 	})
@@ -39,7 +39,7 @@ func FuzzSplitTableName(f *testing.F) {
 	f.Add("a..b")
 	f.Add("very.long.table.name.with.many.parts")
 
-	f.Fuzz(func(t *testing.T, name string) {
+	f.Fuzz(func(_ *testing.T, name string) {
 		// Should never panic
 		_ = splitTableName(name)
 	})
@@ -47,12 +47,12 @@ func FuzzSplitTableName(f *testing.F) {
 
 // FuzzBuildTableSemanticContext fuzzes building semantic context.
 func FuzzBuildTableSemanticContext(f *testing.F) {
-	f.Add("urn:li:dataset:1", "users", "User data", true, 0.9)
-	f.Add("", "", "", false, 0.0)
-	f.Add("urn", "a", "b", true, -1.0)
-	f.Add("urn:li:dataset:(urn:li:dataPlatform:s3,bucket/key,PROD)", "dataset", "", false, 1.5)
+	f.Add("urn:li:dataset:1", "users", "User data", true, 0.9)                                  //nolint:revive // fuzz seed corpus value
+	f.Add("", "", "", false, 0.0)                                                               //nolint:revive // fuzz seed corpus value
+	f.Add("urn", "a", "b", true, -1.0)                                                          //nolint:revive // fuzz seed corpus value
+	f.Add("urn:li:dataset:(urn:li:dataPlatform:s3,bucket/key,PROD)", "dataset", "", false, 1.5) //nolint:revive // fuzz seed corpus value
 
-	f.Fuzz(func(t *testing.T, urn, name, desc string, deprecated bool, quality float64) {
+	f.Fuzz(func(_ *testing.T, urn, name, desc string, deprecated bool, quality float64) {
 		sr := semantic.TableSearchResult{
 			URN:  urn,
 			Name: name,

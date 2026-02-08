@@ -2,6 +2,13 @@ package audit
 
 import "testing"
 
+const (
+	redactedValue       = "[REDACTED]"
+	eventTestDurationMS = 100
+	eventTestRespChars  = 500
+	eventTestRespTokens = 125
+)
+
 func TestNewEvent(t *testing.T) {
 	event := NewEvent("test_tool")
 
@@ -23,9 +30,9 @@ func TestEvent_Builders(t *testing.T) {
 		WithToolkit("trino", "production").
 		WithConnection("prod-cluster").
 		WithParameters(map[string]any{"query": "SELECT 1"}).
-		WithResult(true, "", 100).
+		WithResult(true, "", eventTestDurationMS).
 		WithRequestID("req-123").
-		WithResponseSize(500, 125)
+		WithResponseSize(eventTestRespChars, eventTestRespTokens)
 
 	if event.UserID != "user123" {
 		t.Errorf("UserID = %q, want %q", event.UserID, "user123")
@@ -51,17 +58,17 @@ func TestEvent_Builders(t *testing.T) {
 	if !event.Success {
 		t.Error("Success = false, want true")
 	}
-	if event.DurationMS != 100 {
-		t.Errorf("DurationMS = %d, want 100", event.DurationMS)
+	if event.DurationMS != eventTestDurationMS {
+		t.Errorf("DurationMS = %d, want %d", event.DurationMS, eventTestDurationMS)
 	}
 	if event.RequestID != "req-123" {
 		t.Errorf("RequestID = %q, want %q", event.RequestID, "req-123")
 	}
-	if event.ResponseChars != 500 {
-		t.Errorf("ResponseChars = %d, want 500", event.ResponseChars)
+	if event.ResponseChars != eventTestRespChars {
+		t.Errorf("ResponseChars = %d, want %d", event.ResponseChars, eventTestRespChars)
 	}
-	if event.ResponseTokenEstimate != 125 {
-		t.Errorf("ResponseTokenEstimate = %d, want 125", event.ResponseTokenEstimate)
+	if event.ResponseTokenEstimate != eventTestRespTokens {
+		t.Errorf("ResponseTokenEstimate = %d, want %d", event.ResponseTokenEstimate, eventTestRespTokens)
 	}
 }
 
@@ -70,7 +77,7 @@ func TestSanitizeParameters(t *testing.T) {
 		"query":    "SELECT 1",
 		"password": "secret123",
 		"token":    "abc123",
-		"limit":    100,
+		"limit":    eventTestDurationMS,
 	}
 
 	sanitized := SanitizeParameters(params)
@@ -78,13 +85,13 @@ func TestSanitizeParameters(t *testing.T) {
 	if sanitized["query"] != "SELECT 1" {
 		t.Error("query should not be sanitized")
 	}
-	if sanitized["password"] != "[REDACTED]" {
-		t.Errorf("password = %v, want [REDACTED]", sanitized["password"])
+	if sanitized["password"] != redactedValue {
+		t.Errorf("password = %v, want %s", sanitized["password"], redactedValue)
 	}
-	if sanitized["token"] != "[REDACTED]" {
-		t.Errorf("token = %v, want [REDACTED]", sanitized["token"])
+	if sanitized["token"] != redactedValue {
+		t.Errorf("token = %v, want %s", sanitized["token"], redactedValue)
 	}
-	if sanitized["limit"] != 100 {
+	if sanitized["limit"] != eventTestDurationMS {
 		t.Error("limit should not be sanitized")
 	}
 }

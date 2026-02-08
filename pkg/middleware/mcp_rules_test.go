@@ -11,6 +11,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
+// Test constants for rule enforcement tests.
+const (
+	rulesTestMethodToolsCall = "tools/call"
+	rulesTestToolTrinoQuery  = "trino_query"
+)
+
 func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -33,8 +39,8 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 		},
 		{
 			name:           "query tool with require_datahub_check gets hint",
-			method:         "tools/call",
-			toolName:       "trino_query",
+			method:         rulesTestMethodToolsCall,
+			toolName:       rulesTestToolTrinoQuery,
 			requireCheck:   true,
 			expectHint:     true,
 			nextResult:     &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result"}}},
@@ -42,8 +48,8 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 		},
 		{
 			name:           "query tool without require_datahub_check no hint",
-			method:         "tools/call",
-			toolName:       "trino_query",
+			method:         rulesTestMethodToolsCall,
+			toolName:       rulesTestToolTrinoQuery,
 			requireCheck:   false,
 			expectHint:     false,
 			nextResult:     &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result"}}},
@@ -51,7 +57,7 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 		},
 		{
 			name:           "non-query tool no hint",
-			method:         "tools/call",
+			method:         rulesTestMethodToolsCall,
 			toolName:       "datahub_search",
 			requireCheck:   true,
 			expectHint:     false,
@@ -60,8 +66,8 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 		},
 		{
 			name:           "error result does not get hint",
-			method:         "tools/call",
-			toolName:       "trino_query",
+			method:         rulesTestMethodToolsCall,
+			toolName:       rulesTestToolTrinoQuery,
 			requireCheck:   true,
 			expectHint:     false,
 			nextResult:     &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "error"}}},
@@ -83,7 +89,7 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 
 			// Create middleware
 			mw := MCPRuleEnforcementMiddleware(engine, hints)
-			handler := mw(func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 				nextCalled = true
 				return tt.nextResult, tt.nextErr
 			})
@@ -120,7 +126,7 @@ func TestIsQueryTool(t *testing.T) {
 		toolName string
 		expected bool
 	}{
-		{"trino_query", true},
+		{rulesTestToolTrinoQuery, true},
 		{"trino_execute", true},
 		{"trino_describe_table", false},
 		{"datahub_search", false},
@@ -142,10 +148,12 @@ func TestPrependHintsToResult(t *testing.T) {
 		hints := []string{"hint1", "hint2"}
 
 		modified := prependHintsToResult(result, hints)
-		callResult := modified.(*mcp.CallToolResult)
+		callResult, ok := modified.(*mcp.CallToolResult)
+		require.True(t, ok, "expected *CallToolResult, got %T", modified)
 
 		require.Len(t, callResult.Content, 2)
-		textContent := callResult.Content[0].(*mcp.TextContent)
+		textContent, ok := callResult.Content[0].(*mcp.TextContent)
+		require.True(t, ok, "expected *TextContent, got %T", callResult.Content[0])
 		assert.Contains(t, textContent.Text, "hint1")
 		assert.Contains(t, textContent.Text, "hint2")
 	})
@@ -158,13 +166,14 @@ func TestPrependHintsToResult(t *testing.T) {
 		hints := []string{"hint"}
 
 		modified := prependHintsToResult(result, hints)
-		callResult := modified.(*mcp.CallToolResult)
+		callResult, ok := modified.(*mcp.CallToolResult)
+		require.True(t, ok, "expected *CallToolResult, got %T", modified)
 
 		require.Len(t, callResult.Content, 1)
 	})
 
 	t.Run("handles nil result", func(t *testing.T) {
-		var result mcp.Result = nil
+		var result mcp.Result
 		modified := prependHintsToResult(result, []string{"hint"})
 		assert.Nil(t, modified)
 	})

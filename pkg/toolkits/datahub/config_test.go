@@ -5,224 +5,256 @@ import (
 	"time"
 )
 
-func TestParseConfig(t *testing.T) {
-	t.Run("valid config with all fields", func(t *testing.T) {
-		cfg := map[string]any{
-			"url":               "http://datahub.example.com:8080",
-			"token":             "secret-token",
-			"default_limit":     20,
-			"max_limit":         200,
-			"max_lineage_depth": 10,
-			"timeout":           "60s",
-			"connection_name":   "main-datahub",
-		}
+const (
+	dhCfgTestMissing       = "missing"
+	dhCfgTestNumber        = "number"
+	dhCfgTestTimeoutSec    = 60
+	dhCfgTestNumVal        = 123
+	dhCfgTestIntVal        = 100
+	dhCfgTestFloat64Val    = 200
+	dhCfgTestDefaultVal    = 50
+	dhCfgTestDurationInt   = 30
+	dhCfgTestDurationFlt   = 60
+	dhCfgTestString        = "string"
+	dhCfgTestExisting      = "existing"
+	dhCfgTestTimeout       = "timeout"
+	dhCfgTestInt           = "int"
+	dhCfgTestFloat64       = "float64"
+	dhCfgTestDefaultLimit  = 20
+	dhCfgTestMaxLimit      = 200
+	dhCfgTestLineageDepth  = 10
+	dhCfgTestLimit15       = 15
+	dhCfgTestMaxLimit150   = 150
+	dhCfgTestLineageDepth8 = 8
+	dhCfgTestTimeout45     = 45
+	dhCfgTestTimeout90     = 90
+	dhCfgTestDuration5Min  = 5
+	dhCfgTestExampleURL    = "http://datahub.example.com:8080"
+	dhCfgTestURLKey        = "url"
+	dhCfgTestUnexpectedErr = "unexpected error: %v"
+)
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+func TestParseConfig_ValidAllFields(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey:     dhCfgTestExampleURL,
+		"token":             "secret-token",
+		"default_limit":     dhCfgTestDefaultLimit,
+		"max_limit":         dhCfgTestMaxLimit,
+		"max_lineage_depth": dhCfgTestLineageDepth,
+		dhCfgTestTimeout:    "60s",
+		"connection_name":   "main-datahub",
+	}
 
-		if result.URL != "http://datahub.example.com:8080" {
-			t.Errorf("expected URL 'http://datahub.example.com:8080', got %q", result.URL)
-		}
-		if result.Token != "secret-token" {
-			t.Errorf("expected Token 'secret-token', got %q", result.Token)
-		}
-		if result.DefaultLimit != 20 {
-			t.Errorf("expected DefaultLimit 20, got %d", result.DefaultLimit)
-		}
-		if result.MaxLimit != 200 {
-			t.Errorf("expected MaxLimit 200, got %d", result.MaxLimit)
-		}
-		if result.MaxLineageDepth != 10 {
-			t.Errorf("expected MaxLineageDepth 10, got %d", result.MaxLineageDepth)
-		}
-		if result.Timeout != 60*time.Second {
-			t.Errorf("expected Timeout 60s, got %v", result.Timeout)
-		}
-		if result.ConnectionName != "main-datahub" {
-			t.Errorf("expected ConnectionName 'main-datahub', got %q", result.ConnectionName)
-		}
-	})
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
 
-	t.Run("endpoint as alternate key for url", func(t *testing.T) {
-		cfg := map[string]any{
-			"endpoint": "http://datahub.example.com:8080",
-		}
+	assertDatahubConfigAllFields(t, result)
+}
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+func assertDatahubConfigAllFields(t *testing.T, result Config) {
+	t.Helper()
+	if result.URL != dhCfgTestExampleURL {
+		t.Errorf("expected URL 'http://datahub.example.com:8080', got %q", result.URL)
+	}
+	if result.Token != "secret-token" {
+		t.Errorf("expected Token 'secret-token', got %q", result.Token)
+	}
+	if result.DefaultLimit != dhCfgTestDefaultLimit {
+		t.Errorf("expected DefaultLimit %d, got %d", dhCfgTestDefaultLimit, result.DefaultLimit)
+	}
+	if result.MaxLimit != dhCfgTestMaxLimit {
+		t.Errorf("expected MaxLimit %d, got %d", dhCfgTestMaxLimit, result.MaxLimit)
+	}
+	if result.MaxLineageDepth != dhCfgTestLineageDepth {
+		t.Errorf("expected MaxLineageDepth %d, got %d", dhCfgTestLineageDepth, result.MaxLineageDepth)
+	}
+	if result.Timeout != dhCfgTestTimeoutSec*time.Second {
+		t.Errorf("expected Timeout 60s, got %v", result.Timeout)
+	}
+	if result.ConnectionName != "main-datahub" {
+		t.Errorf("expected ConnectionName 'main-datahub', got %q", result.ConnectionName)
+	}
+}
 
-		if result.URL != "http://datahub.example.com:8080" {
-			t.Errorf("expected URL from endpoint, got %q", result.URL)
-		}
-	})
+func TestParseConfig_EndpointAsURL(t *testing.T) {
+	cfg := map[string]any{
+		"endpoint": dhCfgTestExampleURL,
+	}
 
-	t.Run("missing required url", func(t *testing.T) {
-		cfg := map[string]any{
-			"token": "secret",
-		}
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
 
-		_, err := ParseConfig(cfg)
-		if err == nil {
-			t.Error("expected error for missing url")
-		}
-	})
+	if result.URL != dhCfgTestExampleURL {
+		t.Errorf("expected URL from endpoint, got %q", result.URL)
+	}
+}
 
-	t.Run("defaults applied", func(t *testing.T) {
-		cfg := map[string]any{
-			"url": "http://datahub.example.com:8080",
-		}
+func TestParseConfig_MissingRequiredURL(t *testing.T) {
+	cfg := map[string]any{
+		"token": "secret",
+	}
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+	_, err := ParseConfig(cfg)
+	if err == nil {
+		t.Error("expected error for missing url")
+	}
+}
 
-		if result.Timeout != 30*time.Second {
-			t.Errorf("expected default timeout 30s, got %v", result.Timeout)
-		}
-		if result.DefaultLimit != 10 {
-			t.Errorf("expected default limit 10, got %d", result.DefaultLimit)
-		}
-		if result.MaxLimit != 100 {
-			t.Errorf("expected max limit 100, got %d", result.MaxLimit)
-		}
-		if result.MaxLineageDepth != 5 {
-			t.Errorf("expected max lineage depth 5, got %d", result.MaxLineageDepth)
-		}
-	})
+func TestParseConfig_DefaultsApplied(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey: dhCfgTestExampleURL,
+	}
 
-	t.Run("invalid timeout", func(t *testing.T) {
-		cfg := map[string]any{
-			"url":     "http://datahub.example.com:8080",
-			"timeout": "invalid",
-		}
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
 
-		_, err := ParseConfig(cfg)
-		if err == nil {
-			t.Error("expected error for invalid timeout")
-		}
-	})
+	if result.Timeout != dhCfgTestDurationInt*time.Second {
+		t.Errorf("expected default timeout 30s, got %v", result.Timeout)
+	}
+	if result.DefaultLimit != dhCfgTestLineageDepth {
+		t.Errorf("expected default limit %d, got %d", dhCfgTestLineageDepth, result.DefaultLimit)
+	}
+	if result.MaxLimit != dhCfgTestIntVal {
+		t.Errorf("expected max limit %d, got %d", dhCfgTestIntVal, result.MaxLimit)
+	}
+	if result.MaxLineageDepth != dhCfgTestDuration5Min {
+		t.Errorf("expected max lineage depth %d, got %d", dhCfgTestDuration5Min, result.MaxLineageDepth)
+	}
+}
 
-	t.Run("int fields as float64 (JSON unmarshaling)", func(t *testing.T) {
-		cfg := map[string]any{
-			"url":               "http://datahub.example.com:8080",
-			"default_limit":     float64(15),
-			"max_limit":         float64(150),
-			"max_lineage_depth": float64(8),
-		}
+func TestParseConfig_InvalidTimeout(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey:  dhCfgTestExampleURL,
+		dhCfgTestTimeout: "invalid",
+	}
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.DefaultLimit != 15 {
-			t.Errorf("expected default_limit 15, got %d", result.DefaultLimit)
-		}
-		if result.MaxLimit != 150 {
-			t.Errorf("expected max_limit 150, got %d", result.MaxLimit)
-		}
-		if result.MaxLineageDepth != 8 {
-			t.Errorf("expected max_lineage_depth 8, got %d", result.MaxLineageDepth)
-		}
-	})
+	_, err := ParseConfig(cfg)
+	if err == nil {
+		t.Error("expected error for invalid timeout")
+	}
+}
 
-	t.Run("timeout as int (seconds)", func(t *testing.T) {
-		cfg := map[string]any{
-			"url":     "http://datahub.example.com:8080",
-			"timeout": 45,
-		}
+func TestParseConfig_IntFieldsAsFloat64(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey:     dhCfgTestExampleURL,
+		"default_limit":     float64(dhCfgTestLimit15),
+		"max_limit":         float64(dhCfgTestMaxLimit150),
+		"max_lineage_depth": float64(dhCfgTestLineageDepth8),
+	}
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Timeout != 45*time.Second {
-			t.Errorf("expected timeout 45s, got %v", result.Timeout)
-		}
-	})
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
+	if result.DefaultLimit != dhCfgTestLimit15 {
+		t.Errorf("expected default_limit %d, got %d", dhCfgTestLimit15, result.DefaultLimit)
+	}
+	if result.MaxLimit != dhCfgTestMaxLimit150 {
+		t.Errorf("expected max_limit %d, got %d", dhCfgTestMaxLimit150, result.MaxLimit)
+	}
+	if result.MaxLineageDepth != dhCfgTestLineageDepth8 {
+		t.Errorf("expected max_lineage_depth %d, got %d", dhCfgTestLineageDepth8, result.MaxLineageDepth)
+	}
+}
 
-	t.Run("timeout as float64 (seconds)", func(t *testing.T) {
-		cfg := map[string]any{
-			"url":     "http://datahub.example.com:8080",
-			"timeout": float64(90),
-		}
+func TestParseConfig_TimeoutAsInt(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey:  dhCfgTestExampleURL,
+		dhCfgTestTimeout: dhCfgTestTimeout45,
+	}
 
-		result, err := ParseConfig(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Timeout != 90*time.Second {
-			t.Errorf("expected timeout 90s, got %v", result.Timeout)
-		}
-	})
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
+	if result.Timeout != dhCfgTestTimeout45*time.Second {
+		t.Errorf("expected timeout %ds, got %v", dhCfgTestTimeout45, result.Timeout)
+	}
+}
+
+func TestParseConfig_TimeoutAsFloat64(t *testing.T) {
+	cfg := map[string]any{
+		dhCfgTestURLKey:  dhCfgTestExampleURL,
+		dhCfgTestTimeout: float64(dhCfgTestTimeout90),
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(dhCfgTestUnexpectedErr, err)
+	}
+	if result.Timeout != dhCfgTestTimeout90*time.Second {
+		t.Errorf("expected timeout %ds, got %v", dhCfgTestTimeout90, result.Timeout)
+	}
 }
 
 func TestDatahubGetString(t *testing.T) {
 	cfg := map[string]any{
-		"existing": "value",
-		"number":   123,
+		dhCfgTestExisting: "value",
+		dhCfgTestNumber:   dhCfgTestNumVal,
 	}
 
-	if getString(cfg, "existing") != "value" {
+	if getString(cfg, dhCfgTestExisting) != "value" {
 		t.Error("expected 'value' for existing key")
 	}
-	if getString(cfg, "missing") != "" {
+	if getString(cfg, dhCfgTestMissing) != "" {
 		t.Error("expected empty string for missing key")
 	}
-	if getString(cfg, "number") != "" {
+	if getString(cfg, dhCfgTestNumber) != "" {
 		t.Error("expected empty string for non-string value")
 	}
 }
 
 func TestDatahubGetInt(t *testing.T) {
 	cfg := map[string]any{
-		"int":     100,
-		"float64": float64(200),
-		"string":  "not a number",
+		dhCfgTestInt:     dhCfgTestIntVal,
+		dhCfgTestFloat64: float64(dhCfgTestFloat64Val),
+		dhCfgTestString:  "not a number",
 	}
 
-	if getInt(cfg, "int", 0) != 100 {
+	if getInt(cfg, dhCfgTestInt, 0) != dhCfgTestIntVal {
 		t.Error("expected 100 for int key")
 	}
-	if getInt(cfg, "float64", 0) != 200 {
+	if getInt(cfg, dhCfgTestFloat64, 0) != dhCfgTestFloat64Val {
 		t.Error("expected 200 for float64 key")
 	}
-	if getInt(cfg, "missing", 50) != 50 {
+	if getInt(cfg, dhCfgTestMissing, dhCfgTestDefaultVal) != dhCfgTestDefaultVal {
 		t.Error("expected default 50 for missing key")
 	}
-	if getInt(cfg, "string", 50) != 50 {
+	if getInt(cfg, dhCfgTestString, dhCfgTestDefaultVal) != dhCfgTestDefaultVal {
 		t.Error("expected default 50 for string value")
 	}
 }
 
 func TestDatahubGetDuration(t *testing.T) {
 	cfg := map[string]any{
-		"string":  "5m",
-		"int":     30,
-		"float64": float64(60),
-		"invalid": "not-a-duration",
+		dhCfgTestString:  "5m",
+		dhCfgTestInt:     dhCfgTestDurationInt,
+		dhCfgTestFloat64: float64(dhCfgTestDurationFlt),
+		"invalid":        "not-a-duration",
 	}
 
-	d, err := getDuration(cfg, "string")
-	if err != nil || d != 5*time.Minute {
+	d, err := getDuration(cfg, dhCfgTestString)
+	if err != nil || d != dhCfgTestDuration5Min*time.Minute {
 		t.Errorf("expected 5m, got %v (err: %v)", d, err)
 	}
 
-	d, err = getDuration(cfg, "int")
-	if err != nil || d != 30*time.Second {
+	d, err = getDuration(cfg, dhCfgTestInt)
+	if err != nil || d != dhCfgTestDurationInt*time.Second {
 		t.Errorf("expected 30s, got %v (err: %v)", d, err)
 	}
 
-	d, err = getDuration(cfg, "float64")
-	if err != nil || d != 60*time.Second {
+	d, err = getDuration(cfg, dhCfgTestFloat64)
+	if err != nil || d != dhCfgTestDurationFlt*time.Second {
 		t.Errorf("expected 60s, got %v (err: %v)", d, err)
 	}
 
-	d, err = getDuration(cfg, "missing")
+	d, err = getDuration(cfg, dhCfgTestMissing)
 	if err != nil || d != 0 {
 		t.Errorf("expected 0, got %v (err: %v)", d, err)
 	}
@@ -235,10 +267,10 @@ func TestDatahubGetDuration(t *testing.T) {
 
 func TestDatahubGetBool(t *testing.T) {
 	cfg := map[string]any{
-		"enabled":  true,
-		"disabled": false,
-		"string":   "true",
-		"number":   1,
+		"enabled":       true,
+		"disabled":      false,
+		dhCfgTestString: "true",
+		dhCfgTestNumber: 1,
 	}
 
 	if !getBool(cfg, "enabled", false) {
@@ -247,16 +279,16 @@ func TestDatahubGetBool(t *testing.T) {
 	if getBool(cfg, "disabled", true) {
 		t.Error("expected false for disabled key")
 	}
-	if getBool(cfg, "missing", false) {
+	if getBool(cfg, dhCfgTestMissing, false) {
 		t.Error("expected default false for missing key")
 	}
-	if !getBool(cfg, "missing", true) {
+	if !getBool(cfg, dhCfgTestMissing, true) {
 		t.Error("expected default true for missing key")
 	}
-	if getBool(cfg, "string", false) {
+	if getBool(cfg, dhCfgTestString, false) {
 		t.Error("expected default false for non-bool string value")
 	}
-	if getBool(cfg, "number", false) {
+	if getBool(cfg, dhCfgTestNumber, false) {
 		t.Error("expected default false for non-bool number value")
 	}
 }
@@ -264,13 +296,13 @@ func TestDatahubGetBool(t *testing.T) {
 func TestParseConfigDebug(t *testing.T) {
 	t.Run("debug enabled", func(t *testing.T) {
 		cfg := map[string]any{
-			"url":   "http://datahub.example.com:8080",
-			"debug": true,
+			dhCfgTestURLKey: dhCfgTestExampleURL,
+			"debug":         true,
 		}
 
 		result, err := ParseConfig(cfg)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
 		}
 
 		if !result.Debug {
@@ -280,13 +312,13 @@ func TestParseConfigDebug(t *testing.T) {
 
 	t.Run("debug disabled explicitly", func(t *testing.T) {
 		cfg := map[string]any{
-			"url":   "http://datahub.example.com:8080",
-			"debug": false,
+			dhCfgTestURLKey: dhCfgTestExampleURL,
+			"debug":         false,
 		}
 
 		result, err := ParseConfig(cfg)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
 		}
 
 		if result.Debug {
@@ -296,12 +328,12 @@ func TestParseConfigDebug(t *testing.T) {
 
 	t.Run("debug defaults to false", func(t *testing.T) {
 		cfg := map[string]any{
-			"url": "http://datahub.example.com:8080",
+			dhCfgTestURLKey: dhCfgTestExampleURL,
 		}
 
 		result, err := ParseConfig(cfg)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
 		}
 
 		if result.Debug {

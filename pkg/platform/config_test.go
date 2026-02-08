@@ -9,12 +9,60 @@ import (
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
-func TestLoadConfig(t *testing.T) {
-	t.Run("valid config file", func(t *testing.T) {
-		// Create temp config file
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-		configContent := `
+const (
+	cfgTestPlatformName      = "test-platform"
+	cfgTestProviderPostgres  = "postgres"
+	cfgTestCatalogWarehouse  = "warehouse"
+	cfgTestCatalogDatalake   = "datalake"
+	cfgTestCatalogRdbms      = "rdbms"
+	cfgTestCatalogIceberg    = "iceberg"
+	cfgTestDefaultMaxConns   = 25
+	cfgTestDefaultRetention  = 90
+	cfgTestDefaultQuality    = 0.7
+	cfgTestDefaultCacheTTL   = 5 * time.Minute
+	cfgTestDefaultSessTTL    = 30 * time.Minute
+	cfgTestCustomMaxConns    = 50
+	cfgTestCustomSessTTL     = 10 * time.Minute
+	cfgTestLineageMaxHops    = 3
+	cfgTestLineageInheritLen = 3
+	cfgTestLineageCacheTTL   = 15 * time.Minute
+	cfgTestLineageTimeout    = 10 * time.Second
+	cfgTestFilePerms         = 0o600
+	cfgTestConflictNearest   = "nearest"
+	cfgTestRoleAdmin         = "admin"
+	cfgTestToolkitDatahub    = "datahub"
+	cfgTestQualityThreshold  = 0.8
+	cfgTestRetentionDays     = 30
+	cfgTestStreamableSessTTL = 15 * time.Minute
+	cfgTestLineageTO         = 5 * time.Second
+	cfgTestEntryTTL10m       = 10 * time.Minute
+	cfgTestSessTO60m         = 60 * time.Minute
+)
+
+// writeTestConfig writes a YAML config to a temp dir and returns the path.
+func writeTestConfig(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(content), cfgTestFilePerms); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	return configPath
+}
+
+// loadTestConfig writes YAML and loads it, failing on error.
+func loadTestConfig(t *testing.T, content string) *Config {
+	t.Helper()
+	configPath := writeTestConfig(t, content)
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	return cfg
+}
+
+func TestLoadConfig_ValidFile(t *testing.T) {
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
   transport: stdio
@@ -23,66 +71,40 @@ auth:
     enabled: false
   api_keys:
     enabled: false
-`
-		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-			t.Fatalf("failed to write config file: %v", err)
-		}
+`)
+	if cfg.Server.Name != cfgTestPlatformName {
+		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, cfgTestPlatformName)
+	}
+}
 
-		cfg, err := LoadConfig(configPath)
-		if err != nil {
-			t.Fatalf("LoadConfig() error = %v", err)
-		}
-		if cfg.Server.Name != "test-platform" {
-			t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "test-platform")
-		}
-	})
+func TestLoadConfig_MissingFile(t *testing.T) {
+	_, err := LoadConfig("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("LoadConfig() expected error for missing file")
+	}
+}
 
-	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadConfig("/nonexistent/path/config.yaml")
-		if err == nil {
-			t.Error("LoadConfig() expected error for missing file")
-		}
-	})
+func TestLoadConfig_InvalidYAML(t *testing.T) {
+	configPath := writeTestConfig(t, "invalid: yaml: content:")
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Error("LoadConfig() expected error for invalid YAML")
+	}
+}
 
-	t.Run("invalid yaml", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(configPath, []byte("invalid: yaml: content:"), 0o644); err != nil {
-			t.Fatalf("failed to write config file: %v", err)
-		}
-
-		_, err := LoadConfig(configPath)
-		if err == nil {
-			t.Error("LoadConfig() expected error for invalid YAML")
-		}
-	})
-
-	t.Run("environment variable expansion", func(t *testing.T) {
-		t.Setenv("TEST_SERVER_NAME", "env-platform")
-
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-		configContent := `
+func TestLoadConfig_EnvVarExpansion(t *testing.T) {
+	t.Setenv("TEST_SERVER_NAME", "env-platform")
+	cfg := loadTestConfig(t, `
 server:
   name: ${TEST_SERVER_NAME}
-`
-		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-			t.Fatalf("failed to write config file: %v", err)
-		}
+`)
+	if cfg.Server.Name != "env-platform" {
+		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "env-platform")
+	}
+}
 
-		cfg, err := LoadConfig(configPath)
-		if err != nil {
-			t.Fatalf("LoadConfig() error = %v", err)
-		}
-		if cfg.Server.Name != "env-platform" {
-			t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "env-platform")
-		}
-	})
-
-	t.Run("URN mapping config parsing", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-		configContent := `
+func TestLoadConfig_URNMapping(t *testing.T) {
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
 semantic:
@@ -93,25 +115,16 @@ semantic:
     catalog_mapping:
       rdbms: warehouse
       iceberg: datalake
-`
-		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-			t.Fatalf("failed to write config file: %v", err)
-		}
-
-		cfg, err := LoadConfig(configPath)
-		if err != nil {
-			t.Fatalf("LoadConfig() error = %v", err)
-		}
-		if cfg.Semantic.URNMapping.Platform != "postgres" {
-			t.Errorf("Semantic.URNMapping.Platform = %q, want %q", cfg.Semantic.URNMapping.Platform, "postgres")
-		}
-		if cfg.Semantic.URNMapping.CatalogMapping["rdbms"] != "warehouse" {
-			t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping["rdbms"], "warehouse")
-		}
-		if cfg.Semantic.URNMapping.CatalogMapping["iceberg"] != "datalake" {
-			t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping["iceberg"], "datalake")
-		}
-	})
+`)
+	if cfg.Semantic.URNMapping.Platform != cfgTestProviderPostgres {
+		t.Errorf("Semantic.URNMapping.Platform = %q, want %q", cfg.Semantic.URNMapping.Platform, cfgTestProviderPostgres)
+	}
+	if cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
+		t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogRdbms], cfgTestCatalogWarehouse)
+	}
+	if cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogIceberg] != cfgTestCatalogDatalake {
+		t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogIceberg], cfgTestCatalogDatalake)
+	}
 }
 
 func TestExpandEnvVars(t *testing.T) {
@@ -149,20 +162,20 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Server.Transport != "stdio" {
 		t.Errorf("Server.Transport = %q, want %q", cfg.Server.Transport, "stdio")
 	}
-	if cfg.Database.MaxOpenConns != 25 {
-		t.Errorf("Database.MaxOpenConns = %d, want %d", cfg.Database.MaxOpenConns, 25)
+	if cfg.Database.MaxOpenConns != cfgTestDefaultMaxConns {
+		t.Errorf("Database.MaxOpenConns = %d, want %d", cfg.Database.MaxOpenConns, cfgTestDefaultMaxConns)
 	}
-	if cfg.Semantic.Cache.TTL != 5*time.Minute {
-		t.Errorf("Semantic.Cache.TTL = %v, want %v", cfg.Semantic.Cache.TTL, 5*time.Minute)
+	if cfg.Semantic.Cache.TTL != cfgTestDefaultCacheTTL {
+		t.Errorf("Semantic.Cache.TTL = %v, want %v", cfg.Semantic.Cache.TTL, cfgTestDefaultCacheTTL)
 	}
-	if cfg.Audit.RetentionDays != 90 {
-		t.Errorf("Audit.RetentionDays = %d, want %d", cfg.Audit.RetentionDays, 90)
+	if cfg.Audit.RetentionDays != cfgTestDefaultRetention {
+		t.Errorf("Audit.RetentionDays = %d, want %d", cfg.Audit.RetentionDays, cfgTestDefaultRetention)
 	}
-	if cfg.Tuning.Rules.QualityThreshold != 0.7 {
-		t.Errorf("Tuning.Rules.QualityThreshold = %f, want %f", cfg.Tuning.Rules.QualityThreshold, 0.7)
+	if cfg.Tuning.Rules.QualityThreshold != cfgTestDefaultQuality {
+		t.Errorf("Tuning.Rules.QualityThreshold = %f, want %f", cfg.Tuning.Rules.QualityThreshold, cfgTestDefaultQuality)
 	}
-	if cfg.Server.Streamable.SessionTimeout != 30*time.Minute {
-		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, 30*time.Minute)
+	if cfg.Server.Streamable.SessionTimeout != cfgTestDefaultSessTTL {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, cfgTestDefaultSessTTL)
 	}
 }
 
@@ -172,12 +185,12 @@ func TestApplyDefaults_PreservesExisting(t *testing.T) {
 			Name:      "custom-name",
 			Transport: "sse",
 			Streamable: StreamableConfig{
-				SessionTimeout: 10 * time.Minute,
+				SessionTimeout: cfgTestCustomSessTTL,
 				Stateless:      true,
 			},
 		},
 		Database: DatabaseConfig{
-			MaxOpenConns: 50,
+			MaxOpenConns: cfgTestCustomMaxConns,
 		},
 	}
 	applyDefaults(cfg)
@@ -188,11 +201,11 @@ func TestApplyDefaults_PreservesExisting(t *testing.T) {
 	if cfg.Server.Transport != "sse" {
 		t.Errorf("Server.Transport = %q, want %q (should preserve existing)", cfg.Server.Transport, "sse")
 	}
-	if cfg.Database.MaxOpenConns != 50 {
-		t.Errorf("Database.MaxOpenConns = %d, want %d (should preserve existing)", cfg.Database.MaxOpenConns, 50)
+	if cfg.Database.MaxOpenConns != cfgTestCustomMaxConns {
+		t.Errorf("Database.MaxOpenConns = %d, want %d (should preserve existing)", cfg.Database.MaxOpenConns, cfgTestCustomMaxConns)
 	}
-	if cfg.Server.Streamable.SessionTimeout != 10*time.Minute {
-		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v (should preserve existing)", cfg.Server.Streamable.SessionTimeout, 10*time.Minute)
+	if cfg.Server.Streamable.SessionTimeout != cfgTestCustomSessTTL {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v (should preserve existing)", cfg.Server.Streamable.SessionTimeout, cfgTestCustomSessTTL)
 	}
 	if !cfg.Server.Streamable.Stateless {
 		t.Error("Server.Streamable.Stateless = false, want true (should preserve existing)")
@@ -260,224 +273,212 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestLoadConfig_StreamableFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	configContent := `
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
   transport: http
   streamable:
     session_timeout: 15m
     stateless: true
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
+`)
 	if cfg.Server.Transport != "http" {
 		t.Errorf("Server.Transport = %q, want %q", cfg.Server.Transport, "http")
 	}
-	if cfg.Server.Streamable.SessionTimeout != 15*time.Minute {
-		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, 15*time.Minute)
+	if cfg.Server.Streamable.SessionTimeout != cfgTestStreamableSessTTL {
+		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, cfgTestStreamableSessTTL)
 	}
 	if !cfg.Server.Streamable.Stateless {
 		t.Error("Server.Streamable.Stateless = false, want true")
 	}
 }
 
-func TestConfigTypes(t *testing.T) {
-	t.Run("ServerConfig", func(t *testing.T) {
-		cfg := ServerConfig{
-			Name:      "test",
-			Transport: "http",
-			Address:   ":8080",
-			TLS: TLSConfig{
-				Enabled:  true,
-				CertFile: "/path/cert.pem",
-				KeyFile:  "/path/key.pem",
-			},
-			Streamable: StreamableConfig{
-				SessionTimeout: 15 * time.Minute,
-				Stateless:      true,
-			},
-		}
-		if cfg.Name != "test" {
-			t.Errorf("Name = %q", cfg.Name)
-		}
-		if !cfg.TLS.Enabled {
-			t.Error("TLS.Enabled = false")
-		}
-		if cfg.Streamable.SessionTimeout != 15*time.Minute {
-			t.Errorf("Streamable.SessionTimeout = %v, want %v", cfg.Streamable.SessionTimeout, 15*time.Minute)
-		}
-		if !cfg.Streamable.Stateless {
-			t.Error("Streamable.Stateless = false, want true")
-		}
-	})
+func TestConfigTypes_ServerConfig(t *testing.T) {
+	cfg := ServerConfig{
+		Name:      "test",
+		Transport: "http",
+		Address:   ":8080",
+		TLS: TLSConfig{
+			Enabled:  true,
+			CertFile: "/path/cert.pem",
+			KeyFile:  "/path/key.pem",
+		},
+		Streamable: StreamableConfig{
+			SessionTimeout: cfgTestLineageCacheTTL,
+			Stateless:      true,
+		},
+	}
+	if cfg.Name != "test" {
+		t.Errorf("Name = %q", cfg.Name)
+	}
+	if !cfg.TLS.Enabled {
+		t.Error("TLS.Enabled = false")
+	}
+	if cfg.Streamable.SessionTimeout != cfgTestLineageCacheTTL {
+		t.Errorf("Streamable.SessionTimeout = %v, want %v", cfg.Streamable.SessionTimeout, cfgTestLineageCacheTTL)
+	}
+	if !cfg.Streamable.Stateless {
+		t.Error("Streamable.Stateless = false, want true")
+	}
+}
 
-	t.Run("PersonasConfig", func(t *testing.T) {
-		cfg := PersonasConfig{
-			DefaultPersona: "admin",
-			RoleMapping: RoleMappingConfig{
-				OIDCToPersona: map[string]string{"admin_role": "admin"},
-				UserPersonas:  map[string]string{"user1": "analyst"},
-			},
-		}
-		if cfg.DefaultPersona != "admin" {
-			t.Errorf("DefaultPersona = %q", cfg.DefaultPersona)
-		}
-		if cfg.RoleMapping.OIDCToPersona["admin_role"] != "admin" {
-			t.Error("OIDCToPersona mapping incorrect")
-		}
-	})
+func TestConfigTypes_PersonasConfig(t *testing.T) {
+	cfg := PersonasConfig{
+		DefaultPersona: cfgTestRoleAdmin,
+		RoleMapping: RoleMappingConfig{
+			OIDCToPersona: map[string]string{"admin_role": cfgTestRoleAdmin},
+			UserPersonas:  map[string]string{"user1": "analyst"},
+		},
+	}
+	if cfg.DefaultPersona != cfgTestRoleAdmin {
+		t.Errorf("DefaultPersona = %q", cfg.DefaultPersona)
+	}
+	if cfg.RoleMapping.OIDCToPersona["admin_role"] != cfgTestRoleAdmin {
+		t.Error("OIDCToPersona mapping incorrect")
+	}
+}
 
-	t.Run("PersonaDef", func(t *testing.T) {
-		def := PersonaDef{
-			DisplayName: "Administrator",
-			Roles:       []string{"admin"},
-			Tools: ToolRulesDef{
-				Allow: []string{"*"},
-				Deny:  []string{"dangerous_*"},
-			},
-			Prompts: PromptsDef{
-				SystemPrefix: "You are an admin.",
-			},
-			Hints: map[string]string{"key": "value"},
-		}
-		if def.DisplayName != "Administrator" {
-			t.Errorf("DisplayName = %q", def.DisplayName)
-		}
-		if len(def.Tools.Allow) != 1 || def.Tools.Allow[0] != "*" {
-			t.Errorf("Tools.Allow = %v", def.Tools.Allow)
-		}
-	})
+func TestConfigTypes_PersonaDef(t *testing.T) {
+	def := PersonaDef{
+		DisplayName: "Administrator",
+		Roles:       []string{cfgTestRoleAdmin},
+		Tools: ToolRulesDef{
+			Allow: []string{"*"},
+			Deny:  []string{"dangerous_*"},
+		},
+		Prompts: PromptsDef{
+			SystemPrefix: "You are an admin.",
+		},
+		Hints: map[string]string{"key": "value"},
+	}
+	if def.DisplayName != "Administrator" {
+		t.Errorf("DisplayName = %q", def.DisplayName)
+	}
+	if len(def.Tools.Allow) != 1 || def.Tools.Allow[0] != "*" {
+		t.Errorf("Tools.Allow = %v", def.Tools.Allow)
+	}
+}
 
-	t.Run("InjectionConfig", func(t *testing.T) {
-		cfg := InjectionConfig{
-			TrinoSemanticEnrichment:  true,
-			DataHubQueryEnrichment:   true,
-			S3SemanticEnrichment:     true,
-			DataHubStorageEnrichment: true,
-		}
-		if !cfg.TrinoSemanticEnrichment {
-			t.Error("TrinoSemanticEnrichment = false")
-		}
-	})
+func TestConfigTypes_InjectionConfig(t *testing.T) {
+	cfg := InjectionConfig{
+		TrinoSemanticEnrichment:  true,
+		DataHubQueryEnrichment:   true,
+		S3SemanticEnrichment:     true,
+		DataHubStorageEnrichment: true,
+	}
+	if !cfg.TrinoSemanticEnrichment {
+		t.Error("TrinoSemanticEnrichment = false")
+	}
+}
 
-	t.Run("TuningConfig", func(t *testing.T) {
-		cfg := TuningConfig{
-			Rules: RulesConfig{
-				RequireDataHubCheck: true,
-				WarnOnDeprecated:    true,
-				QualityThreshold:    0.8,
-			},
-			PromptsDir: "/prompts",
-		}
-		if !cfg.Rules.RequireDataHubCheck {
-			t.Error("Rules.RequireDataHubCheck = false")
-		}
-		if cfg.PromptsDir != "/prompts" {
-			t.Errorf("PromptsDir = %q", cfg.PromptsDir)
-		}
-	})
+func TestConfigTypes_TuningConfig(t *testing.T) {
+	cfg := TuningConfig{
+		Rules: RulesConfig{
+			RequireDataHubCheck: true,
+			WarnOnDeprecated:    true,
+			QualityThreshold:    cfgTestQualityThreshold,
+		},
+		PromptsDir: "/prompts",
+	}
+	if !cfg.Rules.RequireDataHubCheck {
+		t.Error("Rules.RequireDataHubCheck = false")
+	}
+	if cfg.PromptsDir != "/prompts" {
+		t.Errorf("PromptsDir = %q", cfg.PromptsDir)
+	}
+}
 
-	t.Run("AuditConfig", func(t *testing.T) {
-		cfg := AuditConfig{
-			Enabled:       true,
-			LogToolCalls:  true,
-			RetentionDays: 30,
-		}
-		if !cfg.Enabled {
-			t.Error("Enabled = false")
-		}
-		if cfg.RetentionDays != 30 {
-			t.Errorf("RetentionDays = %d", cfg.RetentionDays)
-		}
-	})
+func TestConfigTypes_AuditConfig(t *testing.T) {
+	cfg := AuditConfig{
+		Enabled:       true,
+		LogToolCalls:  true,
+		RetentionDays: cfgTestRetentionDays,
+	}
+	if !cfg.Enabled {
+		t.Error("Enabled = false")
+	}
+	if cfg.RetentionDays != cfgTestRetentionDays {
+		t.Errorf("RetentionDays = %d", cfg.RetentionDays)
+	}
+}
 
-	t.Run("URNMappingConfig", func(t *testing.T) {
-		cfg := URNMappingConfig{
-			Platform: "postgres",
-			CatalogMapping: map[string]string{
-				"rdbms":   "warehouse",
-				"iceberg": "datalake",
-			},
-		}
-		if cfg.Platform != "postgres" {
-			t.Errorf("Platform = %q, want %q", cfg.Platform, "postgres")
-		}
-		if cfg.CatalogMapping["rdbms"] != "warehouse" {
-			t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.CatalogMapping["rdbms"], "warehouse")
-		}
-		if cfg.CatalogMapping["iceberg"] != "datalake" {
-			t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.CatalogMapping["iceberg"], "datalake")
-		}
-	})
+func TestConfigTypes_URNMappingConfig(t *testing.T) {
+	cfg := URNMappingConfig{
+		Platform: cfgTestProviderPostgres,
+		CatalogMapping: map[string]string{
+			cfgTestCatalogRdbms:   cfgTestCatalogWarehouse,
+			cfgTestCatalogIceberg: cfgTestCatalogDatalake,
+		},
+	}
+	if cfg.Platform != cfgTestProviderPostgres {
+		t.Errorf("Platform = %q, want %q", cfg.Platform, cfgTestProviderPostgres)
+	}
+	if cfg.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
+		t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.CatalogMapping[cfgTestCatalogRdbms], cfgTestCatalogWarehouse)
+	}
+	if cfg.CatalogMapping[cfgTestCatalogIceberg] != cfgTestCatalogDatalake {
+		t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.CatalogMapping[cfgTestCatalogIceberg], cfgTestCatalogDatalake)
+	}
+}
 
-	t.Run("SemanticConfig with URNMapping", func(t *testing.T) {
-		cfg := SemanticConfig{
-			Provider: "datahub",
-			Instance: "primary",
-			Cache: CacheConfig{
-				Enabled: true,
-				TTL:     5 * time.Minute,
-			},
-			URNMapping: URNMappingConfig{
-				Platform:       "postgres",
-				CatalogMapping: map[string]string{"rdbms": "warehouse"},
-			},
-		}
-		if cfg.Provider != "datahub" {
-			t.Errorf("Provider = %q", cfg.Provider)
-		}
-		if cfg.URNMapping.Platform != "postgres" {
-			t.Errorf("URNMapping.Platform = %q", cfg.URNMapping.Platform)
-		}
-		if cfg.URNMapping.CatalogMapping["rdbms"] != "warehouse" {
-			t.Errorf("URNMapping.CatalogMapping[rdbms] = %q", cfg.URNMapping.CatalogMapping["rdbms"])
-		}
-	})
+func TestConfigTypes_SemanticConfigWithURNMapping(t *testing.T) {
+	cfg := SemanticConfig{
+		Provider: cfgTestToolkitDatahub,
+		Instance: "primary",
+		Cache: CacheConfig{
+			Enabled: true,
+			TTL:     cfgTestDefaultCacheTTL,
+		},
+		URNMapping: URNMappingConfig{
+			Platform:       cfgTestProviderPostgres,
+			CatalogMapping: map[string]string{cfgTestCatalogRdbms: cfgTestCatalogWarehouse},
+		},
+	}
+	if cfg.Provider != cfgTestToolkitDatahub {
+		t.Errorf("Provider = %q", cfg.Provider)
+	}
+	if cfg.URNMapping.Platform != cfgTestProviderPostgres {
+		t.Errorf("URNMapping.Platform = %q", cfg.URNMapping.Platform)
+	}
+	if cfg.URNMapping.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
+		t.Errorf("URNMapping.CatalogMapping[rdbms] = %q", cfg.URNMapping.CatalogMapping[cfgTestCatalogRdbms])
+	}
+}
 
-	t.Run("SemanticConfig with Lineage", func(t *testing.T) {
-		cfg := SemanticConfig{
-			Provider: "datahub",
-			Instance: "primary",
-			Lineage: datahubsemantic.LineageConfig{
-				Enabled:             true,
-				MaxHops:             3,
-				Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-				ConflictResolution:  "nearest",
-				PreferColumnLineage: true,
-				CacheTTL:            10 * time.Minute,
-				Timeout:             5 * time.Second,
-			},
-		}
-		if !cfg.Lineage.Enabled {
-			t.Error("Lineage.Enabled = false, want true")
-		}
-		if cfg.Lineage.MaxHops != 3 {
-			t.Errorf("Lineage.MaxHops = %d, want 3", cfg.Lineage.MaxHops)
-		}
-		if len(cfg.Lineage.Inherit) != 3 {
-			t.Errorf("Lineage.Inherit len = %d, want 3", len(cfg.Lineage.Inherit))
-		}
-		if cfg.Lineage.ConflictResolution != "nearest" {
-			t.Errorf("Lineage.ConflictResolution = %q, want %q", cfg.Lineage.ConflictResolution, "nearest")
-		}
-		if !cfg.Lineage.PreferColumnLineage {
-			t.Error("Lineage.PreferColumnLineage = false, want true")
-		}
-		if cfg.Lineage.CacheTTL != 10*time.Minute {
-			t.Errorf("Lineage.CacheTTL = %v, want %v", cfg.Lineage.CacheTTL, 10*time.Minute)
-		}
-		if cfg.Lineage.Timeout != 5*time.Second {
-			t.Errorf("Lineage.Timeout = %v, want %v", cfg.Lineage.Timeout, 5*time.Second)
-		}
-	})
+func TestConfigTypes_SemanticConfigWithLineage(t *testing.T) {
+	cfg := SemanticConfig{
+		Provider: cfgTestToolkitDatahub,
+		Instance: "primary",
+		Lineage: datahubsemantic.LineageConfig{
+			Enabled:             true,
+			MaxHops:             cfgTestLineageMaxHops,
+			Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+			ConflictResolution:  cfgTestConflictNearest,
+			PreferColumnLineage: true,
+			CacheTTL:            cfgTestCustomSessTTL,
+			Timeout:             cfgTestLineageTO,
+		},
+	}
+	if !cfg.Lineage.Enabled {
+		t.Error("Lineage.Enabled = false, want true")
+	}
+	if cfg.Lineage.MaxHops != cfgTestLineageMaxHops {
+		t.Errorf("Lineage.MaxHops = %d, want %d", cfg.Lineage.MaxHops, cfgTestLineageMaxHops)
+	}
+	if len(cfg.Lineage.Inherit) != cfgTestLineageInheritLen {
+		t.Errorf("Lineage.Inherit len = %d, want %d", len(cfg.Lineage.Inherit), cfgTestLineageInheritLen)
+	}
+	if cfg.Lineage.ConflictResolution != cfgTestConflictNearest {
+		t.Errorf("Lineage.ConflictResolution = %q, want %q", cfg.Lineage.ConflictResolution, cfgTestConflictNearest)
+	}
+	if !cfg.Lineage.PreferColumnLineage {
+		t.Error("Lineage.PreferColumnLineage = false, want true")
+	}
+	if cfg.Lineage.CacheTTL != cfgTestCustomSessTTL {
+		t.Errorf("Lineage.CacheTTL = %v, want %v", cfg.Lineage.CacheTTL, cfgTestCustomSessTTL)
+	}
+	if cfg.Lineage.Timeout != cfgTestLineageTO {
+		t.Errorf("Lineage.Timeout = %v, want %v", cfg.Lineage.Timeout, cfgTestLineageTO)
+	}
 }
 
 func TestSessionDedupConfig_IsEnabled(t *testing.T) {
@@ -533,11 +534,11 @@ func TestApplyDefaults_SessionDedupDefaults(t *testing.T) {
 	applyDefaults(cfg)
 
 	// Session dedup should inherit from semantic cache TTL and streamable session timeout
-	if cfg.Injection.SessionDedup.EntryTTL != 5*time.Minute {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, 5*time.Minute)
+	if cfg.Injection.SessionDedup.EntryTTL != cfgTestDefaultCacheTTL {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, cfgTestDefaultCacheTTL)
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout != 30*time.Minute {
-		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, 30*time.Minute)
+	if cfg.Injection.SessionDedup.SessionTimeout != cfgTestDefaultSessTTL {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, cfgTestDefaultSessTTL)
 	}
 }
 
@@ -545,25 +546,23 @@ func TestApplyDefaults_SessionDedupPreservesExisting(t *testing.T) {
 	cfg := &Config{
 		Injection: InjectionConfig{
 			SessionDedup: SessionDedupConfig{
-				EntryTTL:       10 * time.Minute,
-				SessionTimeout: 60 * time.Minute,
+				EntryTTL:       cfgTestEntryTTL10m,
+				SessionTimeout: cfgTestSessTO60m,
 			},
 		},
 	}
 	applyDefaults(cfg)
 
-	if cfg.Injection.SessionDedup.EntryTTL != 10*time.Minute {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v (should preserve)", cfg.Injection.SessionDedup.EntryTTL, 10*time.Minute)
+	if cfg.Injection.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v (should preserve)", cfg.Injection.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout != 60*time.Minute {
-		t.Errorf("SessionDedup.SessionTimeout = %v, want %v (should preserve)", cfg.Injection.SessionDedup.SessionTimeout, 60*time.Minute)
+	if cfg.Injection.SessionDedup.SessionTimeout != cfgTestSessTO60m {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v (should preserve)", cfg.Injection.SessionDedup.SessionTimeout, cfgTestSessTO60m)
 	}
 }
 
 func TestLoadConfig_SessionDedupFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	configContent := `
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
 injection:
@@ -573,24 +572,15 @@ injection:
     mode: summary
     entry_ttl: 10m
     session_timeout: 1h
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-
+`)
 	if cfg.Injection.SessionDedup.IsEnabled() {
 		t.Error("SessionDedup.IsEnabled() = true, want false")
 	}
 	if cfg.Injection.SessionDedup.EffectiveMode() != "summary" {
 		t.Errorf("SessionDedup.EffectiveMode() = %q, want %q", cfg.Injection.SessionDedup.EffectiveMode(), "summary")
 	}
-	if cfg.Injection.SessionDedup.EntryTTL != 10*time.Minute {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, 10*time.Minute)
+	if cfg.Injection.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
 	}
 	if cfg.Injection.SessionDedup.SessionTimeout != time.Hour {
 		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, time.Hour)
@@ -598,9 +588,7 @@ injection:
 }
 
 func TestLoadConfig_DataHubDebugFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	configContent := `
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
 toolkits:
@@ -612,39 +600,8 @@ toolkits:
         token: "test-token"
         debug: true
     default: primary
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-
-	// Verify the datahub toolkit config was loaded
-	datahubCfgAny, ok := cfg.Toolkits["datahub"]
-	if !ok {
-		t.Fatal("expected datahub toolkit config")
-	}
-
-	datahubCfg, ok := datahubCfgAny.(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub toolkit config to be a map")
-	}
-
-	// Verify instances were parsed
-	instances, ok := datahubCfg["instances"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub instances config")
-	}
-
-	primaryInstance, ok := instances["primary"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub primary instance config")
-	}
-
-	// Verify debug field was parsed
+`)
+	primaryInstance := requireDataHubPrimaryInstance(t, cfg)
 	debug, ok := primaryInstance["debug"].(bool)
 	if !ok {
 		t.Fatal("expected debug field in primary instance")
@@ -654,10 +611,30 @@ toolkits:
 	}
 }
 
+// requireDataHubPrimaryInstance extracts the primary datahub instance config from a loaded Config.
+func requireDataHubPrimaryInstance(t *testing.T, cfg *Config) map[string]any {
+	t.Helper()
+	datahubCfgAny, ok := cfg.Toolkits[cfgTestToolkitDatahub]
+	if !ok {
+		t.Fatal("expected datahub toolkit config")
+	}
+	datahubCfg, ok := datahubCfgAny.(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub toolkit config to be a map")
+	}
+	instances, ok := datahubCfg["instances"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub instances config")
+	}
+	primaryInstance, ok := instances["primary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected datahub primary instance config")
+	}
+	return primaryInstance
+}
+
 func TestLoadConfig_DataHubDebugDefaultsFalse(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	configContent := `
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
 toolkits:
@@ -668,49 +645,36 @@ toolkits:
         endpoint: "http://datahub.example.com:8080"
         token: "test-token"
     default: primary
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-
-	// Verify the datahub toolkit config was loaded
-	datahubCfgAny, ok := cfg.Toolkits["datahub"]
-	if !ok {
-		t.Fatal("expected datahub toolkit config")
-	}
-
-	datahubCfg, ok := datahubCfgAny.(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub toolkit config to be a map")
-	}
-
-	// Verify instances were parsed
-	instances, ok := datahubCfg["instances"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub instances config")
-	}
-
-	primaryInstance, ok := instances["primary"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub primary instance config")
-	}
-
-	// Verify debug field is not present (defaults to false when not specified)
+`)
+	primaryInstance := requireDataHubPrimaryInstance(t, cfg)
 	_, hasDebug := primaryInstance["debug"]
 	if hasDebug {
 		t.Error("expected debug field to not be present when not specified")
 	}
 }
 
+// assertLineageBasics verifies the basic lineage config fields.
+func assertLineageBasics(t *testing.T, lineage datahubsemantic.LineageConfig) {
+	t.Helper()
+	if !lineage.Enabled {
+		t.Error("Lineage.Enabled = false, want true")
+	}
+	if lineage.MaxHops != cfgTestLineageMaxHops {
+		t.Errorf("Lineage.MaxHops = %d, want %d", lineage.MaxHops, cfgTestLineageMaxHops)
+	}
+	if len(lineage.Inherit) != cfgTestLineageInheritLen {
+		t.Errorf("Lineage.Inherit len = %d, want %d", len(lineage.Inherit), cfgTestLineageInheritLen)
+	}
+	if lineage.ConflictResolution != cfgTestConflictNearest {
+		t.Errorf("Lineage.ConflictResolution = %q, want %q", lineage.ConflictResolution, cfgTestConflictNearest)
+	}
+	if !lineage.PreferColumnLineage {
+		t.Error("Lineage.PreferColumnLineage = false, want true")
+	}
+}
+
 func TestLoadConfig_LineageFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	configContent := `
+	cfg := loadTestConfig(t, `
 server:
   name: test-platform
 semantic:
@@ -736,48 +700,25 @@ semantic:
           - "warehouse.analytics.*"
         column_mapping:
           user_id: payload.user_id
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
+`)
+	assertLineageBasics(t, cfg.Semantic.Lineage)
 
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-
-	// Verify lineage config was parsed correctly
-	if !cfg.Semantic.Lineage.Enabled {
-		t.Error("Semantic.Lineage.Enabled = false, want true")
-	}
-	if cfg.Semantic.Lineage.MaxHops != 3 {
-		t.Errorf("Semantic.Lineage.MaxHops = %d, want 3", cfg.Semantic.Lineage.MaxHops)
-	}
-	if len(cfg.Semantic.Lineage.Inherit) != 3 {
-		t.Errorf("Semantic.Lineage.Inherit len = %d, want 3", len(cfg.Semantic.Lineage.Inherit))
-	}
 	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
 	for i, want := range expectedInherit {
 		if cfg.Semantic.Lineage.Inherit[i] != want {
 			t.Errorf("Semantic.Lineage.Inherit[%d] = %q, want %q", i, cfg.Semantic.Lineage.Inherit[i], want)
 		}
 	}
-	if cfg.Semantic.Lineage.ConflictResolution != "nearest" {
-		t.Errorf("Semantic.Lineage.ConflictResolution = %q, want %q", cfg.Semantic.Lineage.ConflictResolution, "nearest")
+	if cfg.Semantic.Lineage.CacheTTL != cfgTestLineageCacheTTL {
+		t.Errorf("Semantic.Lineage.CacheTTL = %v, want %v", cfg.Semantic.Lineage.CacheTTL, cfgTestLineageCacheTTL)
 	}
-	if !cfg.Semantic.Lineage.PreferColumnLineage {
-		t.Error("Semantic.Lineage.PreferColumnLineage = false, want true")
-	}
-	if cfg.Semantic.Lineage.CacheTTL != 15*time.Minute {
-		t.Errorf("Semantic.Lineage.CacheTTL = %v, want %v", cfg.Semantic.Lineage.CacheTTL, 15*time.Minute)
-	}
-	if cfg.Semantic.Lineage.Timeout != 10*time.Second {
-		t.Errorf("Semantic.Lineage.Timeout = %v, want %v", cfg.Semantic.Lineage.Timeout, 10*time.Second)
+	if cfg.Semantic.Lineage.Timeout != cfgTestLineageTimeout {
+		t.Errorf("Semantic.Lineage.Timeout = %v, want %v", cfg.Semantic.Lineage.Timeout, cfgTestLineageTimeout)
 	}
 
 	// Verify column transforms
 	if len(cfg.Semantic.Lineage.ColumnTransforms) != 1 {
-		t.Fatalf("Semantic.Lineage.ColumnTransforms len = %d, want 1", len(cfg.Semantic.Lineage.ColumnTransforms))
+		t.Fatalf("ColumnTransforms len = %d, want 1", len(cfg.Semantic.Lineage.ColumnTransforms))
 	}
 	transform := cfg.Semantic.Lineage.ColumnTransforms[0]
 	if transform.TargetPattern != "*_flattened" {
@@ -789,7 +730,7 @@ semantic:
 
 	// Verify aliases
 	if len(cfg.Semantic.Lineage.Aliases) != 1 {
-		t.Fatalf("Semantic.Lineage.Aliases len = %d, want 1", len(cfg.Semantic.Lineage.Aliases))
+		t.Fatalf("Aliases len = %d, want 1", len(cfg.Semantic.Lineage.Aliases))
 	}
 	alias := cfg.Semantic.Lineage.Aliases[0]
 	if alias.Source != "warehouse.raw.events" {
