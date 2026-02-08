@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+const (
+	pkceMinLen     = 43
+	pkceMaxLen     = 128
+	pkceBelowMin   = 42
+	pkceAboveMax   = 129
+	pkceSpecialLen = 40
+	pkceRepeatChar = "a"
+)
+
 func TestValidateCodeVerifier(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -13,32 +22,32 @@ func TestValidateCodeVerifier(t *testing.T) {
 	}{
 		{
 			name:     "valid verifier",
-			verifier: strings.Repeat("a", 43),
+			verifier: strings.Repeat(pkceRepeatChar, pkceMinLen),
 			wantErr:  false,
 		},
 		{
 			name:     "max length",
-			verifier: strings.Repeat("a", 128),
+			verifier: strings.Repeat(pkceRepeatChar, pkceMaxLen),
 			wantErr:  false,
 		},
 		{
 			name:     "too short",
-			verifier: strings.Repeat("a", 42),
+			verifier: strings.Repeat(pkceRepeatChar, pkceBelowMin),
 			wantErr:  true,
 		},
 		{
 			name:     "too long",
-			verifier: strings.Repeat("a", 129),
+			verifier: strings.Repeat(pkceRepeatChar, pkceAboveMax),
 			wantErr:  true,
 		},
 		{
 			name:     "invalid characters",
-			verifier: strings.Repeat("a", 43) + "@",
+			verifier: strings.Repeat(pkceRepeatChar, pkceMinLen) + "@",
 			wantErr:  true,
 		},
 		{
 			name:     "valid with special chars",
-			verifier: strings.Repeat("a", 40) + "-._~",
+			verifier: strings.Repeat(pkceRepeatChar, pkceSpecialLen) + "-._~",
 			wantErr:  false,
 		},
 	}
@@ -61,17 +70,17 @@ func TestValidateCodeChallenge(t *testing.T) {
 	}{
 		{
 			name:      "valid challenge",
-			challenge: strings.Repeat("a", 43),
+			challenge: strings.Repeat(pkceRepeatChar, pkceMinLen),
 			wantErr:   false,
 		},
 		{
 			name:      "too short",
-			challenge: strings.Repeat("a", 42),
+			challenge: strings.Repeat(pkceRepeatChar, pkceBelowMin),
 			wantErr:   true,
 		},
 		{
 			name:      "invalid characters",
-			challenge: strings.Repeat("a", 43) + "+",
+			challenge: strings.Repeat(pkceRepeatChar, pkceMinLen) + "+",
 			wantErr:   true,
 		},
 	}
@@ -87,7 +96,7 @@ func TestValidateCodeChallenge(t *testing.T) {
 }
 
 func TestGenerateCodeChallenge(t *testing.T) {
-	verifier := strings.Repeat("a", 43)
+	verifier := strings.Repeat(pkceRepeatChar, pkceMinLen)
 
 	t.Run("plain method", func(t *testing.T) {
 		challenge, err := GenerateCodeChallenge(verifier, PKCEMethodPlain)
@@ -129,7 +138,7 @@ func TestGenerateCodeChallenge(t *testing.T) {
 }
 
 func TestVerifyCodeChallenge(t *testing.T) {
-	verifier := strings.Repeat("a", 43)
+	verifier := strings.Repeat(pkceRepeatChar, pkceMinLen)
 
 	t.Run("S256 valid", func(t *testing.T) {
 		challenge, _ := GenerateCodeChallenge(verifier, PKCEMethodS256)
