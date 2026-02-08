@@ -300,27 +300,6 @@ linters:
   exclusions:
     generated: lax
     rules:
-      # Relax rules for tests
-      - path: _test\.go
-        linters:
-          - errcheck
-          - gosec
-          - wrapcheck
-          - gocritic
-          - gocognit
-          - goconst
-          - unparam
-          - thelper
-          - revive
-          - nilnil
-          - nestif
-
-      # Allow longer functions in tests
-      - path: _test\.go
-        linters:
-          - gocyclo
-        text: "cyclomatic complexity"
-
       # Generated files
       - path: generated
         linters:
