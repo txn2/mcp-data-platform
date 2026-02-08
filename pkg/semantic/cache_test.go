@@ -7,11 +7,11 @@ import (
 )
 
 const (
-	cacheTestTTLMs          = 100
-	cacheTestSchema         = "test"
-	cacheTestLineageDepth   = 3
-	cacheTestDefaultTTLMin  = 5
-	cacheTestNonNilResults  = "expected non-nil results"
+	cacheTestTTLMs         = 100
+	cacheTestSchema        = "test"
+	cacheTestLineageDepth  = 3
+	cacheTestDefaultTTLMin = 5
+	cacheTestNonNilResults = "expected non-nil results"
 )
 
 func newTestCachedProvider() *CachedProvider {
