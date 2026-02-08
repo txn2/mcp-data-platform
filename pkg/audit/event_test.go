@@ -3,10 +3,10 @@ package audit
 import "testing"
 
 const (
-	redactedValue       = "[REDACTED]"
-	eventTestDurationMS = 100
-	eventTestRespChars  = 500
-	eventTestRespTokens = 125
+	redactedValue          = "[REDACTED]"
+	eventTestDurationMS    = 100
+	eventTestRespChars     = 500
+	eventTestContentBlocks = 3
 )
 
 func TestNewEvent(t *testing.T) {
@@ -32,8 +32,19 @@ func TestEvent_Builders(t *testing.T) {
 		WithParameters(map[string]any{"query": "SELECT 1"}).
 		WithResult(true, "", eventTestDurationMS).
 		WithRequestID("req-123").
-		WithResponseSize(eventTestRespChars, eventTestRespTokens)
+		WithSessionID("session-abc").
+		WithResponseSize(eventTestRespChars, eventTestContentBlocks).
+		WithRequestSize(eventTestDurationMS).
+		WithTransport("stdio", "mcp").
+		WithEnrichment(true).
+		WithAuthorized(true)
 
+	assertEventCoreFields(t, event)
+	assertEventNewFields(t, event)
+}
+
+func assertEventCoreFields(t *testing.T, event *Event) {
+	t.Helper()
 	if event.UserID != "user123" {
 		t.Errorf("UserID = %q, want %q", event.UserID, "user123")
 	}
@@ -64,11 +75,33 @@ func TestEvent_Builders(t *testing.T) {
 	if event.RequestID != "req-123" {
 		t.Errorf("RequestID = %q, want %q", event.RequestID, "req-123")
 	}
+}
+
+func assertEventNewFields(t *testing.T, event *Event) {
+	t.Helper()
+	if event.SessionID != "session-abc" {
+		t.Errorf("SessionID = %q, want %q", event.SessionID, "session-abc")
+	}
 	if event.ResponseChars != eventTestRespChars {
 		t.Errorf("ResponseChars = %d, want %d", event.ResponseChars, eventTestRespChars)
 	}
-	if event.ResponseTokenEstimate != eventTestRespTokens {
-		t.Errorf("ResponseTokenEstimate = %d, want %d", event.ResponseTokenEstimate, eventTestRespTokens)
+	if event.ContentBlocks != eventTestContentBlocks {
+		t.Errorf("ContentBlocks = %d, want %d", event.ContentBlocks, eventTestContentBlocks)
+	}
+	if event.RequestChars != eventTestDurationMS {
+		t.Errorf("RequestChars = %d, want %d", event.RequestChars, eventTestDurationMS)
+	}
+	if event.Transport != "stdio" {
+		t.Errorf("Transport = %q, want %q", event.Transport, "stdio")
+	}
+	if event.Source != "mcp" {
+		t.Errorf("Source = %q, want %q", event.Source, "mcp")
+	}
+	if !event.EnrichmentApplied {
+		t.Error("EnrichmentApplied = false, want true")
+	}
+	if !event.Authorized {
+		t.Error("Authorized = false, want true")
 	}
 }
 
