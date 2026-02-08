@@ -12,6 +12,24 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
+const (
+	testInfoVersion      = "1.0.0"
+	testInfoToolkitCount = 3
+)
+
+// requireInfoFromResult extracts an Info struct from a tool call result.
+func requireInfoFromResult(t *testing.T, result *mcp.CallToolResult) Info {
+	t.Helper()
+	require.NotNil(t, result)
+	require.Len(t, result.Content, 1)
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "expected TextContent")
+	var info Info
+	err := json.Unmarshal([]byte(textContent.Text), &info)
+	require.NoError(t, err)
+	return info
+}
+
 func TestHandleInfo(t *testing.T) {
 	tests := []struct {
 		name                  string
@@ -51,11 +69,11 @@ func TestHandleInfo(t *testing.T) {
 			config: Config{
 				Server: ServerConfig{
 					Name:    "minimal-platform",
-					Version: "1.0.0",
+					Version: testInfoVersion,
 				},
 			},
 			wantName: "minimal-platform",
-			wantVer:  "1.0.0",
+			wantVer:  testInfoVersion,
 			wantDesc: "",
 		},
 		{
@@ -63,13 +81,13 @@ func TestHandleInfo(t *testing.T) {
 			config: Config{
 				Server: ServerConfig{
 					Name:              "tagged-platform",
-					Version:           "1.0.0",
+					Version:           testInfoVersion,
 					Tags:              []string{"ACME Corp", "XWidget", "analytics"},
 					AgentInstructions: "Prices are in cents - divide by 100.",
 				},
 			},
 			wantName:              "tagged-platform",
-			wantVer:               "1.0.0",
+			wantVer:               testInfoVersion,
 			wantTags:              []string{"ACME Corp", "XWidget", "analytics"},
 			wantAgentInstructions: "Prices are in cents - divide by 100.",
 		},
@@ -109,7 +127,7 @@ func TestInfoFeatures(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "feature-test",
-			Version: "1.0.0",
+			Version: testInfoVersion,
 		},
 		Injection: InjectionConfig{
 			TrinoSemanticEnrichment:  true,
@@ -129,11 +147,7 @@ func TestInfoFeatures(t *testing.T) {
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
-	textContent := result.Content[0].(*mcp.TextContent)
-
-	var info Info
-	err = json.Unmarshal([]byte(textContent.Text), &info)
-	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
 
 	assert.True(t, info.Features.SemanticEnrichment, "semantic enrichment should be enabled")
 	assert.True(t, info.Features.QueryEnrichment, "query enrichment should be enabled")
@@ -210,7 +224,7 @@ func TestInfoToolkits(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "toolkit-test",
-			Version: "1.0.0",
+			Version: testInfoVersion,
 		},
 		Toolkits: map[string]any{
 			"trino":   map[string]any{"host": "localhost"},
@@ -226,13 +240,9 @@ func TestInfoToolkits(t *testing.T) {
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
-	textContent := result.Content[0].(*mcp.TextContent)
+	info := requireInfoFromResult(t, result)
 
-	var info Info
-	err = json.Unmarshal([]byte(textContent.Text), &info)
-	require.NoError(t, err)
-
-	assert.Len(t, info.Toolkits, 3)
+	assert.Len(t, info.Toolkits, testInfoToolkitCount)
 	assert.Contains(t, info.Toolkits, "trino")
 	assert.Contains(t, info.Toolkits, "datahub")
 	assert.Contains(t, info.Toolkits, "s3")
@@ -242,7 +252,7 @@ func TestInfoPersonas(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
 			Name:    "persona-test",
-			Version: "1.0.0",
+			Version: testInfoVersion,
 		},
 	}
 
@@ -265,11 +275,7 @@ func TestInfoPersonas(t *testing.T) {
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
-	textContent := result.Content[0].(*mcp.TextContent)
-
-	var info Info
-	err = json.Unmarshal([]byte(textContent.Text), &info)
-	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
 
 	assert.Len(t, info.Personas, 2)
 
