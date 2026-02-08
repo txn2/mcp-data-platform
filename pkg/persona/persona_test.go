@@ -2,7 +2,12 @@ package persona
 
 import "testing"
 
-const personaTestAdminPriority = 100
+const (
+	personaTestAdminPriority = 100
+	personaTestDefault       = "default"
+	personaTestAnalyst       = "analyst"
+	personaTestPriority50    = 50
+)
 
 func TestDefaultPersona(t *testing.T) {
 	p := DefaultPersona()
