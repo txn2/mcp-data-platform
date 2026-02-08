@@ -6,6 +6,8 @@ const (
 	rulesTestQualityThreshold = 0.7
 	rulesTestMaxQueryLimit    = 10000
 	rulesTestMaxLimit5000     = 5000
+	rulesTestScoreGood        = 0.9
+	rulesTestScoreLow         = 0.5
 )
 
 func TestDefaultRules(t *testing.T) {
@@ -27,7 +29,7 @@ func TestDefaultRules(t *testing.T) {
 
 func TestRuleEngine_NoViolations(t *testing.T) {
 	engine := NewRuleEngine(DefaultRules())
-	score := 0.9
+	score := rulesTestScoreGood
 	metadata := QueryMetadata{QualityScore: &score, IsDeprecated: false, ContainsPII: false}
 	violations := engine.CheckQueryExecution(metadata)
 	if len(violations) != 0 {
@@ -37,7 +39,7 @@ func TestRuleEngine_NoViolations(t *testing.T) {
 
 func TestRuleEngine_QualityThresholdViolation(t *testing.T) {
 	engine := NewRuleEngine(DefaultRules())
-	score := 0.5
+	score := rulesTestScoreLow
 	violations := engine.CheckQueryExecution(QueryMetadata{QualityScore: &score})
 
 	assertViolationExists(t, violations, "quality_threshold", SeverityWarning)
