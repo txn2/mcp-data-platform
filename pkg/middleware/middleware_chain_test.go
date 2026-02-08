@@ -35,6 +35,8 @@ const (
 	chainTestMetadataRef   = "metadata_reference"
 	chainTestMock          = "mock"
 	chainTestProduction    = "production"
+	chainTestStdio         = "stdio"
+	chainTestDescribeTable = "trino_describe_table"
 )
 
 // --- Test assertion helpers ---
@@ -71,6 +73,15 @@ func assertAuditEvent(t *testing.T, event, expected middleware.AuditEvent) {
 	}
 	if event.DurationMS < 0 {
 		t.Errorf("DurationMS = %d, want >= 0", event.DurationMS)
+	}
+	if event.Transport != chainTestStdio {
+		t.Errorf("Transport = %q, want %q", event.Transport, chainTestStdio)
+	}
+	if event.Source != "mcp" { //nolint:goconst // test constant
+		t.Errorf("Source = %q, want %q", event.Source, "mcp")
+	}
+	if !event.Authorized {
+		t.Error("Authorized = false, want true")
 	}
 }
 
@@ -238,7 +249,7 @@ func TestMiddlewareChain_AuditReceivesPlatformContext(t *testing.T) {
 	// MCPAuditMiddleware is added FIRST (innermost).
 	// MCPToolCallMiddleware is added SECOND (outermost — runs first).
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	// Connect client
 	ctx := context.Background()
@@ -275,6 +286,11 @@ func TestMiddlewareChain_AuditReceivesPlatformContext(t *testing.T) {
 		ToolkitName: chainTestProduction,
 		Connection:  chainTestProdTrino,
 	})
+
+	// AC-4: SessionID must be non-empty (defaults to "stdio" for in-memory transport).
+	if events[0].SessionID == "" {
+		t.Error("SessionID is empty; expected non-empty value from middleware chain")
+	}
 }
 
 // TestMiddlewareChain_WrongOrder_AuditGetsNilContext proves that if middleware
@@ -313,7 +329,7 @@ func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
 
 	// WRONG ORDER: auth first (innermost), audit second (outermost).
 	// This is what the code did before the fix.
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 
 	ctx := context.Background()
@@ -437,7 +453,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	authorizer := &testAuthorizer{persona: chainTestAnalyst}
 	toolkitLookup := &testToolkitLookup{
 		tools: map[string]struct{ kind, name, conn string }{
-			"trino_describe_table": {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
 		},
 	}
 
@@ -447,7 +463,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	}, nil)
 
 	server.AddTool(&mcp.Tool{
-		Name:        "trino_describe_table",
+		Name:        chainTestDescribeTable,
 		Description: "Describe a table",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -461,7 +477,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 		semProvider, nil, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true},
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -471,7 +487,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "trino_describe_table",
+		Name:      chainTestDescribeTable,
 		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
 	})
 	if err != nil {
@@ -556,7 +572,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 		nil, queryProv, nil,
 		middleware.EnrichmentConfig{EnrichDataHubResults: true},
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -623,7 +639,7 @@ func TestMiddlewareChain_DefaultDenyPersona(t *testing.T) {
 	})
 
 	// Only auth middleware (outermost)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -719,7 +735,7 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 	// 3. Audit
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 	// 4. Auth/Authz (outermost)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -790,7 +806,7 @@ func TestMiddlewareChain_AuditResponseSize(t *testing.T) {
 
 	// Middleware: audit (innermost), auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -817,8 +833,12 @@ func TestMiddlewareChain_AuditResponseSize(t *testing.T) {
 	if event.ResponseChars != 20 { //nolint:revive // expected test value
 		t.Errorf("ResponseChars = %d, want 20", event.ResponseChars)
 	}
-	if event.ResponseTokenEstimate != 5 { //nolint:revive // expected test value
-		t.Errorf("ResponseTokenEstimate = %d, want 5", event.ResponseTokenEstimate)
+	if event.ContentBlocks != 1 {
+		t.Errorf("ContentBlocks = %d, want 1", event.ContentBlocks)
+	}
+	// AC-8: RequestChars must be > 0 when the request has arguments ({"sql":"SELECT 1"}).
+	if event.RequestChars <= 0 {
+		t.Errorf("RequestChars = %d, want > 0 for request with arguments", event.RequestChars)
 	}
 }
 
@@ -874,7 +894,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 	authorizer := &testAuthorizer{persona: chainTestAnalyst}
 	toolkitLookup := &testToolkitLookup{
 		tools: map[string]struct{ kind, name, conn string }{
-			"trino_describe_table": {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
 		},
 	}
 
@@ -884,7 +904,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 	}, nil)
 
 	server.AddTool(&mcp.Tool{
-		Name:        "trino_describe_table",
+		Name:        chainTestDescribeTable,
 		Description: "Describe a table",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -902,7 +922,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 			DedupMode:          mode,
 		},
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
 	return server
 }
@@ -911,7 +931,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 func callDescribeOrders(t *testing.T, session *mcp.ClientSession) *mcp.CallToolResult {
 	t.Helper()
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "trino_describe_table",
+		Name:      chainTestDescribeTable,
 		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
 	})
 	if err != nil {
@@ -1184,6 +1204,156 @@ var (
 	_ query.Provider        = (*mockQueryProvider)(nil)
 	_ middleware.Authorizer = (*denyAuthorizer)(nil)
 )
+
+// TestMiddlewareChain_EnrichmentAppliedInAudit is an integration test that
+// proves the EnrichmentApplied flag set by MCPSemanticEnrichmentMiddleware
+// propagates through PlatformContext to the MCPAuditMiddleware audit event.
+//
+// Stack: Auth/Authz → Audit → Enrichment → handler
+// When enrichment adds content, pc.EnrichmentApplied=true is visible to audit.
+func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
+	semProvider := &mockSemanticProvider{
+		tableContext: &semantic.TableContext{
+			URN:         "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)",
+			Description: chainTestCustOrderData,
+			Owners:      []semantic.Owner{{Name: "data-team", Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{"pii"},
+		},
+	}
+
+	auditStore := &testAuditStore{}
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: chainTestUser,
+			Email:  "enrichment@example.com",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+			"platform_info":        {kind: "platform", name: "info", conn: ""},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-enrichment-audit",
+		Version: "v0.0.1",
+	}, nil)
+
+	// Trino tool (will be enriched)
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestDescribeTable,
+		Description: "Describe a table",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "order_id INT"}},
+		}, nil
+	})
+
+	// Non-enrichable tool
+	server.AddTool(&mcp.Tool{
+		Name:        "platform_info",
+		Description: "Get platform info",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "platform v1"}},
+		}, nil
+	})
+
+	// Middleware order (innermost first):
+	// 1. Enrichment (innermost)
+	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
+		semProvider, nil, nil,
+		middleware.EnrichmentConfig{EnrichTrinoResults: true},
+	))
+	// 2. Audit
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
+	// 3. Auth/Authz (outermost)
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// Call 1: enrichable tool — EnrichmentApplied should be true
+	result1, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestDescribeTable,
+		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
+	})
+	if err != nil {
+		t.Fatalf(chainTestCallingTool, err)
+	}
+	if result1.IsError {
+		t.Fatalf("trino tool returned error: %v", result1.Content)
+	}
+
+	// Call 2: non-enrichable tool — EnrichmentApplied should be false
+	result2, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "platform_info",
+	})
+	if err != nil {
+		t.Fatalf(chainTestCallingTool, err)
+	}
+	if result2.IsError {
+		t.Fatalf("platform_info returned error: %v", result2.Content)
+	}
+
+	// Wait for both audit events
+	events := waitForNAuditEvents(t, auditStore, 2)
+
+	// Find events by tool name and verify enrichment flags
+	trinoEvent := findAuditEventByTool(events, chainTestDescribeTable)
+	infoEvent := findAuditEventByTool(events, "platform_info")
+
+	if trinoEvent == nil {
+		t.Fatal("missing audit event for trino_describe_table")
+	}
+	if !trinoEvent.EnrichmentApplied {
+		t.Error("trino_describe_table: EnrichmentApplied = false, want true")
+	}
+	if trinoEvent.SessionID == "" {
+		t.Error("trino_describe_table: SessionID is empty")
+	}
+
+	if infoEvent == nil {
+		t.Fatal("missing audit event for platform_info")
+	}
+	if infoEvent.EnrichmentApplied {
+		t.Error("platform_info: EnrichmentApplied = true, want false")
+	}
+}
+
+// waitForNAuditEvents polls the audit store until at least n events appear.
+func waitForNAuditEvents(t *testing.T, store *testAuditStore, n int) []middleware.AuditEvent {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		events := store.Events()
+		if len(events) >= n {
+			return events
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("audit store received fewer than %d events", n)
+	return nil
+}
+
+// findAuditEventByTool finds an audit event by tool name from a slice.
+func findAuditEventByTool(events []middleware.AuditEvent, toolName string) *middleware.AuditEvent {
+	for i := range events {
+		if events[i].ToolName == toolName {
+			return &events[i]
+		}
+	}
+	return nil
+}
 
 // Suppress unused import warnings for storage (used in EnrichmentConfig).
 var _ storage.Provider = nil
