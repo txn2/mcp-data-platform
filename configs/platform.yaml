@@ -211,6 +211,15 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
 
+  # Session metadata deduplication
+  # Avoids repeating large semantic metadata blocks for previously-enriched
+  # tables within the same client session, saving LLM context tokens.
+  session_dedup:
+    enabled: true               # Default: true (dedup is on by default)
+    mode: reference             # reference (default), summary, none
+    # entry_ttl: 5m             # How long a table stays "already sent" (defaults to semantic.cache.ttl)
+    # session_timeout: 30m      # Idle session cleanup (defaults to server.streamable.session_timeout)
+
 # Tuning
 tuning:
   rules:
