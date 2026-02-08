@@ -22,6 +22,7 @@ const (
 	s3TestDefGetMB    = 10
 	s3TestDefPutMB    = 100
 	s3TestBytesPerMB  = 1024 * 1024
+	s3TestToolkitName = "test-s3"
 )
 
 func TestConfig_Fields(t *testing.T) {
@@ -38,7 +39,7 @@ func TestConfig_Fields(t *testing.T) {
 		ReadOnly:        true,
 		MaxGetSize:      s3TestMaxGetMB * s3TestBytesPerMB,
 		MaxPutSize:      s3TestMaxPutMB * s3TestBytesPerMB,
-		ConnectionName:  "test-s3",
+		ConnectionName:  s3TestToolkitName,
 		BucketPrefix:    "prefix-",
 	}
 
@@ -78,7 +79,7 @@ func TestConfig_Fields(t *testing.T) {
 	if cfg.MaxPutSize != s3TestMaxPutMB*s3TestBytesPerMB {
 		t.Errorf("MaxPutSize = %d", cfg.MaxPutSize)
 	}
-	if cfg.ConnectionName != "test-s3" {
+	if cfg.ConnectionName != s3TestToolkitName {
 		t.Errorf("ConnectionName = %q", cfg.ConnectionName)
 	}
 	if cfg.BucketPrefix != "prefix-" {
@@ -245,7 +246,7 @@ func TestNew(t *testing.T) {
 
 func newTestS3Toolkit() *Toolkit {
 	return &Toolkit{
-		name: "test-s3",
+		name: s3TestToolkitName,
 		config: Config{
 			Region:         s3TestRegionEast,
 			Endpoint:       s3TestEndpoint,
@@ -260,7 +261,7 @@ func TestToolkit_KindAndName(t *testing.T) {
 	if tk.Kind() != "s3" {
 		t.Errorf("Kind() = %q, want 's3'", tk.Kind())
 	}
-	if tk.Name() != "test-s3" {
+	if tk.Name() != s3TestToolkitName {
 		t.Errorf("Name() = %q", tk.Name())
 	}
 	if tk.Connection() != "test" {
