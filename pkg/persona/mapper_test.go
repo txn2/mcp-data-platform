@@ -33,7 +33,7 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 		}
 
 		claims := map[string]any{
-			mapperTestRoles: []any{"admin", "user"},
+			mapperTestRoles: []any{"admin", mapperTestUser},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
@@ -50,7 +50,7 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 		}
 
 		claims := map[string]any{
-			mapperTestRoles: []string{"admin", "user"},
+			mapperTestRoles: []string{"admin", mapperTestUser},
 		}
 		roles, err := mapper.MapToRoles(claims)
 		if err != nil {
@@ -68,7 +68,7 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 
 		claims := map[string]any{
 			"realm_access": map[string]any{
-				mapperTestRoles: []any{"admin", "user"},
+				mapperTestRoles: []any{"admin", mapperTestUser},
 			},
 		}
 		roles, err := mapper.MapToRoles(claims)
@@ -251,7 +251,7 @@ func TestChainedRoleMapper(t *testing.T) {
 
 		claims := map[string]any{
 			"roles1": []any{"admin"},
-			"roles2": []any{"admin", "user"},
+			"roles2": []any{"admin", mapperTestUser},
 		}
 		roles, err := chained.MapToRoles(claims)
 		if err != nil {
