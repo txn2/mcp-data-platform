@@ -583,6 +583,45 @@ When lineage inheritance is active, responses include column context with proven
 
 **Data lakes**: Parquet files derived from operational databases. Aliases provide explicit mapping when lineage isn't tracked.
 
+## Session Metadata Deduplication
+
+When Trino enrichment is enabled, every tool call targeting a table receives ~2KB of semantic metadata. In a typical session querying the same table multiple times, this wastes LLM context tokens with repeated information.
+
+Session dedup tracks which tables have been enriched per client session. First call gets full metadata; repeat calls within the TTL get reduced content based on the configured mode.
+
+### Configuration
+
+```yaml
+injection:
+  trino_semantic_enrichment: true
+  session_dedup:
+    enabled: true          # Default: true
+    mode: reference        # reference (default), summary, none
+    entry_ttl: 5m          # Defaults to semantic.cache.ttl
+    session_timeout: 30m   # Defaults to server.streamable.session_timeout
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Whether session dedup is active |
+| `mode` | string | `reference` | What to send for repeat queries |
+| `entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |
+| `session_timeout` | duration | streamable session timeout | Idle session cleanup |
+
+### Modes
+
+- **`reference`** (default): Repeat calls return `{"metadata_reference": {"tables": [...], "note": "Full semantic metadata was provided earlier..."}}`. Minimal tokens, LLM can refer back.
+- **`summary`**: Repeat calls return table-level `semantic_context` without column details. LLM gets a reminder of ownership and tags.
+- **`none`**: Repeat calls return raw tool results with no enrichment. Maximum token savings.
+
+### Behavior
+
+- Enabled by default when `trino_semantic_enrichment: true`
+- Trino-only (DataHub/S3 enrichment is not deduplicated)
+- In-memory state, lost on restart (by design)
+- Each client session has independent dedup state
+- SQL parsing tracks multiple tables independently (`JOIN` queries)
+
 ---
 
 # Tools API Reference
