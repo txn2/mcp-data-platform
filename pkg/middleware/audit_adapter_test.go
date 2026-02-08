@@ -20,6 +20,8 @@ const (
 	adapterTestDay        = 15
 	adapterTestHour       = 10
 	adapterTestMinute     = 30
+	adapterTestRespChars  = 42
+	adapterTestReqChars   = 15
 )
 
 // mockAuditStore implements auditStore for testing.
@@ -52,19 +54,27 @@ func TestAuditStoreAdapter_Log(t *testing.T) {
 	adapter := newAuditStoreAdapterWithStore(store)
 
 	event := AuditEvent{
-		Timestamp:    time.Now(),
-		RequestID:    "req-123",
-		UserID:       adapterTestEmail,
-		UserEmail:    adapterTestEmail,
-		Persona:      "analyst",
-		ToolName:     "trino_query",
-		ToolkitKind:  "trino",
-		ToolkitName:  "production",
-		Connection:   "trino://prod",
-		Parameters:   map[string]any{"sql": "SELECT 1", "password": "secret"},
-		Success:      true,
-		ErrorMessage: "",
-		DurationMS:   adapterTestDuration,
+		Timestamp:         time.Now(),
+		RequestID:         "req-123",
+		SessionID:         "session-xyz",
+		UserID:            adapterTestEmail,
+		UserEmail:         adapterTestEmail,
+		Persona:           "analyst",
+		ToolName:          "trino_query",
+		ToolkitKind:       "trino",
+		ToolkitName:       "production",
+		Connection:        "trino://prod",
+		Parameters:        map[string]any{"sql": "SELECT 1", "password": "secret"},
+		Success:           true,
+		ErrorMessage:      "",
+		DurationMS:        adapterTestDuration,
+		ResponseChars:     adapterTestRespChars,
+		RequestChars:      adapterTestReqChars,
+		ContentBlocks:     2,
+		Transport:         "stdio",
+		Source:            "mcp",
+		EnrichmentApplied: true,
+		Authorized:        true,
 	}
 
 	err := adapter.Log(context.Background(), event)
@@ -84,6 +94,14 @@ func TestAuditStoreAdapter_Log(t *testing.T) {
 	assert.True(t, logged.Success)
 	assert.Equal(t, int64(adapterTestDuration), logged.DurationMS)
 	assert.Equal(t, "req-123", logged.RequestID)
+	assert.Equal(t, "session-xyz", logged.SessionID)
+	assert.Equal(t, adapterTestRespChars, logged.ResponseChars)
+	assert.Equal(t, adapterTestReqChars, logged.RequestChars)
+	assert.Equal(t, 2, logged.ContentBlocks) //nolint:revive // test value
+	assert.Equal(t, "stdio", logged.Transport)
+	assert.Equal(t, "mcp", logged.Source)
+	assert.True(t, logged.EnrichmentApplied)
+	assert.True(t, logged.Authorized)
 
 	// Verify sensitive parameters are sanitized
 	assert.Equal(t, "[REDACTED]", logged.Parameters["password"])
