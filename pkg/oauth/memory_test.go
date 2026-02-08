@@ -6,13 +6,18 @@ import (
 	"time"
 )
 
+const (
+	testMemID       = "id-1"
+	testMemClientID = "client-123"
+)
+
 func TestMemoryStorage_Client(t *testing.T) {
 	storage := NewMemoryStorage()
 	ctx := context.Background()
 
 	client := &Client{
-		ID:           "id-1",
-		ClientID:     "client-123",
+		ID:           testMemID,
+		ClientID:     testMemClientID,
 		ClientSecret: "secret",
 		Name:         "Test Client",
 		RedirectURIs: []string{"http://localhost:8080/callback"},
@@ -36,7 +41,7 @@ func TestMemoryStorage_Client(t *testing.T) {
 	})
 
 	t.Run("get client", func(t *testing.T) {
-		got, err := storage.GetClient(ctx, "client-123")
+		got, err := storage.GetClient(ctx, testMemClientID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -59,7 +64,7 @@ func TestMemoryStorage_Client(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		got, _ := storage.GetClient(ctx, "client-123")
+		got, _ := storage.GetClient(ctx, testMemClientID)
 		if got.Name != "Updated Client" {
 			t.Errorf("expected name 'Updated Client', got %q", got.Name)
 		}
@@ -71,6 +76,23 @@ func TestMemoryStorage_Client(t *testing.T) {
 			t.Error("expected error for nonexistent client")
 		}
 	})
+}
+
+func TestMemoryStorage_Client_ListAndDelete(t *testing.T) {
+	storage := NewMemoryStorage()
+	ctx := context.Background()
+
+	client := &Client{
+		ID:           testMemID,
+		ClientID:     testMemClientID,
+		ClientSecret: "secret",
+		Name:         "Test Client",
+		RedirectURIs: []string{"http://localhost:8080/callback"},
+		GrantTypes:   []string{"authorization_code"},
+		RequirePKCE:  true,
+		Active:       true,
+	}
+	_ = storage.CreateClient(ctx, client)
 
 	t.Run("list clients", func(t *testing.T) {
 		clients, err := storage.ListClients(ctx)
@@ -83,12 +105,12 @@ func TestMemoryStorage_Client(t *testing.T) {
 	})
 
 	t.Run("delete client", func(t *testing.T) {
-		err := storage.DeleteClient(ctx, "client-123")
+		err := storage.DeleteClient(ctx, testMemClientID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		_, err = storage.GetClient(ctx, "client-123")
+		_, err = storage.GetClient(ctx, testMemClientID)
 		if err == nil {
 			t.Error("expected error for deleted client")
 		}
@@ -100,9 +122,9 @@ func TestMemoryStorage_AuthorizationCode(t *testing.T) {
 	ctx := context.Background()
 
 	code := &AuthorizationCode{
-		ID:            "id-1",
+		ID:            testMemID,
 		Code:          "code-123",
-		ClientID:      "client-123",
+		ClientID:      testMemClientID,
 		UserID:        "user-123",
 		CodeChallenge: "challenge",
 		RedirectURI:   "http://localhost:8080/callback",
@@ -187,9 +209,9 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 	ctx := context.Background()
 
 	token := &RefreshToken{
-		ID:        "id-1",
+		ID:        testMemID,
 		Token:     "token-123",
-		ClientID:  "client-123",
+		ClientID:  testMemClientID,
 		UserID:    "user-123",
 		Scope:     "read",
 		ExpiresAt: time.Now().Add(24 * time.Hour),
@@ -231,6 +253,11 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 			t.Error("expected error for deleted token")
 		}
 	})
+}
+
+func TestMemoryStorage_RefreshToken_Cleanup(t *testing.T) {
+	storage := NewMemoryStorage()
+	ctx := context.Background()
 
 	t.Run("delete tokens for client", func(t *testing.T) {
 		// Add tokens for two clients
