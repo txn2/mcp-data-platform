@@ -165,7 +165,7 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 
 	// Add middleware in innermost-first order (last added = outermost = runs first)
 	// The production order is: enrichment → rules → audit → auth/authz → apps metadata
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, "http"))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)
@@ -309,7 +309,7 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	})
 
 	authenticator, authorizer := buildProductionMiddleware(t, signingKey, issuer)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, "http"))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)
@@ -377,7 +377,7 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 	})
 
 	authenticator, authorizer := buildProductionMiddleware(t, signingKey, issuer)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, "http"))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)

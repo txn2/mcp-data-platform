@@ -48,8 +48,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, response_token_estimate)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, authorized)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -57,6 +57,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.Timestamp,
 		event.DurationMS,
 		event.RequestID,
+		event.SessionID,
 		event.UserID,
 		event.UserEmail,
 		event.Persona,
@@ -69,7 +70,12 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.ErrorMessage,
 		event.Timestamp.Format("2006-01-02"),
 		event.ResponseChars,
-		event.ResponseTokenEstimate,
+		event.RequestChars,
+		event.ContentBlocks,
+		event.Transport,
+		event.Source,
+		event.EnrichmentApplied,
+		event.Authorized,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting audit log: %w", err)
@@ -150,6 +156,9 @@ func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
 	if filter.UserID != "" {
 		b.addCondition("user_id", filter.UserID)
 	}
+	if filter.SessionID != "" {
+		b.addCondition("session_id", filter.SessionID)
+	}
 	if filter.ToolName != "" {
 		b.addCondition("tool_name", filter.ToolName)
 	}
@@ -163,7 +172,7 @@ func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
 
 func (*Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) string {
 	query := `
-		SELECT id, timestamp, duration_ms, request_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, response_chars, response_token_estimate
+		SELECT id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, authorized
 		FROM audit_logs
 	`
 	query += b.whereClause()
@@ -218,6 +227,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.Timestamp,
 		&event.DurationMS,
 		&event.RequestID,
+		&event.SessionID,
 		&event.UserID,
 		&event.UserEmail,
 		&event.Persona,
@@ -229,7 +239,12 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.Success,
 		&event.ErrorMessage,
 		&event.ResponseChars,
-		&event.ResponseTokenEstimate,
+		&event.RequestChars,
+		&event.ContentBlocks,
+		&event.Transport,
+		&event.Source,
+		&event.EnrichmentApplied,
+		&event.Authorized,
 	)
 	if err != nil {
 		return event, fmt.Errorf("scanning audit log row: %w", err)

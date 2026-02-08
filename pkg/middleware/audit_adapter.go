@@ -29,13 +29,18 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 	// Convert middleware.AuditEvent to audit.Event
 	auditEvent := audit.NewEvent(event.ToolName).
 		WithRequestID(event.RequestID).
+		WithSessionID(event.SessionID).
 		WithUser(event.UserID, event.UserEmail).
 		WithPersona(event.Persona).
 		WithToolkit(event.ToolkitKind, event.ToolkitName).
 		WithConnection(event.Connection).
 		WithParameters(audit.SanitizeParameters(event.Parameters)).
 		WithResult(event.Success, event.ErrorMessage, event.DurationMS).
-		WithResponseSize(event.ResponseChars, event.ResponseTokenEstimate)
+		WithResponseSize(event.ResponseChars, event.ContentBlocks).
+		WithRequestSize(event.RequestChars).
+		WithTransport(event.Transport, event.Source).
+		WithEnrichment(event.EnrichmentApplied).
+		WithAuthorized(event.Authorized)
 
 	// Override timestamp from the event
 	auditEvent.Timestamp = event.Timestamp

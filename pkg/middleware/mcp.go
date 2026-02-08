@@ -32,8 +32,9 @@ const (
 // 5. Runs authorization to check if the user can access the tool
 // 6. Either proceeds with the call or returns an access denied error
 //
+// The transport parameter identifies the server transport ("stdio" or "http").
 // The toolkitLookup parameter is optional; if nil, toolkit metadata won't be populated.
-func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup) mcp.Middleware {
+func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup, transport string) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
@@ -51,6 +52,8 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
 			pc.SessionID = extractSessionID(req)
+			pc.Transport = transport
+			pc.Source = "mcp"
 			ctx = WithPlatformContext(ctx, pc)
 
 			// Populate toolkit metadata

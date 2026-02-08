@@ -63,10 +63,6 @@ func MCPSemanticEnrichmentMiddleware(
 				return result, nil
 			}
 
-			// Build a CallToolRequest for the enrichment functions
-			callReq := buildCallToolRequest(req)
-
-			// Get or create platform context for the enricher
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
 				pc = NewPlatformContext("")
@@ -74,11 +70,27 @@ func MCPSemanticEnrichmentMiddleware(
 			pc.ToolkitKind = toolkitKind
 			pc.ToolName = toolName
 
-			// Enrich the result
-			enrichedResult, _ := enricher.enrich(ctx, callResult, callReq, pc)
-			return enrichedResult, nil
+			return applyEnrichment(ctx, enricher, req, callResult, pc)
 		}
 	}
+}
+
+// applyEnrichment enriches the result and tracks whether enrichment was applied on the PlatformContext.
+func applyEnrichment(
+	ctx context.Context,
+	enricher *semanticEnricher,
+	req mcp.Request,
+	callResult *mcp.CallToolResult,
+	pc *PlatformContext,
+) (mcp.Result, error) {
+	callReq := buildCallToolRequest(req)
+
+	beforeLen := len(callResult.Content)
+	enrichedResult, _ := enricher.enrich(ctx, callResult, callReq, pc)
+	if len(enrichedResult.Content) > beforeLen {
+		pc.EnrichmentApplied = true
+	}
+	return enrichedResult, nil
 }
 
 // inferToolkitKind determines the toolkit kind from a tool name prefix.

@@ -3,14 +3,18 @@ package migrate
 import (
 	"database/sql"
 	"errors"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
-	migrateTestFileCount    = 6
+	migrateTestFileCount    = 8
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -45,6 +49,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000002_audit_logs.down.sql",
 		"000003_response_size.up.sql",
 		"000003_response_size.down.sql",
+		"000004_audit_schema_improvements.up.sql",
+		"000004_audit_schema_improvements.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -63,6 +69,10 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000001_oauth_clients.down.sql",
 		"migrations/000002_audit_logs.up.sql",
 		"migrations/000002_audit_logs.down.sql",
+		"migrations/000003_response_size.up.sql",
+		"migrations/000003_response_size.down.sql",
+		"migrations/000004_audit_schema_improvements.up.sql",
+		"migrations/000004_audit_schema_improvements.down.sql",
 	}
 
 	for _, file := range files {
@@ -276,4 +286,97 @@ func TestSteps(t *testing.T) {
 		err := Steps(nil, 1)
 		assert.Error(t, err)
 	})
+}
+
+func TestMigration004_UpContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000004_audit_schema_improvements.up.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	// Must drop the redundant column.
+	assert.Contains(t, migrationSQL, "DROP COLUMN", "up migration should drop response_token_estimate")
+	assert.Contains(t, migrationSQL, "response_token_estimate")
+
+	// Must add all 7 new columns.
+	newColumns := []string{
+		"session_id", "request_chars", "transport",
+		"enrichment_applied", "content_blocks", "authorized", "source",
+	}
+	for _, col := range newColumns {
+		assert.Contains(t, migrationSQL, "ADD COLUMN "+col,
+			"up migration should add column %s", col)
+	}
+
+	// Must create index on session_id.
+	assert.Contains(t, migrationSQL, "CREATE INDEX")
+	assert.Contains(t, migrationSQL, "idx_audit_logs_session_id")
+}
+
+func TestMigration004_DownContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000004_audit_schema_improvements.down.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	// Must drop the index.
+	assert.Contains(t, migrationSQL, "DROP INDEX")
+	assert.Contains(t, migrationSQL, "idx_audit_logs_session_id")
+
+	// Must drop all 7 new columns.
+	droppedColumns := []string{
+		"source", "authorized", "content_blocks",
+		"enrichment_applied", "transport", "request_chars", "session_id",
+	}
+	for _, col := range droppedColumns {
+		assert.Contains(t, migrationSQL, "DROP COLUMN IF EXISTS "+col,
+			"down migration should drop column %s", col)
+	}
+
+	// Must restore the redundant column.
+	assert.Contains(t, migrationSQL, "ADD COLUMN response_token_estimate")
+}
+
+// TestMigration004_ColumnConsistency verifies that columns added by
+// migration 004 appear in the store's INSERT and SELECT queries.
+// This catches drift between DDL (migration) and DML (store.go).
+func TestMigration004_ColumnConsistency(t *testing.T) {
+	// Read the up migration to extract ADD COLUMN names.
+	migrationContent, err := migrations.ReadFile("migrations/000004_audit_schema_improvements.up.sql")
+	require.NoError(t, err)
+
+	addColRe := regexp.MustCompile(`ADD COLUMN\s+(\w+)`)
+	matches := addColRe.FindAllStringSubmatch(string(migrationContent), -1)
+	require.NotEmpty(t, matches, "migration should contain ADD COLUMN statements")
+
+	addedColumns := make([]string, 0, len(matches))
+	for _, m := range matches {
+		addedColumns = append(addedColumns, m[1])
+	}
+
+	// Read the store source to get INSERT and SELECT column lists.
+	storeSource, err := os.ReadFile("../../audit/postgres/store.go")
+	require.NoError(t, err)
+	storeStr := string(storeSource)
+
+	// Extract INSERT column list (between "INSERT INTO audit_logs" and "VALUES").
+	insertRe := regexp.MustCompile(`INSERT INTO audit_logs\s*\(([^)]+)\)`)
+	insertMatch := insertRe.FindStringSubmatch(storeStr)
+	require.Len(t, insertMatch, 2, "store.go should contain INSERT INTO audit_logs(...)")
+	insertCols := insertMatch[1]
+
+	// Extract SELECT column list (between "SELECT" and "FROM audit_logs").
+	selectRe := regexp.MustCompile(`SELECT\s+([\w\s,]+)\s+FROM audit_logs`)
+	selectMatch := selectRe.FindStringSubmatch(storeStr)
+	require.Len(t, selectMatch, 2, "store.go should contain SELECT ... FROM audit_logs")
+	selectCols := selectMatch[1]
+
+	// Verify each column added by migration 004 appears in both INSERT and SELECT.
+	for _, col := range addedColumns {
+		col = strings.TrimSpace(col)
+		assert.Contains(t, insertCols, col,
+			"column %q added by migration 004 must appear in store INSERT column list", col)
+		// created_date is INSERT-only (derived from timestamp), not in SELECT.
+		// All migration-added columns should be in SELECT.
+		assert.Contains(t, selectCols, col,
+			"column %q added by migration 004 must appear in store SELECT column list", col)
+	}
 }

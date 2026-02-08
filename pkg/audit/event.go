@@ -76,9 +76,40 @@ func (e *Event) WithRequestID(requestID string) *Event {
 }
 
 // WithResponseSize adds response size metrics to the event.
-func (e *Event) WithResponseSize(chars, tokenEstimate int) *Event {
+func (e *Event) WithResponseSize(chars, contentBlocks int) *Event {
 	e.ResponseChars = chars
-	e.ResponseTokenEstimate = tokenEstimate
+	e.ContentBlocks = contentBlocks
+	return e
+}
+
+// WithSessionID adds session identification to the event.
+func (e *Event) WithSessionID(sessionID string) *Event {
+	e.SessionID = sessionID
+	return e
+}
+
+// WithRequestSize adds request size metrics to the event.
+func (e *Event) WithRequestSize(chars int) *Event {
+	e.RequestChars = chars
+	return e
+}
+
+// WithTransport adds transport and source metadata to the event.
+func (e *Event) WithTransport(transport, source string) *Event {
+	e.Transport = transport
+	e.Source = source
+	return e
+}
+
+// WithEnrichment records whether semantic enrichment was applied.
+func (e *Event) WithEnrichment(applied bool) *Event {
+	e.EnrichmentApplied = applied
+	return e
+}
+
+// WithAuthorized records the authorization decision.
+func (e *Event) WithAuthorized(authorized bool) *Event {
+	e.Authorized = authorized
 	return e
 }
 

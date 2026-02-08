@@ -20,22 +20,28 @@ type Logger interface {
 
 // Event represents an auditable event.
 type Event struct {
-	ID                    string         `json:"id"`
-	Timestamp             time.Time      `json:"timestamp"`
-	DurationMS            int64          `json:"duration_ms"`
-	RequestID             string         `json:"request_id"`
-	UserID                string         `json:"user_id"`
-	UserEmail             string         `json:"user_email,omitempty"`
-	Persona               string         `json:"persona,omitempty"`
-	ToolName              string         `json:"tool_name"`
-	ToolkitKind           string         `json:"toolkit_kind,omitempty"`
-	ToolkitName           string         `json:"toolkit_name,omitempty"`
-	Connection            string         `json:"connection,omitempty"`
-	Parameters            map[string]any `json:"parameters,omitempty"`
-	Success               bool           `json:"success"`
-	ErrorMessage          string         `json:"error_message,omitempty"`
-	ResponseChars         int            `json:"response_chars"`
-	ResponseTokenEstimate int            `json:"response_token_estimate"`
+	ID                string         `json:"id"`
+	Timestamp         time.Time      `json:"timestamp"`
+	DurationMS        int64          `json:"duration_ms"`
+	RequestID         string         `json:"request_id"`
+	SessionID         string         `json:"session_id"`
+	UserID            string         `json:"user_id"`
+	UserEmail         string         `json:"user_email,omitempty"`
+	Persona           string         `json:"persona,omitempty"`
+	ToolName          string         `json:"tool_name"`
+	ToolkitKind       string         `json:"toolkit_kind,omitempty"`
+	ToolkitName       string         `json:"toolkit_name,omitempty"`
+	Connection        string         `json:"connection,omitempty"`
+	Parameters        map[string]any `json:"parameters,omitempty"`
+	Success           bool           `json:"success"`
+	ErrorMessage      string         `json:"error_message,omitempty"`
+	ResponseChars     int            `json:"response_chars"`
+	RequestChars      int            `json:"request_chars"`
+	ContentBlocks     int            `json:"content_blocks"`
+	Transport         string         `json:"transport"`
+	Source            string         `json:"source"`
+	EnrichmentApplied bool           `json:"enrichment_applied"`
+	Authorized        bool           `json:"authorized"`
 }
 
 // QueryFilter defines criteria for querying audit events.
@@ -43,6 +49,7 @@ type QueryFilter struct {
 	StartTime   *time.Time
 	EndTime     *time.Time
 	UserID      string
+	SessionID   string
 	ToolName    string
 	ToolkitKind string
 	Success     *bool

@@ -8,9 +8,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// estimatedCharsPerToken is the approximate number of characters per LLM token.
-const estimatedCharsPerToken = 4
-
 // MCPAuditMiddleware creates MCP protocol-level middleware that logs tool calls
 // for auditing purposes.
 //
@@ -94,24 +91,31 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 	// Extract parameters from request
 	params := extractMCPParameters(info.Request)
 
-	chars, tokens := calculateResponseSize(info.Result, info.Err)
+	chars, blocks := calculateResponseSize(info.Result, info.Err)
+	reqChars := calculateRequestSize(info.Request)
 
 	return AuditEvent{
-		Timestamp:             info.StartTime,
-		RequestID:             pc.RequestID,
-		UserID:                pc.UserID,
-		UserEmail:             pc.UserEmail,
-		Persona:               pc.PersonaName,
-		ToolName:              pc.ToolName,
-		ToolkitKind:           pc.ToolkitKind,
-		ToolkitName:           pc.ToolkitName,
-		Connection:            pc.Connection,
-		Parameters:            params,
-		Success:               success,
-		ErrorMessage:          errorMsg,
-		DurationMS:            info.Duration.Milliseconds(),
-		ResponseChars:         chars,
-		ResponseTokenEstimate: tokens,
+		Timestamp:         info.StartTime,
+		RequestID:         pc.RequestID,
+		SessionID:         pc.SessionID,
+		UserID:            pc.UserID,
+		UserEmail:         pc.UserEmail,
+		Persona:           pc.PersonaName,
+		ToolName:          pc.ToolName,
+		ToolkitKind:       pc.ToolkitKind,
+		ToolkitName:       pc.ToolkitName,
+		Connection:        pc.Connection,
+		Parameters:        params,
+		Success:           success,
+		ErrorMessage:      errorMsg,
+		DurationMS:        info.Duration.Milliseconds(),
+		ResponseChars:     chars,
+		RequestChars:      reqChars,
+		ContentBlocks:     blocks,
+		Transport:         pc.Transport,
+		Source:            pc.Source,
+		EnrichmentApplied: pc.EnrichmentApplied,
+		Authorized:        pc.Authorized,
 	}
 }
 
@@ -133,10 +137,10 @@ func extractMCPParameters(req mcp.Request) map[string]any {
 	return extractArgumentsMap(callParams)
 }
 
-// calculateResponseSize computes the total character count and estimated token
+// calculateResponseSize computes the total character count and content block
 // count from an MCP tool call result. Returns (0, 0) if err is non-nil or
 // the result is not a CallToolResult.
-func calculateResponseSize(result mcp.Result, err error) (chars, tokens int) {
+func calculateResponseSize(result mcp.Result, err error) (chars, contentBlocks int) {
 	if err != nil {
 		return 0, 0
 	}
@@ -157,7 +161,23 @@ func calculateResponseSize(result mcp.Result, err error) (chars, tokens int) {
 		}
 	}
 
-	return total, total / estimatedCharsPerToken
+	return total, len(callResult.Content)
+}
+
+// calculateRequestSize computes the character count of the request arguments.
+func calculateRequestSize(req mcp.Request) int {
+	if req == nil {
+		return 0
+	}
+	params := req.GetParams()
+	if params == nil {
+		return 0
+	}
+	callParams, ok := params.(*mcp.CallToolParamsRaw)
+	if !ok || callParams == nil {
+		return 0
+	}
+	return len(callParams.Arguments)
 }
 
 // extractMCPErrorMessage extracts the error message from an MCP CallToolResult.
