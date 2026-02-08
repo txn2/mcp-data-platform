@@ -17,6 +17,17 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	testUserID        = "user123"
+	oidcDiscoveryPath = "/.well-known/openid-configuration"
+	jwksPath          = "/jwks"
+
+	rsaKeyBits        = 2048
+	errUnexpected     = "unexpected error: %v"
+	errUnexpectedMsg  = "unexpected error message: %v"
+	errNoValidRSAKeys = "no valid RSA signing keys"
+)
+
 func TestNewOIDCAuthenticator(t *testing.T) {
 	t.Run("requires issuer", func(t *testing.T) {
 		_, err := NewOIDCAuthenticator(OIDCConfig{
@@ -37,7 +48,7 @@ func TestNewOIDCAuthenticator(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(errUnexpected, err)
 		}
 		if auth == nil {
 			t.Error("expected non-nil authenticator")
@@ -67,7 +78,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 
 		// Create a valid JWT payload
 		claims := map[string]any{
-			"sub":   "user123",
+			"sub":   testUserID,
 			"email": "user@example.com",
 			"name":  "Test User",
 			"exp":   float64(time.Now().Add(time.Hour).Unix()),
@@ -77,9 +88,9 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		ctx := WithToken(context.Background(), token)
 		userInfo, err := auth.Authenticate(ctx)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(errUnexpected, err)
 		}
-		if userInfo.UserID != "user123" {
+		if userInfo.UserID != testUserID {
 			t.Errorf("UserID = %q, want 'user123'", userInfo.UserID)
 		}
 		if userInfo.Email != "user@example.com" {
@@ -110,7 +121,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		})
 
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"iss": "https://wrong-issuer.com",
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
@@ -131,7 +142,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		})
 
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(-time.Hour).Unix()),
 		}
 		token := createTestJWT(claims)
@@ -206,12 +217,12 @@ func TestOIDCAuthenticator_FetchJWKS(t *testing.T) {
 		// Create mock OIDC server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
-			case "/.well-known/openid-configuration":
+			case oidcDiscoveryPath:
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-			case "/jwks":
+			case jwksPath:
 				w.Header().Set("Content-Type", "application/json")
-				jwks := fmt.Sprintf(`{"keys": [{"kty": "RSA", "kid": "%s", "use": "sig", "n": "%s", "e": "%s"}]}`, testKid, testN, testE)
+				jwks := fmt.Sprintf(`{"keys": [{"kty": "RSA", "kid": "%s", "use": "sig", "n": "%s", "e": "%s"}]}`, testKid, testN, testE) //nolint:gocritic // JSON template requires literal quotes, not %q
 				_, _ = w.Write([]byte(jwks))
 			default:
 				http.NotFound(w, r)
@@ -228,7 +239,7 @@ func TestOIDCAuthenticator_FetchJWKS(t *testing.T) {
 		// Now manually fetch JWKS to test the method
 		err := auth.FetchJWKS(context.Background())
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(errUnexpected, err)
 		}
 
 		if auth.jwks == nil {
@@ -258,32 +269,32 @@ func TestOIDCAuthenticator_FetchJWKS(t *testing.T) {
 			t.Error("expected error for 404 response")
 		}
 	})
+}
 
-	t.Run("no valid RSA keys", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/.well-known/openid-configuration":
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-			case "/jwks":
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"keys": []}`))
-			default:
-				http.NotFound(w, r)
-			}
-		}))
-		defer server.Close()
-
-		auth, _ := NewOIDCAuthenticator(OIDCConfig{
-			Issuer:                    server.URL,
-			SkipSignatureVerification: true,
-		})
-
-		err := auth.FetchJWKS(context.Background())
-		if err == nil {
-			t.Error("expected error for empty keys")
+func TestOIDCAuthenticator_FetchJWKS_NoValidRSAKeys(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case oidcDiscoveryPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
+		case jwksPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"keys": []}`))
+		default:
+			http.NotFound(w, r)
 		}
+	}))
+	defer server.Close()
+
+	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer:                    server.URL,
+		SkipSignatureVerification: true,
 	})
+
+	err := auth.FetchJWKS(context.Background())
+	if err == nil {
+		t.Error("expected error for empty keys")
+	}
 }
 
 func TestOIDCConfig(t *testing.T) {
@@ -327,7 +338,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			// Note: not skipping issuer verification
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"iss": "https://wrong-issuer.com",
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
@@ -345,7 +356,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"aud": "wrong-audience",
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
@@ -362,7 +373,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(-time.Hour).Unix()), // expired 1 hour ago, well beyond 30s skew
 		}
 		err := auth.validateClaims(claims)
@@ -378,12 +389,12 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
 		err := auth.validateClaims(claims)
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf(errUnexpected, err)
 		}
 	})
 
@@ -394,7 +405,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 		}
 		err := auth.validateClaims(claims)
 		if err == nil {
@@ -432,7 +443,9 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			t.Error("expected error for empty sub claim")
 		}
 	})
+}
 
+func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 	t.Run("nbf not yet valid", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
 			Issuer:                    "https://issuer.example.com",
@@ -440,7 +453,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 			"nbf": float64(time.Now().Add(time.Hour).Unix()), // not valid for an hour
 		}
@@ -458,7 +471,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			MaxTokenAge:               1 * time.Hour,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 			"iat": float64(time.Now().Add(-2 * time.Hour).Unix()), // issued 2 hours ago
 		}
@@ -476,7 +489,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 			ClockSkewSeconds:          60,
 		})
 		claims := map[string]any{
-			"sub": "user123",
+			"sub": testUserID,
 			"exp": float64(time.Now().Add(-10 * time.Second).Unix()), // expired 10 seconds ago
 		}
 		err := auth.validateClaims(claims)
@@ -518,7 +531,7 @@ func TestOIDCAuthenticator_parseAndValidateToken(t *testing.T) {
 
 func TestOIDCAuthenticator_FetchJWKS_InvalidDiscovery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-configuration" {
+		if r.URL.Path == oidcDiscoveryPath {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`invalid-json`))
 		}
@@ -538,7 +551,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidDiscovery(t *testing.T) {
 
 func TestOIDCAuthenticator_FetchJWKS_MissingJWKSURI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-configuration" {
+		if r.URL.Path == oidcDiscoveryPath {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{}`)) // No jwks_uri
 		}
@@ -559,10 +572,10 @@ func TestOIDCAuthenticator_FetchJWKS_MissingJWKSURI(t *testing.T) {
 func TestOIDCAuthenticator_FetchJWKS_JWKSFetchError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			http.Error(w, "Internal Server Error", 500)
 		}
 	}))
@@ -589,7 +602,7 @@ func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
 	})
 
 	claims := map[string]any{
-		"sub":   "user123",
+		"sub":   testUserID,
 		"roles": []any{"app_admin", "other_role", "app_user"},
 		"exp":   float64(time.Now().Add(time.Hour).Unix()),
 	}
@@ -598,7 +611,7 @@ func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
 	ctx := WithToken(context.Background(), token)
 	userInfo, err := auth.Authenticate(ctx)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(errUnexpected, err)
 	}
 
 	// Should filter to only app_ prefixed roles
@@ -610,10 +623,10 @@ func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
 func TestOIDCAuthenticator_FetchJWKS_InvalidJWKSJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`invalid-json`))
 		}
@@ -657,7 +670,7 @@ func TestOIDCAuthenticator_checkAudience_NoAudienceRequired(t *testing.T) {
 
 func TestOIDCAuthenticator_FetchJWKS_JWKSURIEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-configuration" {
+		if r.URL.Path == oidcDiscoveryPath {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": ""}`))
 		}
@@ -688,7 +701,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 			t.Error("expected error for nil JWKS")
 		}
 		if err.Error() != "jwks not loaded" {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf(errUnexpected, err)
 		}
 	})
 
@@ -708,7 +721,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 			t.Error("expected error for expired cache")
 		}
 		if err.Error() != "jwks cache expired" {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf(errUnexpected, err)
 		}
 	})
 
@@ -728,7 +741,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 			t.Error("expected error for missing key")
 		}
 		if !strings.Contains(err.Error(), "key not found") {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf(errUnexpected, err)
 		}
 	})
 
@@ -746,7 +759,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 
 		key, err := auth.getPublicKey("test-kid")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(errUnexpected, err)
 		}
 		if key != testKey {
 			t.Error("returned key does not match expected key")
@@ -757,10 +770,10 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 func TestOIDCAuthenticator_RefreshJWKS(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Need at least one valid RSA key
 			_, _ = w.Write([]byte(`{
@@ -786,7 +799,7 @@ func TestOIDCAuthenticator_RefreshJWKS(t *testing.T) {
 	// RefreshJWKS should call FetchJWKS
 	err := auth.RefreshJWKS(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(errUnexpected, err)
 	}
 
 	// Verify JWKS was loaded
@@ -801,10 +814,10 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		t.Helper()
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
-			case "/.well-known/openid-configuration":
+			case oidcDiscoveryPath:
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-			case "/jwks":
+			case jwksPath:
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{
 					"keys": [
@@ -863,7 +876,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 			t.Fatal("expected error for non-RSA signing method")
 		}
 		if !strings.Contains(err.Error(), "unexpected signing method") {
-			t.Errorf("unexpected error message: %v", err)
+			t.Errorf(errUnexpectedMsg, err)
 		}
 	})
 
@@ -888,7 +901,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 
 func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	// Generate RSA key pair for testing
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	if err != nil {
 		t.Fatalf("failed to generate RSA key: %v", err)
 	}
@@ -903,10 +916,10 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	// Create test server serving JWKS
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{
 				"keys": [
@@ -933,7 +946,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 
 	// Create and sign a valid JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"sub": "user123",
+		"sub": testUserID,
 		"exp": float64(time.Now().Add(time.Hour).Unix()),
 		"iss": server.URL,
 	})
@@ -947,19 +960,19 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	// Parse and validate the token
 	claims, err := auth.parseAndValidateToken(signedToken)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(errUnexpected, err)
 	}
 
 	// Verify claims were extracted
-	if claims["sub"] != "user123" {
+	if claims["sub"] != testUserID {
 		t.Errorf("expected sub='user123', got %v", claims["sub"])
 	}
 }
 
 func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) {
 	// Generate two different RSA key pairs
-	signingKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-	jwksKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	signingKey, _ := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	jwksKey, _ := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 
 	// Encode JWKS key (different from signing key)
 	nBytes := jwksKey.N.Bytes()
@@ -969,10 +982,10 @@ func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) 
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{
 				"keys": [{"kty": "RSA", "kid": "test-key", "use": "sig", "n": "%s", "e": "%s"}]
@@ -1023,10 +1036,10 @@ func TestOIDCAuthenticator_FetchJWKS_ValidKeys(t *testing.T) {
 	// This is a minimal valid RSA public key representation
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Valid JWKS with a minimal RSA key
 			// n is a base64url-encoded 256-byte number (2048-bit key)
@@ -1053,7 +1066,7 @@ func TestOIDCAuthenticator_FetchJWKS_ValidKeys(t *testing.T) {
 
 	err := auth.FetchJWKS(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(errUnexpected, err)
 	}
 
 	// Verify the key was loaded
@@ -1071,10 +1084,10 @@ func TestOIDCAuthenticator_FetchJWKS_ValidKeys(t *testing.T) {
 func TestOIDCAuthenticator_FetchJWKS_InvalidKeyType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Key with non-RSA type (EC)
 			_, _ = w.Write([]byte(`{
@@ -1100,18 +1113,18 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidKeyType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for JWKS with no valid RSA signing keys")
 	}
-	if !strings.Contains(err.Error(), "no valid RSA signing keys") {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), errNoValidRSAKeys) {
+		t.Errorf(errUnexpectedMsg, err)
 	}
 }
 
 func TestOIDCAuthenticator_FetchJWKS_KeyWithEncUse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Key with use="enc" (encryption, not signing)
 			_, _ = w.Write([]byte(`{
@@ -1139,18 +1152,18 @@ func TestOIDCAuthenticator_FetchJWKS_KeyWithEncUse(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for JWKS with only encryption keys")
 	}
-	if !strings.Contains(err.Error(), "no valid RSA signing keys") {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), errNoValidRSAKeys) {
+		t.Errorf(errUnexpectedMsg, err)
 	}
 }
 
 func TestOIDCAuthenticator_FetchJWKS_InvalidModulus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Key with invalid base64 modulus
 			_, _ = w.Write([]byte(`{
@@ -1178,18 +1191,18 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidModulus(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for JWKS with only invalid keys")
 	}
-	if !strings.Contains(err.Error(), "no valid RSA signing keys") {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), errNoValidRSAKeys) {
+		t.Errorf(errUnexpectedMsg, err)
 	}
 }
 
 func TestOIDCAuthenticator_FetchJWKS_InvalidExponent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Key with invalid base64 exponent
 			_, _ = w.Write([]byte(`{
@@ -1217,18 +1230,18 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidExponent(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for JWKS with only invalid keys")
 	}
-	if !strings.Contains(err.Error(), "no valid RSA signing keys") {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), errNoValidRSAKeys) {
+		t.Errorf(errUnexpectedMsg, err)
 	}
 }
 
 func TestOIDCAuthenticator_FetchJWKS_MissingKid(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case oidcDiscoveryPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
-		case "/jwks":
+		case jwksPath:
 			w.Header().Set("Content-Type", "application/json")
 			// Key without kid - still a valid RSA signing key
 			_, _ = w.Write([]byte(`{
@@ -1253,7 +1266,7 @@ func TestOIDCAuthenticator_FetchJWKS_MissingKid(t *testing.T) {
 	// Key without kid is still a valid RSA signing key - stored with empty string key
 	err := auth.FetchJWKS(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(errUnexpected, err)
 	}
 
 	// Key should be loaded with empty string as the kid
