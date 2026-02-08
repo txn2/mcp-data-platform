@@ -793,7 +793,7 @@ func TestGetGlossaryTermNotFound(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockDataHubClient{
 		getGlossaryTermFunc: func(_ context.Context, _ string) (*types.GlossaryTerm, error) {
-			return nil, nil // returns nil without error (not found case)
+			return nil, nil //nolint:nilnil // test mock: simulates not-found case
 		},
 	}
 	adapter, _ := NewWithClient(Config{}, mock)
