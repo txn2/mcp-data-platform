@@ -8,6 +8,15 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
+const (
+	filterTestAnalyst       = "analyst"
+	filterTestAdmin         = "admin"
+	filterTestDatahubSearch = "datahub_search"
+	filterTestTrinoQuery    = "trino_query"
+	filterTestTrinoWild     = "trino_*"
+	filterTestFilterCount   = 3
+)
+
 func TestToolFilter_IsAllowed(t *testing.T) {
 	reg := NewRegistry()
 	filter := NewToolFilter(reg)
@@ -27,7 +36,7 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 		{
 			name: "wildcard allow",
 			persona: &Persona{
-				Name:  "admin",
+				Name:  filterTestAdmin,
 				Tools: ToolRules{Allow: []string{"*"}},
 			},
 			toolName: "any_tool",
@@ -36,16 +45,16 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 		{
 			name: "prefix allow",
 			persona: &Persona{
-				Name:  "analyst",
-				Tools: ToolRules{Allow: []string{"trino_*"}},
+				Name:  filterTestAnalyst,
+				Tools: ToolRules{Allow: []string{filterTestTrinoWild}},
 			},
-			toolName: "trino_query",
+			toolName: filterTestTrinoQuery,
 			want:     true,
 		},
 		{
 			name: "prefix deny",
 			persona: &Persona{
-				Name:  "analyst",
+				Name:  filterTestAnalyst,
 				Tools: ToolRules{Allow: []string{"*"}, Deny: []string{"s3_delete_*"}},
 			},
 			toolName: "s3_delete_object",
@@ -55,18 +64,18 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 			name: "exact match allow",
 			persona: &Persona{
 				Name:  "exec",
-				Tools: ToolRules{Allow: []string{"datahub_search"}},
+				Tools: ToolRules{Allow: []string{filterTestDatahubSearch}},
 			},
-			toolName: "datahub_search",
+			toolName: filterTestDatahubSearch,
 			want:     true,
 		},
 		{
 			name: "no match deny",
 			persona: &Persona{
 				Name:  "exec",
-				Tools: ToolRules{Allow: []string{"datahub_search"}},
+				Tools: ToolRules{Allow: []string{filterTestDatahubSearch}},
 			},
-			toolName: "trino_query",
+			toolName: filterTestTrinoQuery,
 			want:     false,
 		},
 	}
@@ -88,30 +97,30 @@ func TestToolFilter_FilterTools(t *testing.T) {
 	persona := &Persona{
 		Name: "analyst",
 		Tools: ToolRules{
-			Allow: []string{"trino_*", "datahub_*"},
+			Allow: []string{filterTestTrinoWild, "datahub_*"},
 			Deny:  []string{"trino_admin*"},
 		},
 	}
 
 	tools := []string{
-		"trino_query",
+		filterTestTrinoQuery,
 		"trino_describe",
 		"trino_admin_users",
-		"datahub_search",
+		filterTestDatahubSearch,
 		"s3_list_buckets",
 	}
 
 	allowed := filter.FilterTools(persona, tools)
 
-	if len(allowed) != 3 {
-		t.Errorf("FilterTools() returned %d tools, want 3", len(allowed))
+	if len(allowed) != filterTestFilterCount {
+		t.Errorf("FilterTools() returned %d tools, want %d", len(allowed), filterTestFilterCount)
 	}
 
 	// Check specific tools
 	expected := map[string]bool{
-		"trino_query":    true,
-		"trino_describe": true,
-		"datahub_search": true,
+		filterTestTrinoQuery:    true,
+		"trino_describe":        true,
+		filterTestDatahubSearch: true,
 	}
 
 	for _, tool := range allowed {
@@ -141,8 +150,8 @@ func TestMatchPattern(t *testing.T) {
 		want    bool
 	}{
 		{"*", "anything", true},
-		{"trino_*", "trino_query", true},
-		{"trino_*", "datahub_search", false},
+		{filterTestTrinoWild, filterTestTrinoQuery, true},
+		{filterTestTrinoWild, filterTestDatahubSearch, false},
 		{"exact_match", "exact_match", true},
 		{"exact_match", "other", false},
 		{"prefix_*_suffix", "prefix_middle_suffix", true},
@@ -169,14 +178,14 @@ func (m *mockRoleMapper) MapToPersona(ctx context.Context, roles []string) (*Per
 	if m.mapToPersonaFunc != nil {
 		return m.mapToPersonaFunc(ctx, roles)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock: nil means no persona found
 }
 
 func (m *mockRoleMapper) MapToRoles(claims map[string]any) ([]string, error) {
 	if m.mapToRolesFunc != nil {
 		return m.mapToRolesFunc(claims)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock: nil means no roles found
 }
 
 func TestAuthorizer_IsAuthorized(t *testing.T) {
@@ -204,8 +213,8 @@ func TestAuthorizer_IsAuthorized(t *testing.T) {
 
 	t.Run("tool not allowed for persona", func(t *testing.T) {
 		persona := &Persona{
-			Name:  "analyst",
-			Tools: ToolRules{Allow: []string{"trino_*"}},
+			Name:  filterTestAnalyst,
+			Tools: ToolRules{Allow: []string{filterTestTrinoWild}},
 		}
 		mapper := &mockRoleMapper{
 			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
@@ -214,21 +223,21 @@ func TestAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		auth := NewAuthorizer(reg, mapper)
 
-		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"analyst"}, "s3_list_buckets")
+		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets")
 		if authorized {
 			t.Error("expected not authorized for disallowed tool")
 		}
-		if personaName != "analyst" {
+		if personaName != filterTestAnalyst {
 			t.Errorf("expected persona name 'analyst', got %q", personaName)
 		}
-		if reason != "tool not allowed for persona: analyst" {
+		if reason != "tool not allowed for persona: "+filterTestAnalyst {
 			t.Errorf("unexpected reason: %s", reason)
 		}
 	})
 
 	t.Run("tool allowed for persona", func(t *testing.T) {
 		persona := &Persona{
-			Name:  "admin",
+			Name:  filterTestAdmin,
 			Tools: ToolRules{Allow: []string{"*"}},
 		}
 		mapper := &mockRoleMapper{
@@ -238,11 +247,11 @@ func TestAuthorizer_IsAuthorized(t *testing.T) {
 		}
 		auth := NewAuthorizer(reg, mapper)
 
-		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"admin"}, "any_tool")
+		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAdmin}, "any_tool")
 		if !authorized {
 			t.Error("expected authorized for admin persona")
 		}
-		if personaName != "admin" {
+		if personaName != filterTestAdmin {
 			t.Errorf("expected persona name 'admin', got %q", personaName)
 		}
 		if reason != "" {
