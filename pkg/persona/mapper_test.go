@@ -102,10 +102,10 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 	registry := NewRegistry()
 	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin", Roles: []string{filterTestAdmin}}
-	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{"user"}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(admin)
 	_ = registry.Register(user)
-	registry.SetDefault("user")
+	registry.SetDefault(mapperTestUser)
 
 	t.Run("explicit mapping", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
@@ -147,7 +147,7 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 		if err != nil {
 			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != "user" {
+		if persona.Name != mapperTestUser {
 			t.Errorf("expected default user persona, got %q", persona.Name)
 		}
 	})
@@ -442,9 +442,9 @@ func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 
 func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 	registry := NewRegistry()
-	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{"user"}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(user)
-	registry.SetDefault("user")
+	registry.SetDefault(mapperTestUser)
 
 	mapper := &OIDCRoleMapper{
 		PersonaMapping: map[string]string{
@@ -459,7 +459,7 @@ func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
 	// Should fall through to role matching or default persona
-	if persona.Name != "user" {
+	if persona.Name != mapperTestUser {
 		t.Errorf("expected fallback to default user persona, got %q", persona.Name)
 	}
 }
