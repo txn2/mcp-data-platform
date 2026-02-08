@@ -8,37 +8,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Test constants for session cache tests.
+const (
+	cacheTestSession1   = "session-1"
+	cacheTestTable      = "catalog.schema.table"
+	cacheTestTable1     = "table1"
+	cacheTestGoroutines = 10
+)
+
 func TestSessionEnrichmentCache_MarkAndCheck(t *testing.T) {
 	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 
 	// Initially not sent
-	assert.False(t, cache.WasSentRecently("session-1", "catalog.schema.table"))
+	assert.False(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable))
 
 	// Mark as sent
-	cache.MarkSent("session-1", "catalog.schema.table")
+	cache.MarkSent(cacheTestSession1, cacheTestTable)
 
 	// Now should be true
-	assert.True(t, cache.WasSentRecently("session-1", "catalog.schema.table"))
+	assert.True(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable))
 
 	// Different table in same session
-	assert.False(t, cache.WasSentRecently("session-1", "catalog.schema.other"))
+	assert.False(t, cache.WasSentRecently(cacheTestSession1, "catalog.schema.other"))
 
 	// Different session, same table
-	assert.False(t, cache.WasSentRecently("session-2", "catalog.schema.table"))
+	assert.False(t, cache.WasSentRecently("session-2", cacheTestTable))
 }
 
 func TestSessionEnrichmentCache_TTLExpiry(t *testing.T) {
 	// Use very short TTL for testing
 	cache := NewSessionEnrichmentCache(50*time.Millisecond, 30*time.Minute)
 
-	cache.MarkSent("session-1", "catalog.schema.table")
-	assert.True(t, cache.WasSentRecently("session-1", "catalog.schema.table"))
+	cache.MarkSent(cacheTestSession1, cacheTestTable)
+	assert.True(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable))
 
 	// Wait for TTL to expire
 	time.Sleep(60 * time.Millisecond)
 
 	// Should no longer be "recently" sent
-	assert.False(t, cache.WasSentRecently("session-1", "catalog.schema.table"))
+	assert.False(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable))
 }
 
 func TestSessionEnrichmentCache_SessionIsolation(t *testing.T) {
@@ -59,14 +67,14 @@ func TestSessionEnrichmentCache_SessionCount(t *testing.T) {
 
 	assert.Equal(t, 0, cache.SessionCount())
 
-	cache.MarkSent("session-1", "table1")
+	cache.MarkSent(cacheTestSession1, cacheTestTable1)
 	assert.Equal(t, 1, cache.SessionCount())
 
-	cache.MarkSent("session-2", "table1")
+	cache.MarkSent("session-2", cacheTestTable1)
 	assert.Equal(t, 2, cache.SessionCount())
 
 	// Same session again doesn't create new entry
-	cache.MarkSent("session-1", "table2")
+	cache.MarkSent(cacheTestSession1, "table2")
 	assert.Equal(t, 2, cache.SessionCount())
 }
 
@@ -74,8 +82,8 @@ func TestSessionEnrichmentCache_IdleSessionCleanup(t *testing.T) {
 	// Very short timeouts for testing
 	cache := NewSessionEnrichmentCache(50*time.Millisecond, 100*time.Millisecond)
 
-	cache.MarkSent("session-1", "table1")
-	cache.MarkSent("session-2", "table1")
+	cache.MarkSent(cacheTestSession1, cacheTestTable1)
+	cache.MarkSent("session-2", cacheTestTable1)
 	require.Equal(t, 2, cache.SessionCount())
 
 	// Wait for session timeout
@@ -90,8 +98,8 @@ func TestSessionEnrichmentCache_IdleSessionCleanup(t *testing.T) {
 func TestSessionEnrichmentCache_CleanupRemovesExpiredEntries(t *testing.T) {
 	cache := NewSessionEnrichmentCache(50*time.Millisecond, 10*time.Second)
 
-	cache.MarkSent("session-1", "table1")
-	assert.True(t, cache.WasSentRecently("session-1", "table1"))
+	cache.MarkSent(cacheTestSession1, cacheTestTable1)
+	assert.True(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable1))
 
 	// Wait for entry TTL to expire but not session timeout
 	time.Sleep(60 * time.Millisecond)
@@ -100,13 +108,13 @@ func TestSessionEnrichmentCache_CleanupRemovesExpiredEntries(t *testing.T) {
 
 	// Session still exists (not timed out) but entry is removed
 	assert.Equal(t, 1, cache.SessionCount())
-	assert.False(t, cache.WasSentRecently("session-1", "table1"))
+	assert.False(t, cache.WasSentRecently(cacheTestSession1, cacheTestTable1))
 }
 
 func TestSessionEnrichmentCache_StartAndStopCleanup(t *testing.T) {
 	cache := NewSessionEnrichmentCache(50*time.Millisecond, 100*time.Millisecond)
 
-	cache.MarkSent("session-1", "table1")
+	cache.MarkSent(cacheTestSession1, cacheTestTable1)
 	require.Equal(t, 1, cache.SessionCount())
 
 	// Start background cleanup with short interval
@@ -121,12 +129,12 @@ func TestSessionEnrichmentCache_StartAndStopCleanup(t *testing.T) {
 	cache.Stop()
 }
 
-func TestSessionEnrichmentCache_ConcurrentAccess(t *testing.T) {
+func TestSessionEnrichmentCache_ConcurrentAccess(_ *testing.T) {
 	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 
 	done := make(chan struct{})
-	for i := range 10 {
-		go func(id int) {
+	for i := range cacheTestGoroutines {
+		go func(_ int) {
 			defer func() { done <- struct{}{} }()
 			sessionID := "session"
 			for range 100 {
@@ -137,7 +145,7 @@ func TestSessionEnrichmentCache_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	for range 10 {
+	for range cacheTestGoroutines {
 		<-done
 	}
 }
