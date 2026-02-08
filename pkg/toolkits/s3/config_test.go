@@ -6,18 +6,30 @@ import (
 )
 
 const (
-	s3CfgTestExisting    = "existing"
-	s3CfgTestString      = "string"
-	s3CfgTestMissing     = "missing"
-	s3CfgTestNumVal      = 123
-	s3CfgTestIntVal      = 100
-	s3CfgTestFloat64Val  = 200
-	s3CfgTestDefaultVal  = 50
-	s3CfgTestDurationInt = 30
-	s3CfgTestDurationFlt = 60
-	s3CfgTestDuration5m  = 5
-	s3CfgTestDuration15s = 15
-	s3CfgTestDuration20s = 20
+	s3CfgTestExisting      = "existing"
+	s3CfgTestString        = "string"
+	s3CfgTestMissing       = "missing"
+	s3CfgTestNumVal        = 123
+	s3CfgTestIntVal        = 100
+	s3CfgTestFloat64Val    = 200
+	s3CfgTestDefaultVal    = 50
+	s3CfgTestDurationInt   = 30
+	s3CfgTestDurationFlt   = 60
+	s3CfgTestDuration5m    = 5
+	s3CfgTestDuration15s   = 15
+	s3CfgTestDuration20s   = 20
+	s3CfgTestDefGetMB      = 10
+	s3CfgTestBytesPerMB    = 1024
+	s3CfgTestTimeout45     = 45
+	s3CfgTestTimeout90     = 90
+	s3CfgTestGetSize1024   = 1024
+	s3CfgTestPutSize2048   = 2048
+	s3CfgTestGetSize512    = 512
+	s3CfgTestPutSize1024   = 1024
+	s3CfgTestUnexpectedErr = "unexpected error: %v"
+	s3CfgTestValue         = "value"
+	s3CfgTestInt           = "int"
+	s3CfgTestFloat64       = "float64"
 )
 
 func TestParseConfig_ValidAllFields(t *testing.T) {
@@ -40,7 +52,7 @@ func TestParseConfig_ValidAllFields(t *testing.T) {
 
 	result, err := ParseConfig(cfg)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
 	assertS3ConfigAllFields(t, result)
 }
@@ -78,7 +90,7 @@ func TestParseConfig_DefaultsApplied(t *testing.T) {
 
 	result, err := ParseConfig(cfg)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
 
 	if result.Region != "us-east-1" {
@@ -87,70 +99,70 @@ func TestParseConfig_DefaultsApplied(t *testing.T) {
 	if result.Timeout != s3CfgTestDurationInt*time.Second {
 		t.Errorf("expected default timeout 30s, got %v", result.Timeout)
 	}
-	if result.MaxGetSize != 10*1024*1024 {
+	if result.MaxGetSize != s3CfgTestDefGetMB*s3CfgTestBytesPerMB*s3CfgTestBytesPerMB {
 		t.Errorf("expected default MaxGetSize 10MB, got %d", result.MaxGetSize)
 	}
-	if result.MaxPutSize != s3CfgTestIntVal*1024*1024 {
+	if result.MaxPutSize != s3CfgTestIntVal*s3CfgTestBytesPerMB*s3CfgTestBytesPerMB {
 		t.Errorf("expected default MaxPutSize 100MB, got %d", result.MaxPutSize)
 	}
 }
 
 func TestParseConfig_TimeoutAsInt(t *testing.T) {
-	result, err := ParseConfig(map[string]any{"timeout": 45})
+	result, err := ParseConfig(map[string]any{"timeout": s3CfgTestTimeout45})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
-	if result.Timeout != 45*time.Second {
+	if result.Timeout != s3CfgTestTimeout45*time.Second {
 		t.Errorf("expected timeout 45s, got %v", result.Timeout)
 	}
 }
 
 func TestParseConfig_TimeoutAsFloat64(t *testing.T) {
-	result, err := ParseConfig(map[string]any{"timeout": float64(90)})
+	result, err := ParseConfig(map[string]any{"timeout": float64(s3CfgTestTimeout90)})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
-	if result.Timeout != 90*time.Second {
+	if result.Timeout != s3CfgTestTimeout90*time.Second {
 		t.Errorf("expected timeout 90s, got %v", result.Timeout)
 	}
 }
 
 func TestParseConfig_SizeFieldsAsFloat64(t *testing.T) {
 	result, err := ParseConfig(map[string]any{
-		"max_get_size": float64(1024),
-		"max_put_size": float64(2048),
+		"max_get_size": float64(s3CfgTestGetSize1024),
+		"max_put_size": float64(s3CfgTestPutSize2048),
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
-	if result.MaxGetSize != 1024 {
-		t.Errorf("expected MaxGetSize 1024, got %d", result.MaxGetSize)
+	if result.MaxGetSize != s3CfgTestGetSize1024 {
+		t.Errorf("expected MaxGetSize %d, got %d", s3CfgTestGetSize1024, result.MaxGetSize)
 	}
-	if result.MaxPutSize != 2048 {
-		t.Errorf("expected MaxPutSize 2048, got %d", result.MaxPutSize)
+	if result.MaxPutSize != s3CfgTestPutSize2048 {
+		t.Errorf("expected MaxPutSize %d, got %d", s3CfgTestPutSize2048, result.MaxPutSize)
 	}
 }
 
 func TestParseConfig_SizeFieldsAsInt(t *testing.T) {
 	result, err := ParseConfig(map[string]any{
-		"max_get_size": 512,
-		"max_put_size": 1024,
+		"max_get_size": s3CfgTestGetSize512,
+		"max_put_size": s3CfgTestPutSize1024,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
-	if result.MaxGetSize != 512 {
-		t.Errorf("expected MaxGetSize 512, got %d", result.MaxGetSize)
+	if result.MaxGetSize != s3CfgTestGetSize512 {
+		t.Errorf("expected MaxGetSize %d, got %d", s3CfgTestGetSize512, result.MaxGetSize)
 	}
-	if result.MaxPutSize != 1024 {
-		t.Errorf("expected MaxPutSize 1024, got %d", result.MaxPutSize)
+	if result.MaxPutSize != s3CfgTestPutSize1024 {
+		t.Errorf("expected MaxPutSize %d, got %d", s3CfgTestPutSize1024, result.MaxPutSize)
 	}
 }
 
 func TestParseConfig_InvalidTimeoutDefault(t *testing.T) {
 	result, err := ParseConfig(map[string]any{"timeout": "invalid"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
 	}
 	if result.Timeout != s3CfgTestDurationInt*time.Second {
 		t.Errorf("expected default timeout 30s for invalid string, got %v", result.Timeout)
@@ -159,11 +171,11 @@ func TestParseConfig_InvalidTimeoutDefault(t *testing.T) {
 
 func TestS3GetString(t *testing.T) {
 	cfg := map[string]any{
-		s3CfgTestExisting: "value",
+		s3CfgTestExisting: s3CfgTestValue,
 		"number":          s3CfgTestNumVal,
 	}
 
-	if getString(cfg, s3CfgTestExisting) != "value" {
+	if getString(cfg, s3CfgTestExisting) != s3CfgTestValue {
 		t.Error("expected 'value' for existing key")
 	}
 	if getString(cfg, s3CfgTestMissing) != "" {
@@ -176,10 +188,10 @@ func TestS3GetString(t *testing.T) {
 
 func TestS3GetStringDefault(t *testing.T) {
 	cfg := map[string]any{
-		s3CfgTestExisting: "value",
+		s3CfgTestExisting: s3CfgTestValue,
 	}
 
-	if getStringDefault(cfg, s3CfgTestExisting, "default") != "value" {
+	if getStringDefault(cfg, s3CfgTestExisting, "default") != s3CfgTestValue {
 		t.Error("expected 'value' for existing key")
 	}
 	if getStringDefault(cfg, s3CfgTestMissing, "default") != "default" {
@@ -210,10 +222,10 @@ func TestS3GetBool(t *testing.T) {
 
 func TestS3GetDuration(t *testing.T) {
 	cfg := map[string]any{
-		s3CfgTestString: "5m",
-		"int":           s3CfgTestDurationInt,
-		"float64":       float64(s3CfgTestDurationFlt),
-		"invalid":       "not-a-duration",
+		s3CfgTestString:  "5m",
+		s3CfgTestInt:     s3CfgTestDurationInt,
+		s3CfgTestFloat64: float64(s3CfgTestDurationFlt),
+		"invalid":        "not-a-duration",
 	}
 
 	d := getDuration(cfg, s3CfgTestString, time.Second)
@@ -221,12 +233,12 @@ func TestS3GetDuration(t *testing.T) {
 		t.Errorf("expected 5m, got %v", d)
 	}
 
-	d = getDuration(cfg, "int", time.Second)
+	d = getDuration(cfg, s3CfgTestInt, time.Second)
 	if d != s3CfgTestDurationInt*time.Second {
 		t.Errorf("expected 30s, got %v", d)
 	}
 
-	d = getDuration(cfg, "float64", time.Second)
+	d = getDuration(cfg, s3CfgTestFloat64, time.Second)
 	if d != s3CfgTestDurationFlt*time.Second {
 		t.Errorf("expected 60s, got %v", d)
 	}
@@ -244,15 +256,15 @@ func TestS3GetDuration(t *testing.T) {
 
 func TestS3GetInt64(t *testing.T) {
 	cfg := map[string]any{
-		"int":           s3CfgTestIntVal,
-		"float64":       float64(s3CfgTestFloat64Val),
-		s3CfgTestString: "not a number",
+		s3CfgTestInt:     s3CfgTestIntVal,
+		s3CfgTestFloat64: float64(s3CfgTestFloat64Val),
+		s3CfgTestString:  "not a number",
 	}
 
-	if getInt64(cfg, "int", 0) != s3CfgTestIntVal {
+	if getInt64(cfg, s3CfgTestInt, 0) != s3CfgTestIntVal {
 		t.Error("expected 100 for int key")
 	}
-	if getInt64(cfg, "float64", 0) != s3CfgTestFloat64Val {
+	if getInt64(cfg, s3CfgTestFloat64, 0) != s3CfgTestFloat64Val {
 		t.Error("expected 200 for float64 key")
 	}
 	if getInt64(cfg, s3CfgTestMissing, s3CfgTestDefaultVal) != s3CfgTestDefaultVal {
