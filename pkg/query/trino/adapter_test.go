@@ -10,6 +10,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
+const adapterTestTrino = "trino"
+
 // mockTrinoClient implements the Client interface for testing.
 type mockTrinoClient struct {
 	queryFunc         func(ctx context.Context, sql string, opts trinoclient.QueryOptions) (*trinoclient.QueryResult, error)
@@ -84,7 +86,7 @@ func TestNewWithClient(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if adapter.Name() != "trino" {
+		if adapter.Name() != adapterTestTrino {
 			t.Errorf("expected name 'trino', got %q", adapter.Name())
 		}
 	})
@@ -107,7 +109,7 @@ func TestNewWithClient(t *testing.T) {
 func TestAdapterName(t *testing.T) {
 	mock := &mockTrinoClient{}
 	adapter, _ := NewWithClient(Config{}, mock)
-	if adapter.Name() != "trino" {
+	if adapter.Name() != adapterTestTrino {
 		t.Errorf("expected 'trino', got %q", adapter.Name())
 	}
 }
