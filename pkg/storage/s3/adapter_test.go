@@ -11,6 +11,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
+const (
+	s3AdapterTestURNPrefixLen = 15
+	s3AdapterTestBucket       = "my-bucket"
+)
+
 // mockS3Client implements the Client interface for testing.
 type mockS3Client struct {
 	listObjectsOutput *s3client.ListObjectsOutput
@@ -19,7 +24,7 @@ type mockS3Client struct {
 	closeCalled       bool
 }
 
-func (m *mockS3Client) ListObjects(_ context.Context, _, _, _ string, _ int32, _ string) (*s3client.ListObjectsOutput, error) {
+func (m *mockS3Client) ListObjects(_ context.Context, _, _, _ string, _ int32, _ string) (*s3client.ListObjectsOutput, error) { //nolint:revive // argument-limit: matches Client interface
 	return m.listObjectsOutput, m.listObjectsErr
 }
 
@@ -91,14 +96,14 @@ func TestResolveDatasetParsing(t *testing.T) {
 		{
 			name:       "valid URN with prefix",
 			urn:        "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data/raw,PROD)",
-			wantBucket: "my-bucket",
+			wantBucket: s3AdapterTestBucket,
 			wantPrefix: "data/raw",
 			wantErr:    false,
 		},
 		{
 			name:       "valid URN bucket only",
 			urn:        "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket,PROD)",
-			wantBucket: "my-bucket",
+			wantBucket: s3AdapterTestBucket,
 			wantPrefix: "",
 			wantErr:    false,
 		},
@@ -151,7 +156,7 @@ func parseDatasetURN(urn string) (bucket, prefix string, err error) {
 
 	// Create a minimal adapter to test parsing
 	// We use a special test that doesn't need a real client
-	if len(urn) < 15 || urn[:15] != "urn:li:dataset:" {
+	if len(urn) < s3AdapterTestURNPrefixLen || urn[:s3AdapterTestURNPrefixLen] != "urn:li:dataset:" {
 		return "", "", &parseError{"invalid dataset URN: " + urn}
 	}
 
@@ -182,7 +187,7 @@ func (e *parseError) Error() string {
 	return e.msg
 }
 
-func indexOf(s string, substr string) int {
+func indexOf(s, substr string) int {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return i
@@ -191,7 +196,7 @@ func indexOf(s string, substr string) int {
 	return -1
 }
 
-func lastIndexOf(s string, substr string) int {
+func lastIndexOf(s, substr string) int {
 	for i := len(s) - len(substr); i >= 0; i-- {
 		if s[i:i+len(substr)] == substr {
 			return i
@@ -217,7 +222,7 @@ func splitN(s, sep string, n int) []string {
 func TestAccessExampleGeneration(t *testing.T) {
 	// Test the access example generation logic
 	dataset := storage.DatasetIdentifier{
-		Bucket: "my-bucket",
+		Bucket: s3AdapterTestBucket,
 		Prefix: "data/raw",
 	}
 
@@ -321,7 +326,7 @@ func TestGetDatasetAvailability(t *testing.T) {
 		if !result.Available {
 			t.Error("expected Available to be true")
 		}
-		if result.Bucket != "my-bucket" {
+		if result.Bucket != s3AdapterTestBucket {
 			t.Errorf("expected bucket 'my-bucket', got %q", result.Bucket)
 		}
 		if result.Prefix != "data" {
@@ -395,7 +400,7 @@ func TestListObjects(t *testing.T) {
 			client: mockClient,
 		}
 
-		dataset := storage.DatasetIdentifier{Bucket: "my-bucket", Prefix: "data"}
+		dataset := storage.DatasetIdentifier{Bucket: s3AdapterTestBucket, Prefix: "data"}
 		result, err := adapter.ListObjects(context.Background(), dataset, 100)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -417,7 +422,7 @@ func TestListObjects(t *testing.T) {
 		}
 		adapter := &Adapter{client: mockClient}
 
-		dataset := storage.DatasetIdentifier{Bucket: "my-bucket"}
+		dataset := storage.DatasetIdentifier{Bucket: s3AdapterTestBucket}
 		_, err := adapter.ListObjects(context.Background(), dataset, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -430,7 +435,7 @@ func TestListObjects(t *testing.T) {
 		}
 		adapter := &Adapter{client: mockClient}
 
-		dataset := storage.DatasetIdentifier{Bucket: "my-bucket"}
+		dataset := storage.DatasetIdentifier{Bucket: s3AdapterTestBucket}
 		_, err := adapter.ListObjects(context.Background(), dataset, 5000)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -443,7 +448,7 @@ func TestListObjects(t *testing.T) {
 		}
 		adapter := &Adapter{client: mockClient}
 
-		dataset := storage.DatasetIdentifier{Bucket: "my-bucket"}
+		dataset := storage.DatasetIdentifier{Bucket: s3AdapterTestBucket}
 		_, err := adapter.ListObjects(context.Background(), dataset, 100)
 		if err == nil {
 			t.Error("expected error from ListObjects")
@@ -469,7 +474,7 @@ func TestAdapterResolveDataset(t *testing.T) {
 		{
 			name:           "valid URN with prefix",
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data/raw,PROD)",
-			wantBucket:     "my-bucket",
+			wantBucket:     s3AdapterTestBucket,
 			wantPrefix:     "data/raw",
 			wantConnection: "test-conn",
 			wantErr:        false,
@@ -477,7 +482,7 @@ func TestAdapterResolveDataset(t *testing.T) {
 		{
 			name:           "valid URN bucket only",
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket,PROD)",
-			wantBucket:     "my-bucket",
+			wantBucket:     s3AdapterTestBucket,
 			wantPrefix:     "",
 			wantConnection: "test-conn",
 			wantErr:        false,
