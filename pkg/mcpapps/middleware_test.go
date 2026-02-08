@@ -9,6 +9,47 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// assertToolInList finds a tool by name in the list result and returns it.
+func assertToolInList(t *testing.T, listResult *mcp.ListToolsResult, name string) *mcp.Tool {
+	t.Helper()
+	for _, tool := range listResult.Tools {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found in result", name)
+	return nil
+}
+
+// assertToolHasUI checks that the given tool has a "ui" key in Meta with the expected resource URI.
+func assertToolHasUI(t *testing.T, tool *mcp.Tool, expectedURI string) {
+	t.Helper()
+	if tool.Meta == nil {
+		t.Fatalf("tool %q .Meta is nil", tool.Name)
+	}
+	ui, ok := tool.Meta["ui"]
+	if !ok {
+		t.Fatalf("tool %q .Meta does not contain 'ui' key", tool.Name)
+	}
+	uiMap, ok := ui.(map[string]string)
+	if !ok {
+		t.Fatalf("ui metadata is not map[string]string: %T", ui)
+	}
+	if uiMap["resourceUri"] != expectedURI {
+		t.Errorf("resourceUri = %q, want %q", uiMap["resourceUri"], expectedURI)
+	}
+}
+
+// assertToolNoUI checks that a tool does NOT have UI metadata.
+func assertToolNoUI(t *testing.T, tool *mcp.Tool) {
+	t.Helper()
+	if tool.Meta != nil {
+		if _, hasUI := tool.Meta["ui"]; hasUI {
+			t.Errorf("tool %q should not have UI metadata", tool.Name)
+		}
+	}
+}
+
 func TestToolMetadataMiddleware(t *testing.T) {
 	testdata := testdataDir(t)
 
@@ -29,8 +70,7 @@ func TestToolMetadataMiddleware(t *testing.T) {
 	middleware := ToolMetadataMiddleware(reg)
 
 	t.Run("injects UI metadata for matching tool", func(t *testing.T) {
-		// Create a mock handler that returns a tools/list result
-		handler := func(_ context.Context, method string, _ mcp.Request) (mcp.Result, error) {
+		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			return &mcp.ListToolsResult{
 				Tools: []*mcp.Tool{
 					{Name: "test_tool", Description: "A test tool"},
@@ -39,10 +79,8 @@ func TestToolMetadataMiddleware(t *testing.T) {
 			}, nil
 		}
 
-		// Wrap with middleware
 		wrapped := middleware(handler)
 
-		// Call with tools/list
 		result, err := wrapped(context.Background(), "tools/list", nil)
 		if err != nil {
 			t.Fatalf("Middleware returned error: %v", err)
@@ -53,54 +91,16 @@ func TestToolMetadataMiddleware(t *testing.T) {
 			t.Fatalf("Result is not *mcp.ListToolsResult: %T", result)
 		}
 
-		// Check that test_tool has UI metadata
-		var testTool, otherTool *mcp.Tool
-		for _, tool := range listResult.Tools {
-			if tool.Name == "test_tool" {
-				testTool = tool
-			}
-			if tool.Name == "other_tool" {
-				otherTool = tool
-			}
-		}
+		testTool := assertToolInList(t, listResult, "test_tool")
+		otherTool := assertToolInList(t, listResult, "other_tool")
 
-		if testTool == nil {
-			t.Fatal("test_tool not found in result")
-		}
-		if otherTool == nil {
-			t.Fatal("other_tool not found in result")
-		}
-
-		// Verify test_tool has UI metadata
-		if testTool.Meta == nil {
-			t.Fatal("test_tool.Meta is nil")
-		}
-
-		ui, ok := testTool.Meta["ui"]
-		if !ok {
-			t.Fatal("test_tool.Meta does not contain 'ui' key")
-		}
-
-		uiMap, ok := ui.(map[string]string)
-		if !ok {
-			t.Fatalf("ui metadata is not map[string]string: %T", ui)
-		}
-
-		if uiMap["resourceUri"] != "ui://test-app" {
-			t.Errorf("resourceUri = %q, want %q", uiMap["resourceUri"], "ui://test-app")
-		}
-
-		// Verify other_tool does NOT have UI metadata
-		if otherTool.Meta != nil {
-			if _, hasUI := otherTool.Meta["ui"]; hasUI {
-				t.Error("other_tool should not have UI metadata")
-			}
-		}
+		assertToolHasUI(t, testTool, "ui://test-app")
+		assertToolNoUI(t, otherTool)
 	})
 
 	t.Run("passes through non-tools/list methods", func(t *testing.T) {
 		callCount := 0
-		handler := func(_ context.Context, method string, _ mcp.Request) (mcp.Result, error) {
+		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			callCount++
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "result"}},
@@ -109,7 +109,6 @@ func TestToolMetadataMiddleware(t *testing.T) {
 
 		wrapped := middleware(handler)
 
-		// Call with tools/call (not tools/list)
 		_, err := wrapped(context.Background(), "tools/call", nil)
 		if err != nil {
 			t.Fatalf("Middleware returned error: %v", err)
@@ -122,7 +121,7 @@ func TestToolMetadataMiddleware(t *testing.T) {
 
 	t.Run("handles nil result gracefully", func(t *testing.T) {
 		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // test mock: nil means no data
 		}
 
 		wrapped := middleware(handler)
@@ -139,7 +138,7 @@ func TestToolMetadataMiddleware(t *testing.T) {
 		var dummy any
 		expectedErr := json.Unmarshal([]byte("invalid"), &dummy)
 		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-			return nil, expectedErr
+			return nil, expectedErr //nolint:wrapcheck // test mock returning sentinel error
 		}
 
 		wrapped := middleware(handler)
@@ -169,7 +168,10 @@ func TestToolMetadataMiddleware_EmptyRegistry(t *testing.T) {
 		t.Fatalf("Middleware returned error: %v", err)
 	}
 
-	listResult := result.(*mcp.ListToolsResult)
+	listResult, ok := result.(*mcp.ListToolsResult)
+	if !ok {
+		t.Fatalf("Result is not *mcp.ListToolsResult: %T", result)
+	}
 	if len(listResult.Tools[0].Meta) > 0 {
 		t.Error("Tool should not have metadata when no apps registered")
 	}
