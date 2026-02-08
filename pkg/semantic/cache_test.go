@@ -6,179 +6,145 @@ import (
 	"time"
 )
 
-func TestCachedProvider(t *testing.T) {
+func newTestCachedProvider() *CachedProvider {
 	underlying := NewNoopProvider()
 	cfg := CacheConfig{TTL: 100 * time.Millisecond}
-	provider := NewCachedProvider(underlying, cfg)
+	return NewCachedProvider(underlying, cfg)
+}
 
-	t.Run("Name", func(t *testing.T) {
-		name := provider.Name()
-		if name != "noop (cached)" {
-			t.Errorf("Name() = %q, want %q", name, "noop (cached)")
-		}
-	})
+func TestCachedProvider_Name(t *testing.T) {
+	provider := newTestCachedProvider()
+	if name := provider.Name(); name != "noop (cached)" {
+		t.Errorf("Name() = %q, want %q", name, "noop (cached)")
+	}
+}
 
-	t.Run("GetTableContext_Caches", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "cache_test"}
+func TestCachedProvider_GetTableContext_Caches(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "cache_test"}
 
-		// First call
-		result1, err := provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("first GetTableContext() error = %v", err)
-		}
+	result1, err := provider.GetTableContext(ctx, table)
+	if err != nil {
+		t.Fatalf("first GetTableContext() error = %v", err)
+	}
+	result2, err := provider.GetTableContext(ctx, table)
+	if err != nil {
+		t.Fatalf("second GetTableContext() error = %v", err)
+	}
+	if result1 == nil || result2 == nil {
+		t.Error("expected non-nil results")
+	}
+}
 
-		// Second call should return cached result
-		result2, err := provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("second GetTableContext() error = %v", err)
-		}
+func TestCachedProvider_GetTableContext_Expires(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "expire_test"}
 
-		// Both should be non-nil (both come from noop which returns empty struct)
-		if result1 == nil || result2 == nil {
-			t.Error("expected non-nil results")
-		}
-	})
+	if _, err := provider.GetTableContext(ctx, table); err != nil {
+		t.Fatalf("first GetTableContext() error = %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if _, err := provider.GetTableContext(ctx, table); err != nil {
+		t.Fatalf("second GetTableContext() error = %v", err)
+	}
+}
 
-	t.Run("GetTableContext_Expires", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "expire_test"}
+func TestCachedProvider_Invalidate(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "invalidate_test"}
 
-		// First call
-		_, err := provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("first GetTableContext() error = %v", err)
-		}
+	if _, err := provider.GetTableContext(ctx, table); err != nil {
+		t.Fatalf("GetTableContext() error = %v", err)
+	}
+	provider.Invalidate()
+	if _, err := provider.GetTableContext(ctx, table); err != nil {
+		t.Fatalf("GetTableContext() after invalidate error = %v", err)
+	}
+}
 
-		// Wait for cache to expire
-		time.Sleep(150 * time.Millisecond)
+func TestCachedProvider_GetColumnContext_Caches(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	column := ColumnIdentifier{
+		TableIdentifier: TableIdentifier{Schema: "test", Table: "cache_test"},
+		Column:          "col1",
+	}
 
-		// Should fetch fresh
-		_, err = provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("second GetTableContext() error = %v", err)
-		}
-	})
+	result1, err := provider.GetColumnContext(ctx, column)
+	if err != nil {
+		t.Fatalf("first GetColumnContext() error = %v", err)
+	}
+	result2, err := provider.GetColumnContext(ctx, column)
+	if err != nil {
+		t.Fatalf("second GetColumnContext() error = %v", err)
+	}
+	if result1 == nil || result2 == nil {
+		t.Error("expected non-nil results")
+	}
+}
 
-	t.Run("Invalidate", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "invalidate_test"}
+func TestCachedProvider_GetColumnsContext_Caches(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "columns_cache_test"}
 
-		// Populate cache
-		_, err := provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("GetTableContext() error = %v", err)
-		}
+	result1, err := provider.GetColumnsContext(ctx, table)
+	if err != nil {
+		t.Fatalf("first GetColumnsContext() error = %v", err)
+	}
+	result2, err := provider.GetColumnsContext(ctx, table)
+	if err != nil {
+		t.Fatalf("second GetColumnsContext() error = %v", err)
+	}
+	if result1 == nil || result2 == nil {
+		t.Error("expected non-nil results")
+	}
+}
 
-		// Invalidate
-		provider.Invalidate()
+func TestCachedProvider_GetLineage_Caches(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "lineage_cache_test"}
 
-		// Should work after invalidate
-		_, err = provider.GetTableContext(ctx, table)
-		if err != nil {
-			t.Fatalf("GetTableContext() after invalidate error = %v", err)
-		}
-	})
+	result1, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
+	if err != nil {
+		t.Fatalf("first GetLineage() error = %v", err)
+	}
+	result2, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
+	if err != nil {
+		t.Fatalf("second GetLineage() error = %v", err)
+	}
+	if result1 == nil || result2 == nil {
+		t.Error("expected non-nil results")
+	}
+}
 
-	t.Run("GetColumnContext_Caches", func(t *testing.T) {
-		ctx := context.Background()
-		column := ColumnIdentifier{
-			TableIdentifier: TableIdentifier{Schema: "test", Table: "cache_test"},
-			Column:          "col1",
-		}
+func TestCachedProvider_GetGlossaryTerm_Caches(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
+	urn := "urn:li:glossaryTerm:test"
 
-		// First call
-		result1, err := provider.GetColumnContext(ctx, column)
-		if err != nil {
-			t.Fatalf("first GetColumnContext() error = %v", err)
-		}
+	if _, err := provider.GetGlossaryTerm(ctx, urn); err != nil {
+		t.Fatalf("first GetGlossaryTerm() error = %v", err)
+	}
+	if _, err := provider.GetGlossaryTerm(ctx, urn); err != nil {
+		t.Fatalf("second GetGlossaryTerm() error = %v", err)
+	}
+}
 
-		// Second call should return cached result
-		result2, err := provider.GetColumnContext(ctx, column)
-		if err != nil {
-			t.Fatalf("second GetColumnContext() error = %v", err)
-		}
+func TestCachedProvider_SearchAndClose(t *testing.T) {
+	provider := newTestCachedProvider()
+	ctx := context.Background()
 
-		if result1 == nil || result2 == nil {
-			t.Error("expected non-nil results")
-		}
-	})
-
-	t.Run("GetColumnsContext_Caches", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "columns_cache_test"}
-
-		// First call
-		result1, err := provider.GetColumnsContext(ctx, table)
-		if err != nil {
-			t.Fatalf("first GetColumnsContext() error = %v", err)
-		}
-
-		// Second call should return cached result
-		result2, err := provider.GetColumnsContext(ctx, table)
-		if err != nil {
-			t.Fatalf("second GetColumnsContext() error = %v", err)
-		}
-
-		if result1 == nil || result2 == nil {
-			t.Error("expected non-nil results")
-		}
-	})
-
-	t.Run("GetLineage_Caches", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "lineage_cache_test"}
-
-		// First call
-		result1, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
-		if err != nil {
-			t.Fatalf("first GetLineage() error = %v", err)
-		}
-
-		// Second call should return cached result
-		result2, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
-		if err != nil {
-			t.Fatalf("second GetLineage() error = %v", err)
-		}
-
-		if result1 == nil || result2 == nil {
-			t.Error("expected non-nil results")
-		}
-	})
-
-	t.Run("GetGlossaryTerm_Caches", func(t *testing.T) {
-		ctx := context.Background()
-		urn := "urn:li:glossaryTerm:test"
-
-		// First call - noop returns nil, which is still cached
-		_, err := provider.GetGlossaryTerm(ctx, urn)
-		if err != nil {
-			t.Fatalf("first GetGlossaryTerm() error = %v", err)
-		}
-
-		// Second call should return cached result (even if nil)
-		_, err = provider.GetGlossaryTerm(ctx, urn)
-		if err != nil {
-			t.Fatalf("second GetGlossaryTerm() error = %v", err)
-		}
-	})
-
-	t.Run("SearchTables_NotCached", func(t *testing.T) {
-		ctx := context.Background()
-		filter := SearchFilter{Query: "test"}
-
-		// Search should work but not be cached
-		_, err := provider.SearchTables(ctx, filter)
-		if err != nil {
-			t.Fatalf("SearchTables() error = %v", err)
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		if err := provider.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
+	if _, err := provider.SearchTables(ctx, SearchFilter{Query: "test"}); err != nil {
+		t.Fatalf("SearchTables() error = %v", err)
+	}
+	if err := provider.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
 }
 
 func TestCacheConfig_DefaultTTL(t *testing.T) {
