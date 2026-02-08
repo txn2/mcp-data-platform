@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+const (
+	regTestAppName     = "test-app"
+	regTestResourceURI = "ui://test-app"
+	regTestToolName    = "test_tool"
+	regTestEntryPoint  = "index.html"
+	regTestToolA       = "tool_a"
+	regTestToolB       = "tool_b"
+	regTestRegFailed   = "Register() failed: %v"
+	regTestToolCount   = 3
+)
+
 func TestRegistry_Register(t *testing.T) {
 	testdata := testdataDir(t)
 
@@ -16,31 +27,31 @@ func TestRegistry_Register(t *testing.T) {
 		{
 			name: "valid registration",
 			app: &AppDefinition{
-				Name:        "test-app",
-				ResourceURI: "ui://test-app",
-				ToolNames:   []string{"test_tool"},
+				Name:        regTestAppName,
+				ResourceURI: regTestResourceURI,
+				ToolNames:   []string{regTestToolName},
 				AssetsPath:  testdata,
-				EntryPoint:  "index.html",
+				EntryPoint:  regTestEntryPoint,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "invalid app - missing name",
 			app: &AppDefinition{
-				ResourceURI: "ui://test-app",
-				ToolNames:   []string{"test_tool"},
+				ResourceURI: regTestResourceURI,
+				ToolNames:   []string{regTestToolName},
 				AssetsPath:  testdata,
-				EntryPoint:  "index.html",
+				EntryPoint:  regTestEntryPoint,
 			},
 			wantErr: ErrMissingName,
 		},
 		{
 			name: "invalid app - missing assets path",
 			app: &AppDefinition{
-				Name:        "test-app",
-				ResourceURI: "ui://test-app",
-				ToolNames:   []string{"test_tool"},
-				EntryPoint:  "index.html",
+				Name:        regTestAppName,
+				ResourceURI: regTestResourceURI,
+				ToolNames:   []string{regTestToolName},
+				EntryPoint:  regTestEntryPoint,
 			},
 			wantErr: ErrMissingAssetsPath,
 		},
@@ -62,11 +73,11 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 	reg := NewRegistry()
 
 	app := &AppDefinition{
-		Name:        "test-app",
-		ResourceURI: "ui://test-app",
-		ToolNames:   []string{"test_tool"},
+		Name:        regTestAppName,
+		ResourceURI: regTestResourceURI,
+		ToolNames:   []string{regTestToolName},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	// First registration should succeed
@@ -86,23 +97,23 @@ func TestRegistry_Get(t *testing.T) {
 	reg := NewRegistry()
 
 	app := &AppDefinition{
-		Name:        "test-app",
-		ResourceURI: "ui://test-app",
-		ToolNames:   []string{"test_tool"},
+		Name:        regTestAppName,
+		ResourceURI: regTestResourceURI,
+		ToolNames:   []string{regTestToolName},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	if err := reg.Register(app); err != nil {
-		t.Fatalf("Register() failed: %v", err)
+		t.Fatalf(regTestRegFailed, err)
 	}
 
 	// Test getting existing app
-	got := reg.Get("test-app")
+	got := reg.Get(regTestAppName)
 	if got == nil {
 		t.Fatal("Get() returned nil for existing app")
 	}
-	if got.Name != "test-app" {
+	if got.Name != regTestAppName {
 		t.Errorf("Get() returned app with wrong name: %s", got.Name)
 	}
 
@@ -118,15 +129,15 @@ func TestRegistry_GetForTool(t *testing.T) {
 	reg := NewRegistry()
 
 	app := &AppDefinition{
-		Name:        "test-app",
-		ResourceURI: "ui://test-app",
-		ToolNames:   []string{"tool_a", "tool_b"},
+		Name:        regTestAppName,
+		ResourceURI: regTestResourceURI,
+		ToolNames:   []string{regTestToolA, regTestToolB},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	if err := reg.Register(app); err != nil {
-		t.Fatalf("Register() failed: %v", err)
+		t.Fatalf(regTestRegFailed, err)
 	}
 
 	// Test getting app by tool name
@@ -134,8 +145,8 @@ func TestRegistry_GetForTool(t *testing.T) {
 		toolName string
 		wantApp  bool
 	}{
-		{"tool_a", true},
-		{"tool_b", true},
+		{regTestToolA, true},
+		{regTestToolB, true},
 		{"tool_c", false},
 		{"", false},
 	}
@@ -161,15 +172,15 @@ func TestRegistry_HasApps(t *testing.T) {
 
 	// Register an app
 	app := &AppDefinition{
-		Name:        "test-app",
-		ResourceURI: "ui://test-app",
-		ToolNames:   []string{"test_tool"},
+		Name:        regTestAppName,
+		ResourceURI: regTestResourceURI,
+		ToolNames:   []string{regTestToolName},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	if err := reg.Register(app); err != nil {
-		t.Fatalf("Register() failed: %v", err)
+		t.Fatalf(regTestRegFailed, err)
 	}
 
 	if !reg.HasApps() {
@@ -193,14 +204,14 @@ func TestRegistry_Apps(t *testing.T) {
 		ResourceURI: "ui://app-1",
 		ToolNames:   []string{"tool_1"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 	app2 := &AppDefinition{
 		Name:        "app-2",
 		ResourceURI: "ui://app-2",
 		ToolNames:   []string{"tool_2"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	if err := reg.Register(app1); err != nil {
@@ -221,19 +232,19 @@ func TestRegistry_ToolNames(t *testing.T) {
 	reg := NewRegistry()
 
 	app := &AppDefinition{
-		Name:        "test-app",
-		ResourceURI: "ui://test-app",
-		ToolNames:   []string{"tool_a", "tool_b", "tool_c"},
+		Name:        regTestAppName,
+		ResourceURI: regTestResourceURI,
+		ToolNames:   []string{regTestToolA, regTestToolB, "tool_c"},
 		AssetsPath:  testdata,
-		EntryPoint:  "index.html",
+		EntryPoint:  regTestEntryPoint,
 	}
 
 	if err := reg.Register(app); err != nil {
-		t.Fatalf("Register() failed: %v", err)
+		t.Fatalf(regTestRegFailed, err)
 	}
 
 	names := reg.ToolNames()
-	if len(names) != 3 {
+	if len(names) != regTestToolCount {
 		t.Errorf("ToolNames() returned %d names, want 3", len(names))
 	}
 
@@ -243,7 +254,7 @@ func TestRegistry_ToolNames(t *testing.T) {
 		nameSet[name] = true
 	}
 
-	for _, want := range []string{"tool_a", "tool_b", "tool_c"} {
+	for _, want := range []string{regTestToolA, regTestToolB, "tool_c"} {
 		if !nameSet[want] {
 			t.Errorf("ToolNames() missing %q", want)
 		}
