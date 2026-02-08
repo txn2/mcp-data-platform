@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+const (
+	noopTestSchema       = "test"
+	noopTestLineageDepth = 3
+)
+
 func TestNoopProvider_Name(t *testing.T) {
 	provider := NewNoopProvider()
 	if got := provider.Name(); got != "noop" {
@@ -15,7 +20,7 @@ func TestNoopProvider_Name(t *testing.T) {
 func TestNoopProvider_GetTableContext(t *testing.T) {
 	provider := NewNoopProvider()
 	ctx := context.Background()
-	table := TableIdentifier{Schema: "test", Table: "table"}
+	table := TableIdentifier{Schema: noopTestSchema, Table: "table"}
 	result, err := provider.GetTableContext(ctx, table)
 	if err != nil {
 		t.Errorf("GetTableContext() error = %v", err)
@@ -29,7 +34,7 @@ func TestNoopProvider_GetColumnContext(t *testing.T) {
 	provider := NewNoopProvider()
 	ctx := context.Background()
 	column := ColumnIdentifier{
-		TableIdentifier: TableIdentifier{Schema: "test", Table: "table"},
+		TableIdentifier: TableIdentifier{Schema: noopTestSchema, Table: "table"},
 		Column:          "col",
 	}
 	result, err := provider.GetColumnContext(ctx, column)
@@ -44,7 +49,7 @@ func TestNoopProvider_GetColumnContext(t *testing.T) {
 func TestNoopProvider_GetColumnsContext(t *testing.T) {
 	provider := NewNoopProvider()
 	ctx := context.Background()
-	table := TableIdentifier{Schema: "test", Table: "table"}
+	table := TableIdentifier{Schema: noopTestSchema, Table: "table"}
 	result, err := provider.GetColumnsContext(ctx, table)
 	if err != nil {
 		t.Errorf("GetColumnsContext() error = %v", err)
@@ -57,8 +62,8 @@ func TestNoopProvider_GetColumnsContext(t *testing.T) {
 func TestNoopProvider_GetLineage(t *testing.T) {
 	provider := NewNoopProvider()
 	ctx := context.Background()
-	table := TableIdentifier{Schema: "test", Table: "table"}
-	result, err := provider.GetLineage(ctx, table, LineageUpstream, 3)
+	table := TableIdentifier{Schema: noopTestSchema, Table: "table"}
+	result, err := provider.GetLineage(ctx, table, LineageUpstream, noopTestLineageDepth)
 	if err != nil {
 		t.Errorf("GetLineage() error = %v", err)
 	}
