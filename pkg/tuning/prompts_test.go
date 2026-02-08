@@ -7,9 +7,12 @@ import (
 )
 
 const (
-	testInstructions = "Instructions"
-	testPrefix       = "Prefix"
-	testSuffix       = "Suffix"
+	testInstructions   = "Instructions"
+	testPrefix         = "Prefix"
+	testSuffix         = "Suffix"
+	testFileMode       = 0o644
+	testDirMode        = 0o750
+	testWriteFileErr   = "failed to write file: %v"
 )
 
 func TestNewPromptManager(t *testing.T) {
@@ -53,7 +56,7 @@ func TestPromptManagerLoadPrompts_NonexistentDir(t *testing.T) {
 func TestPromptManagerLoadPrompts_FileNotDir(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "not_a_dir")
-	if err := os.WriteFile(filePath, []byte("file content"), 0o644); err != nil {
+	if err := os.WriteFile(filePath, []byte("file content"), testFileMode); err != nil {
 		t.Fatalf("failed to create file: %v", err)
 	}
 
@@ -70,14 +73,14 @@ func TestPromptManagerLoadPrompts_FileNotDir(t *testing.T) {
 func TestPromptManagerLoadPrompts_TxtFiles(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("Hello, {{name}}!"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "farewell.md"), []byte("Goodbye!"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "ignored.json"), []byte("{}"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
 	}
 
 	pm := NewPromptManager(PromptConfig{
@@ -97,12 +100,12 @@ func TestPromptManagerLoadPrompts_SkipsDirs(t *testing.T) {
 	dir := t.TempDir()
 
 	subdir := filepath.Join(dir, "subdir")
-	if err := os.Mkdir(subdir, 0o750); err != nil {
+	if err := os.Mkdir(subdir, testDirMode); err != nil {
 		t.Fatalf("failed to create subdir: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), 0o644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	if err := os.WriteFile(filepath.Join(subdir, "nested.txt"), []byte("nested"), testFileMode); err != nil {
+		t.Fatalf(testWriteFileErr, err)
 	}
 
 	pm := NewPromptManager(PromptConfig{
