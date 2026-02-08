@@ -9,6 +9,7 @@ const (
 	mapperTestUnexpectedErr = "unexpected error: %v"
 	mapperTestNonStringVal  = 42
 	mapperTestRoles         = "roles"
+	mapperTestUser          = "user"
 )
 
 func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
@@ -101,7 +102,7 @@ func TestOIDCRoleMapper_MapToRoles(t *testing.T) {
 func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 	registry := NewRegistry()
 	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin", Roles: []string{filterTestAdmin}}
-	user := &Persona{Name: "user", DisplayName: "User", Roles: []string{"user"}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{"user"}}
 	_ = registry.Register(admin)
 	_ = registry.Register(user)
 	registry.SetDefault("user")
@@ -441,7 +442,7 @@ func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 
 func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 	registry := NewRegistry()
-	user := &Persona{Name: "user", DisplayName: "User", Roles: []string{"user"}}
+	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{"user"}}
 	_ = registry.Register(user)
 	registry.SetDefault("user")
 
