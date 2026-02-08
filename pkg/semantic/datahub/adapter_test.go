@@ -11,6 +11,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const dhAdapterTestMaxHops = 3
+
 // mockDataHubClient implements the Client interface for testing.
 type mockDataHubClient struct {
 	searchFunc           func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
@@ -132,7 +134,7 @@ func TestNewWithClient_LineageConfig(t *testing.T) {
 	mock := &mockDataHubClient{}
 	lineageCfg := LineageConfig{
 		Enabled:             true,
-		MaxHops:             3,
+		MaxHops:             dhAdapterTestMaxHops,
 		Inherit:             []string{"glossary_terms", "descriptions", "tags"},
 		ConflictResolution:  "nearest",
 		PreferColumnLineage: true,
@@ -146,8 +148,8 @@ func TestNewWithClient_LineageConfig(t *testing.T) {
 	if !gotCfg.Enabled {
 		t.Error("LineageConfig().Enabled = false, want true")
 	}
-	if gotCfg.MaxHops != 3 {
-		t.Errorf("LineageConfig().MaxHops = %d, want 3", gotCfg.MaxHops)
+	if gotCfg.MaxHops != dhAdapterTestMaxHops {
+		t.Errorf("LineageConfig().MaxHops = %d, want %d", gotCfg.MaxHops, dhAdapterTestMaxHops)
 	}
 	if len(gotCfg.Inherit) != 3 {
 		t.Errorf("LineageConfig().Inherit len = %d, want 3", len(gotCfg.Inherit))
