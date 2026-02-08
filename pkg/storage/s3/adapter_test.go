@@ -14,6 +14,7 @@ import (
 const (
 	s3AdapterTestURNPrefixLen = 15
 	s3AdapterTestBucket       = "my-bucket"
+	s3AdapterTestConn         = "test-conn"
 )
 
 // mockS3Client implements the Client interface for testing.
@@ -67,7 +68,7 @@ func TestConfig(t *testing.T) {
 		AccessKeyID:    "test-key",
 		SecretKey:      "test-secret",
 		BucketPrefix:   "prefix-",
-		ConnectionName: "test-conn",
+		ConnectionName: s3AdapterTestConn,
 		ReadOnly:       true,
 	}
 
@@ -252,7 +253,7 @@ func TestDatasetIdentifierUsage(t *testing.T) {
 func TestAdapterName(t *testing.T) {
 	adapter := &Adapter{
 		cfg: Config{
-			ConnectionName: "test-conn",
+			ConnectionName: s3AdapterTestConn,
 		},
 	}
 	if adapter.Name() != "s3" {
@@ -300,86 +301,68 @@ func TestAdapterCloseWithClient(t *testing.T) {
 	})
 }
 
-func TestGetDatasetAvailability(t *testing.T) {
+func TestGetDatasetAvailability_Success(t *testing.T) {
 	now := time.Now()
-
-	t.Run("successful availability check", func(t *testing.T) {
-		mockClient := &mockS3Client{
-			listObjectsOutput: &s3client.ListObjectsOutput{
-				Objects: []s3client.ObjectInfo{
-					{Key: "file1.txt", Size: 100, LastModified: now},
-					{Key: "file2.txt", Size: 200, LastModified: now},
-				},
-				KeyCount: 2,
+	mockClient := &mockS3Client{
+		listObjectsOutput: &s3client.ListObjectsOutput{
+			Objects: []s3client.ObjectInfo{
+				{Key: "file1.txt", Size: 100, LastModified: now},
+				{Key: "file2.txt", Size: 200, LastModified: now},
 			},
-		}
-		adapter := &Adapter{
-			cfg:    Config{ConnectionName: "test-conn"},
-			client: mockClient,
-		}
+			KeyCount: 2,
+		},
+	}
+	adapter := &Adapter{cfg: Config{ConnectionName: s3AdapterTestConn}, client: mockClient}
 
-		result, err := adapter.GetDatasetAvailability(context.Background(),
-			"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data,PROD)")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Available {
-			t.Error("expected Available to be true")
-		}
-		if result.Bucket != s3AdapterTestBucket {
-			t.Errorf("expected bucket 'my-bucket', got %q", result.Bucket)
-		}
-		if result.Prefix != "data" {
-			t.Errorf("expected prefix 'data', got %q", result.Prefix)
-		}
-		if result.ObjectCount != 2 {
-			t.Errorf("expected ObjectCount 2, got %d", result.ObjectCount)
-		}
-		if result.TotalSize != 300 {
-			t.Errorf("expected TotalSize 300, got %d", result.TotalSize)
-		}
-	})
+	result, err := adapter.GetDatasetAvailability(context.Background(),
+		"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data,PROD)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Available {
+		t.Error("expected Available to be true")
+	}
+	if result.Bucket != s3AdapterTestBucket {
+		t.Errorf("expected bucket 'my-bucket', got %q", result.Bucket)
+	}
+	if result.ObjectCount != 2 {
+		t.Errorf("expected ObjectCount 2, got %d", result.ObjectCount)
+	}
+	if result.TotalSize != 300 {
+		t.Errorf("expected TotalSize 300, got %d", result.TotalSize)
+	}
+}
 
-	t.Run("invalid URN returns unavailable", func(t *testing.T) {
-		mockClient := &mockS3Client{}
-		adapter := &Adapter{
-			cfg:    Config{ConnectionName: "test-conn"},
-			client: mockClient,
-		}
+func TestGetDatasetAvailability_InvalidURN(t *testing.T) {
+	adapter := &Adapter{cfg: Config{ConnectionName: s3AdapterTestConn}, client: &mockS3Client{}}
 
-		result, err := adapter.GetDatasetAvailability(context.Background(), "invalid-urn")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Available {
-			t.Error("expected Available to be false for invalid URN")
-		}
-		if result.Error == "" {
-			t.Error("expected error message for invalid URN")
-		}
-	})
+	result, err := adapter.GetDatasetAvailability(context.Background(), "invalid-urn")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Available {
+		t.Error("expected Available to be false for invalid URN")
+	}
+	if result.Error == "" {
+		t.Error("expected error message for invalid URN")
+	}
+}
 
-	t.Run("S3 error returns unavailable", func(t *testing.T) {
-		mockClient := &mockS3Client{
-			listObjectsErr: errors.New("S3 access denied"),
-		}
-		adapter := &Adapter{
-			cfg:    Config{ConnectionName: "test-conn"},
-			client: mockClient,
-		}
+func TestGetDatasetAvailability_S3Error(t *testing.T) {
+	mockClient := &mockS3Client{listObjectsErr: errors.New("S3 access denied")}
+	adapter := &Adapter{cfg: Config{ConnectionName: s3AdapterTestConn}, client: mockClient}
 
-		result, err := adapter.GetDatasetAvailability(context.Background(),
-			"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data,PROD)")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Available {
-			t.Error("expected Available to be false on S3 error")
-		}
-		if result.Error != "S3 access denied" {
-			t.Errorf("expected error message 'S3 access denied', got %q", result.Error)
-		}
-	})
+	result, err := adapter.GetDatasetAvailability(context.Background(),
+		"urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data,PROD)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Available {
+		t.Error("expected Available to be false on S3 error")
+	}
+	if result.Error != "S3 access denied" {
+		t.Errorf("expected error message 'S3 access denied', got %q", result.Error)
+	}
 }
 
 func TestListObjects(t *testing.T) {
@@ -396,7 +379,7 @@ func TestListObjects(t *testing.T) {
 			},
 		}
 		adapter := &Adapter{
-			cfg:    Config{ConnectionName: "test-conn"},
+			cfg:    Config{ConnectionName: s3AdapterTestConn},
 			client: mockClient,
 		}
 
@@ -459,7 +442,7 @@ func TestListObjects(t *testing.T) {
 func TestAdapterResolveDataset(t *testing.T) {
 	adapter := &Adapter{
 		cfg: Config{
-			ConnectionName: "test-conn",
+			ConnectionName: s3AdapterTestConn,
 		},
 	}
 
@@ -476,7 +459,7 @@ func TestAdapterResolveDataset(t *testing.T) {
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket/data/raw,PROD)",
 			wantBucket:     s3AdapterTestBucket,
 			wantPrefix:     "data/raw",
-			wantConnection: "test-conn",
+			wantConnection: s3AdapterTestConn,
 			wantErr:        false,
 		},
 		{
@@ -484,7 +467,7 @@ func TestAdapterResolveDataset(t *testing.T) {
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:s3,my-bucket,PROD)",
 			wantBucket:     s3AdapterTestBucket,
 			wantPrefix:     "",
-			wantConnection: "test-conn",
+			wantConnection: s3AdapterTestConn,
 			wantErr:        false,
 		},
 		{
@@ -532,7 +515,7 @@ func TestAdapterResolveDataset(t *testing.T) {
 func TestAdapterGetAccessExamples(t *testing.T) {
 	adapter := &Adapter{
 		cfg: Config{
-			ConnectionName: "test-conn",
+			ConnectionName: s3AdapterTestConn,
 		},
 	}
 
