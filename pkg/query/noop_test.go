@@ -5,76 +5,79 @@ import (
 	"testing"
 )
 
-func TestNoopProvider(t *testing.T) {
+func TestNoopProvider_Name(t *testing.T) {
 	provider := NewNoopProvider()
+	if got := provider.Name(); got != "noop" {
+		t.Errorf("Name() = %q, want %q", got, "noop")
+	}
+}
 
-	t.Run("Name", func(t *testing.T) {
-		if got := provider.Name(); got != "noop" {
-			t.Errorf("Name() = %q, want %q", got, "noop")
-		}
-	})
+func TestNoopProvider_ResolveTable(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	result, err := provider.ResolveTable(ctx, "urn:li:dataset:test")
+	if err != nil {
+		t.Errorf("ResolveTable() error = %v", err)
+	}
+	if result == nil {
+		t.Error("ResolveTable() returned nil, expected empty identifier")
+	}
+}
 
-	t.Run("ResolveTable", func(t *testing.T) {
-		ctx := context.Background()
-		result, err := provider.ResolveTable(ctx, "urn:li:dataset:test")
-		if err != nil {
-			t.Errorf("ResolveTable() error = %v", err)
-		}
-		if result == nil {
-			t.Error("ResolveTable() returned nil, expected empty identifier")
-		}
-	})
+func TestNoopProvider_GetTableAvailability(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	result, err := provider.GetTableAvailability(ctx, "urn:li:dataset:test")
+	if err != nil {
+		t.Errorf("GetTableAvailability() error = %v", err)
+	}
+	if result.Available {
+		t.Error("GetTableAvailability() expected unavailable for noop")
+	}
+}
 
-	t.Run("GetTableAvailability", func(t *testing.T) {
-		ctx := context.Background()
-		result, err := provider.GetTableAvailability(ctx, "urn:li:dataset:test")
-		if err != nil {
-			t.Errorf("GetTableAvailability() error = %v", err)
-		}
-		if result.Available {
-			t.Error("GetTableAvailability() expected unavailable for noop")
-		}
-	})
+func TestNoopProvider_GetQueryExamples(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	result, err := provider.GetQueryExamples(ctx, "urn:li:dataset:test")
+	if err != nil {
+		t.Errorf("GetQueryExamples() error = %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("GetQueryExamples() returned %d examples, want 0", len(result))
+	}
+}
 
-	t.Run("GetQueryExamples", func(t *testing.T) {
-		ctx := context.Background()
-		result, err := provider.GetQueryExamples(ctx, "urn:li:dataset:test")
-		if err != nil {
-			t.Errorf("GetQueryExamples() error = %v", err)
-		}
-		if len(result) != 0 {
-			t.Errorf("GetQueryExamples() returned %d examples, want 0", len(result))
-		}
-	})
+func TestNoopProvider_GetExecutionContext(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	result, err := provider.GetExecutionContext(ctx, []string{"urn1", "urn2"})
+	if err != nil {
+		t.Errorf("GetExecutionContext() error = %v", err)
+	}
+	if result == nil {
+		t.Error("GetExecutionContext() returned nil")
+	}
+}
 
-	t.Run("GetExecutionContext", func(t *testing.T) {
-		ctx := context.Background()
-		result, err := provider.GetExecutionContext(ctx, []string{"urn1", "urn2"})
-		if err != nil {
-			t.Errorf("GetExecutionContext() error = %v", err)
-		}
-		if result == nil {
-			t.Error("GetExecutionContext() returned nil")
-		}
-	})
+func TestNoopProvider_GetTableSchema(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	table := TableIdentifier{Schema: "test", Table: "table"}
+	result, err := provider.GetTableSchema(ctx, table)
+	if err != nil {
+		t.Errorf("GetTableSchema() error = %v", err)
+	}
+	if result == nil {
+		t.Error("GetTableSchema() returned nil")
+	}
+}
 
-	t.Run("GetTableSchema", func(t *testing.T) {
-		ctx := context.Background()
-		table := TableIdentifier{Schema: "test", Table: "table"}
-		result, err := provider.GetTableSchema(ctx, table)
-		if err != nil {
-			t.Errorf("GetTableSchema() error = %v", err)
-		}
-		if result == nil {
-			t.Error("GetTableSchema() returned nil")
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		if err := provider.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
+func TestNoopProvider_Close(t *testing.T) {
+	provider := NewNoopProvider()
+	if err := provider.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
 }
 
 func TestTableIdentifier_String(t *testing.T) {
