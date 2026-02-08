@@ -17,6 +17,7 @@ const (
 	adapterTestRowCount200   = 200
 	adapterTestRowCount50    = 50
 	adapterTestWarehouse     = "warehouse"
+	adapterTestCatalogRdbms  = "rdbms"
 )
 
 // mockTrinoClient implements the Client interface for testing.
@@ -494,15 +495,15 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 		},
 		{
 			name:           "mapping applied - warehouse to rdbms",
-			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms"},
+			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
-			wantCatalog:    "rdbms",
+			wantCatalog:    adapterTestCatalogRdbms,
 			wantSchema:     "public",
 			wantTable:      "users",
 		},
 		{
 			name:           "mapping applied - multiple mappings",
-			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms", "datalake": "iceberg"},
+			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms, "datalake": "iceberg"},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
 			wantCatalog:    "iceberg",
 			wantSchema:     "analytics",
@@ -510,7 +511,7 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 		},
 		{
 			name:           "catalog not in mapping - uses original",
-			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms"},
+			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,other.public.data,PROD)",
 			wantCatalog:    "other",
 			wantSchema:     "public",
