@@ -7,31 +7,37 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
+const (
+	testRoleAnalyst   = "analyst"
+	testRoleAdmin     = "admin"
+	testRoleExecutive = "executive"
+)
+
 func TestUserContext_HasRole(t *testing.T) {
 	uc := &UserContext{
-		Roles: []string{"analyst", "admin"},
+		Roles: []string{testRoleAnalyst, testRoleAdmin},
 	}
 
-	if !uc.HasRole("analyst") {
+	if !uc.HasRole(testRoleAnalyst) {
 		t.Error("HasRole(analyst) = false, want true")
 	}
-	if !uc.HasRole("admin") {
+	if !uc.HasRole(testRoleAdmin) {
 		t.Error("HasRole(admin) = false, want true")
 	}
-	if uc.HasRole("executive") {
+	if uc.HasRole(testRoleExecutive) {
 		t.Error("HasRole(executive) = true, want false")
 	}
 }
 
 func TestUserContext_HasAnyRole(t *testing.T) {
 	uc := &UserContext{
-		Roles: []string{"analyst"},
+		Roles: []string{testRoleAnalyst},
 	}
 
-	if !uc.HasAnyRole("admin", "analyst") {
+	if !uc.HasAnyRole(testRoleAdmin, testRoleAnalyst) {
 		t.Error("HasAnyRole() = false, want true")
 	}
-	if uc.HasAnyRole("admin", "executive") {
+	if uc.HasAnyRole(testRoleAdmin, testRoleExecutive) {
 		t.Error("HasAnyRole() = true, want false")
 	}
 }
