@@ -16,6 +16,9 @@ const (
 	testAuditToolkit     = "trino"
 	testAuditDurationMS  = 100
 	testAuditQualityHigh = 95.0
+	testAuditRespChars   = 42
+	testAuditReqChars    = 10
+	testAuditContentBlks = 2
 )
 
 // mockAuditLogger implements AuditLogger for testing.
@@ -47,11 +50,20 @@ func TestNoopAuditLogger(t *testing.T) {
 // after a JSON round-trip to reduce cognitive complexity of the calling test.
 func assertAuditEventFields(t *testing.T, got, want AuditEvent) {
 	t.Helper()
+	assertAuditEventCoreFields(t, got, want)
+	assertAuditEventExtFields(t, got, want)
+}
+
+func assertAuditEventCoreFields(t *testing.T, got, want AuditEvent) {
+	t.Helper()
 	if !got.Timestamp.Equal(want.Timestamp) {
 		t.Errorf("Timestamp = %v, want %v", got.Timestamp, want.Timestamp)
 	}
 	if got.RequestID != want.RequestID {
 		t.Errorf("RequestID = %q, want %q", got.RequestID, want.RequestID)
+	}
+	if got.SessionID != want.SessionID {
+		t.Errorf("SessionID = %q, want %q", got.SessionID, want.SessionID)
 	}
 	if got.UserID != want.UserID {
 		t.Errorf("UserID = %q, want %q", got.UserID, want.UserID)
@@ -74,6 +86,10 @@ func assertAuditEventFields(t *testing.T, got, want AuditEvent) {
 	if got.Connection != want.Connection {
 		t.Errorf("Connection = %q, want %q", got.Connection, want.Connection)
 	}
+}
+
+func assertAuditEventExtFields(t *testing.T, got, want AuditEvent) {
+	t.Helper()
 	if got.Success != want.Success {
 		t.Errorf("Success = %v, want %v", got.Success, want.Success)
 	}
@@ -83,24 +99,44 @@ func assertAuditEventFields(t *testing.T, got, want AuditEvent) {
 	if got.DurationMS != want.DurationMS {
 		t.Errorf("DurationMS = %d, want %d", got.DurationMS, want.DurationMS)
 	}
+	if got.Transport != want.Transport {
+		t.Errorf("Transport = %q, want %q", got.Transport, want.Transport)
+	}
+	if got.Source != want.Source {
+		t.Errorf("Source = %q, want %q", got.Source, want.Source)
+	}
+	if got.EnrichmentApplied != want.EnrichmentApplied {
+		t.Errorf("EnrichmentApplied = %v, want %v", got.EnrichmentApplied, want.EnrichmentApplied)
+	}
+	if got.Authorized != want.Authorized {
+		t.Errorf("Authorized = %v, want %v", got.Authorized, want.Authorized)
+	}
 }
 
 func TestAuditEvent(t *testing.T) {
 	now := time.Now()
 	event := AuditEvent{
-		Timestamp:    now,
-		RequestID:    "req-123",
-		UserID:       testAuditUserID,
-		UserEmail:    "user@test.com",
-		Persona:      testAuditPersona,
-		ToolName:     testAuditToolName,
-		ToolkitKind:  testAuditToolkit,
-		ToolkitName:  "main-trino",
-		Connection:   "prod",
-		Parameters:   map[string]any{"query": "SELECT 1"},
-		Success:      true,
-		ErrorMessage: "",
-		DurationMS:   testAuditDurationMS,
+		Timestamp:         now,
+		RequestID:         "req-123",
+		SessionID:         "session-abc",
+		UserID:            testAuditUserID,
+		UserEmail:         "user@test.com",
+		Persona:           testAuditPersona,
+		ToolName:          testAuditToolName,
+		ToolkitKind:       testAuditToolkit,
+		ToolkitName:       "main-trino",
+		Connection:        "prod",
+		Parameters:        map[string]any{"query": "SELECT 1"},
+		Success:           true,
+		ErrorMessage:      "",
+		DurationMS:        testAuditDurationMS,
+		ResponseChars:     testAuditRespChars,
+		RequestChars:      testAuditReqChars,
+		ContentBlocks:     testAuditContentBlks,
+		Transport:         "stdio",
+		Source:            "mcp",
+		EnrichmentApplied: true,
+		Authorized:        true,
 	}
 
 	// Verify JSON marshaling.
@@ -115,7 +151,7 @@ func TestAuditEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify ALL 12 fields survive JSON round-trip.
+	// Verify ALL fields survive JSON round-trip.
 	assertAuditEventFields(t, unmarshaled, event)
 
 	// Verify parameters separately (not compared in assertAuditEventFields).
