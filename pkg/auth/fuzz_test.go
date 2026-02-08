@@ -32,7 +32,7 @@ func FuzzParseToken(f *testing.F) {
 		SkipSignatureVerification: true,
 	})
 
-	f.Fuzz(func(t *testing.T, token string) {
+	f.Fuzz(func(_ *testing.T, token string) {
 		// Should never panic
 		ctx := WithToken(context.Background(), token)
 		_, _ = auth.Authenticate(ctx)
@@ -62,7 +62,7 @@ func FuzzClaimsExtraction(f *testing.F) {
 		GroupClaimPath:   "groups",
 	}
 
-	f.Fuzz(func(t *testing.T, claimsJSON string) {
+	f.Fuzz(func(_ *testing.T, claimsJSON string) {
 		var claims map[string]any
 		if err := json.Unmarshal([]byte(claimsJSON), &claims); err != nil {
 			return // Skip invalid JSON
@@ -83,7 +83,7 @@ func FuzzRolePathExtraction(f *testing.F) {
 	f.Add(".", `{"":{"":["role"]}}`)
 	f.Add("...", `{}`)
 
-	f.Fuzz(func(t *testing.T, path string, claimsJSON string) {
+	f.Fuzz(func(_ *testing.T, path string, claimsJSON string) {
 		var claims map[string]any
 		if err := json.Unmarshal([]byte(claimsJSON), &claims); err != nil {
 			return // Skip invalid JSON
@@ -114,7 +114,7 @@ func FuzzAPIKeyValidation(f *testing.F) {
 		},
 	})
 
-	f.Fuzz(func(t *testing.T, key string) {
+	f.Fuzz(func(_ *testing.T, key string) {
 		ctx := WithToken(context.Background(), key)
 		// Should never panic
 		_, _ = auth.Authenticate(ctx)
