@@ -86,7 +86,7 @@ func FuzzExpandEnv(f *testing.F) {
 	f.Add("$$escaped")
 	f.Add("${VAR:-default}")
 
-	f.Fuzz(func(t *testing.T, input string) {
+	f.Fuzz(func(_ *testing.T, input string) {
 		// Should never panic
 		_ = os.ExpandEnv(input)
 	})
@@ -99,7 +99,7 @@ func FuzzServerConfig(f *testing.F) {
 	f.Add("server", "sse", ":0")
 	f.Add("server", "invalid", "not-an-address")
 
-	f.Fuzz(func(t *testing.T, name, transport, address string) {
+	f.Fuzz(func(_ *testing.T, name, transport, address string) {
 		cfg := &Config{
 			Server: ServerConfig{
 				Name:      name,
