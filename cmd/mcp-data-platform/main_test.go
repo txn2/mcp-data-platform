@@ -13,6 +13,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
+const testSessionTimeout = 10 * time.Minute
+
 func TestRegisterOAuthRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -38,7 +40,7 @@ func TestRegisterOAuthRoutes(t *testing.T) {
 
 	for _, route := range routes {
 		t.Run(route, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, route, nil)
+			req := httptest.NewRequest(http.MethodGet, route, http.NoBody)
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
 
@@ -56,7 +58,7 @@ func TestCorsMiddleware(t *testing.T) {
 	handler := corsMiddleware(inner)
 
 	t.Run("sets CORS headers", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -91,7 +93,7 @@ func TestCorsMiddleware(t *testing.T) {
 	})
 
 	t.Run("handles OPTIONS preflight", func(t *testing.T) {
-		req := httptest.NewRequest("OPTIONS", "/mcp", nil)
+		req := httptest.NewRequest("OPTIONS", "/mcp", http.NoBody)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -103,7 +105,7 @@ func TestCorsMiddleware(t *testing.T) {
 	})
 
 	t.Run("defaults origin to wildcard", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -153,7 +155,7 @@ func TestExtractHTTPConfig_WithPlatform(t *testing.T) {
 				KeyFile:  "/key.pem",
 			},
 			Streamable: platform.StreamableConfig{
-				SessionTimeout: 10 * time.Minute,
+				SessionTimeout: testSessionTimeout,
 				Stateless:      true,
 			},
 		},
@@ -161,7 +163,7 @@ func TestExtractHTTPConfig_WithPlatform(t *testing.T) {
 			AllowAnonymous: false,
 		},
 	})
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	cfg := extractHTTPConfig(p)
 	if !cfg.requireAuth {
@@ -176,7 +178,7 @@ func TestExtractHTTPConfig_WithPlatform(t *testing.T) {
 	if cfg.tlsKeyFile != "/key.pem" {
 		t.Errorf("tlsKeyFile = %q, want /key.pem", cfg.tlsKeyFile)
 	}
-	if cfg.streamableCfg.SessionTimeout != 10*time.Minute {
+	if cfg.streamableCfg.SessionTimeout != testSessionTimeout {
 		t.Errorf("sessionTimeout = %v, want 10m", cfg.streamableCfg.SessionTimeout)
 	}
 	if !cfg.streamableCfg.Stateless {
@@ -189,7 +191,7 @@ func TestExtractHTTPConfig_AllowAnonymous(t *testing.T) {
 		Server: platform.ServerConfig{Name: "test"},
 		Auth:   platform.AuthConfig{AllowAnonymous: true},
 	})
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	cfg := extractHTTPConfig(p)
 	if cfg.requireAuth {
@@ -233,7 +235,7 @@ func TestResourceMetadataURL(t *testing.T) {
 		p := newTestPlatform(t, &platform.Config{
 			Server: platform.ServerConfig{Name: "test"},
 		})
-		defer p.Close()
+		defer func() { _ = p.Close() }()
 
 		if got := resourceMetadataURL(p); got != "" {
 			t.Errorf("resourceMetadataURL = %q, want empty (OAuth not enabled)", got)
@@ -249,7 +251,7 @@ func TestResourceMetadataURL(t *testing.T) {
 				SigningKey: "dGVzdC1zaWduaW5nLWtleS0xMjM0NTY3ODkwYWJjZGVm", // base64, 33 bytes
 			},
 		})
-		defer p.Close()
+		defer func() { _ = p.Close() }()
 
 		want := "https://mcp.example.com/.well-known/oauth-protected-resource"
 		if got := resourceMetadataURL(p); got != want {
@@ -312,7 +314,7 @@ func TestStartHTTPServer_GracefulShutdown(t *testing.T) {
 		},
 		Auth: platform.AuthConfig{AllowAnonymous: true},
 	})
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	errCh := make(chan error, 1)
 	go func() {
