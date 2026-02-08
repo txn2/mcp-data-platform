@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
+const (
+	wantEchoReply      = "echo: hello"
+	fmtConnectFailed   = "Connect failed: %v"
+	fmtCallToolFailed  = "CallTool failed: %v"
+	fmtWantTextContent = "expected TextContent, got %T"
+	fmtGotWant         = "got %q, want %q"
+)
+
 // authRoundTripper adds an Authorization header to all outgoing requests.
 type authRoundTripper struct {
 	token string
@@ -26,7 +35,11 @@ type authRoundTripper struct {
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+a.token)
-	return a.base.RoundTrip(req)
+	resp, err := a.base.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }
 
 // TestStreamableHTTP_ToolCall_Bare tests a basic tool call through the
@@ -35,7 +48,7 @@ func TestStreamableHTTP_ToolCall_Bare(t *testing.T) {
 	ctx := context.Background()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}},
 		}, nil, nil
@@ -48,16 +61,16 @@ func TestStreamableHTTP_ToolCall_Bare(t *testing.T) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf(fmtConnectFailed, err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"Message": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool failed: %v", err)
+		t.Fatalf(fmtCallToolFailed, err)
 	}
 
 	if len(result.Content) == 0 {
@@ -65,10 +78,10 @@ func TestStreamableHTTP_ToolCall_Bare(t *testing.T) {
 	}
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		t.Fatalf(fmtWantTextContent, result.Content[0])
 	}
-	if tc.Text != "echo: hello" {
-		t.Errorf("got %q, want %q", tc.Text, "echo: hello")
+	if tc.Text != wantEchoReply {
+		t.Errorf(fmtGotWant, tc.Text, wantEchoReply)
 	}
 }
 
@@ -79,7 +92,7 @@ func TestStreamableHTTP_ToolCall_WithAuthGateway(t *testing.T) {
 	apiKey := "test-key-12345"
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}},
 		}, nil, nil
@@ -104,16 +117,16 @@ func TestStreamableHTTP_ToolCall_WithAuthGateway(t *testing.T) {
 		HTTPClient: httpClient,
 	}, nil)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf(fmtConnectFailed, err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"Message": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool failed: %v", err)
+		t.Fatalf(fmtCallToolFailed, err)
 	}
 
 	if len(result.Content) == 0 {
@@ -121,10 +134,10 @@ func TestStreamableHTTP_ToolCall_WithAuthGateway(t *testing.T) {
 	}
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		t.Fatalf(fmtWantTextContent, result.Content[0])
 	}
-	if tc.Text != "echo: hello" {
-		t.Errorf("got %q, want %q", tc.Text, "echo: hello")
+	if tc.Text != wantEchoReply {
+		t.Errorf(fmtGotWant, tc.Text, wantEchoReply)
 	}
 }
 
@@ -136,7 +149,7 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 	apiKey := "test-key-12345"
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}},
 		}, nil, nil
@@ -169,16 +182,16 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 		HTTPClient: httpClient,
 	}, nil)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf(fmtConnectFailed, err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"Message": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool failed: %v", err)
+		t.Fatalf(fmtCallToolFailed, err)
 	}
 
 	if result.IsError {
@@ -191,10 +204,10 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 	}
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		t.Fatalf(fmtWantTextContent, result.Content[0])
 	}
-	if tc.Text != "echo: hello" {
-		t.Errorf("got %q, want %q", tc.Text, "echo: hello")
+	if tc.Text != wantEchoReply {
+		t.Errorf(fmtGotWant, tc.Text, wantEchoReply)
 	}
 }
 
@@ -289,7 +302,7 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	issuer := "https://mcp.test/oauth"
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}},
 		}, nil, nil
@@ -321,16 +334,16 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 		HTTPClient: httpClient,
 	}, nil)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf(fmtConnectFailed, err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"Message": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool failed: %v", err)
+		t.Fatalf(fmtCallToolFailed, err)
 	}
 
 	if result.IsError {
@@ -340,10 +353,10 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		t.Fatalf(fmtWantTextContent, result.Content[0])
 	}
-	if tc.Text != "echo: hello" {
-		t.Errorf("got %q, want %q", tc.Text, "echo: hello")
+	if tc.Text != wantEchoReply {
+		t.Errorf(fmtGotWant, tc.Text, wantEchoReply)
 	}
 }
 
@@ -357,7 +370,7 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 	issuer := "https://mcp.test/oauth"
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}},
 		}, nil, nil
@@ -390,16 +403,16 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 		HTTPClient: httpClient,
 	}, nil)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf(fmtConnectFailed, err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"Message": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool failed: %v", err)
+		t.Fatalf(fmtCallToolFailed, err)
 	}
 
 	// The tool call should return an error result (not a transport error)
@@ -409,7 +422,7 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		t.Fatalf(fmtWantTextContent, result.Content[0])
 	}
 
 	// Verify the EXACT error message that production returns
