@@ -6,27 +6,39 @@ import (
 )
 
 const (
-	dhCfgTestMissing     = "missing"
-	dhCfgTestNumber      = "number"
-	dhCfgTestTimeoutSec  = 60
-	dhCfgTestNumVal      = 123
-	dhCfgTestIntVal      = 100
-	dhCfgTestFloat64Val  = 200
-	dhCfgTestDefaultVal  = 50
-	dhCfgTestDurationInt = 30
-	dhCfgTestDurationFlt = 60
-	dhCfgTestString      = "string"
-	dhCfgTestExisting    = "existing"
+	dhCfgTestMissing       = "missing"
+	dhCfgTestNumber        = "number"
+	dhCfgTestTimeoutSec    = 60
+	dhCfgTestNumVal        = 123
+	dhCfgTestIntVal        = 100
+	dhCfgTestFloat64Val    = 200
+	dhCfgTestDefaultVal    = 50
+	dhCfgTestDurationInt   = 30
+	dhCfgTestDurationFlt   = 60
+	dhCfgTestString        = "string"
+	dhCfgTestExisting      = "existing"
+	dhCfgTestTimeout       = "timeout"
+	dhCfgTestInt           = "int"
+	dhCfgTestFloat64       = "float64"
+	dhCfgTestDefaultLimit  = 20
+	dhCfgTestMaxLimit      = 200
+	dhCfgTestLineageDepth  = 10
+	dhCfgTestLimit15       = 15
+	dhCfgTestMaxLimit150   = 150
+	dhCfgTestLineageDepth8 = 8
+	dhCfgTestTimeout45     = 45
+	dhCfgTestTimeout90     = 90
+	dhCfgTestDuration5Min  = 5
 )
 
 func TestParseConfig_ValidAllFields(t *testing.T) {
 	cfg := map[string]any{
 		"url":               "http://datahub.example.com:8080",
 		"token":             "secret-token",
-		"default_limit":     20,
-		"max_limit":         200,
-		"max_lineage_depth": 10,
-		"timeout":           "60s",
+		"default_limit":     dhCfgTestDefaultLimit,
+		"max_limit":         dhCfgTestMaxLimit,
+		"max_lineage_depth": dhCfgTestLineageDepth,
+		dhCfgTestTimeout:    "60s",
 		"connection_name":   "main-datahub",
 	}
 
@@ -46,14 +58,14 @@ func assertDatahubConfigAllFields(t *testing.T, result Config) {
 	if result.Token != "secret-token" {
 		t.Errorf("expected Token 'secret-token', got %q", result.Token)
 	}
-	if result.DefaultLimit != 20 {
-		t.Errorf("expected DefaultLimit 20, got %d", result.DefaultLimit)
+	if result.DefaultLimit != dhCfgTestDefaultLimit {
+		t.Errorf("expected DefaultLimit %d, got %d", dhCfgTestDefaultLimit, result.DefaultLimit)
 	}
-	if result.MaxLimit != 200 {
-		t.Errorf("expected MaxLimit 200, got %d", result.MaxLimit)
+	if result.MaxLimit != dhCfgTestMaxLimit {
+		t.Errorf("expected MaxLimit %d, got %d", dhCfgTestMaxLimit, result.MaxLimit)
 	}
-	if result.MaxLineageDepth != 10 {
-		t.Errorf("expected MaxLineageDepth 10, got %d", result.MaxLineageDepth)
+	if result.MaxLineageDepth != dhCfgTestLineageDepth {
+		t.Errorf("expected MaxLineageDepth %d, got %d", dhCfgTestLineageDepth, result.MaxLineageDepth)
 	}
 	if result.Timeout != dhCfgTestTimeoutSec*time.Second {
 		t.Errorf("expected Timeout 60s, got %v", result.Timeout)
@@ -102,21 +114,21 @@ func TestParseConfig_DefaultsApplied(t *testing.T) {
 	if result.Timeout != dhCfgTestDurationInt*time.Second {
 		t.Errorf("expected default timeout 30s, got %v", result.Timeout)
 	}
-	if result.DefaultLimit != 10 {
-		t.Errorf("expected default limit 10, got %d", result.DefaultLimit)
+	if result.DefaultLimit != dhCfgTestLineageDepth {
+		t.Errorf("expected default limit %d, got %d", dhCfgTestLineageDepth, result.DefaultLimit)
 	}
 	if result.MaxLimit != dhCfgTestIntVal {
-		t.Errorf("expected max limit 100, got %d", result.MaxLimit)
+		t.Errorf("expected max limit %d, got %d", dhCfgTestIntVal, result.MaxLimit)
 	}
-	if result.MaxLineageDepth != 5 {
-		t.Errorf("expected max lineage depth 5, got %d", result.MaxLineageDepth)
+	if result.MaxLineageDepth != dhCfgTestDuration5Min {
+		t.Errorf("expected max lineage depth %d, got %d", dhCfgTestDuration5Min, result.MaxLineageDepth)
 	}
 }
 
 func TestParseConfig_InvalidTimeout(t *testing.T) {
 	cfg := map[string]any{
-		"url":     "http://datahub.example.com:8080",
-		"timeout": "invalid",
+		"url":            "http://datahub.example.com:8080",
+		dhCfgTestTimeout: "invalid",
 	}
 
 	_, err := ParseConfig(cfg)
@@ -128,53 +140,53 @@ func TestParseConfig_InvalidTimeout(t *testing.T) {
 func TestParseConfig_IntFieldsAsFloat64(t *testing.T) {
 	cfg := map[string]any{
 		"url":               "http://datahub.example.com:8080",
-		"default_limit":     float64(15),
-		"max_limit":         float64(150),
-		"max_lineage_depth": float64(8),
+		"default_limit":     float64(dhCfgTestLimit15),
+		"max_limit":         float64(dhCfgTestMaxLimit150),
+		"max_lineage_depth": float64(dhCfgTestLineageDepth8),
 	}
 
 	result, err := ParseConfig(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.DefaultLimit != 15 {
-		t.Errorf("expected default_limit 15, got %d", result.DefaultLimit)
+	if result.DefaultLimit != dhCfgTestLimit15 {
+		t.Errorf("expected default_limit %d, got %d", dhCfgTestLimit15, result.DefaultLimit)
 	}
-	if result.MaxLimit != 150 {
-		t.Errorf("expected max_limit 150, got %d", result.MaxLimit)
+	if result.MaxLimit != dhCfgTestMaxLimit150 {
+		t.Errorf("expected max_limit %d, got %d", dhCfgTestMaxLimit150, result.MaxLimit)
 	}
-	if result.MaxLineageDepth != 8 {
-		t.Errorf("expected max_lineage_depth 8, got %d", result.MaxLineageDepth)
+	if result.MaxLineageDepth != dhCfgTestLineageDepth8 {
+		t.Errorf("expected max_lineage_depth %d, got %d", dhCfgTestLineageDepth8, result.MaxLineageDepth)
 	}
 }
 
 func TestParseConfig_TimeoutAsInt(t *testing.T) {
 	cfg := map[string]any{
-		"url":     "http://datahub.example.com:8080",
-		"timeout": 45,
+		"url":            "http://datahub.example.com:8080",
+		dhCfgTestTimeout: dhCfgTestTimeout45,
 	}
 
 	result, err := ParseConfig(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Timeout != 45*time.Second {
-		t.Errorf("expected timeout 45s, got %v", result.Timeout)
+	if result.Timeout != dhCfgTestTimeout45*time.Second {
+		t.Errorf("expected timeout %ds, got %v", dhCfgTestTimeout45, result.Timeout)
 	}
 }
 
 func TestParseConfig_TimeoutAsFloat64(t *testing.T) {
 	cfg := map[string]any{
-		"url":     "http://datahub.example.com:8080",
-		"timeout": float64(90),
+		"url":            "http://datahub.example.com:8080",
+		dhCfgTestTimeout: float64(dhCfgTestTimeout90),
 	}
 
 	result, err := ParseConfig(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Timeout != 90*time.Second {
-		t.Errorf("expected timeout 90s, got %v", result.Timeout)
+	if result.Timeout != dhCfgTestTimeout90*time.Second {
+		t.Errorf("expected timeout %ds, got %v", dhCfgTestTimeout90, result.Timeout)
 	}
 }
 
@@ -197,15 +209,15 @@ func TestDatahubGetString(t *testing.T) {
 
 func TestDatahubGetInt(t *testing.T) {
 	cfg := map[string]any{
-		"int":           dhCfgTestIntVal,
-		"float64":       float64(dhCfgTestFloat64Val),
-		dhCfgTestString: "not a number",
+		dhCfgTestInt:     dhCfgTestIntVal,
+		dhCfgTestFloat64: float64(dhCfgTestFloat64Val),
+		dhCfgTestString:  "not a number",
 	}
 
-	if getInt(cfg, "int", 0) != dhCfgTestIntVal {
+	if getInt(cfg, dhCfgTestInt, 0) != dhCfgTestIntVal {
 		t.Error("expected 100 for int key")
 	}
-	if getInt(cfg, "float64", 0) != dhCfgTestFloat64Val {
+	if getInt(cfg, dhCfgTestFloat64, 0) != dhCfgTestFloat64Val {
 		t.Error("expected 200 for float64 key")
 	}
 	if getInt(cfg, dhCfgTestMissing, dhCfgTestDefaultVal) != dhCfgTestDefaultVal {
@@ -218,23 +230,23 @@ func TestDatahubGetInt(t *testing.T) {
 
 func TestDatahubGetDuration(t *testing.T) {
 	cfg := map[string]any{
-		dhCfgTestString: "5m",
-		"int":           dhCfgTestDurationInt,
-		"float64":       float64(dhCfgTestDurationFlt),
-		"invalid":       "not-a-duration",
+		dhCfgTestString:  "5m",
+		dhCfgTestInt:     dhCfgTestDurationInt,
+		dhCfgTestFloat64: float64(dhCfgTestDurationFlt),
+		"invalid":        "not-a-duration",
 	}
 
 	d, err := getDuration(cfg, dhCfgTestString)
-	if err != nil || d != 5*time.Minute {
+	if err != nil || d != dhCfgTestDuration5Min*time.Minute {
 		t.Errorf("expected 5m, got %v (err: %v)", d, err)
 	}
 
-	d, err = getDuration(cfg, "int")
+	d, err = getDuration(cfg, dhCfgTestInt)
 	if err != nil || d != dhCfgTestDurationInt*time.Second {
 		t.Errorf("expected 30s, got %v (err: %v)", d, err)
 	}
 
-	d, err = getDuration(cfg, "float64")
+	d, err = getDuration(cfg, dhCfgTestFloat64)
 	if err != nil || d != dhCfgTestDurationFlt*time.Second {
 		t.Errorf("expected 60s, got %v (err: %v)", d, err)
 	}
