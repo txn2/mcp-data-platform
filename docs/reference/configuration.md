@@ -445,11 +445,6 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
   datahub_storage_enrichment: true
-  session_dedup:
-    enabled: true
-    mode: reference
-    entry_ttl: 5m
-    session_timeout: 30m
 ```
 
 | Option | Type | Default | Description |
@@ -458,17 +453,6 @@ injection:
 | `datahub_query_enrichment` | bool | `false` | Enrich DataHub with Trino |
 | `s3_semantic_enrichment` | bool | `false` | Enrich S3 with DataHub |
 | `datahub_storage_enrichment` | bool | `false` | Enrich DataHub with S3 |
-
-**Session Dedup** (`injection.session_dedup`):
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enabled` | bool | `true` | Whether session dedup is active |
-| `mode` | string | `reference` | Content for repeat queries: `reference`, `summary`, `none` |
-| `entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |
-| `session_timeout` | duration | streamable session timeout | Idle session cleanup interval |
-
-See [Session Metadata Deduplication](../cross-injection/overview.md#session-metadata-deduplication) for detailed behavior and JSON examples.
 
 ## Tuning Configuration
 
@@ -589,9 +573,6 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
-  session_dedup:
-    enabled: true
-    mode: reference
 
 audit:
   enabled: true
