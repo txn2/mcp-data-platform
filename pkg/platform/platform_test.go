@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,159 +18,186 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
-func TestNew(t *testing.T) {
-	t.Run("requires config", func(t *testing.T) {
-		_, err := New()
-		if err == nil {
-			t.Error("New() expected error without config")
-		}
-	})
+const (
+	testProviderNoop        = "noop"
+	testServerName          = "test"
+	testRoleAnalyst         = "analyst"
+	testRoleAdmin           = "admin"
+	testRoleViewer          = "viewer"
+	testConflictNearest     = "nearest"
+	testIntVal              = 42
+	testFloatVal            = 3.14
+	testDurationIntSec      = 60
+	testDurationFloatSec    = 90.0
+	testPort                = 8080
+	testPortSecondary       = 8081
+	testDefaultMaxOpenConns = 25
+	testDefaultRetention    = 90
+	testDefaultQuality      = 0.7
+	testDisplayAnalyst      = "Data Analyst"
+	testSystemPrefix        = "You are a data analyst."
+	testInstancePrimary     = "primary"
+	testInstanceDefault     = "default"
+	testInstancesKey        = "instances"
+	testToolName            = "test_tool"
+	testEntryPoint          = "index.html"
+	testCDNDomain           = "https://cdn.example.com"
+	testCSPNilMsg           = "convertCSP returned nil"
+	testFilePerms           = 0o600
+	testLineageMaxHops      = 3
+	testLineageCacheTTL     = 10 * time.Minute
+	testLineageTimeout      = 5 * time.Second
+	testDefaultDataHubTO    = 30 * time.Second
+	testDefaultTrinoTO      = 120 * time.Second
+	testMissingKey          = "missing"
+	testDefaultFallback     = 100
+	testDurationDefault     = 10 * time.Second
+	testDuration30s         = 30 * time.Second
+	testDuration90s         = 90 * time.Second
+	testPriority            = 10
+	testRetentionDays       = 30
+	testMaxTableRows        = 500
+	testNewErrFmt           = "New() error = %v"
+	testFloatKeyExpected    = 3
+	testNegFloatKeyExpected = -3
+	testEdgeFallback5s      = 5 * time.Second
+	testZeroFloat           = 0.0
+)
 
-	t.Run("minimal config with noop providers", func(t *testing.T) {
-		cfg := &Config{
-			Server: ServerConfig{
-				Name: "test-platform",
-			},
-			Semantic: SemanticConfig{
-				Provider: "noop",
-			},
-			Query: QueryConfig{
-				Provider: "noop",
-			},
-			Storage: StorageConfig{
-				Provider: "noop",
-			},
-		}
+// newTestPlatform creates a Platform with noop providers for testing.
+func newTestPlatform(t *testing.T, opts ...Option) *Platform {
+	t.Helper()
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	allOpts := append([]Option{WithConfig(cfg)}, opts...)
+	p, err := New(allOpts...)
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	return p
+}
 
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-		if p == nil {
-			t.Fatal("New() returned nil platform")
-		}
+func TestNew_RequiresConfig(t *testing.T) {
+	_, err := New()
+	if err == nil {
+		t.Error("New() expected error without config")
+	}
+}
 
-		// Verify basic setup
-		if p.Config() != cfg {
-			t.Error("Config() did not return expected config")
-		}
-		if p.MCPServer() == nil {
-			t.Error("MCPServer() is nil")
-		}
-	})
+func TestNew_MinimalConfigWithNoopProviders(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Name: "test-platform",
+		},
+		Semantic: SemanticConfig{
+			Provider: testProviderNoop,
+		},
+		Query: QueryConfig{
+			Provider: testProviderNoop,
+		},
+		Storage: StorageConfig{
+			Provider: testProviderNoop,
+		},
+	}
 
-	t.Run("with injected providers", func(t *testing.T) {
-		cfg := &Config{
-			Server: ServerConfig{Name: "test"},
-		}
-		semProv := semantic.NewNoopProvider()
-		queryProv := query.NewNoopProvider()
-		storageProv := storage.NewNoopProvider()
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	if p == nil {
+		t.Fatal("New() returned nil platform")
+	}
 
-		p, err := New(
-			WithConfig(cfg),
-			WithSemanticProvider(semProv),
-			WithQueryProvider(queryProv),
-			WithStorageProvider(storageProv),
-		)
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
+	// Verify basic setup
+	if p.Config() != cfg {
+		t.Error("Config() did not return expected config")
+	}
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() is nil")
+	}
+}
 
-		if p.SemanticProvider() != semProv {
-			t.Error("SemanticProvider() did not return injected provider")
-		}
-		if p.QueryProvider() != queryProv {
-			t.Error("QueryProvider() did not return injected provider")
-		}
-		if p.StorageProvider() != storageProv {
-			t.Error("StorageProvider() did not return injected provider")
-		}
-	})
+func TestNew_WithInjectedProviders(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{Name: testServerName},
+	}
+	semProv := semantic.NewNoopProvider()
+	queryProv := query.NewNoopProvider()
+	storageProv := storage.NewNoopProvider()
 
-	t.Run("with injected registries", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-		}
-		personaReg := persona.NewRegistry()
-		toolkitReg := registry.NewRegistry()
+	p, err := New(
+		WithConfig(cfg),
+		WithSemanticProvider(semProv),
+		WithQueryProvider(queryProv),
+		WithStorageProvider(storageProv),
+	)
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
 
-		p, err := New(
-			WithConfig(cfg),
-			WithPersonaRegistry(personaReg),
-			WithToolkitRegistry(toolkitReg),
-		)
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
+	if p.SemanticProvider() != semProv {
+		t.Error("SemanticProvider() did not return injected provider")
+	}
+	if p.QueryProvider() != queryProv {
+		t.Error("QueryProvider() did not return injected provider")
+	}
+	if p.StorageProvider() != storageProv {
+		t.Error("StorageProvider() did not return injected provider")
+	}
+}
 
-		if p.PersonaRegistry() != personaReg {
-			t.Error("PersonaRegistry() did not return injected registry")
-		}
-		if p.ToolkitRegistry() != toolkitReg {
-			t.Error("ToolkitRegistry() did not return injected registry")
-		}
-	})
+func TestNew_WithInjectedRegistries(t *testing.T) {
+	p := newTestPlatform(t,
+		WithPersonaRegistry(persona.NewRegistry()),
+		WithToolkitRegistry(registry.NewRegistry()),
+	)
 
-	t.Run("with injected auth components", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-		}
-		auth := &middleware.NoopAuthenticator{}
-		authz := &middleware.NoopAuthorizer{}
-		logger := &middleware.NoopAuditLogger{}
+	if p.PersonaRegistry() == nil {
+		t.Error("PersonaRegistry() should not be nil")
+	}
+	if p.ToolkitRegistry() == nil {
+		t.Error("ToolkitRegistry() should not be nil")
+	}
+}
 
-		p, err := New(
-			WithConfig(cfg),
-			WithAuthenticator(auth),
-			WithAuthorizer(authz),
-			WithAuditLogger(logger),
-		)
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
+func TestNew_WithInjectedAuthComponents(t *testing.T) {
+	auth := &middleware.NoopAuthenticator{}
+	authz := &middleware.NoopAuthorizer{}
+	logger := &middleware.NoopAuditLogger{}
 
-		if p.MCPServer() == nil {
-			t.Error("MCPServer() is nil")
-		}
-	})
+	p := newTestPlatform(t,
+		WithAuthenticator(auth),
+		WithAuthorizer(authz),
+		WithAuditLogger(logger),
+	)
 
-	t.Run("with injected rule engine", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-		}
-		engine := tuning.NewRuleEngine(&tuning.Rules{WarnOnDeprecated: true})
+	if p.MCPServer() == nil {
+		t.Error("MCPServer() is nil")
+	}
+}
 
-		p, err := New(
-			WithConfig(cfg),
-			WithRuleEngine(engine),
-		)
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
+func TestNew_WithInjectedRuleEngine(t *testing.T) {
+	engine := tuning.NewRuleEngine(&tuning.Rules{WarnOnDeprecated: true})
 
-		if p.RuleEngine() != engine {
-			t.Error("RuleEngine() did not return injected engine")
-		}
-	})
+	p := newTestPlatform(t, WithRuleEngine(engine))
 
+	if p.RuleEngine() != engine {
+		t.Error("RuleEngine() did not return injected engine")
+	}
+}
+
+func TestNew_UnknownProviders(t *testing.T) {
 	t.Run("unknown semantic provider", func(t *testing.T) {
 		cfg := &Config{
-			Server: ServerConfig{Name: "test"},
+			Server: ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{
 				Provider: "unknown",
 			},
 		}
-
 		_, err := New(WithConfig(cfg))
 		if err == nil {
 			t.Error("New() expected error for unknown semantic provider")
@@ -178,13 +206,12 @@ func TestNew(t *testing.T) {
 
 	t.Run("unknown query provider", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query: QueryConfig{
 				Provider: "unknown",
 			},
 		}
-
 		_, err := New(WithConfig(cfg))
 		if err == nil {
 			t.Error("New() expected error for unknown query provider")
@@ -193,14 +220,13 @@ func TestNew(t *testing.T) {
 
 	t.Run("unknown storage provider", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
 			Storage: StorageConfig{
 				Provider: "unknown",
 			},
 		}
-
 		_, err := New(WithConfig(cfg))
 		if err == nil {
 			t.Error("New() expected error for unknown storage provider")
@@ -210,15 +236,15 @@ func TestNew(t *testing.T) {
 
 func TestPlatformStartStop(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	ctx := context.Background()
@@ -236,15 +262,15 @@ func TestPlatformStartStop(t *testing.T) {
 
 func TestPlatformClose(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	if err := p.Close(); err != nil {
@@ -254,45 +280,45 @@ func TestPlatformClose(t *testing.T) {
 
 func TestLoadPersonas(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
-				"analyst": {
-					DisplayName: "Data Analyst",
-					Roles:       []string{"analyst"},
+				testRoleAnalyst: {
+					DisplayName: testDisplayAnalyst,
+					Roles:       []string{testRoleAnalyst},
 					Tools: ToolRulesDef{
 						Allow: []string{"trino_*"},
 						Deny:  []string{"*_delete"},
 					},
 					Prompts: PromptsDef{
-						SystemPrefix: "You are a data analyst.",
+						SystemPrefix: testSystemPrefix,
 					},
 					Hints: map[string]string{"key": "value"},
 				},
-				"admin": {
+				testRoleAdmin: {
 					DisplayName: "Administrator",
-					Roles:       []string{"admin"},
+					Roles:       []string{testRoleAdmin},
 					Tools: ToolRulesDef{
 						Allow: []string{"*"},
 					},
 				},
 			},
-			DefaultPersona: "analyst",
+			DefaultPersona: testRoleAnalyst,
 		},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	// Check that personas were loaded
 	pr := p.PersonaRegistry()
 
-	analyst, ok := pr.Get("analyst")
+	analyst, ok := pr.Get(testRoleAnalyst)
 	if !ok {
 		t.Fatal("Get(analyst) returned false")
 	}
@@ -300,7 +326,7 @@ func TestLoadPersonas(t *testing.T) {
 		t.Errorf("analyst.DisplayName = %q", analyst.DisplayName)
 	}
 
-	admin, ok := pr.Get("admin")
+	admin, ok := pr.Get(testRoleAdmin)
 	if !ok {
 		t.Fatal("Get(admin) returned false")
 	}
@@ -311,10 +337,10 @@ func TestLoadPersonas(t *testing.T) {
 
 func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Injection: InjectionConfig{
 			TrinoSemanticEnrichment: true,
 			DataHubQueryEnrichment:  true,
@@ -326,7 +352,7 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	// Verify MCP server was created with middleware configured
@@ -335,105 +361,111 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 	}
 }
 
-func TestCfgHelpers(t *testing.T) {
-	cfg := map[string]any{
+// cfgHelpersTestData returns a shared test config map for cfg helper tests.
+func cfgHelpersTestData() map[string]any {
+	return map[string]any{
 		"string_key":      "value",
-		"int_key":         42,
-		"float_key":       3.14,
+		"int_key":         testIntVal,
+		"float_key":       testFloatVal,
 		"bool_key":        true,
 		"duration_string": "30s",
-		"duration_int":    60,
-		"duration_float":  90.0,
+		"duration_int":    testDurationIntSec,
+		"duration_float":  testDurationFloatSec,
 	}
+}
 
-	t.Run("cfgString", func(t *testing.T) {
-		if v := cfgString(cfg, "string_key"); v != "value" {
-			t.Errorf("cfgString(string_key) = %q", v)
-		}
-		if v := cfgString(cfg, "missing"); v != "" {
-			t.Errorf("cfgString(missing) = %q", v)
-		}
-		if v := cfgString(cfg, "int_key"); v != "" {
-			t.Errorf("cfgString(int_key) = %q (should be empty)", v)
-		}
-	})
+func TestCfgString(t *testing.T) {
+	cfg := cfgHelpersTestData()
+	if v := cfgString(cfg, "string_key"); v != "value" {
+		t.Errorf("cfgString(string_key) = %q", v)
+	}
+	if v := cfgString(cfg, testMissingKey); v != "" {
+		t.Errorf("cfgString(missing) = %q", v)
+	}
+	if v := cfgString(cfg, "int_key"); v != "" {
+		t.Errorf("cfgString(int_key) = %q (should be empty)", v)
+	}
+}
 
-	t.Run("cfgInt", func(t *testing.T) {
-		if v := cfgInt(cfg, "int_key", 0); v != 42 {
-			t.Errorf("cfgInt(int_key) = %d", v)
-		}
-		if v := cfgInt(cfg, "float_key", 0); v != 3 {
-			t.Errorf("cfgInt(float_key) = %d", v)
-		}
-		if v := cfgInt(cfg, "missing", 100); v != 100 {
-			t.Errorf("cfgInt(missing) = %d", v)
-		}
-	})
+func TestCfgInt(t *testing.T) {
+	cfg := cfgHelpersTestData()
+	if v := cfgInt(cfg, "int_key", 0); v != testIntVal {
+		t.Errorf("cfgInt(int_key) = %d", v)
+	}
+	if v := cfgInt(cfg, "float_key", 0); v != testFloatKeyExpected {
+		t.Errorf("cfgInt(float_key) = %d", v)
+	}
+	if v := cfgInt(cfg, testMissingKey, testDefaultFallback); v != testDefaultFallback {
+		t.Errorf("cfgInt(missing) = %d", v)
+	}
+}
 
-	t.Run("cfgBool", func(t *testing.T) {
-		if v := cfgBool(cfg, "bool_key"); !v {
-			t.Error("cfgBool(bool_key) = false")
-		}
-		if v := cfgBool(cfg, "missing"); v {
-			t.Error("cfgBool(missing) = true")
-		}
-	})
+func TestCfgBool(t *testing.T) {
+	cfg := cfgHelpersTestData()
+	if v := cfgBool(cfg, "bool_key"); !v {
+		t.Error("cfgBool(bool_key) = false")
+	}
+	if v := cfgBool(cfg, testMissingKey); v {
+		t.Error("cfgBool(missing) = true")
+	}
+}
 
-	t.Run("cfgBoolDefault", func(t *testing.T) {
-		if v := cfgBoolDefault(cfg, "bool_key", false); !v {
-			t.Error("cfgBoolDefault(bool_key, false) = false")
-		}
-		if v := cfgBoolDefault(cfg, "missing", true); !v {
-			t.Error("cfgBoolDefault(missing, true) = false")
-		}
-	})
+func TestCfgBoolDefault(t *testing.T) {
+	cfg := cfgHelpersTestData()
+	if v := cfgBoolDefault(cfg, "bool_key", false); !v {
+		t.Error("cfgBoolDefault(bool_key, false) = false")
+	}
+	if v := cfgBoolDefault(cfg, testMissingKey, true); !v {
+		t.Error("cfgBoolDefault(missing, true) = false")
+	}
+}
 
-	t.Run("cfgDuration", func(t *testing.T) {
-		if v := cfgDuration(cfg, "duration_string", 0); v != 30*time.Second {
-			t.Errorf("cfgDuration(duration_string) = %v", v)
-		}
-		if v := cfgDuration(cfg, "duration_int", 0); v != 60*time.Second {
-			t.Errorf("cfgDuration(duration_int) = %v", v)
-		}
-		if v := cfgDuration(cfg, "duration_float", 0); v != 90*time.Second {
-			t.Errorf("cfgDuration(duration_float) = %v", v)
-		}
-		if v := cfgDuration(cfg, "missing", 10*time.Second); v != 10*time.Second {
-			t.Errorf("cfgDuration(missing) = %v", v)
-		}
-	})
+func TestCfgDuration(t *testing.T) {
+	cfg := cfgHelpersTestData()
+	if v := cfgDuration(cfg, "duration_string", 0); v != testDuration30s {
+		t.Errorf("cfgDuration(duration_string) = %v", v)
+	}
+	if v := cfgDuration(cfg, "duration_int", 0); v != testDurationIntSec*time.Second {
+		t.Errorf("cfgDuration(duration_int) = %v", v)
+	}
+	if v := cfgDuration(cfg, "duration_float", 0); v != testDuration90s {
+		t.Errorf("cfgDuration(duration_float) = %v", v)
+	}
+	if v := cfgDuration(cfg, testMissingKey, testDurationDefault); v != testDurationDefault {
+		t.Errorf("cfgDuration(missing) = %v", v)
+	}
 }
 
 func TestGetInstanceConfig(t *testing.T) {
 	cfg := &Config{
-		Server: ServerConfig{Name: "test"},
+		Server: ServerConfig{Name: testServerName},
 		Toolkits: map[string]any{
 			"trino": map[string]any{
-				"default": "primary",
-				"instances": map[string]any{
-					"primary": map[string]any{
+				testInstanceDefault: testInstancePrimary,
+				testInstancesKey: map[string]any{
+					testInstancePrimary: map[string]any{
 						"host": "localhost",
-						"port": 8080,
+						"port": testPort,
 					},
 					"secondary": map[string]any{
 						"host": "other.host",
-						"port": 8081,
+						"port": testPortSecondary,
 					},
 				},
 			},
 		},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	t.Run("get named instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", "primary")
+		instanceCfg := p.getInstanceConfig("trino", testInstancePrimary)
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, primary) = nil")
 		}
@@ -469,13 +501,13 @@ func TestGetInstanceConfig(t *testing.T) {
 
 func TestResolveDefaultInstance(t *testing.T) {
 	t.Run("with default key", func(t *testing.T) {
-		kindCfg := map[string]any{"default": "primary"}
+		kindCfg := map[string]any{testInstanceDefault: testInstancePrimary}
 		instances := map[string]any{
-			"primary":   map[string]any{},
-			"secondary": map[string]any{},
+			testInstancePrimary: map[string]any{},
+			"secondary":         map[string]any{},
 		}
 		result := resolveDefaultInstance(kindCfg, instances)
-		if result != "primary" {
+		if result != testInstancePrimary {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
 	})
@@ -545,7 +577,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getDataHubConfig("default")
+		result := p.getDataHubConfig(testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -556,8 +588,8 @@ func TestGetDataHubConfig(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"datahub": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"url":     "http://datahub:8080",
 								"token":   "test-token",
 								"timeout": "30s",
@@ -567,7 +599,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig("default")
+		result := p.getDataHubConfig(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -584,8 +616,8 @@ func TestGetDataHubConfig(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"datahub": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"endpoint": "http://datahub:9080",
 							},
 						},
@@ -593,7 +625,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig("default")
+		result := p.getDataHubConfig(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -607,8 +639,8 @@ func TestGetDataHubConfig(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"datahub": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"url":   "http://datahub:8080",
 								"debug": true,
 							},
@@ -617,7 +649,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig("default")
+		result := p.getDataHubConfig(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -631,8 +663,8 @@ func TestGetDataHubConfig(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"datahub": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"url": "http://datahub:8080",
 							},
 						},
@@ -640,7 +672,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig("default")
+		result := p.getDataHubConfig(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -657,7 +689,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getTrinoConfig("default")
+		result := p.getTrinoConfig(testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -668,8 +700,8 @@ func TestGetTrinoConfig(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"trino": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"host":            "trino.example.com",
 								"port":            8443,
 								"user":            "admin",
@@ -688,7 +720,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getTrinoConfig("default")
+		result := p.getTrinoConfig(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -717,7 +749,7 @@ func TestGetS3Config(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getS3Config("default")
+		result := p.getS3Config(testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -728,8 +760,8 @@ func TestGetS3Config(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"s3": map[string]any{
-						"instances": map[string]any{
-							"default": map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
 								"region":            "us-west-2",
 								"endpoint":          "http://minio:9000",
 								"access_key_id":     "access-key",
@@ -742,7 +774,7 @@ func TestGetS3Config(t *testing.T) {
 				},
 			},
 		}
-		result := p.getS3Config("default")
+		result := p.getS3Config(testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -762,7 +794,7 @@ func TestGetS3Config(t *testing.T) {
 			config: &Config{
 				Toolkits: map[string]any{
 					"s3": map[string]any{
-						"instances": map[string]any{
+						testInstancesKey: map[string]any{
 							"myinstance": map[string]any{
 								"region": "us-east-1",
 							},
@@ -784,15 +816,15 @@ func TestGetS3Config(t *testing.T) {
 func TestProviderInstanceNotFound(t *testing.T) {
 	t.Run("datahub instance not found", func(t *testing.T) {
 		cfg := &Config{
-			Server: ServerConfig{Name: "test"},
+			Server: ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{
 				Provider: "datahub",
 				Instance: "nonexistent",
 			},
 			Toolkits: map[string]any{
 				"datahub": map[string]any{
-					"instances": map[string]any{
-						"primary": map[string]any{
+					testInstancesKey: map[string]any{
+						testInstancePrimary: map[string]any{
 							"url": "http://datahub:8080",
 						},
 					},
@@ -808,18 +840,18 @@ func TestProviderInstanceNotFound(t *testing.T) {
 
 	t.Run("trino instance not found", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query: QueryConfig{
 				Provider: "trino",
 				Instance: "nonexistent",
 			},
 			Toolkits: map[string]any{
 				"trino": map[string]any{
-					"instances": map[string]any{
-						"primary": map[string]any{
+					testInstancesKey: map[string]any{
+						testInstancePrimary: map[string]any{
 							"host": "trino.example.com",
-							"port": 8080,
+							"port": testPort,
 						},
 					},
 				},
@@ -834,17 +866,17 @@ func TestProviderInstanceNotFound(t *testing.T) {
 
 	t.Run("s3 instance not found", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
 			Storage: StorageConfig{
 				Provider: "s3",
 				Instance: "nonexistent",
 			},
 			Toolkits: map[string]any{
 				"s3": map[string]any{
-					"instances": map[string]any{
-						"primary": map[string]any{
+					testInstancesKey: map[string]any{
+						testInstancePrimary: map[string]any{
 							"region": "us-west-2",
 						},
 					},
@@ -861,15 +893,15 @@ func TestProviderInstanceNotFound(t *testing.T) {
 
 func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Auth: AuthConfig{
 			APIKeys: APIKeyAuthConfig{
 				Enabled: true,
 				Keys: []APIKeyDef{
-					{Key: "test-key", Name: "test", Roles: []string{"admin"}},
+					{Key: "test-key", Name: "test", Roles: []string{testRoleAdmin}},
 				},
 			},
 		},
@@ -877,7 +909,7 @@ func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	if p == nil {
 		t.Fatal("New() returned nil")
@@ -886,15 +918,15 @@ func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
 
 func TestPlatformStartError(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	ctx := context.Background()
@@ -913,89 +945,79 @@ func TestPlatformStartError(t *testing.T) {
 	_ = p.Stop(ctx)
 }
 
-func TestCfgHelpersEdgeCases(t *testing.T) {
-	cfg := map[string]any{
-		"negative_int":    -42,
+// cfgHelpersEdgeCaseData returns test data for cfg helper edge case tests.
+func cfgHelpersEdgeCaseData() map[string]any {
+	return map[string]any{
+		"negative_int":    -testIntVal,
 		"zero":            0,
 		"empty_string":    "",
 		"false_bool":      false,
-		"negative_float":  -3.14,
-		"zero_float":      0.0,
+		"negative_float":  -testFloatVal,
+		"zero_float":      testZeroFloat,
 		"invalid_dur_str": "invalid",
 	}
+}
 
-	t.Run("cfgInt negative", func(t *testing.T) {
-		if v := cfgInt(cfg, "negative_int", 0); v != -42 {
-			t.Errorf("cfgInt(negative_int) = %d", v)
-		}
-	})
+func TestCfgIntEdgeCases(t *testing.T) {
+	cfg := cfgHelpersEdgeCaseData()
+	if v := cfgInt(cfg, "negative_int", 0); v != -testIntVal {
+		t.Errorf("cfgInt(negative_int) = %d", v)
+	}
+	if v := cfgInt(cfg, "zero", testDefaultFallback); v != 0 {
+		t.Errorf("cfgInt(zero) = %d", v)
+	}
+	if v := cfgInt(cfg, "negative_float", 0); v != testNegFloatKeyExpected {
+		t.Errorf("cfgInt(negative_float) = %d", v)
+	}
+}
 
-	t.Run("cfgInt zero", func(t *testing.T) {
-		if v := cfgInt(cfg, "zero", 100); v != 0 {
-			t.Errorf("cfgInt(zero) = %d", v)
-		}
-	})
+func TestCfgStringEdgeCases(t *testing.T) {
+	cfg := cfgHelpersEdgeCaseData()
+	if v := cfgString(cfg, "empty_string"); v != "" {
+		t.Errorf("cfgString(empty_string) = %q", v)
+	}
+}
 
-	t.Run("cfgInt negative float", func(t *testing.T) {
-		if v := cfgInt(cfg, "negative_float", 0); v != -3 {
-			t.Errorf("cfgInt(negative_float) = %d", v)
-		}
-	})
+func TestCfgBoolEdgeCases(t *testing.T) {
+	cfg := cfgHelpersEdgeCaseData()
+	if v := cfgBool(cfg, "false_bool"); v {
+		t.Error("cfgBool(false_bool) = true")
+	}
+	if v := cfgBoolDefault(cfg, "false_bool", true); v {
+		t.Error("cfgBoolDefault(false_bool, true) = true")
+	}
+}
 
-	t.Run("cfgString empty", func(t *testing.T) {
-		if v := cfgString(cfg, "empty_string"); v != "" {
-			t.Errorf("cfgString(empty_string) = %q", v)
-		}
-	})
-
-	t.Run("cfgBool false value", func(t *testing.T) {
-		if v := cfgBool(cfg, "false_bool"); v {
-			t.Error("cfgBool(false_bool) = true")
-		}
-	})
-
-	t.Run("cfgBoolDefault false overrides default", func(t *testing.T) {
-		if v := cfgBoolDefault(cfg, "false_bool", true); v {
-			t.Error("cfgBoolDefault(false_bool, true) = true")
-		}
-	})
-
-	t.Run("cfgDuration invalid string returns default", func(t *testing.T) {
-		if v := cfgDuration(cfg, "invalid_dur_str", 5*time.Second); v != 5*time.Second {
-			t.Errorf("cfgDuration(invalid_dur_str) = %v", v)
-		}
-	})
-
-	t.Run("cfgDuration zero", func(t *testing.T) {
-		if v := cfgDuration(cfg, "zero", 10*time.Second); v != 0 {
-			t.Errorf("cfgDuration(zero) = %v", v)
-		}
-	})
-
-	t.Run("cfgDuration zero float", func(t *testing.T) {
-		if v := cfgDuration(cfg, "zero_float", 10*time.Second); v != 0 {
-			t.Errorf("cfgDuration(zero_float) = %v", v)
-		}
-	})
+func TestCfgDurationEdgeCases(t *testing.T) {
+	cfg := cfgHelpersEdgeCaseData()
+	if v := cfgDuration(cfg, "invalid_dur_str", testEdgeFallback5s); v != testEdgeFallback5s {
+		t.Errorf("cfgDuration(invalid_dur_str) = %v", v)
+	}
+	if v := cfgDuration(cfg, "zero", testDurationDefault); v != 0 {
+		t.Errorf("cfgDuration(zero) = %v", v)
+	}
+	if v := cfgDuration(cfg, "zero_float", testDurationDefault); v != 0 {
+		t.Errorf("cfgDuration(zero_float) = %v", v)
+	}
 }
 
 func TestInstanceConfigMapTypes(t *testing.T) {
 	t.Run("instances as slice (wrong type)", func(t *testing.T) {
 		cfg := &Config{
-			Server: ServerConfig{Name: "test"},
+			Server: ServerConfig{Name: testServerName},
 			Toolkits: map[string]any{
 				"trino": map[string]any{
-					"instances": []string{"item1", "item2"}, // wrong type
+					testInstancesKey: []string{"item1", "item2"}, // wrong type
 				},
 			},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 		}
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		instanceCfg := p.getInstanceConfig("trino", "any")
@@ -1006,18 +1028,18 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 
 	t.Run("kind config not a map", func(t *testing.T) {
 		cfg := &Config{
-			Server: ServerConfig{Name: "test"},
+			Server: ServerConfig{Name: testServerName},
 			Toolkits: map[string]any{
 				"trino": "not-a-map",
 			},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 		}
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		instanceCfg := p.getInstanceConfig("trino", "any")
@@ -1030,10 +1052,10 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 func TestCreateAuthenticatorOIDCError(t *testing.T) {
 	// Test OIDC authenticator error path
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Auth: AuthConfig{
 			OIDC: OIDCAuthConfig{
 				Enabled: true,
@@ -1051,15 +1073,15 @@ func TestCreateAuthenticatorOIDCError(t *testing.T) {
 
 func TestPlatformCloseMultiple(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	// Close multiple times should be safe
@@ -1073,15 +1095,15 @@ func TestPlatformCloseMultiple(t *testing.T) {
 
 func TestPlatformStopIdempotent(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	ctx := context.Background()
@@ -1104,15 +1126,15 @@ func TestPlatformStopIdempotent(t *testing.T) {
 
 func TestPlatformWithMultiplePersonas(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
 				"viewer": {
 					DisplayName: "Viewer",
-					Roles:       []string{"viewer"},
+					Roles:       []string{testRoleViewer},
 					Tools: ToolRulesDef{
 						Allow: []string{"*_list", "*_describe"},
 						Deny:  []string{"*_execute", "*_delete"},
@@ -1126,9 +1148,9 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 						Deny:  []string{"*_delete"},
 					},
 				},
-				"admin": {
+				testRoleAdmin: {
 					DisplayName: "Admin",
-					Roles:       []string{"admin"},
+					Roles:       []string{testRoleAdmin},
 					Tools: ToolRulesDef{
 						Allow: []string{"*"},
 					},
@@ -1140,13 +1162,13 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	// Verify all personas loaded
 	pr := p.PersonaRegistry()
 
-	viewer, ok := pr.Get("viewer")
+	viewer, ok := pr.Get(testRoleViewer)
 	if !ok {
 		t.Error("viewer persona not found")
 	}
@@ -1162,7 +1184,7 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 		t.Errorf("editor.DisplayName = %q", editor.DisplayName)
 	}
 
-	admin, ok := pr.Get("admin")
+	admin, ok := pr.Get(testRoleAdmin)
 	if !ok {
 		t.Error("admin persona not found")
 	}
@@ -1178,10 +1200,10 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 		// Generate a valid 32-byte key encoded as base64
 		validKey := "dGVzdC1zaWduaW5nLWtleS1hdC1sZWFzdC0zMi1ieXRlcw==" // "test-signing-key-at-least-32-bytes"
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1191,7 +1213,7 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 		if p.OAuthServer() == nil {
 			t.Error("OAuthServer() should not be nil")
@@ -1201,10 +1223,10 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 
 	t.Run("invalid base64 signing key", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1221,10 +1243,10 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 	t.Run("signing key too short", func(t *testing.T) {
 		// "short" in base64 = "c2hvcnQ=" (5 bytes, less than 32)
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1240,10 +1262,10 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 
 	t.Run("auto-generate signing key when not configured", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1253,7 +1275,7 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 		if p.OAuthServer() == nil {
 			t.Error("OAuthServer() should not be nil with auto-generated key")
@@ -1265,10 +1287,10 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 func TestInitOAuth(t *testing.T) {
 	t.Run("OAuth disabled", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: false,
 			},
@@ -1276,7 +1298,7 @@ func TestInitOAuth(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		if p.OAuthServer() != nil {
@@ -1287,10 +1309,10 @@ func TestInitOAuth(t *testing.T) {
 
 	t.Run("OAuth enabled with pre-registered clients", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1311,7 +1333,7 @@ func TestInitOAuth(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		if p.OAuthServer() == nil {
@@ -1322,10 +1344,10 @@ func TestInitOAuth(t *testing.T) {
 
 	t.Run("OAuth enabled with upstream IdP", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1340,7 +1362,7 @@ func TestInitOAuth(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		if p.OAuthServer() == nil {
@@ -1351,10 +1373,10 @@ func TestInitOAuth(t *testing.T) {
 
 	t.Run("OAuth enabled with DCR", func(t *testing.T) {
 		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1367,7 +1389,7 @@ func TestInitOAuth(t *testing.T) {
 
 		p, err := New(WithConfig(cfg))
 		if err != nil {
-			t.Fatalf("New() error = %v", err)
+			t.Fatalf(testNewErrFmt, err)
 		}
 
 		if p.OAuthServer() == nil {
@@ -1381,26 +1403,26 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 	// This test verifies that lineage configuration is properly wired
 	// from platform config through to the DataHub semantic adapter.
 	cfg := &Config{
-		Server: ServerConfig{Name: "test"},
+		Server: ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{
 			Provider: "datahub",
-			Instance: "primary",
+			Instance: testInstancePrimary,
 			Lineage: datahubsemantic.LineageConfig{
 				Enabled:             true,
-				MaxHops:             3,
+				MaxHops:             testLineageMaxHops,
 				Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-				ConflictResolution:  "nearest",
+				ConflictResolution:  testConflictNearest,
 				PreferColumnLineage: true,
-				CacheTTL:            10 * time.Minute,
-				Timeout:             5 * time.Second,
+				CacheTTL:            testLineageCacheTTL,
+				Timeout:             testLineageTimeout,
 			},
 		},
-		Query:   QueryConfig{Provider: "noop"},
-		Storage: StorageConfig{Provider: "noop"},
+		Query:   QueryConfig{Provider: testProviderNoop},
+		Storage: StorageConfig{Provider: testProviderNoop},
 		Toolkits: map[string]any{
 			"datahub": map[string]any{
-				"instances": map[string]any{
-					"primary": map[string]any{
+				testInstancesKey: map[string]any{
+					testInstancePrimary: map[string]any{
 						"url":   "http://datahub.example.com:8080/api/graphql",
 						"token": "test-token",
 					},
@@ -1411,7 +1433,7 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -1435,11 +1457,11 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 	if !lineageCfg.Enabled {
 		t.Error("LineageConfig().Enabled = false, want true - config was not wired through")
 	}
-	if lineageCfg.MaxHops != 3 {
-		t.Errorf("LineageConfig().MaxHops = %d, want 3", lineageCfg.MaxHops)
+	if lineageCfg.MaxHops != testLineageMaxHops {
+		t.Errorf("LineageConfig().MaxHops = %d, want %d", lineageCfg.MaxHops, testLineageMaxHops)
 	}
-	if len(lineageCfg.Inherit) != 3 {
-		t.Errorf("LineageConfig().Inherit len = %d, want 3", len(lineageCfg.Inherit))
+	if len(lineageCfg.Inherit) != testLineageMaxHops {
+		t.Errorf("LineageConfig().Inherit len = %d, want %d", len(lineageCfg.Inherit), testLineageMaxHops)
 	}
 	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
 	for i, want := range expectedInherit {
@@ -1451,17 +1473,17 @@ func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
 			t.Errorf("LineageConfig().Inherit[%d] = %q, want %q", i, lineageCfg.Inherit[i], want)
 		}
 	}
-	if lineageCfg.ConflictResolution != "nearest" {
-		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", lineageCfg.ConflictResolution, "nearest")
+	if lineageCfg.ConflictResolution != testConflictNearest {
+		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", lineageCfg.ConflictResolution, testConflictNearest)
 	}
 	if !lineageCfg.PreferColumnLineage {
 		t.Error("LineageConfig().PreferColumnLineage = false, want true")
 	}
-	if lineageCfg.CacheTTL != 10*time.Minute {
-		t.Errorf("LineageConfig().CacheTTL = %v, want %v", lineageCfg.CacheTTL, 10*time.Minute)
+	if lineageCfg.CacheTTL != testLineageCacheTTL {
+		t.Errorf("LineageConfig().CacheTTL = %v, want %v", lineageCfg.CacheTTL, testLineageCacheTTL)
 	}
-	if lineageCfg.Timeout != 5*time.Second {
-		t.Errorf("LineageConfig().Timeout = %v, want %v", lineageCfg.Timeout, 5*time.Second)
+	if lineageCfg.Timeout != testLineageTimeout {
+		t.Errorf("LineageConfig().Timeout = %v, want %v", lineageCfg.Timeout, testLineageTimeout)
 	}
 }
 
@@ -1470,409 +1492,378 @@ func createTestAppDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "index.html")
-	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), 0o600); err != nil {
+	if err := os.WriteFile(indexPath, []byte("<html><head></head><body>test</body></html>"), testFilePerms); err != nil {
 		t.Fatalf("Failed to create test index.html: %v", err)
 	}
 	return dir
 }
 
-func TestConvertCSP(t *testing.T) {
-	t.Run("nil input returns nil", func(t *testing.T) {
-		result := convertCSP(nil)
-		if result != nil {
-			t.Error("convertCSP(nil) should return nil")
-		}
-	})
-
-	t.Run("converts resource domains", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			ResourceDomains: []string{"https://cdn.example.com", "https://fonts.googleapis.com"},
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if len(result.ResourceDomains) != 2 {
-			t.Errorf("ResourceDomains len = %d, want 2", len(result.ResourceDomains))
-		}
-		if result.ResourceDomains[0] != "https://cdn.example.com" {
-			t.Errorf("ResourceDomains[0] = %q", result.ResourceDomains[0])
-		}
-	})
-
-	t.Run("converts connect domains", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			ConnectDomains: []string{"https://api.example.com"},
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if len(result.ConnectDomains) != 1 {
-			t.Errorf("ConnectDomains len = %d, want 1", len(result.ConnectDomains))
-		}
-	})
-
-	t.Run("converts frame domains", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			FrameDomains: []string{"https://embed.example.com"},
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if len(result.FrameDomains) != 1 {
-			t.Errorf("FrameDomains len = %d, want 1", len(result.FrameDomains))
-		}
-	})
-
-	t.Run("converts clipboard write permission", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			ClipboardWrite: true,
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if result.Permissions == nil {
-			t.Fatal("Permissions should not be nil when ClipboardWrite is true")
-		}
-		if result.Permissions.ClipboardWrite == nil {
-			t.Error("ClipboardWrite should not be nil")
-		}
-	})
-
-	t.Run("no permissions when clipboard write false", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			ClipboardWrite: false,
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if result.Permissions != nil {
-			t.Error("Permissions should be nil when ClipboardWrite is false")
-		}
-	})
-
-	t.Run("full CSP config", func(t *testing.T) {
-		cfg := &CSPAppConfig{
-			ResourceDomains: []string{"https://cdn.example.com"},
-			ConnectDomains:  []string{"https://api.example.com"},
-			FrameDomains:    []string{"https://embed.example.com"},
-			ClipboardWrite:  true,
-		}
-		result := convertCSP(cfg)
-		if result == nil {
-			t.Fatal("convertCSP returned nil")
-		}
-		if len(result.ResourceDomains) != 1 {
-			t.Errorf("ResourceDomains len = %d", len(result.ResourceDomains))
-		}
-		if len(result.ConnectDomains) != 1 {
-			t.Errorf("ConnectDomains len = %d", len(result.ConnectDomains))
-		}
-		if len(result.FrameDomains) != 1 {
-			t.Errorf("FrameDomains len = %d", len(result.FrameDomains))
-		}
-		if result.Permissions == nil || result.Permissions.ClipboardWrite == nil {
-			t.Error("ClipboardWrite permission not set")
-		}
-	})
+func TestConvertCSP_NilInput(t *testing.T) {
+	result := convertCSP(nil)
+	if result != nil {
+		t.Error("convertCSP(nil) should return nil")
+	}
 }
 
-func TestInitMCPApps(t *testing.T) {
-	t.Run("disabled by default", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		// mcpAppsRegistry should be nil when disabled
-		if p.mcpAppsRegistry != nil {
-			t.Error("mcpAppsRegistry should be nil when MCPApps disabled")
-		}
-	})
-
-	t.Run("enabled with filesystem app", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"query_results": {
-						Enabled:    true,
-						Tools:      []string{"trino_query"},
-						AssetsPath: testAppDir,
-						EntryPoint: "index.html",
-						Config: map[string]any{
-							"chartCDN":         "https://cdn.example.com/chart.js",
-							"defaultChartType": "bar",
-							"maxTableRows":     500,
-						},
-					},
-				},
-			},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		if p.mcpAppsRegistry == nil {
-			t.Fatal("mcpAppsRegistry should not be nil when MCPApps enabled")
-		}
-
-		if !p.mcpAppsRegistry.HasApps() {
-			t.Error("Registry should have apps")
-		}
-
-		app := p.mcpAppsRegistry.Get("query_results")
-		if app == nil {
-			t.Fatal("query_results app should be registered")
-		}
-
-		if len(app.ToolNames) != 1 || app.ToolNames[0] != "trino_query" {
-			t.Errorf("ToolNames = %v, want [trino_query]", app.ToolNames)
-		}
-	})
-
-	t.Run("app with missing assets fails", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"missing_app": {
-						Enabled:    true,
-						Tools:      []string{"test_tool"},
-						AssetsPath: "/nonexistent/path",
-						EntryPoint: "index.html",
-					},
-				},
-			},
-		}
-
-		// Should error because assets don't exist
-		_, err := New(WithConfig(cfg))
-		if err == nil {
-			t.Fatal("New() should fail with missing assets")
-		}
-	})
-
-	t.Run("disabled app not registered", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"query_results": {
-						Enabled:    false,
-						AssetsPath: testAppDir,
-						EntryPoint: "index.html",
-					},
-				},
-			},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		if p.mcpAppsRegistry == nil {
-			t.Fatal("mcpAppsRegistry should not be nil")
-		}
-
-		// Registry should exist but have no apps
-		if p.mcpAppsRegistry.HasApps() {
-			t.Error("Registry should have no apps when all disabled")
-		}
-	})
-
-	t.Run("app with CSP config", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"test_app": {
-						Enabled:    true,
-						Tools:      []string{"test_tool"},
-						AssetsPath: testAppDir,
-						EntryPoint: "index.html",
-						CSP: &CSPAppConfig{
-							ResourceDomains: []string{"https://cdn.example.com"},
-							ConnectDomains:  []string{"https://api.example.com"},
-							FrameDomains:    []string{"https://embed.example.com"},
-							ClipboardWrite:  true,
-						},
-					},
-				},
-			},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		if p.mcpAppsRegistry == nil {
-			t.Fatal("mcpAppsRegistry should not be nil")
-		}
-
-		app := p.mcpAppsRegistry.Get("test_app")
-		if app == nil {
-			t.Fatal("test_app should be registered")
-		}
-
-		if app.CSP == nil {
-			t.Fatal("CSP should not be nil")
-		}
-
-		if len(app.CSP.ResourceDomains) != 1 {
-			t.Errorf("CSP.ResourceDomains len = %d, want 1", len(app.CSP.ResourceDomains))
-		}
-	})
-
-	t.Run("app with custom resource URI", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"custom_app": {
-						Enabled:     true,
-						Tools:       []string{"test_tool"},
-						AssetsPath:  testAppDir,
-						EntryPoint:  "index.html",
-						ResourceURI: "ui://custom-resource",
-					},
-				},
-			},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		app := p.mcpAppsRegistry.Get("custom_app")
-		if app == nil {
-			t.Fatal("custom_app should be registered")
-		}
-
-		if app.ResourceURI != "ui://custom-resource" {
-			t.Errorf("ResourceURI = %q, want ui://custom-resource", app.ResourceURI)
-		}
-	})
-
-	t.Run("app with default entry point", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"default_entry": {
-						Enabled:    true,
-						Tools:      []string{"test_tool"},
-						AssetsPath: testAppDir,
-						// EntryPoint omitted - should default to index.html
-					},
-				},
-			},
-		}
-
-		p, err := New(WithConfig(cfg))
-		if err != nil {
-			t.Fatalf("New() error = %v", err)
-		}
-
-		app := p.mcpAppsRegistry.Get("default_entry")
-		if app == nil {
-			t.Fatal("default_entry should be registered")
-		}
-
-		if app.EntryPoint != "index.html" {
-			t.Errorf("EntryPoint = %q, want index.html", app.EntryPoint)
-		}
-	})
-
-	t.Run("app validation error", func(t *testing.T) {
-		testAppDir := createTestAppDir(t)
-
-		cfg := &Config{
-			Server:   ServerConfig{Name: "test"},
-			Semantic: SemanticConfig{Provider: "noop"},
-			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
-			MCPApps: MCPAppsConfig{
-				Enabled: true,
-				Apps: map[string]AppConfig{
-					"invalid_app": {
-						Enabled:    true,
-						Tools:      []string{}, // Empty tools - validation should fail
-						AssetsPath: testAppDir,
-						EntryPoint: "index.html",
-					},
-				},
-			},
-		}
-
-		_, err := New(WithConfig(cfg))
-		if err == nil {
-			t.Error("New() should fail with empty tools list")
-		}
-	})
+func TestConvertCSP_ResourceDomains(t *testing.T) {
+	cfg := &CSPAppConfig{
+		ResourceDomains: []string{testCDNDomain, "https://fonts.googleapis.com"},
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if len(result.ResourceDomains) != 2 {
+		t.Errorf("ResourceDomains len = %d, want 2", len(result.ResourceDomains))
+	}
+	if result.ResourceDomains[0] != testCDNDomain {
+		t.Errorf("ResourceDomains[0] = %q", result.ResourceDomains[0])
+	}
 }
 
-func TestHintManager(t *testing.T) {
+func TestConvertCSP_ConnectDomains(t *testing.T) {
+	cfg := &CSPAppConfig{
+		ConnectDomains: []string{"https://api.example.com"},
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if len(result.ConnectDomains) != 1 {
+		t.Errorf("ConnectDomains len = %d, want 1", len(result.ConnectDomains))
+	}
+}
+
+func TestConvertCSP_FrameDomains(t *testing.T) {
+	cfg := &CSPAppConfig{
+		FrameDomains: []string{"https://embed.example.com"},
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if len(result.FrameDomains) != 1 {
+		t.Errorf("FrameDomains len = %d, want 1", len(result.FrameDomains))
+	}
+}
+
+func TestConvertCSP_ClipboardWrite(t *testing.T) {
+	cfg := &CSPAppConfig{
+		ClipboardWrite: true,
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if result.Permissions == nil {
+		t.Fatal("Permissions should not be nil when ClipboardWrite is true")
+	}
+	if result.Permissions.ClipboardWrite == nil {
+		t.Error("ClipboardWrite should not be nil")
+	}
+}
+
+func TestConvertCSP_NoPermissions(t *testing.T) {
+	cfg := &CSPAppConfig{
+		ClipboardWrite: false,
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if result.Permissions != nil {
+		t.Error("Permissions should be nil when ClipboardWrite is false")
+	}
+}
+
+func TestConvertCSP_FullConfig(t *testing.T) {
+	cfg := &CSPAppConfig{
+		ResourceDomains: []string{testCDNDomain},
+		ConnectDomains:  []string{"https://api.example.com"},
+		FrameDomains:    []string{"https://embed.example.com"},
+		ClipboardWrite:  true,
+	}
+	result := convertCSP(cfg)
+	if result == nil {
+		t.Fatal(testCSPNilMsg)
+	}
+	if len(result.ResourceDomains) != 1 {
+		t.Errorf("ResourceDomains len = %d", len(result.ResourceDomains))
+	}
+	if len(result.ConnectDomains) != 1 {
+		t.Errorf("ConnectDomains len = %d", len(result.ConnectDomains))
+	}
+	if len(result.FrameDomains) != 1 {
+		t.Errorf("FrameDomains len = %d", len(result.FrameDomains))
+	}
+	if result.Permissions == nil || result.Permissions.ClipboardWrite == nil {
+		t.Error("ClipboardWrite permission not set")
+	}
+}
+
+func TestInitMCPApps_DisabledByDefault(t *testing.T) {
+	p := newTestPlatform(t)
+	if p.mcpAppsRegistry != nil {
+		t.Error("mcpAppsRegistry should be nil when MCPApps disabled")
+	}
+}
+
+func TestInitMCPApps_EnabledWithFilesystemApp(t *testing.T) {
+	testAppDir := createTestAppDir(t)
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"query_results": {
+					Enabled:    true,
+					Tools:      []string{"trino_query"},
+					AssetsPath: testAppDir,
+					EntryPoint: testEntryPoint,
+					Config: map[string]any{
+						"chartCDN":         "https://cdn.example.com/chart.js",
+						"defaultChartType": "bar",
+						"maxTableRows":     testMaxTableRows,
+					},
+				},
+			},
+		},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	if p.mcpAppsRegistry == nil {
+		t.Fatal("mcpAppsRegistry should not be nil when MCPApps enabled")
+	}
+	if !p.mcpAppsRegistry.HasApps() {
+		t.Error("Registry should have apps")
+	}
+
+	app := p.mcpAppsRegistry.Get("query_results")
+	if app == nil {
+		t.Fatal("query_results app should be registered")
+	}
+	if len(app.ToolNames) != 1 || app.ToolNames[0] != "trino_query" {
+		t.Errorf("ToolNames = %v, want [trino_query]", app.ToolNames)
+	}
+}
+
+func TestInitMCPApps_MissingAssets(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"missing_app": {
+					Enabled:    true,
+					Tools:      []string{testToolName},
+					AssetsPath: "/nonexistent/path",
+					EntryPoint: testEntryPoint,
+				},
+			},
+		},
+	}
+
+	_, err := New(WithConfig(cfg))
+	if err == nil {
+		t.Fatal("New() should fail with missing assets")
+	}
+}
+
+func TestInitMCPApps_DisabledAppNotRegistered(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"query_results": {
+					Enabled:    false,
+					AssetsPath: testAppDir,
+					EntryPoint: testEntryPoint,
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	if p.mcpAppsRegistry == nil {
+		t.Fatal("mcpAppsRegistry should not be nil")
+	}
+	if p.mcpAppsRegistry.HasApps() {
+		t.Error("Registry should have no apps when all disabled")
+	}
+}
+
+func TestInitMCPApps_CSPConfig(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"test_app": {
+					Enabled:    true,
+					Tools:      []string{testToolName},
+					AssetsPath: testAppDir,
+					EntryPoint: testEntryPoint,
+					CSP: &CSPAppConfig{
+						ResourceDomains: []string{testCDNDomain},
+						ConnectDomains:  []string{"https://api.example.com"},
+						FrameDomains:    []string{"https://embed.example.com"},
+						ClipboardWrite:  true,
+					},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	if p.mcpAppsRegistry == nil {
+		t.Fatal("mcpAppsRegistry should not be nil")
+	}
+
+	app := p.mcpAppsRegistry.Get("test_app")
+	if app == nil {
+		t.Fatal("test_app should be registered")
+	}
+	if app.CSP == nil {
+		t.Fatal("CSP should not be nil")
+	}
+	if len(app.CSP.ResourceDomains) != 1 {
+		t.Errorf("CSP.ResourceDomains len = %d, want 1", len(app.CSP.ResourceDomains))
+	}
+}
+
+func TestInitMCPApps_CustomResourceURI(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"custom_app": {
+					Enabled:     true,
+					Tools:       []string{testToolName},
+					AssetsPath:  testAppDir,
+					EntryPoint:  "index.html",
+					ResourceURI: "ui://custom-resource",
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	app := p.mcpAppsRegistry.Get("custom_app")
+	if app == nil {
+		t.Fatal("custom_app should be registered")
+	}
+	if app.ResourceURI != "ui://custom-resource" {
+		t.Errorf("ResourceURI = %q, want ui://custom-resource", app.ResourceURI)
+	}
+}
+
+func TestInitMCPApps_DefaultEntryPoint(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"default_entry": {
+					Enabled:    true,
+					Tools:      []string{testToolName},
+					AssetsPath: testAppDir,
+					// EntryPoint omitted - should default to index.html
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	app := p.mcpAppsRegistry.Get("default_entry")
+	if app == nil {
+		t.Fatal("default_entry should be registered")
+	}
+	if app.EntryPoint != "index.html" {
+		t.Errorf("EntryPoint = %q, want index.html", app.EntryPoint)
+	}
+}
+
+func TestInitMCPApps_ValidationError(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Enabled: true,
+			Apps: map[string]AppConfig{
+				"invalid_app": {
+					Enabled:    true,
+					Tools:      []string{}, // Empty tools - validation should fail
+					AssetsPath: testAppDir,
+					EntryPoint: testEntryPoint,
+				},
+			},
+		},
+	}
+
+	_, err := New(WithConfig(cfg))
+	if err == nil {
+		t.Error("New() should fail with empty tools list")
+	}
+}
+
+func TestHintManager(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -1893,15 +1884,15 @@ func TestHintManager(t *testing.T) {
 
 func TestPersonaHintsLoadedToHintManager(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
-				"analyst": {
-					DisplayName: "Data Analyst",
-					Roles:       []string{"analyst"},
+				testRoleAnalyst: {
+					DisplayName: testDisplayAnalyst,
+					Roles:       []string{testRoleAnalyst},
 					Hints: map[string]string{
 						"custom_tool": "This is a custom hint from persona",
 					},
@@ -1912,7 +1903,7 @@ func TestPersonaHintsLoadedToHintManager(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -1930,10 +1921,10 @@ func TestPersonaHintsLoadedToHintManager(t *testing.T) {
 
 func TestInitAuditNoopWhenDisabled(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
 			Enabled: false,
 		},
@@ -1941,7 +1932,7 @@ func TestInitAuditNoopWhenDisabled(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -1953,21 +1944,21 @@ func TestInitAuditNoopWhenDisabled(t *testing.T) {
 
 func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
 			Enabled:       true,
 			LogToolCalls:  true,
-			RetentionDays: 30,
+			RetentionDays: testRetentionDays,
 		},
 		// Database DSN intentionally left empty
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -1979,25 +1970,25 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 
 func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
-				"analyst": {
-					DisplayName: "Data Analyst",
+				testRoleAnalyst: {
+					DisplayName: testDisplayAnalyst,
 					Description: "Analyzes data and runs queries",
-					Roles:       []string{"analyst"},
+					Roles:       []string{testRoleAnalyst},
 					Tools: ToolRulesDef{
 						Allow: []string{"trino_*"},
 					},
 					Prompts: PromptsDef{
-						SystemPrefix: "You are a data analyst.",
+						SystemPrefix: testSystemPrefix,
 						SystemSuffix: "Be concise.",
 						Instructions: "Check DataHub first.",
 					},
-					Priority: 10,
+					Priority: testPriority,
 				},
 			},
 		},
@@ -2005,12 +1996,12 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
 	pr := p.PersonaRegistry()
-	analyst, ok := pr.Get("analyst")
+	analyst, ok := pr.Get(testRoleAnalyst)
 	if !ok {
 		t.Fatal("analyst persona not found")
 	}
@@ -2018,10 +2009,10 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	if analyst.Description != "Analyzes data and runs queries" {
 		t.Errorf("Description = %q", analyst.Description)
 	}
-	if analyst.Priority != 10 {
-		t.Errorf("Priority = %d, want 10", analyst.Priority)
+	if analyst.Priority != testPriority {
+		t.Errorf("Priority = %d, want %d", analyst.Priority, testPriority)
 	}
-	if analyst.Prompts.SystemPrefix != "You are a data analyst." {
+	if analyst.Prompts.SystemPrefix != testSystemPrefix {
 		t.Errorf("SystemPrefix = %q", analyst.Prompts.SystemPrefix)
 	}
 	if analyst.Prompts.SystemSuffix != "Be concise." {
@@ -2037,29 +2028,29 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 		t.Error("GetFullSystemPrompt() returned empty string")
 	}
 	// Should contain all three parts
-	if !contains(fullPrompt, "You are a data analyst.") {
+	if !containsSubstr(fullPrompt, testSystemPrefix) {
 		t.Error("fullPrompt missing SystemPrefix")
 	}
-	if !contains(fullPrompt, "Check DataHub first.") {
+	if !containsSubstr(fullPrompt, "Check DataHub first.") {
 		t.Error("fullPrompt missing Instructions")
 	}
-	if !contains(fullPrompt, "Be concise.") {
+	if !containsSubstr(fullPrompt, "Be concise.") {
 		t.Error("fullPrompt missing SystemSuffix")
 	}
 }
 
 func TestNew_NilToolkitsConfig(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		// Toolkits intentionally nil
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -2076,15 +2067,15 @@ func TestNew_NoRulesEngine(t *testing.T) {
 	// Verify that when no rule engine is provided and tuning rules are all
 	// default, middleware setup still succeeds (nil ruleEngine path at L535).
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -2096,16 +2087,16 @@ func TestNew_NoRulesEngine(t *testing.T) {
 
 func TestNew_NoAuthenticators_FallsBackToNoop(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		// Auth intentionally empty — no OIDC, no API keys, no OAuth
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -2117,10 +2108,10 @@ func TestNew_NoAuthenticators_FallsBackToNoop(t *testing.T) {
 
 func TestNew_DefaultOAuthTTL(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		OAuth: OAuthConfig{
 			Enabled: true,
 			Issuer:  "http://localhost:8080",
@@ -2130,7 +2121,7 @@ func TestNew_DefaultOAuthTTL(t *testing.T) {
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
@@ -2144,8 +2135,8 @@ func TestNew_DefaultDataHubTimeout(t *testing.T) {
 		config: &Config{
 			Toolkits: map[string]any{
 				"datahub": map[string]any{
-					"instances": map[string]any{
-						"default": map[string]any{
+					testInstancesKey: map[string]any{
+						testInstanceDefault: map[string]any{
 							"url": "http://datahub:8080",
 							// timeout not set — should default to 30s (L911)
 						},
@@ -2155,12 +2146,12 @@ func TestNew_DefaultDataHubTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getDataHubConfig("default")
+	cfg := p.getDataHubConfig(testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getDataHubConfig() returned nil")
 	}
-	if cfg.Timeout != 30*time.Second {
-		t.Errorf("Timeout = %v, want 30s", cfg.Timeout)
+	if cfg.Timeout != testDefaultDataHubTO {
+		t.Errorf("Timeout = %v, want %v", cfg.Timeout, testDefaultDataHubTO)
 	}
 }
 
@@ -2169,8 +2160,8 @@ func TestNew_DefaultTrinoTimeout(t *testing.T) {
 		config: &Config{
 			Toolkits: map[string]any{
 				"trino": map[string]any{
-					"instances": map[string]any{
-						"default": map[string]any{
+					testInstancesKey: map[string]any{
+						testInstanceDefault: map[string]any{
 							"host": "localhost",
 							// timeout not set — should default to 120s (L939)
 						},
@@ -2180,27 +2171,27 @@ func TestNew_DefaultTrinoTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getTrinoConfig("default")
+	cfg := p.getTrinoConfig(testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getTrinoConfig() returned nil")
 	}
-	if cfg.Timeout != 120*time.Second {
-		t.Errorf("Timeout = %v, want 120s", cfg.Timeout)
+	if cfg.Timeout != testDefaultTrinoTO {
+		t.Errorf("Timeout = %v, want %v", cfg.Timeout, testDefaultTrinoTO)
 	}
 }
 
 func TestClose_NilAuditStore(t *testing.T) {
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		// No audit configured — auditStore will be nil (L1084)
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 
 	// Verify auditStore is nil
@@ -2220,23 +2211,23 @@ func TestPlatformInfo_WithTags(t *testing.T) {
 			Name: "test-platform",
 			Tags: []string{"fireworks", "retail", "pos"},
 		},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf(testNewErrFmt, err)
 	}
 	defer func() { _ = p.Close() }()
 
 	// Verify tags appear in the tool description (L59)
 	desc := p.buildInfoToolDescription()
-	if !containsHelper(desc, "fireworks") {
+	if !containsSubstr(desc, "fireworks") {
 		t.Errorf("description %q does not contain tag 'fireworks'", desc)
 	}
-	if !containsHelper(desc, "retail") {
+	if !containsSubstr(desc, "retail") {
 		t.Errorf("description %q does not contain tag 'retail'", desc)
 	}
 }
@@ -2246,10 +2237,10 @@ func TestNew_SigningKeyExactly32Bytes(t *testing.T) {
 	// base64 of 32 bytes of "a" repeated: use a known 32-byte string
 	import32Bytes := "YWFhYWFhYWFhYWJiYmJiYmJiYmJjY2NjY2NjY2NjZGQ=" // "aaaaaaaaaabbbbbbbbbbccccccccccdd"
 	cfg := &Config{
-		Server:   ServerConfig{Name: "test"},
-		Semantic: SemanticConfig{Provider: "noop"},
-		Query:    QueryConfig{Provider: "noop"},
-		Storage:  StorageConfig{Provider: "noop"},
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
 		OAuth: OAuthConfig{
 			Enabled:    true,
 			Issuer:     "http://localhost:8080",
@@ -2268,16 +2259,7 @@ func TestNew_SigningKeyExactly32Bytes(t *testing.T) {
 	}
 }
 
-// contains checks if s contains substr.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+// containsSubstr checks if s contains substr using strings.Contains.
+func containsSubstr(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
