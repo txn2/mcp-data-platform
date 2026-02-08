@@ -10,6 +10,20 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const (
+	lineageTestNearest               = "nearest"
+	lineageTestNameExact             = "name_exact"
+	lineageTestUnexpectedErr         = "unexpected error: %v"
+	lineageTestSourceUsers           = "source.users"
+	lineageTestUserID                = "user_id"
+	lineageTestGlossaryTerms         = "glossary_terms"
+	lineageTestExpectedInheritedDesc = "expected inherited description, got %q"
+	lineageTestExpectedInheritedFrom = "expected InheritedFrom to be set"
+	lineageTestLevelCount            = 3
+	lineageTestDescriptions          = "descriptions"
+	lineageTestAmount                = "amount"
+)
+
 func TestDefaultLineageConfig(t *testing.T) {
 	cfg := DefaultLineageConfig()
 
@@ -19,7 +33,7 @@ func TestDefaultLineageConfig(t *testing.T) {
 	if cfg.MaxHops != 2 {
 		t.Errorf("expected MaxHops=2, got %d", cfg.MaxHops)
 	}
-	if cfg.ConflictResolution != "nearest" {
+	if cfg.ConflictResolution != lineageTestNearest {
 		t.Errorf("expected ConflictResolution='nearest', got %s", cfg.ConflictResolution)
 	}
 	if !cfg.PreferColumnLineage {
@@ -32,15 +46,15 @@ func TestDefaultLineageConfig(t *testing.T) {
 
 func TestLineageConfig_ShouldInherit(t *testing.T) {
 	cfg := LineageConfig{
-		Inherit: []string{"descriptions", "glossary_terms"},
+		Inherit: []string{lineageTestDescriptions, lineageTestGlossaryTerms},
 	}
 
 	tests := []struct {
 		metadataType string
 		expected     bool
 	}{
-		{"descriptions", true},
-		{"glossary_terms", true},
+		{lineageTestDescriptions, true},
+		{lineageTestGlossaryTerms, true},
 		{"tags", false},
 		{"owners", false},
 	}
@@ -74,7 +88,7 @@ func TestNewLineageResolver(t *testing.T) {
 
 func TestResolveColumnsWithLineage_NoLineageEnabled(t *testing.T) {
 	client := &mockDataHubClient{
-		getSchemaFunc: func(ctx context.Context, urn string) (*types.SchemaMetadata, error) {
+		getSchemaFunc: func(_ context.Context, _ string) (*types.SchemaMetadata, error) {
 			return &types.SchemaMetadata{
 				Fields: []types.SchemaField{
 					{FieldPath: "id", Description: "Primary key"},
@@ -86,13 +100,13 @@ func TestResolveColumnsWithLineage_NoLineageEnabled(t *testing.T) {
 
 	cfg := LineageConfig{
 		Enabled: false,
-		Inherit: []string{"descriptions"},
+		Inherit: []string{lineageTestDescriptions},
 	}
 	resolver := newLineageResolver(client, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
 	columns, err := resolver.resolveColumnsWithLineage(context.Background(), "urn:li:dataset:test", "test.table")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(lineageTestUnexpectedErr, err)
 	}
 
 	if len(columns) != 2 {
@@ -105,18 +119,18 @@ func TestResolveColumnsWithLineage_NoLineageEnabled(t *testing.T) {
 
 func TestResolveColumnsWithLineage_WithAliasMatch(t *testing.T) {
 	client := &mockDataHubClient{
-		getSchemaFunc: func(ctx context.Context, urn string) (*types.SchemaMetadata, error) {
+		getSchemaFunc: func(_ context.Context, urn string) (*types.SchemaMetadata, error) {
 			if urn == "urn:li:dataset:(urn:li:dataPlatform:trino,source.table,PROD)" {
 				return &types.SchemaMetadata{
 					Fields: []types.SchemaField{
-						{FieldPath: "amount", Description: "Transaction amount", GlossaryTerms: []types.GlossaryTerm{{URN: "urn:term", Name: "Amount"}}},
+						{FieldPath: lineageTestAmount, Description: "Transaction amount", GlossaryTerms: []types.GlossaryTerm{{URN: "urn:term", Name: "Amount"}}},
 					},
 				}, nil
 			}
-			// Target table has no documentation - field path extracts to "amount"
+			// Target table has no documentation - field path extracts to lineageTestAmount
 			return &types.SchemaMetadata{
 				Fields: []types.SchemaField{
-					{FieldPath: "amount", Description: ""},
+					{FieldPath: lineageTestAmount, Description: ""},
 				},
 			}, nil
 		},
@@ -124,13 +138,13 @@ func TestResolveColumnsWithLineage_WithAliasMatch(t *testing.T) {
 
 	cfg := LineageConfig{
 		Enabled: true,
-		Inherit: []string{"descriptions", "glossary_terms"},
+		Inherit: []string{lineageTestDescriptions, lineageTestGlossaryTerms},
 		Aliases: []AliasConfig{
 			{
 				Source:  "source.table",
 				Targets: []string{"target.*"},
 				ColumnMapping: map[string]string{
-					"amount": "amount", // Maps extracted field name to source field name
+					lineageTestAmount: lineageTestAmount, // Maps extracted field name to source field name
 				},
 			},
 		},
@@ -139,18 +153,18 @@ func TestResolveColumnsWithLineage_WithAliasMatch(t *testing.T) {
 
 	columns, err := resolver.resolveColumnsWithLineage(context.Background(), "urn:li:dataset:test", "target.events")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(lineageTestUnexpectedErr, err)
 	}
 
-	col := columns["amount"]
+	col := columns[lineageTestAmount]
 	if col == nil {
 		t.Fatal("expected column 'amount'")
 	}
 	if col.Description != "Transaction amount" {
-		t.Errorf("expected inherited description, got %q", col.Description)
+		t.Errorf(lineageTestExpectedInheritedDesc, col.Description)
 	}
 	if col.InheritedFrom == nil {
-		t.Fatal("expected InheritedFrom to be set")
+		t.Fatal(lineageTestExpectedInheritedFrom)
 	}
 	if col.InheritedFrom.MatchMethod != "alias" {
 		t.Errorf("expected match_method='alias', got %q", col.InheritedFrom.MatchMethod)
@@ -159,7 +173,7 @@ func TestResolveColumnsWithLineage_WithAliasMatch(t *testing.T) {
 
 func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 	client := &mockDataHubClient{
-		getSchemaFunc: func(ctx context.Context, urn string) (*types.SchemaMetadata, error) {
+		getSchemaFunc: func(_ context.Context, urn string) (*types.SchemaMetadata, error) {
 			if urn == "urn:li:dataset:upstream" {
 				return &types.SchemaMetadata{
 					Fields: []types.SchemaField{
@@ -173,7 +187,7 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 				},
 			}, nil
 		},
-		getColumnLineageFunc: func(ctx context.Context, urn string) (*types.ColumnLineage, error) {
+		getColumnLineageFunc: func(_ context.Context, _ string) (*types.ColumnLineage, error) {
 			return &types.ColumnLineage{
 				Mappings: []types.ColumnLineageMapping{
 					{
@@ -184,7 +198,7 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 				},
 			}, nil
 		},
-		getSchemasFunc: func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error) {
+		getSchemasFunc: func(_ context.Context, _ []string) (map[string]*types.SchemaMetadata, error) {
 			return map[string]*types.SchemaMetadata{
 				"urn:li:dataset:upstream": {
 					Fields: []types.SchemaField{
@@ -197,7 +211,7 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 
 	cfg := LineageConfig{
 		Enabled:             true,
-		Inherit:             []string{"descriptions"},
+		Inherit:             []string{lineageTestDescriptions},
 		PreferColumnLineage: true,
 		MaxHops:             2,
 	}
@@ -205,7 +219,7 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 
 	columns, err := resolver.resolveColumnsWithLineage(context.Background(), "urn:li:dataset:downstream", "test.table")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(lineageTestUnexpectedErr, err)
 	}
 
 	col := columns["downstream_col"]
@@ -213,10 +227,10 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 		t.Fatal("expected column 'downstream_col'")
 	}
 	if col.Description != "Upstream description" {
-		t.Errorf("expected inherited description, got %q", col.Description)
+		t.Errorf(lineageTestExpectedInheritedDesc, col.Description)
 	}
 	if col.InheritedFrom == nil {
-		t.Fatal("expected InheritedFrom to be set")
+		t.Fatal(lineageTestExpectedInheritedFrom)
 	}
 	if col.InheritedFrom.MatchMethod != "column_lineage" {
 		t.Errorf("expected match_method='column_lineage', got %q", col.InheritedFrom.MatchMethod)
@@ -225,28 +239,28 @@ func TestResolveColumnsWithLineage_WithColumnLineage(t *testing.T) {
 
 func TestResolveColumnsWithLineage_WithTableLineage(t *testing.T) {
 	client := &mockDataHubClient{
-		getSchemaFunc: func(ctx context.Context, urn string) (*types.SchemaMetadata, error) {
+		getSchemaFunc: func(_ context.Context, _ string) (*types.SchemaMetadata, error) {
 			return &types.SchemaMetadata{
 				Fields: []types.SchemaField{
-					{FieldPath: "user_id", Description: ""},
+					{FieldPath: lineageTestUserID, Description: ""},
 				},
 			}, nil
 		},
-		getColumnLineageFunc: func(ctx context.Context, urn string) (*types.ColumnLineage, error) {
+		getColumnLineageFunc: func(_ context.Context, _ string) (*types.ColumnLineage, error) {
 			return &types.ColumnLineage{Mappings: nil}, nil // No column lineage
 		},
-		getLineageFunc: func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error) {
+		getLineageFunc: func(_ context.Context, _ string, _ ...dhclient.LineageOption) (*types.LineageResult, error) {
 			return &types.LineageResult{
 				Nodes: []types.LineageNode{
 					{URN: "urn:li:dataset:upstream1", Level: 1},
 				},
 			}, nil
 		},
-		getSchemasFunc: func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error) {
+		getSchemasFunc: func(_ context.Context, _ []string) (map[string]*types.SchemaMetadata, error) {
 			return map[string]*types.SchemaMetadata{
 				"urn:li:dataset:upstream1": {
 					Fields: []types.SchemaField{
-						{FieldPath: "user_id", Description: "User identifier", Tags: []types.Tag{{Name: "pii"}}},
+						{FieldPath: lineageTestUserID, Description: "User identifier", Tags: []types.Tag{{Name: "pii"}}},
 					},
 				},
 			}, nil
@@ -255,29 +269,29 @@ func TestResolveColumnsWithLineage_WithTableLineage(t *testing.T) {
 
 	cfg := LineageConfig{
 		Enabled:             true,
-		Inherit:             []string{"descriptions", "tags"},
+		Inherit:             []string{lineageTestDescriptions, "tags"},
 		PreferColumnLineage: true,
 		MaxHops:             2,
-		ConflictResolution:  "nearest",
+		ConflictResolution:  lineageTestNearest,
 	}
 	resolver := newLineageResolver(client, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
 	columns, err := resolver.resolveColumnsWithLineage(context.Background(), "urn:li:dataset:downstream", "test.table")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(lineageTestUnexpectedErr, err)
 	}
 
-	col := columns["user_id"]
+	col := columns[lineageTestUserID]
 	if col == nil {
 		t.Fatal("expected column 'user_id'")
 	}
 	if col.Description != "User identifier" {
-		t.Errorf("expected inherited description, got %q", col.Description)
+		t.Errorf(lineageTestExpectedInheritedDesc, col.Description)
 	}
 	if col.InheritedFrom == nil {
-		t.Fatal("expected InheritedFrom to be set")
+		t.Fatal(lineageTestExpectedInheritedFrom)
 	}
-	if col.InheritedFrom.MatchMethod != "name_exact" {
+	if col.InheritedFrom.MatchMethod != lineageTestNameExact {
 		t.Errorf("expected match_method='name_exact', got %q", col.InheritedFrom.MatchMethod)
 	}
 	if col.InheritedFrom.Hops != 1 {
@@ -289,7 +303,7 @@ func TestResolveAlias(t *testing.T) {
 	cfg := LineageConfig{
 		Aliases: []AliasConfig{
 			{
-				Source:        "source.users",
+				Source:        lineageTestSourceUsers,
 				Targets:       []string{"elasticsearch.*.user-*", "kafka.events.*"},
 				ColumnMapping: map[string]string{"target_col": "source_col"},
 			},
@@ -302,9 +316,9 @@ func TestResolveAlias(t *testing.T) {
 		expectedSource string
 		hasMapping     bool
 	}{
-		{"elasticsearch.default.user-events", "source.users", true},
-		{"elasticsearch.prod.user-profiles", "source.users", true},
-		{"kafka.events.clicks", "source.users", true},
+		{"elasticsearch.default.user-events", lineageTestSourceUsers, true},
+		{"elasticsearch.prod.user-profiles", lineageTestSourceUsers, true},
+		{"kafka.events.clicks", lineageTestSourceUsers, true},
 		{"postgres.public.users", "", false},
 	}
 
@@ -334,8 +348,8 @@ func TestTransformColumnName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"rxtxmsg.payload.user_id", "user_id"},
-		{"rxtxmsg.payload.amount_v2", "amount"},
+		{"rxtxmsg.payload.user_id", lineageTestUserID},
+		{"rxtxmsg.payload.amount_v2", lineageTestAmount},
 		{"plain_column", "plain_column"},
 	}
 
@@ -351,7 +365,7 @@ func TestTransformColumnName(t *testing.T) {
 
 func TestNeedsDocumentation(t *testing.T) {
 	cfg := LineageConfig{
-		Inherit: []string{"descriptions", "glossary_terms"},
+		Inherit: []string{lineageTestDescriptions, lineageTestGlossaryTerms},
 	}
 	resolver := newLineageResolver(nil, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
@@ -425,7 +439,7 @@ func TestFieldToColumnContext(t *testing.T) {
 
 func TestInheritMetadata(t *testing.T) {
 	cfg := LineageConfig{
-		Inherit: []string{"descriptions", "glossary_terms", "tags"},
+		Inherit: []string{lineageTestDescriptions, lineageTestGlossaryTerms, "tags"},
 	}
 	resolver := newLineageResolver(nil, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
@@ -443,11 +457,11 @@ func TestInheritMetadata(t *testing.T) {
 		URN:         "urn:upstream",
 		Column:      "source_col",
 		Hops:        1,
-		MatchMethod: "name_exact",
+		MatchMethod: lineageTestNameExact,
 	})
 
 	if target.Description != "Source description" {
-		t.Errorf("expected inherited description, got %q", target.Description)
+		t.Errorf(lineageTestExpectedInheritedDesc, target.Description)
 	}
 	if len(target.GlossaryTerms) != 1 {
 		t.Errorf("expected 1 glossary term, got %d", len(target.GlossaryTerms))
@@ -456,7 +470,7 @@ func TestInheritMetadata(t *testing.T) {
 		t.Errorf("expected 1 tag, got %d", len(target.Tags))
 	}
 	if target.InheritedFrom == nil {
-		t.Fatal("expected InheritedFrom to be set")
+		t.Fatal(lineageTestExpectedInheritedFrom)
 	}
 	if target.InheritedFrom.SourceURN != "urn:upstream" {
 		t.Errorf("expected SourceURN='urn:upstream', got %q", target.InheritedFrom.SourceURN)
@@ -467,14 +481,14 @@ func TestInheritMetadata(t *testing.T) {
 	if target.InheritedFrom.Hops != 1 {
 		t.Errorf("expected Hops=1, got %d", target.InheritedFrom.Hops)
 	}
-	if target.InheritedFrom.MatchMethod != "name_exact" {
+	if target.InheritedFrom.MatchMethod != lineageTestNameExact {
 		t.Errorf("expected MatchMethod='name_exact', got %q", target.InheritedFrom.MatchMethod)
 	}
 }
 
 func TestInheritMetadata_NoInheritanceWhenTargetPopulated(t *testing.T) {
 	cfg := LineageConfig{
-		Inherit: []string{"descriptions"},
+		Inherit: []string{lineageTestDescriptions},
 	}
 	resolver := newLineageResolver(nil, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
@@ -490,7 +504,7 @@ func TestInheritMetadata_NoInheritanceWhenTargetPopulated(t *testing.T) {
 		URN:         "urn:upstream",
 		Column:      "source_col",
 		Hops:        1,
-		MatchMethod: "name_exact",
+		MatchMethod: lineageTestNameExact,
 	})
 
 	if target.Description != "Already has description" {
@@ -509,8 +523,8 @@ func TestDetermineMatchMethod(t *testing.T) {
 		sourceCol string
 		expected  string
 	}{
-		{"user_id", "user_id", "name_exact"},
-		{"rxtxmsg.payload.user_id", "user_id", "name_transformed"},
+		{lineageTestUserID, lineageTestUserID, lineageTestNameExact},
+		{"rxtxmsg.payload.user_id", lineageTestUserID, "name_transformed"},
 	}
 
 	for _, tt := range tests {
@@ -525,7 +539,7 @@ func TestDetermineMatchMethod(t *testing.T) {
 
 func TestBuildColumnsAndFindUndocumented(t *testing.T) {
 	cfg := LineageConfig{
-		Inherit: []string{"descriptions"},
+		Inherit: []string{lineageTestDescriptions},
 	}
 	resolver := newLineageResolver(nil, cfg, semantic.NewSanitizer(semantic.DefaultSanitizeConfig()))
 
@@ -557,7 +571,7 @@ func TestGroupNodesByLevel(t *testing.T) {
 		{URN: "urn:1", Level: 1},
 		{URN: "urn:2", Level: 1},
 		{URN: "urn:3", Level: 2},
-		{URN: "urn:4", Level: 3}, // Should be excluded (> MaxHops)
+		{URN: "urn:4", Level: lineageTestLevelCount}, // Should be excluded (> MaxHops)
 	}
 
 	result := resolver.groupNodesByLevel(nodes)
@@ -584,7 +598,7 @@ func TestCollectUpstreamURNs(t *testing.T) {
 
 	urns := resolver.collectUpstreamURNs(nodesByLevel)
 
-	if len(urns) != 3 {
+	if len(urns) != lineageTestLevelCount {
 		t.Errorf("expected 3 URNs, got %d", len(urns))
 	}
 }
@@ -602,7 +616,7 @@ func TestBuildFieldMap(t *testing.T) {
 	if len(result) != 2 {
 		t.Errorf("expected 2 fields, got %d", len(result))
 	}
-	if _, ok := result["user_id"]; !ok {
+	if _, ok := result[lineageTestUserID]; !ok {
 		t.Error("expected 'user_id' in map (extracted from path)")
 	}
 	if _, ok := result["simple_field"]; !ok {
