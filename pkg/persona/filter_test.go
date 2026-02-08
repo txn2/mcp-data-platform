@@ -188,76 +188,69 @@ func (m *mockRoleMapper) MapToRoles(claims map[string]any) ([]string, error) {
 	return nil, nil //nolint:nilnil // test mock: nil means no roles found
 }
 
-func TestAuthorizer_IsAuthorized(t *testing.T) {
+func TestAuthorizer_IsAuthorized_MapperError(t *testing.T) {
 	reg := NewRegistry()
+	mapper := &mockRoleMapper{
+		mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+			return nil, errors.New("mapper error")
+		},
+	}
+	auth := NewAuthorizer(reg, mapper)
 
-	t.Run("mapper error returns not authorized", func(t *testing.T) {
-		mapper := &mockRoleMapper{
-			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
-				return nil, errors.New("mapper error")
-			},
-		}
-		auth := NewAuthorizer(reg, mapper)
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
+	if authorized {
+		t.Error("expected not authorized on mapper error")
+	}
+	if personaName != "" {
+		t.Errorf("expected empty persona name on mapper error, got %q", personaName)
+	}
+	if reason != "failed to determine persona" {
+		t.Errorf("unexpected reason: %s", reason)
+	}
+}
 
-		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
-		if authorized {
-			t.Error("expected not authorized on mapper error")
-		}
-		if personaName != "" {
-			t.Errorf("expected empty persona name on mapper error, got %q", personaName)
-		}
-		if reason != "failed to determine persona" {
-			t.Errorf("unexpected reason: %s", reason)
-		}
-	})
+func TestAuthorizer_IsAuthorized_ToolNotAllowed(t *testing.T) {
+	reg := NewRegistry()
+	persona := &Persona{Name: filterTestAnalyst, Tools: ToolRules{Allow: []string{filterTestTrinoWild}}}
+	mapper := &mockRoleMapper{
+		mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+			return persona, nil
+		},
+	}
+	auth := NewAuthorizer(reg, mapper)
 
-	t.Run("tool not allowed for persona", func(t *testing.T) {
-		persona := &Persona{
-			Name:  filterTestAnalyst,
-			Tools: ToolRules{Allow: []string{filterTestTrinoWild}},
-		}
-		mapper := &mockRoleMapper{
-			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
-				return persona, nil
-			},
-		}
-		auth := NewAuthorizer(reg, mapper)
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets")
+	if authorized {
+		t.Error("expected not authorized for disallowed tool")
+	}
+	if personaName != filterTestAnalyst {
+		t.Errorf("expected persona name 'analyst', got %q", personaName)
+	}
+	if reason != "tool not allowed for persona: "+filterTestAnalyst {
+		t.Errorf("unexpected reason: %s", reason)
+	}
+}
 
-		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets")
-		if authorized {
-			t.Error("expected not authorized for disallowed tool")
-		}
-		if personaName != filterTestAnalyst {
-			t.Errorf("expected persona name 'analyst', got %q", personaName)
-		}
-		if reason != "tool not allowed for persona: "+filterTestAnalyst {
-			t.Errorf("unexpected reason: %s", reason)
-		}
-	})
+func TestAuthorizer_IsAuthorized_ToolAllowed(t *testing.T) {
+	reg := NewRegistry()
+	persona := &Persona{Name: filterTestAdmin, Tools: ToolRules{Allow: []string{"*"}}}
+	mapper := &mockRoleMapper{
+		mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+			return persona, nil
+		},
+	}
+	auth := NewAuthorizer(reg, mapper)
 
-	t.Run("tool allowed for persona", func(t *testing.T) {
-		persona := &Persona{
-			Name:  filterTestAdmin,
-			Tools: ToolRules{Allow: []string{"*"}},
-		}
-		mapper := &mockRoleMapper{
-			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
-				return persona, nil
-			},
-		}
-		auth := NewAuthorizer(reg, mapper)
-
-		authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAdmin}, "any_tool")
-		if !authorized {
-			t.Error("expected authorized for admin persona")
-		}
-		if personaName != filterTestAdmin {
-			t.Errorf("expected persona name 'admin', got %q", personaName)
-		}
-		if reason != "" {
-			t.Errorf("unexpected reason: %s", reason)
-		}
-	})
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAdmin}, "any_tool")
+	if !authorized {
+		t.Error("expected authorized for admin persona")
+	}
+	if personaName != filterTestAdmin {
+		t.Errorf("expected persona name 'admin', got %q", personaName)
+	}
+	if reason != "" {
+		t.Errorf("unexpected reason: %s", reason)
+	}
 }
 
 // Verify interface compliance.
