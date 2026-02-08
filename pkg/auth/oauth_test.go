@@ -8,6 +8,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const testEmail = "user@example.com"
+
 func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 	signingKey := []byte("test-signing-key-at-least-32-bytes-long")
 	issuer := "https://oauth.example.com"
@@ -34,7 +36,7 @@ func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 			"nbf":   now.Unix(),
 			"scope": "openid profile",
 			"claims": map[string]any{
-				"email": "user@example.com",
+				"email": testEmail,
 				"realm_access": map[string]any{
 					"roles": []any{"dp_analyst", "dp_viewer", "other_role"},
 				},
@@ -56,7 +58,7 @@ func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 		if userInfo.UserID != "user-123" {
 			t.Errorf("expected UserID 'user-123', got %q", userInfo.UserID)
 		}
-		if userInfo.Email != "user@example.com" {
+		if userInfo.Email != testEmail {
 			t.Errorf("expected Email 'user@example.com', got %q", userInfo.Email)
 		}
 		if userInfo.AuthType != "oauth" {
@@ -126,6 +128,19 @@ func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 			t.Error("expected error for wrong signing key")
 		}
 	})
+}
+
+func TestOAuthJWTAuthenticator_Authenticate_EdgeCases(t *testing.T) {
+	signingKey := []byte("test-signing-key-at-least-32-bytes-long")
+	issuer := "https://oauth.example.com"
+
+	authenticator, err := NewOAuthJWTAuthenticator(OAuthJWTConfig{
+		Issuer:     issuer,
+		SigningKey: signingKey,
+	})
+	if err != nil {
+		t.Fatalf("failed to create authenticator: %v", err)
+	}
 
 	t.Run("no token", func(t *testing.T) {
 		_, err := authenticator.Authenticate(context.Background())
