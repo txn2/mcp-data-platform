@@ -20,6 +20,7 @@ const (
 	testAuditCharsHello  = 11
 	testAuditCharsImage  = 19
 	testAuditCharsResult = 16
+	testAuditSourceMCP   = "mcp"
 )
 
 func TestMCPAuditMiddleware_NonToolsCallPassthrough(t *testing.T) {
@@ -266,9 +267,9 @@ func TestCalculateResponseSize_SingleText(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: "hello world"}},
 	}
-	chars, tokens := calculateResponseSize(result, nil)
+	chars, blocks := calculateResponseSize(result, nil)
 	assert.Equal(t, testAuditCharsHello, chars)
-	assert.Equal(t, 2, tokens) // 11/4 = 2 (truncated).
+	assert.Equal(t, 1, blocks)
 }
 
 func TestCalculateResponseSize_MultipleItems(t *testing.T) {
@@ -288,30 +289,30 @@ func TestCalculateResponseSize_MultipleItems(t *testing.T) {
 			&mcp.TextContent{Text: string(text2)},
 		},
 	}
-	chars, tokens := calculateResponseSize(result, nil)
+	chars, blocks := calculateResponseSize(result, nil)
 	assert.Equal(t, 1000, chars) //nolint:revive // expected test value
-	assert.Equal(t, 250, tokens) //nolint:revive // 1000/4 = 250
+	assert.Equal(t, 2, blocks)
 }
 
 func TestCalculateResponseSize_ErrorResult(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: "hello"}},
 	}
-	chars, tokens := calculateResponseSize(result, assert.AnError)
+	chars, blocks := calculateResponseSize(result, assert.AnError)
 	assert.Equal(t, 0, chars)
-	assert.Equal(t, 0, tokens)
+	assert.Equal(t, 0, blocks)
 }
 
 func TestCalculateResponseSize_NilResult(t *testing.T) {
-	chars, tokens := calculateResponseSize(nil, nil)
+	chars, blocks := calculateResponseSize(nil, nil)
 	assert.Equal(t, 0, chars)
-	assert.Equal(t, 0, tokens)
+	assert.Equal(t, 0, blocks)
 }
 
 func TestCalculateResponseSize_NonCallToolResult(t *testing.T) {
-	chars, tokens := calculateResponseSize(&mcp.ListResourcesResult{}, nil)
+	chars, blocks := calculateResponseSize(&mcp.ListResourcesResult{}, nil)
 	assert.Equal(t, 0, chars)
-	assert.Equal(t, 0, tokens)
+	assert.Equal(t, 0, blocks)
 }
 
 func TestCalculateResponseSize_ImageContent(t *testing.T) {
@@ -321,29 +322,61 @@ func TestCalculateResponseSize_ImageContent(t *testing.T) {
 			&mcp.ImageContent{Data: []byte("base64imagedata")},
 		},
 	}
-	chars, tokens := calculateResponseSize(result, nil)
+	chars, blocks := calculateResponseSize(result, nil)
 	// "text" = 4, "base64imagedata" = 15, total = 19.
 	assert.Equal(t, testAuditCharsImage, chars)
-	assert.Equal(t, 4, tokens) //nolint:revive // 19/4 = 4
+	assert.Equal(t, 2, blocks)
 }
 
 func TestCalculateResponseSize_EmptyContent(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{},
 	}
-	chars, tokens := calculateResponseSize(result, nil)
+	chars, blocks := calculateResponseSize(result, nil)
 	assert.Equal(t, 0, chars)
-	assert.Equal(t, 0, tokens)
+	assert.Equal(t, 0, blocks)
+}
+
+func TestCalculateRequestSize(t *testing.T) {
+	t.Run("nil request", func(t *testing.T) {
+		assert.Equal(t, 0, calculateRequestSize(nil))
+	})
+
+	t.Run("with arguments", func(t *testing.T) {
+		req := createAuditTestRequest(t, "test", map[string]any{"key": "value"})
+		size := calculateRequestSize(req)
+		assert.Greater(t, size, 0)
+	})
+
+	t.Run("nil arguments", func(t *testing.T) {
+		req := createAuditTestRequest(t, "test", nil)
+		size := calculateRequestSize(req)
+		assert.Equal(t, 0, size)
+	})
+
+	t.Run("nil params", func(t *testing.T) {
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{Params: nil}
+		assert.Equal(t, 0, calculateRequestSize(req))
+	})
+
+	t.Run("wrong params type", func(t *testing.T) {
+		req := &mcp.ServerRequest[*mcp.ListToolsParams]{Params: &mcp.ListToolsParams{}}
+		assert.Equal(t, 0, calculateRequestSize(req))
+	})
 }
 
 func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
 	pc := NewPlatformContext("req-test")
 	pc.ToolName = testAuditToolName
+	pc.SessionID = "test-session"
+	pc.Transport = "stdio"
+	pc.Source = testAuditSourceMCP
+	pc.Authorized = true
 
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: "hello world"}},
 	}
-	req := createAuditTestRequest(t, testAuditToolName, nil)
+	req := createAuditTestRequest(t, testAuditToolName, map[string]any{"sql": "SELECT 1"})
 
 	event := buildMCPAuditEvent(pc, auditCallInfo{
 		Request:   req,
@@ -354,7 +387,12 @@ func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
 	})
 
 	assert.Equal(t, testAuditCharsHello, event.ResponseChars)
-	assert.Equal(t, 2, event.ResponseTokenEstimate)
+	assert.Equal(t, 1, event.ContentBlocks)
+	assert.Greater(t, event.RequestChars, 0)
+	assert.Equal(t, "test-session", event.SessionID)
+	assert.Equal(t, "stdio", event.Transport)
+	assert.Equal(t, testAuditSourceMCP, event.Source)
+	assert.True(t, event.Authorized)
 }
 
 func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
@@ -381,7 +419,7 @@ func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
 	events := mockLogger.Events()
 	require.Len(t, events, 1)
 	assert.Equal(t, testAuditCharsResult, events[0].ResponseChars) // "result data here" = 16 chars.
-	assert.Equal(t, 4, events[0].ResponseTokenEstimate)            //nolint:revive // 16/4 = 4
+	assert.Equal(t, 1, events[0].ContentBlocks)
 }
 
 // capturingAuditLogger captures audit events for testing.
