@@ -15,6 +15,7 @@ const (
 	filterTestTrinoQuery    = "trino_query"
 	filterTestTrinoWild     = "trino_*"
 	filterTestFilterCount   = 3
+	filterTestWildcard      = "*"
 )
 
 func TestToolFilter_IsAllowed(t *testing.T) {
@@ -37,7 +38,7 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 			name: "wildcard allow",
 			persona: &Persona{
 				Name:  filterTestAdmin,
-				Tools: ToolRules{Allow: []string{"*"}},
+				Tools: ToolRules{Allow: []string{filterTestWildcard}},
 			},
 			toolName: "any_tool",
 			want:     true,
@@ -55,7 +56,7 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 			name: "prefix deny",
 			persona: &Persona{
 				Name:  filterTestAnalyst,
-				Tools: ToolRules{Allow: []string{"*"}, Deny: []string{"s3_delete_*"}},
+				Tools: ToolRules{Allow: []string{filterTestWildcard}, Deny: []string{"s3_delete_*"}},
 			},
 			toolName: "s3_delete_object",
 			want:     false,
@@ -233,7 +234,7 @@ func TestAuthorizer_IsAuthorized_ToolNotAllowed(t *testing.T) {
 
 func TestAuthorizer_IsAuthorized_ToolAllowed(t *testing.T) {
 	reg := NewRegistry()
-	persona := &Persona{Name: filterTestAdmin, Tools: ToolRules{Allow: []string{"*"}}}
+	persona := &Persona{Name: filterTestAdmin, Tools: ToolRules{Allow: []string{filterTestWildcard}}}
 	mapper := &mockRoleMapper{
 		mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
 			return persona, nil
