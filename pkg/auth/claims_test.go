@@ -2,13 +2,15 @@ package auth
 
 import "testing"
 
+const testSubjectClaim = "sub"
+
 func TestClaimsExtractor_Extract(t *testing.T) {
 	extractor := &ClaimsExtractor{
 		RoleClaimPath:    "realm_access.roles",
 		RolePrefix:       "dp_",
 		EmailClaimPath:   "email",
 		NameClaimPath:    "name",
-		SubjectClaimPath: "sub",
+		SubjectClaimPath: testSubjectClaim,
 	}
 
 	claims := map[string]any{
@@ -45,23 +47,23 @@ func TestDefaultClaimsExtractor(t *testing.T) {
 	if extractor.RoleClaimPath != "roles" {
 		t.Errorf("RoleClaimPath = %q, want %q", extractor.RoleClaimPath, "roles")
 	}
-	if extractor.SubjectClaimPath != "sub" {
-		t.Errorf("SubjectClaimPath = %q, want %q", extractor.SubjectClaimPath, "sub")
+	if extractor.SubjectClaimPath != testSubjectClaim {
+		t.Errorf("SubjectClaimPath = %q, want %q", extractor.SubjectClaimPath, testSubjectClaim)
 	}
 }
 
 func TestValidateClaims(t *testing.T) {
 	t.Run("all required present", func(t *testing.T) {
-		claims := map[string]any{"sub": "user", "email": "user@example.com"}
-		err := ValidateClaims(claims, []string{"sub", "email"})
+		claims := map[string]any{testSubjectClaim: "user", "email": "user@example.com"}
+		err := ValidateClaims(claims, []string{testSubjectClaim, "email"})
 		if err != nil {
 			t.Errorf("ValidateClaims() error = %v", err)
 		}
 	})
 
 	t.Run("missing required", func(t *testing.T) {
-		claims := map[string]any{"sub": "user"}
-		err := ValidateClaims(claims, []string{"sub", "email"})
+		claims := map[string]any{testSubjectClaim: "user"}
+		err := ValidateClaims(claims, []string{testSubjectClaim, "email"})
 		if err == nil {
 			t.Error("ValidateClaims() expected error for missing claim")
 		}
@@ -204,7 +206,7 @@ func TestClaimsExtractor_getStringSlice(t *testing.T) {
 func TestClaimsExtractor_Extract_EdgeCases(t *testing.T) {
 	t.Run("empty role claim path", func(t *testing.T) {
 		extractor := &ClaimsExtractor{
-			SubjectClaimPath: "sub",
+			SubjectClaimPath: testSubjectClaim,
 		}
 		claims := map[string]any{
 			"sub":   "user123",
@@ -222,7 +224,7 @@ func TestClaimsExtractor_Extract_EdgeCases(t *testing.T) {
 	t.Run("no role prefix filter", func(t *testing.T) {
 		extractor := &ClaimsExtractor{
 			RoleClaimPath:    "roles",
-			SubjectClaimPath: "sub",
+			SubjectClaimPath: testSubjectClaim,
 		}
 		claims := map[string]any{
 			"sub":   "user123",
@@ -239,7 +241,7 @@ func TestClaimsExtractor_Extract_EdgeCases(t *testing.T) {
 
 	t.Run("with groups", func(t *testing.T) {
 		extractor := &ClaimsExtractor{
-			SubjectClaimPath: "sub",
+			SubjectClaimPath: testSubjectClaim,
 			GroupClaimPath:   "groups",
 		}
 		claims := map[string]any{
