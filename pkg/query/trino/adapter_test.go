@@ -16,7 +16,7 @@ const (
 	adapterTestRowCount100   = 100
 	adapterTestRowCount200   = 200
 	adapterTestRowCount50    = 50
-	adapterTestWarehouse     = adapterTestWarehouse
+	adapterTestWarehouse     = "warehouse"
 )
 
 // mockTrinoClient implements the Client interface for testing.
