@@ -38,6 +38,13 @@ type PlatformContext struct {
 	Authorized bool
 	AuthzError string
 
+	// Transport metadata
+	Transport string // "stdio" or "http"
+	Source    string // "mcp", "admin", "inspector"
+
+	// Enrichment tracking (set by enrichment middleware, read by audit)
+	EnrichmentApplied bool
+
 	// Results (populated after handler)
 	Success      bool
 	ErrorMessage string
