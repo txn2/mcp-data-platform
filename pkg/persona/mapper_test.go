@@ -428,7 +428,7 @@ func TestOIDCRoleMapper_MapToRoles_NonStringValue(t *testing.T) {
 
 	// roles contains a non-string value
 	claims := map[string]any{
-		mapperTestRoles: []any{"admin", mapperTestNonStringVal, "user"},
+		mapperTestRoles: []any{"admin", mapperTestNonStringVal, mapperTestUser},
 	}
 	roles, err := mapper.MapToRoles(claims)
 	if err != nil {
