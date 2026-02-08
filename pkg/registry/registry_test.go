@@ -10,6 +10,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+const regTestTrino = "trino"
+
 // mockToolkit is a simple mock for testing.
 type mockToolkit struct {
 	kind       string
@@ -22,10 +24,10 @@ type mockToolkit struct {
 func (m *mockToolkit) Kind() string                            { return m.kind }
 func (m *mockToolkit) Name() string                            { return m.name }
 func (m *mockToolkit) Connection() string                      { return m.connection }
-func (m *mockToolkit) RegisterTools(_ *mcp.Server)             {}
+func (m *mockToolkit) RegisterTools(_ *mcp.Server)             {} //nolint:revive // unused-receiver: mock
 func (m *mockToolkit) Tools() []string                         { return m.tools }
-func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {}
-func (m *mockToolkit) SetQueryProvider(_ query.Provider)       {}
+func (m *mockToolkit) SetSemanticProvider(_ semantic.Provider) {} //nolint:revive // unused-receiver: mock
+func (m *mockToolkit) SetQueryProvider(_ query.Provider)       {} //nolint:revive // unused-receiver: mock
 func (m *mockToolkit) Close() error                            { m.closeCalls++; return nil }
 
 // mockToolkitWithCloseError is a toolkit that returns an error on Close.
@@ -33,209 +35,186 @@ type mockToolkitWithCloseError struct {
 	mockToolkit
 }
 
-func (m *mockToolkitWithCloseError) Close() error {
+func (m *mockToolkitWithCloseError) Close() error { //nolint:revive // unused-receiver: mock
 	return fmt.Errorf("close error")
 }
 
-func TestRegistry(t *testing.T) {
-	t.Run("Register and Get", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
+func TestRegistry_RegisterAndGet(t *testing.T) {
+	reg := NewRegistry()
+	toolkit := &mockToolkit{kind: regTestTrino, name: "prod"}
 
-		if err := reg.Register(toolkit); err != nil {
-			t.Fatalf("Register() error = %v", err)
-		}
+	if err := reg.Register(toolkit); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
 
-		got, ok := reg.Get("trino", "prod")
-		if !ok {
-			t.Fatal("Get() returned false")
-		}
-		if got.Kind() != "trino" {
-			t.Errorf("Kind() = %q, want %q", got.Kind(), "trino")
-		}
+	got, ok := reg.Get(regTestTrino, "prod")
+	if !ok {
+		t.Fatal("Get() returned false")
+	}
+	if got.Kind() != regTestTrino {
+		t.Errorf("Kind() = %q, want %q", got.Kind(), regTestTrino)
+	}
+}
+
+func TestRegistry_RegisterDuplicate(t *testing.T) {
+	reg := NewRegistry()
+	toolkit := &mockToolkit{kind: regTestTrino, name: "prod"}
+
+	_ = reg.Register(toolkit)
+	err := reg.Register(toolkit)
+	if err == nil {
+		t.Error("Register() expected error for duplicate")
+	}
+}
+
+func TestRegistry_GetNotFound(t *testing.T) {
+	reg := NewRegistry()
+	_, ok := reg.Get("nonexistent", "name")
+	if ok {
+		t.Error("Get() returned true for nonexistent toolkit")
+	}
+}
+
+func TestRegistry_GetByKind(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: "prod"})
+	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: "staging"})
+	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main"})
+
+	trinoToolkits := reg.GetByKind(regTestTrino)
+	if len(trinoToolkits) != 2 {
+		t.Errorf("GetByKind(trino) returned %d toolkits, want 2", len(trinoToolkits))
+	}
+}
+
+func TestRegistry_AllAndAllTools(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: "prod", tools: []string{"trino_query", "trino_describe"}})
+	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
+
+	all := reg.All()
+	if len(all) != 2 {
+		t.Errorf("All() returned %d toolkits, want 2", len(all))
+	}
+
+	tools := reg.AllTools()
+	if len(tools) != 3 {
+		t.Errorf("AllTools() returned %d tools, want 3", len(tools))
+	}
+}
+
+func TestRegistry_Close(t *testing.T) {
+	reg := NewRegistry()
+	toolkit := &mockToolkit{kind: regTestTrino, name: "prod"}
+	_ = reg.Register(toolkit)
+
+	if err := reg.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+	if toolkit.closeCalls != 1 {
+		t.Errorf("closeCalls = %d, want 1", toolkit.closeCalls)
+	}
+}
+
+func TestRegistry_CloseWithError(t *testing.T) {
+	reg := NewRegistry()
+	toolkit := &mockToolkitWithCloseError{mockToolkit: mockToolkit{kind: regTestTrino, name: "prod"}}
+	_ = reg.Register(toolkit)
+
+	err := reg.Close()
+	if err == nil {
+		t.Error("Close() expected error when toolkit fails")
+	}
+}
+
+func TestRegistry_Providers(t *testing.T) {
+	reg := NewRegistry()
+	toolkit := &mockToolkit{kind: regTestTrino, name: "prod"}
+	_ = reg.Register(toolkit)
+
+	reg.SetSemanticProvider(semantic.NewNoopProvider())
+	reg.SetQueryProvider(query.NewNoopProvider())
+	// Just verify it doesn't panic
+}
+
+func TestRegistry_RegisterAllTools(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: "prod", tools: []string{"trino_query"}})
+	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+	reg.RegisterAllTools(server) // Should not panic
+}
+
+func TestRegistry_RegisterWithPresetProviders(t *testing.T) {
+	reg := NewRegistry()
+	reg.SetSemanticProvider(semantic.NewNoopProvider())
+	reg.SetQueryProvider(query.NewNoopProvider())
+
+	toolkit := &mockToolkit{kind: regTestTrino, name: "prod"}
+	if err := reg.Register(toolkit); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	got, ok := reg.Get(regTestTrino, "prod")
+	if !ok {
+		t.Fatal("Get() returned false")
+	}
+	if got.Kind() != regTestTrino {
+		t.Errorf("Kind() = %q, want %q", got.Kind(), regTestTrino)
+	}
+}
+
+func TestRegistry_Factory(t *testing.T) {
+	reg := NewRegistry()
+	factory := func(name string, _ map[string]any) (Toolkit, error) {
+		return &mockToolkit{kind: "custom", name: name}, nil
+	}
+	reg.RegisterFactory("custom", factory)
+
+	err := reg.CreateAndRegister(ToolkitConfig{
+		Kind:   "custom",
+		Name:   "test",
+		Config: map[string]any{},
 	})
+	if err != nil {
+		t.Fatalf("CreateAndRegister() error = %v", err)
+	}
 
-	t.Run("Register duplicate", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
+	_, ok := reg.Get("custom", "test")
+	if !ok {
+		t.Error("Get() returned false after CreateAndRegister")
+	}
+}
 
-		_ = reg.Register(toolkit)
-		err := reg.Register(toolkit)
-		if err == nil {
-			t.Error("Register() expected error for duplicate")
-		}
+func TestRegistry_FactoryError(t *testing.T) {
+	reg := NewRegistry()
+	factory := func(_ string, _ map[string]any) (Toolkit, error) {
+		return nil, fmt.Errorf("factory error")
+	}
+	reg.RegisterFactory("failing", factory)
+
+	err := reg.CreateAndRegister(ToolkitConfig{
+		Kind:   "failing",
+		Name:   "test",
+		Config: map[string]any{},
 	})
+	if err == nil {
+		t.Error("CreateAndRegister() expected error when factory fails")
+	}
+}
 
-	t.Run("Get not found", func(t *testing.T) {
-		reg := NewRegistry()
-		_, ok := reg.Get("nonexistent", "name")
-		if ok {
-			t.Error("Get() returned true for nonexistent toolkit")
-		}
+func TestRegistry_UnknownKind(t *testing.T) {
+	reg := NewRegistry()
+
+	err := reg.CreateAndRegister(ToolkitConfig{
+		Kind:   "unknown",
+		Name:   "test",
+		Config: map[string]any{},
 	})
-
-	t.Run("GetByKind", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod"})
-		_ = reg.Register(&mockToolkit{kind: "trino", name: "staging"})
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "main"})
-
-		trinoToolkits := reg.GetByKind("trino")
-		if len(trinoToolkits) != 2 {
-			t.Errorf("GetByKind(trino) returned %d toolkits, want 2", len(trinoToolkits))
-		}
-	})
-
-	t.Run("All", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod"})
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "main"})
-
-		all := reg.All()
-		if len(all) != 2 {
-			t.Errorf("All() returned %d toolkits, want 2", len(all))
-		}
-	})
-
-	t.Run("AllTools", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod", tools: []string{"trino_query", "trino_describe"}})
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
-
-		tools := reg.AllTools()
-		if len(tools) != 3 {
-			t.Errorf("AllTools() returned %d tools, want 3", len(tools))
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
-		_ = reg.Register(toolkit)
-
-		if err := reg.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-		if toolkit.closeCalls != 1 {
-			t.Errorf("closeCalls = %d, want 1", toolkit.closeCalls)
-		}
-	})
-
-	t.Run("SetSemanticProvider", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
-		_ = reg.Register(toolkit)
-
-		provider := semantic.NewNoopProvider()
-		reg.SetSemanticProvider(provider)
-		// Just verify it doesn't panic
-	})
-
-	t.Run("SetQueryProvider", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
-		_ = reg.Register(toolkit)
-
-		provider := query.NewNoopProvider()
-		reg.SetQueryProvider(provider)
-		// Just verify it doesn't panic
-	})
-
-	t.Run("RegisterAllTools", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "trino", name: "prod", tools: []string{"trino_query"}})
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
-
-		server := mcp.NewServer(&mcp.Implementation{
-			Name:    "test",
-			Version: "1.0.0",
-		}, nil)
-		// Should not panic
-		reg.RegisterAllTools(server)
-	})
-
-	t.Run("Register with providers pre-set", func(t *testing.T) {
-		reg := NewRegistry()
-		// Set providers before registering
-		reg.SetSemanticProvider(semantic.NewNoopProvider())
-		reg.SetQueryProvider(query.NewNoopProvider())
-
-		toolkit := &mockToolkit{kind: "trino", name: "prod"}
-		if err := reg.Register(toolkit); err != nil {
-			t.Fatalf("Register() error = %v", err)
-		}
-
-		got, ok := reg.Get("trino", "prod")
-		if !ok {
-			t.Fatal("Get() returned false")
-		}
-		if got.Kind() != "trino" {
-			t.Errorf("Kind() = %q, want %q", got.Kind(), "trino")
-		}
-	})
-
-	t.Run("Close with toolkit error", func(t *testing.T) {
-		reg := NewRegistry()
-		toolkit := &mockToolkitWithCloseError{mockToolkit: mockToolkit{kind: "trino", name: "prod"}}
-		_ = reg.Register(toolkit)
-
-		err := reg.Close()
-		if err == nil {
-			t.Error("Close() expected error when toolkit fails")
-		}
-	})
-
-	t.Run("RegisterFactory", func(t *testing.T) {
-		reg := NewRegistry()
-		factory := func(name string, config map[string]any) (Toolkit, error) {
-			return &mockToolkit{kind: "custom", name: name}, nil
-		}
-		reg.RegisterFactory("custom", factory)
-
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "custom",
-			Name:   "test",
-			Config: map[string]any{},
-		})
-		if err != nil {
-			t.Fatalf("CreateAndRegister() error = %v", err)
-		}
-
-		_, ok := reg.Get("custom", "test")
-		if !ok {
-			t.Error("Get() returned false after CreateAndRegister")
-		}
-	})
-
-	t.Run("CreateAndRegister factory error", func(t *testing.T) {
-		reg := NewRegistry()
-		factory := func(name string, config map[string]any) (Toolkit, error) {
-			return nil, fmt.Errorf("factory error")
-		}
-		reg.RegisterFactory("failing", factory)
-
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "failing",
-			Name:   "test",
-			Config: map[string]any{},
-		})
-		if err == nil {
-			t.Error("CreateAndRegister() expected error when factory fails")
-		}
-	})
-
-	t.Run("CreateAndRegister unknown kind", func(t *testing.T) {
-		reg := NewRegistry()
-
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "unknown",
-			Name:   "test",
-			Config: map[string]any{},
-		})
-		if err == nil {
-			t.Error("CreateAndRegister() expected error for unknown kind")
-		}
-	})
+	if err == nil {
+		t.Error("CreateAndRegister() expected error for unknown kind")
+	}
 }
 
 func TestRegisterBuiltinFactories(t *testing.T) {
@@ -246,7 +225,7 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 	t.Run("trino factory registered", func(t *testing.T) {
 		// Should fail with invalid config (missing host)
 		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "trino",
+			Kind:   regTestTrino,
 			Name:   "test",
 			Config: map[string]any{},
 		})
@@ -300,100 +279,80 @@ func TestS3Factory(t *testing.T) {
 	_, _ = S3Factory("test", map[string]any{})
 }
 
-func TestGetToolkitForTool(t *testing.T) {
-	t.Run("found tool in toolkit", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{
-			kind:       "trino",
-			name:       "production",
-			connection: "prod-trino",
-			tools:      []string{"trino_query", "trino_describe"},
-		})
-
-		match := reg.GetToolkitForTool("trino_query")
-		if !match.Found {
-			t.Error("expected to find tool")
-		}
-		if match.Kind != "trino" {
-			t.Errorf("expected kind 'trino', got %q", match.Kind)
-		}
-		if match.Name != "production" {
-			t.Errorf("expected name 'production', got %q", match.Name)
-		}
-		if match.Connection != "prod-trino" {
-			t.Errorf("expected connection 'prod-trino', got %q", match.Connection)
-		}
+func TestGetToolkitForTool_Found(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{
+		kind:       regTestTrino,
+		name:       "production",
+		connection: "prod-trino",
+		tools:      []string{"trino_query", "trino_describe"},
 	})
 
-	t.Run("tool not found", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{
-			kind:       "trino",
-			name:       "production",
-			connection: "prod-trino",
-			tools:      []string{"trino_query"},
-		})
+	match := reg.GetToolkitForTool("trino_query")
+	assertToolMatch(t, match, regTestTrino, "production", "prod-trino", true)
+}
 
-		match := reg.GetToolkitForTool("unknown_tool")
-		if match.Found {
-			t.Error("expected tool not to be found")
-		}
-		if match.Kind != "" || match.Name != "" || match.Connection != "" {
-			t.Error("expected empty strings when not found")
-		}
+func TestGetToolkitForTool_NotFound(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{
+		kind:       regTestTrino,
+		name:       "production",
+		connection: "prod-trino",
+		tools:      []string{"trino_query"},
 	})
 
-	t.Run("multiple toolkits", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&mockToolkit{
-			kind:       "trino",
-			name:       "production",
-			connection: "prod-trino",
-			tools:      []string{"trino_query", "trino_describe"},
-		})
-		_ = reg.Register(&mockToolkit{
-			kind:       "datahub",
-			name:       "main",
-			connection: "main-datahub",
-			tools:      []string{"datahub_search", "datahub_get_entity"},
-		})
-		_ = reg.Register(&mockToolkit{
-			kind:       "s3",
-			name:       "storage",
-			connection: "s3-storage",
-			tools:      []string{"s3_list_buckets", "s3_get_object"},
-		})
+	match := reg.GetToolkitForTool("unknown_tool")
+	assertToolMatch(t, match, "", "", "", false)
+}
 
-		// Test finding tool in each toolkit
-		tests := []struct {
-			tool      string
-			wantKind  string
-			wantName  string
-			wantConn  string
-			wantFound bool
-		}{
-			{"trino_query", "trino", "production", "prod-trino", true},
-			{"datahub_search", "datahub", "main", "main-datahub", true},
-			{"s3_list_buckets", "s3", "storage", "s3-storage", true},
-			{"unknown", "", "", "", false},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.tool, func(t *testing.T) {
-				match := reg.GetToolkitForTool(tt.tool)
-				if match.Found != tt.wantFound {
-					t.Errorf("found = %v, want %v", match.Found, tt.wantFound)
-				}
-				if match.Kind != tt.wantKind {
-					t.Errorf("kind = %q, want %q", match.Kind, tt.wantKind)
-				}
-				if match.Name != tt.wantName {
-					t.Errorf("name = %q, want %q", match.Name, tt.wantName)
-				}
-				if match.Connection != tt.wantConn {
-					t.Errorf("connection = %q, want %q", match.Connection, tt.wantConn)
-				}
-			})
-		}
+func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
+	reg := NewRegistry()
+	_ = reg.Register(&mockToolkit{
+		kind: regTestTrino, name: "production", connection: "prod-trino",
+		tools: []string{"trino_query", "trino_describe"},
 	})
+	_ = reg.Register(&mockToolkit{
+		kind: "datahub", name: "main", connection: "main-datahub",
+		tools: []string{"datahub_search", "datahub_get_entity"},
+	})
+	_ = reg.Register(&mockToolkit{
+		kind: "s3", name: "storage", connection: "s3-storage",
+		tools: []string{"s3_list_buckets", "s3_get_object"},
+	})
+
+	tests := []struct {
+		tool      string
+		wantKind  string
+		wantName  string
+		wantConn  string
+		wantFound bool
+	}{
+		{"trino_query", regTestTrino, "production", "prod-trino", true},
+		{"datahub_search", "datahub", "main", "main-datahub", true},
+		{"s3_list_buckets", "s3", "storage", "s3-storage", true},
+		{"unknown", "", "", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			match := reg.GetToolkitForTool(tt.tool)
+			assertToolMatch(t, match, tt.wantKind, tt.wantName, tt.wantConn, tt.wantFound)
+		})
+	}
+}
+
+func assertToolMatch(t *testing.T, match ToolkitMatch, wantKind, wantName, wantConn string, wantFound bool) {
+	t.Helper()
+	if match.Found != wantFound {
+		t.Errorf("found = %v, want %v", match.Found, wantFound)
+	}
+	if match.Kind != wantKind {
+		t.Errorf("kind = %q, want %q", match.Kind, wantKind)
+	}
+	if match.Name != wantName {
+		t.Errorf("name = %q, want %q", match.Name, wantName)
+	}
+	if match.Connection != wantConn {
+		t.Errorf("connection = %q, want %q", match.Connection, wantConn)
+	}
 }
