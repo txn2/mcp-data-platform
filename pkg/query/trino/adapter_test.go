@@ -10,7 +10,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
-const adapterTestTrino = "trino"
+const (
+	adapterTestTrino         = "trino"
+	adapterTestUnexpectedErr = "unexpected error: %v"
+	adapterTestRowCount100   = 100
+	adapterTestRowCount200   = 200
+	adapterTestRowCount50    = 50
+	adapterTestWarehouse     = adapterTestWarehouse
+)
 
 // mockTrinoClient implements the Client interface for testing.
 type mockTrinoClient struct {
@@ -84,7 +91,7 @@ func TestNewWithClient(t *testing.T) {
 		mock := &mockTrinoClient{}
 		adapter, err := NewWithClient(Config{ConnectionName: "test"}, mock)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
 		if adapter.Name() != adapterTestTrino {
 			t.Errorf("expected name 'trino', got %q", adapter.Name())
@@ -95,7 +102,7 @@ func TestNewWithClient(t *testing.T) {
 		mock := &mockTrinoClient{}
 		adapter, err := NewWithClient(Config{}, mock)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
 		if adapter.cfg.DefaultLimit != 1000 {
 			t.Errorf("expected default limit 1000, got %d", adapter.cfg.DefaultLimit)
@@ -170,103 +177,108 @@ func TestResolveTable(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf(adapterTestUnexpectedErr, err)
 			}
-			if result.Catalog != tt.wantCatalog {
-				t.Errorf("expected catalog %q, got %q", tt.wantCatalog, result.Catalog)
-			}
-			if result.Schema != tt.wantSchema {
-				t.Errorf("expected schema %q, got %q", tt.wantSchema, result.Schema)
-			}
-			if result.Table != tt.wantTable {
-				t.Errorf("expected table %q, got %q", tt.wantTable, result.Table)
-			}
+			assertTableIdentifier(t, result, tt.wantCatalog, tt.wantSchema, tt.wantTable)
 		})
 	}
 }
 
-func TestGetTableAvailability(t *testing.T) {
+func assertTableIdentifier(t *testing.T, result *query.TableIdentifier, wantCatalog, wantSchema, wantTable string) {
+	t.Helper()
+	if result.Catalog != wantCatalog {
+		t.Errorf("expected catalog %q, got %q", wantCatalog, result.Catalog)
+	}
+	if result.Schema != wantSchema {
+		t.Errorf("expected schema %q, got %q", wantSchema, result.Schema)
+	}
+	if result.Table != wantTable {
+		t.Errorf("expected table %q, got %q", wantTable, result.Table)
+	}
+}
+
+func TestGetTableAvailability_TableExists(t *testing.T) {
 	ctx := context.Background()
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return &trinoclient.TableInfo{Name: "test_table"}, nil
+		},
+		queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
+			return &trinoclient.QueryResult{
+				Rows: []map[string]any{{"_col0": int64(adapterTestRowCount100)}},
+			}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
 
-	t.Run("table exists with row count", func(t *testing.T) {
-		mock := &mockTrinoClient{
-			describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
-				return &trinoclient.TableInfo{Name: "test_table"}, nil
-			},
-			queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
-				return &trinoclient.QueryResult{
-					Rows: []map[string]any{{"_col0": int64(100)}},
-				}, nil
-			},
-		}
-		adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if !result.Available {
+		t.Error("expected Available to be true")
+	}
+	if result.EstimatedRows == nil || *result.EstimatedRows != adapterTestRowCount100 {
+		t.Error("expected EstimatedRows to be 100")
+	}
+}
 
-		result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Available {
-			t.Error("expected Available to be true")
-		}
-		if result.EstimatedRows == nil || *result.EstimatedRows != 100 {
-			t.Error("expected EstimatedRows to be 100")
-		}
-	})
+func TestGetTableAvailability_FloatCount(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return &trinoclient.TableInfo{Name: "test_table"}, nil
+		},
+		queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
+			return &trinoclient.QueryResult{
+				Rows: []map[string]any{{"_col0": float64(adapterTestRowCount200)}},
+			}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
 
-	t.Run("table exists with float count", func(t *testing.T) {
-		mock := &mockTrinoClient{
-			describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
-				return &trinoclient.TableInfo{Name: "test_table"}, nil
-			},
-			queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
-				return &trinoclient.QueryResult{
-					Rows: []map[string]any{{"_col0": float64(200)}},
-				}, nil
-			},
-		}
-		adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if result.EstimatedRows == nil || *result.EstimatedRows != adapterTestRowCount200 {
+		t.Error("expected EstimatedRows to be 200")
+	}
+}
 
-		result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.EstimatedRows == nil || *result.EstimatedRows != 200 {
-			t.Error("expected EstimatedRows to be 200")
-		}
-	})
+func TestGetTableAvailability_NotExists(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return nil, errors.New("table not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{Catalog: "hive"}, mock)
 
-	t.Run("table does not exist", func(t *testing.T) {
-		mock := &mockTrinoClient{
-			describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
-				return nil, errors.New("table not found")
-			},
-		}
-		adapter, _ := NewWithClient(Config{Catalog: "hive"}, mock)
+	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if result.Available {
+		t.Error("expected Available to be false")
+	}
+	if result.Error == "" {
+		t.Error("expected error message")
+	}
+}
 
-		result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Available {
-			t.Error("expected Available to be false")
-		}
-		if result.Error == "" {
-			t.Error("expected error message")
-		}
-	})
+func TestGetTableAvailability_InvalidURN(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockTrinoClient{}
+	adapter, _ := NewWithClient(Config{}, mock)
 
-	t.Run("invalid URN", func(t *testing.T) {
-		mock := &mockTrinoClient{}
-		adapter, _ := NewWithClient(Config{}, mock)
-
-		result, err := adapter.GetTableAvailability(ctx, "invalid-urn")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Available {
-			t.Error("expected Available to be false")
-		}
-	})
+	result, err := adapter.GetTableAvailability(ctx, "invalid-urn")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if result.Available {
+		t.Error("expected Available to be false")
+	}
 }
 
 func TestGetQueryExamples(t *testing.T) {
@@ -277,7 +289,7 @@ func TestGetQueryExamples(t *testing.T) {
 	t.Run("valid URN", func(t *testing.T) {
 		examples, err := adapter.GetQueryExamples(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,myschema.mytable,PROD)")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
 		if len(examples) != 3 {
 			t.Errorf("expected 3 examples, got %d", len(examples))
@@ -299,7 +311,7 @@ func TestGetExecutionContext(t *testing.T) {
 		},
 		queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
 			return &trinoclient.QueryResult{
-				Rows: []map[string]any{{"_col0": int64(50)}},
+				Rows: []map[string]any{{"_col0": int64(adapterTestRowCount50)}},
 			}, nil
 		},
 	}
@@ -314,7 +326,7 @@ func TestGetExecutionContext(t *testing.T) {
 
 	result, err := adapter.GetExecutionContext(ctx, urns)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
 	if len(result.Tables) != 2 {
 		t.Errorf("expected 2 tables, got %d", len(result.Tables))
@@ -346,7 +358,7 @@ func TestGetTableSchema(t *testing.T) {
 			Table:   "users",
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
 		if len(schema.Columns) != 2 {
 			t.Errorf("expected 2 columns, got %d", len(schema.Columns))
@@ -364,7 +376,7 @@ func TestGetTableSchema(t *testing.T) {
 			Table: "users",
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
 		if len(schema.Columns) != 2 {
 			t.Errorf("expected 2 columns, got %d", len(schema.Columns))
@@ -476,13 +488,13 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 			name:           "no mapping - uses original catalog",
 			catalogMapping: nil,
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
-			wantCatalog:    "warehouse",
+			wantCatalog:    adapterTestWarehouse,
 			wantSchema:     "public",
 			wantTable:      "users",
 		},
 		{
 			name:           "mapping applied - warehouse to rdbms",
-			catalogMapping: map[string]string{"warehouse": "rdbms"},
+			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms"},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
 			wantCatalog:    "rdbms",
 			wantSchema:     "public",
@@ -490,7 +502,7 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 		},
 		{
 			name:           "mapping applied - multiple mappings",
-			catalogMapping: map[string]string{"warehouse": "rdbms", "datalake": "iceberg"},
+			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms", "datalake": "iceberg"},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
 			wantCatalog:    "iceberg",
 			wantSchema:     "analytics",
@@ -498,7 +510,7 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 		},
 		{
 			name:           "catalog not in mapping - uses original",
-			catalogMapping: map[string]string{"warehouse": "rdbms"},
+			catalogMapping: map[string]string{adapterTestWarehouse: "rdbms"},
 			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,other.public.data,PROD)",
 			wantCatalog:    "other",
 			wantSchema:     "public",
@@ -514,12 +526,12 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 				CatalogMapping: tt.catalogMapping,
 			}, mock)
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf(adapterTestUnexpectedErr, err)
 			}
 
 			result, err := adapter.ResolveTable(ctx, tt.urn)
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf(adapterTestUnexpectedErr, err)
 			}
 			if result.Catalog != tt.wantCatalog {
 				t.Errorf("expected catalog %q, got %q", tt.wantCatalog, result.Catalog)
