@@ -87,94 +87,77 @@ func (m *mockDataHubClient) Close() error {
 	return nil
 }
 
-func TestNewWithClient(t *testing.T) {
-	t.Run("nil client returns error", func(t *testing.T) {
-		_, err := NewWithClient(Config{}, nil)
-		if err == nil {
-			t.Error("expected error for nil client")
-		}
-	})
+func TestNewWithClient_NilClient(t *testing.T) {
+	_, err := NewWithClient(Config{}, nil)
+	if err == nil {
+		t.Error("expected error for nil client")
+	}
+}
 
-	t.Run("valid client", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.Name() != "datahub" {
-			t.Errorf("expected name 'datahub', got %q", adapter.Name())
-		}
-	})
+func TestNewWithClient_ValidClient(t *testing.T) {
+	mock := &mockDataHubClient{}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if adapter.Name() != "datahub" {
+		t.Errorf("expected name 'datahub', got %q", adapter.Name())
+	}
+	if adapter.cfg.Platform != "trino" {
+		t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
+	}
+}
 
-	t.Run("defaults applied", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.cfg.Platform != "trino" {
-			t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
-		}
-	})
+func TestNewWithClient_Debug(t *testing.T) {
+	mock := &mockDataHubClient{}
 
-	t.Run("debug config stored", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{Debug: true}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !adapter.cfg.Debug {
-			t.Error("expected Debug to be true")
-		}
-	})
+	adapter, err := NewWithClient(Config{Debug: true}, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !adapter.cfg.Debug {
+		t.Error("expected Debug to be true")
+	}
 
-	t.Run("debug defaults to false", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		adapter, err := NewWithClient(Config{}, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if adapter.cfg.Debug {
-			t.Error("expected Debug to default to false")
-		}
-	})
+	adapter2, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if adapter2.cfg.Debug {
+		t.Error("expected Debug to default to false")
+	}
+}
 
-	t.Run("lineage config stored correctly", func(t *testing.T) {
-		mock := &mockDataHubClient{}
-		lineageCfg := LineageConfig{
-			Enabled:             true,
-			MaxHops:             3,
-			Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-			ConflictResolution:  "nearest",
-			PreferColumnLineage: true,
-		}
-		cfg := Config{
-			URL:     "http://datahub.example.com",
-			Lineage: lineageCfg,
-		}
-		adapter, err := NewWithClient(cfg, mock)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+func TestNewWithClient_LineageConfig(t *testing.T) {
+	mock := &mockDataHubClient{}
+	lineageCfg := LineageConfig{
+		Enabled:             true,
+		MaxHops:             3,
+		Inherit:             []string{"glossary_terms", "descriptions", "tags"},
+		ConflictResolution:  "nearest",
+		PreferColumnLineage: true,
+	}
+	adapter, err := NewWithClient(Config{URL: "http://datahub.example.com", Lineage: lineageCfg}, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-		// Verify lineage config is accessible via the getter
-		gotCfg := adapter.LineageConfig()
-		if !gotCfg.Enabled {
-			t.Error("LineageConfig().Enabled = false, want true")
-		}
-		if gotCfg.MaxHops != 3 {
-			t.Errorf("LineageConfig().MaxHops = %d, want 3", gotCfg.MaxHops)
-		}
-		if len(gotCfg.Inherit) != 3 {
-			t.Errorf("LineageConfig().Inherit len = %d, want 3", len(gotCfg.Inherit))
-		}
-		if gotCfg.ConflictResolution != "nearest" {
-			t.Errorf("LineageConfig().ConflictResolution = %q, want %q", gotCfg.ConflictResolution, "nearest")
-		}
-		if !gotCfg.PreferColumnLineage {
-			t.Error("LineageConfig().PreferColumnLineage = false, want true")
-		}
-	})
+	gotCfg := adapter.LineageConfig()
+	if !gotCfg.Enabled {
+		t.Error("LineageConfig().Enabled = false, want true")
+	}
+	if gotCfg.MaxHops != 3 {
+		t.Errorf("LineageConfig().MaxHops = %d, want 3", gotCfg.MaxHops)
+	}
+	if len(gotCfg.Inherit) != 3 {
+		t.Errorf("LineageConfig().Inherit len = %d, want 3", len(gotCfg.Inherit))
+	}
+	if gotCfg.ConflictResolution != "nearest" {
+		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", gotCfg.ConflictResolution, "nearest")
+	}
+	if !gotCfg.PreferColumnLineage {
+		t.Error("LineageConfig().PreferColumnLineage = false, want true")
+	}
 }
 
 func TestAdapterName(t *testing.T) {
@@ -615,115 +598,89 @@ func TestAdapterClose(t *testing.T) {
 	}
 }
 
-func TestConvertFunctions(t *testing.T) {
-	t.Run("convertOwners", func(t *testing.T) {
-		owners := []types.Owner{
-			{URN: "urn:1", Name: "Owner1", Email: "o1@test.com", Type: types.OwnershipTypeTechnicalOwner},
-			{URN: "urn:2", Name: "Owner2", Email: "o2@test.com", Type: types.OwnershipTypeBusinessOwner},
-		}
-		result := convertOwners(owners)
-		if len(result) != 2 {
-			t.Errorf("expected 2 owners, got %d", len(result))
-		}
-	})
+func TestConvertOwners(t *testing.T) {
+	owners := []types.Owner{
+		{URN: "urn:1", Name: "Owner1", Email: "o1@test.com", Type: types.OwnershipTypeTechnicalOwner},
+		{URN: "urn:2", Name: "Owner2", Email: "o2@test.com", Type: types.OwnershipTypeBusinessOwner},
+	}
+	result := convertOwners(owners)
+	if len(result) != 2 {
+		t.Errorf("expected 2 owners, got %d", len(result))
+	}
+}
 
-	t.Run("convertTags", func(t *testing.T) {
-		tags := []types.Tag{{Name: "tag1"}, {Name: "tag2"}}
-		result := convertTags(tags)
-		if len(result) != 2 || result[0] != "tag1" {
-			t.Error("tags not converted correctly")
-		}
-	})
+func TestConvertTags(t *testing.T) {
+	tags := []types.Tag{{Name: "tag1"}, {Name: "tag2"}}
+	result := convertTags(tags)
+	if len(result) != 2 || result[0] != "tag1" {
+		t.Error("tags not converted correctly")
+	}
+}
 
-	t.Run("convertDomain nil", func(t *testing.T) {
-		result := convertDomain(nil)
-		if result != nil {
-			t.Error("expected nil for nil domain")
-		}
-	})
+func TestConvertDomainAndDeprecation(t *testing.T) {
+	if convertDomain(nil) != nil {
+		t.Error("expected nil for nil domain")
+	}
+	if convertDeprecation(nil) != nil {
+		t.Error("expected nil for nil deprecation")
+	}
 
-	t.Run("convertDeprecation nil", func(t *testing.T) {
-		result := convertDeprecation(nil)
-		if result != nil {
-			t.Error("expected nil for nil deprecation")
-		}
-	})
+	dep := &types.Deprecation{Deprecated: true, Note: "test", DecommissionTime: 1700000000000}
+	result := convertDeprecation(dep)
+	if result.DecommDate == nil {
+		t.Error("expected decommission date to be set")
+	}
+}
 
-	t.Run("convertDeprecation with decommission time", func(t *testing.T) {
-		dep := &types.Deprecation{
-			Deprecated:       true,
-			Note:             "test",
-			DecommissionTime: 1700000000000,
-		}
-		result := convertDeprecation(dep)
-		if result.DecommDate == nil {
-			t.Error("expected decommission date to be set")
-		}
-	})
+func TestConvertProperties(t *testing.T) {
+	if convertProperties(nil) != nil {
+		t.Error("expected nil for nil properties")
+	}
 
-	t.Run("convertProperties empty", func(t *testing.T) {
-		result := convertProperties(nil)
-		if result != nil {
-			t.Error("expected nil for nil properties")
-		}
-	})
+	props := map[string]any{"key1": "value1", "key2": 123, "key3": "value3"}
+	result := convertProperties(props)
+	if len(result) != 2 {
+		t.Errorf("expected 2 properties, got %d", len(result))
+	}
+}
 
-	t.Run("convertProperties with values", func(t *testing.T) {
-		props := map[string]any{
-			"key1": "value1",
-			"key2": 123, // non-string should be skipped
-			"key3": "value3",
-		}
-		result := convertProperties(props)
-		if len(result) != 2 {
-			t.Errorf("expected 2 properties, got %d", len(result))
-		}
-	})
+func TestConvertTimestamp(t *testing.T) {
+	if convertTimestamp(0) != nil {
+		t.Error("expected nil for zero timestamp")
+	}
+	if convertTimestamp(1700000000000) == nil {
+		t.Error("expected non-nil timestamp")
+	}
+}
 
-	t.Run("convertTimestamp zero", func(t *testing.T) {
-		result := convertTimestamp(0)
-		if result != nil {
-			t.Error("expected nil for zero timestamp")
+func TestExtractFieldName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{"nested.field", "field"},
+		{"deeply.nested.field", "field"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		result := extractFieldName(tt.input)
+		if result != tt.expected {
+			t.Errorf("extractFieldName(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
-	})
+	}
+}
 
-	t.Run("convertTimestamp valid", func(t *testing.T) {
-		result := convertTimestamp(1700000000000)
-		if result == nil {
-			t.Error("expected non-nil timestamp")
-		}
-	})
-
-	t.Run("extractFieldName", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected string
-		}{
-			{"simple", "simple"},
-			{"nested.field", "field"},
-			{"deeply.nested.field", "field"},
-			{"", ""},
-		}
-		for _, tt := range tests {
-			result := extractFieldName(tt.input)
-			if result != tt.expected {
-				t.Errorf("extractFieldName(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		}
-	})
-
-	t.Run("ownerTypeToSemantic", func(t *testing.T) {
-		if ownerTypeToSemantic(types.OwnershipTypeTechnicalOwner) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion")
-		}
-		if ownerTypeToSemantic(types.OwnershipTypeBusinessOwner) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion")
-		}
-		// Test default case with an unknown type
-		if ownerTypeToSemantic(types.OwnershipType("unknown")) != semantic.OwnerTypeUser {
-			t.Error("unexpected owner type conversion for unknown type")
-		}
-	})
+func TestOwnerTypeToSemantic(t *testing.T) {
+	if ownerTypeToSemantic(types.OwnershipTypeTechnicalOwner) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion")
+	}
+	if ownerTypeToSemantic(types.OwnershipTypeBusinessOwner) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion")
+	}
+	if ownerTypeToSemantic(types.OwnershipType("unknown")) != semantic.OwnerTypeUser {
+		t.Error("unexpected owner type conversion for unknown type")
+	}
 }
 
 func TestGetTableContextError(t *testing.T) {
