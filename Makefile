@@ -21,7 +21,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
-	dead-code mutate \
+	dead-code mutate patch-coverage doc-check \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
@@ -161,13 +161,22 @@ coverage-report: test
 	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < 80.0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
 	@echo "=== End Coverage ==="
 
+## patch-coverage: Check coverage of changed lines vs main (fails if <80%)
+patch-coverage:
+	@echo "Checking patch coverage..."
+	@./scripts/patch-coverage.sh
+
+## doc-check: Warn if documentation-worthy changes lack doc updates (soft warning)
+doc-check:
+	@./scripts/doc-check.sh
+
 ## release-check: Validate build, Docker, and release config
 release-check:
 	@echo "Running GoReleaser dry-run..."
 	goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
 ## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
-verify: fmt test lint security coverage-report dead-code mutate release-check
+verify: fmt test lint security coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
