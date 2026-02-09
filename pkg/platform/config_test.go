@@ -41,6 +41,9 @@ const (
 	cfgTestDefaultPreDelay   = 2 * time.Second
 	cfgTestCustomGrace       = 20 * time.Second
 	cfgTestCustomPreDelay    = 3 * time.Second
+	cfgTestDefaultCleanupInt = 1 * time.Minute
+	cfgTestCustomSessionsTTL = 15 * time.Minute
+	cfgTestCustomCleanup     = 2 * time.Minute
 )
 
 // writeTestConfig writes a YAML config to a temp dir and returns the path.
@@ -798,5 +801,99 @@ semantic:
 	}
 	if alias.ColumnMapping["user_id"] != "payload.user_id" {
 		t.Errorf("Aliases[0].ColumnMapping[user_id] = %q, want %q", alias.ColumnMapping["user_id"], "payload.user_id")
+	}
+}
+
+func TestApplyDefaults_SessionsConfig(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+
+	if cfg.Sessions.Store != "memory" {
+		t.Errorf("Sessions.Store = %q, want %q", cfg.Sessions.Store, "memory")
+	}
+	if cfg.Sessions.TTL != cfgTestDefaultSessTTL {
+		t.Errorf("Sessions.TTL = %v, want %v", cfg.Sessions.TTL, cfgTestDefaultSessTTL)
+	}
+	if cfg.Sessions.IdleTimeout != cfgTestDefaultSessTTL {
+		t.Errorf("Sessions.IdleTimeout = %v, want %v", cfg.Sessions.IdleTimeout, cfgTestDefaultSessTTL)
+	}
+	if cfg.Sessions.CleanupInterval != cfgTestDefaultCleanupInt {
+		t.Errorf("Sessions.CleanupInterval = %v, want %v", cfg.Sessions.CleanupInterval, cfgTestDefaultCleanupInt)
+	}
+}
+
+func TestApplyDefaults_SessionsPreservesExisting(t *testing.T) {
+	cfg := &Config{
+		Sessions: SessionsConfig{
+			Store:           SessionStoreDatabase,
+			TTL:             cfgTestCustomSessionsTTL,
+			IdleTimeout:     cfgTestCustomSessionsTTL,
+			CleanupInterval: cfgTestCustomCleanup,
+		},
+	}
+	applyDefaults(cfg)
+
+	if cfg.Sessions.Store != SessionStoreDatabase {
+		t.Errorf("Sessions.Store = %q, want %q (should preserve)", cfg.Sessions.Store, SessionStoreDatabase)
+	}
+	if cfg.Sessions.TTL != cfgTestCustomSessionsTTL {
+		t.Errorf("Sessions.TTL = %v, want %v (should preserve)", cfg.Sessions.TTL, cfgTestCustomSessionsTTL)
+	}
+	if cfg.Sessions.IdleTimeout != cfgTestCustomSessionsTTL {
+		t.Errorf("Sessions.IdleTimeout = %v, want %v (should preserve)", cfg.Sessions.IdleTimeout, cfgTestCustomSessionsTTL)
+	}
+	if cfg.Sessions.CleanupInterval != cfgTestCustomCleanup {
+		t.Errorf("Sessions.CleanupInterval = %v, want %v (should preserve)", cfg.Sessions.CleanupInterval, cfgTestCustomCleanup)
+	}
+}
+
+func TestLoadConfig_SessionsFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+sessions:
+  store: database
+  ttl: 15m
+  idle_timeout: 15m
+  cleanup_interval: 2m
+`)
+	if cfg.Sessions.Store != SessionStoreDatabase {
+		t.Errorf("Sessions.Store = %q, want %q", cfg.Sessions.Store, SessionStoreDatabase)
+	}
+	if cfg.Sessions.TTL != cfgTestCustomSessionsTTL {
+		t.Errorf("Sessions.TTL = %v, want %v", cfg.Sessions.TTL, cfgTestCustomSessionsTTL)
+	}
+	if cfg.Sessions.CleanupInterval != cfgTestCustomCleanup {
+		t.Errorf("Sessions.CleanupInterval = %v, want %v", cfg.Sessions.CleanupInterval, cfgTestCustomCleanup)
+	}
+}
+
+func TestConfigValidate_SessionsDatabaseWithoutDSN(t *testing.T) {
+	cfg := &Config{
+		Sessions: SessionsConfig{
+			Store: SessionStoreDatabase,
+		},
+		Database: DatabaseConfig{
+			DSN: "",
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() expected error for sessions.store=database without DSN")
+	}
+}
+
+func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
+	cfg := &Config{
+		Sessions: SessionsConfig{
+			Store: SessionStoreDatabase,
+		},
+		Database: DatabaseConfig{
+			DSN: "postgres://localhost/test",
+		},
+	}
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() unexpected error: %v", err)
 	}
 }
