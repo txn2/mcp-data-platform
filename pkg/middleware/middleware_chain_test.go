@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -21,22 +23,30 @@ import (
 
 // Test constants for middleware chain integration tests.
 const (
-	chainTestAnalyst       = "analyst"
-	chainTestConnecting    = "connecting client: %v"
-	chainTestCallingTool   = "calling tool: %v"
-	chainTestProdTrino     = "prod-trino"
-	chainTestRowCount      = 1500000
-	chainTestTrino         = "trino"
-	chainTestUser          = "test-user"
-	chainTestTrinoQuery    = "trino_query"
-	chainTestProd          = "prod"
-	chainTestSemanticCtx   = "semantic_context"
-	chainTestCustOrderData = "Customer order data"
-	chainTestMetadataRef   = "metadata_reference"
-	chainTestMock          = "mock"
-	chainTestProduction    = "production"
-	chainTestStdio         = "stdio"
-	chainTestDescribeTable = "trino_describe_table"
+	chainTestAnalyst           = "analyst"
+	chainTestConnecting        = "connecting client: %v"
+	chainTestCallingTool       = "calling tool: %v"
+	chainTestProdTrino         = "prod-trino"
+	chainTestRowCount          = 1500000
+	chainTestTrino             = "trino"
+	chainTestUser              = "test-user"
+	chainTestTrinoQuery        = "trino_query"
+	chainTestProd              = "prod"
+	chainTestSemanticCtx       = "semantic_context"
+	chainTestCustOrderData     = "Customer order data"
+	chainTestMetadataRef       = "metadata_reference"
+	chainTestMock              = "mock"
+	chainTestProduction        = "production"
+	chainTestStdio             = "stdio"
+	chainTestDescribeTable     = "trino_describe_table"
+	chainTestOrdersURN         = "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)"
+	chainTestDataTeam          = "data-team"
+	chainTestPII               = "pii"
+	chainTestProductionTag     = "production"
+	chainTestOrderID           = "order_id"
+	chainTestDedupNoneSemantic = "call 2: should not have semantic_context on deduped call"
+	chainTestPrimaryKey        = "Primary key"
+	chainTestPKTag             = "pk"
 )
 
 // --- Test assertion helpers ---
@@ -431,12 +441,12 @@ func (*denyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ s
 func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	semProvider := &mockSemanticProvider{
 		tableContext: &semantic.TableContext{
-			URN:         "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)",
+			URN:         chainTestOrdersURN,
 			Description: chainTestCustOrderData,
 			Owners: []semantic.Owner{
-				{Name: "data-team", Type: semantic.OwnerTypeGroup},
+				{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup},
 			},
-			Tags: []string{"pii", "production"},
+			Tags: []string{chainTestPII, chainTestProductionTag},
 			Deprecation: &semantic.Deprecation{
 				Deprecated: true,
 				Note:       "Use orders_v2 instead",
@@ -557,7 +567,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		result := map[string]any{
-			"urn":      "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)",
+			"urn":      chainTestOrdersURN,
 			"name":     "orders",
 			"platform": "trino",
 		}
@@ -583,7 +593,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "datahub_get_entity",
-		Arguments: map[string]any{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)"},
+		Arguments: map[string]any{"urn": chainTestOrdersURN},
 	})
 	if err != nil {
 		t.Fatalf(chainTestCallingTool, err)
@@ -875,13 +885,13 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 
 	semProvider := &mockSemanticProvider{
 		tableContext: &semantic.TableContext{
-			URN:         "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)",
+			URN:         chainTestOrdersURN,
 			Description: chainTestCustOrderData,
-			Owners:      []semantic.Owner{{Name: "data-team", Type: semantic.OwnerTypeGroup}},
-			Tags:        []string{"pii", "production"},
+			Owners:      []semantic.Owner{{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{chainTestPII, chainTestProductionTag},
 		},
 		columnsCtx: map[string]*semantic.ColumnContext{
-			"order_id": {Description: "Primary key", Tags: []string{"pk"}},
+			chainTestOrderID: {Description: chainTestPrimaryKey, Tags: []string{chainTestPKTag}},
 		},
 	}
 
@@ -1001,7 +1011,7 @@ func TestMiddlewareChain_SessionDedup_FullThenReference(t *testing.T) {
 
 	_, hasSemantic2 := findContentWithKey(t, result2, chainTestSemanticCtx)
 	if hasSemantic2 {
-		t.Error("call 2: should not have semantic_context on deduped call")
+		t.Error(chainTestDedupNoneSemantic)
 	}
 }
 
@@ -1214,10 +1224,10 @@ var (
 func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	semProvider := &mockSemanticProvider{
 		tableContext: &semantic.TableContext{
-			URN:         "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)",
+			URN:         chainTestOrdersURN,
 			Description: chainTestCustOrderData,
-			Owners:      []semantic.Owner{{Name: "data-team", Type: semantic.OwnerTypeGroup}},
-			Tags:        []string{"pii"},
+			Owners:      []semantic.Owner{{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{chainTestPII},
 		},
 	}
 
@@ -1353,6 +1363,411 @@ func findAuditEventByTool(events []middleware.AuditEvent, toolName string) *midd
 		}
 	}
 	return nil
+}
+
+// httpDedupTestResult holds the resources created by newHTTPDedupTestSession.
+type httpDedupTestResult struct {
+	session *mcp.ClientSession
+	cache   *middleware.SessionEnrichmentCache
+	ts      *httptest.Server
+}
+
+// newHTTPDedupTestSession creates a Streamable HTTP MCP server with dedup
+// middleware, starts an httptest server, and connects a client session.
+// It registers trino_describe_table (and optionally trino_query) tools.
+// The caller must defer cleanup of ts.Close() and session.Close().
+func newHTTPDedupTestSession(t *testing.T, includeQueryTool bool) httpDedupTestResult {
+	t.Helper()
+
+	semProvider := &mockSemanticProvider{
+		tableContext: &semantic.TableContext{
+			URN:         chainTestOrdersURN,
+			Description: chainTestCustOrderData,
+			Owners:      []semantic.Owner{{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{chainTestPII, chainTestProductionTag},
+		},
+		columnsCtx: map[string]*semantic.ColumnContext{
+			chainTestOrderID: {Description: chainTestPrimaryKey, Tags: []string{chainTestPKTag}},
+			"customer_id":    {Description: "Customer FK", Tags: []string{"fk"}},
+		},
+	}
+
+	cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "streamable-user",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+			chainTestTrinoQuery:    {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-dedup-streamable",
+		Version: "v0.0.1",
+	}, nil)
+
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestDescribeTable,
+		Description: "Describe a table",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "order_id INT, customer_id INT"}},
+		}, nil
+	})
+
+	if includeQueryTool {
+		server.AddTool(&mcp.Tool{
+			Name:        chainTestTrinoQuery,
+			Description: "Execute SQL query",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+		}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "query result: 42"}},
+			}, nil
+		})
+	}
+
+	// Middleware order (innermost first): enrichment, then auth (outermost)
+	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
+		semProvider, nil, nil,
+		middleware.EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          middleware.DedupModeReference,
+		},
+	))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
+
+	// Start a real HTTP server with Streamable HTTP transport
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return server
+	}, &mcp.StreamableHTTPOptions{
+		SessionTimeout: 30 * time.Minute,
+	})
+	ts := httptest.NewServer(handler)
+
+	// Connect client via Streamable HTTP
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+	ctx := context.Background()
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		ts.Close()
+		t.Fatalf("connecting streamable HTTP client: %v", err)
+	}
+
+	return httpDedupTestResult{session: session, cache: cache, ts: ts}
+}
+
+// assertHasKeyDumpOnMiss checks that the result contains the given key.
+// If absent, it dumps all TextContent items and calls t.Fatal.
+func assertHasKeyDumpOnMiss(t *testing.T, result *mcp.CallToolResult, key, callLabel string) {
+	t.Helper()
+	_, found := findContentWithKey(t, result, key)
+	if found {
+		return
+	}
+	for i, c := range result.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			t.Logf("%s content[%d]: %s", callLabel, i, tc.Text)
+		}
+	}
+	t.Fatalf("%s: expected %s, not found", callLabel, key)
+}
+
+// TestMiddlewareChain_SessionDedup_StreamableHTTP verifies that session metadata
+// dedup works correctly over a real Streamable HTTP transport (not in-memory).
+// This covers the production code path where session IDs come from the SDK's
+// StreamableHTTPHandler rather than falling back to the "stdio" default.
+func TestMiddlewareChain_SessionDedup_StreamableHTTP(t *testing.T) {
+	r := newHTTPDedupTestSession(t, true)
+	defer r.ts.Close()
+	defer func() { _ = r.session.Close() }()
+
+	ctx := context.Background()
+
+	// Call 1: trino_describe_table — should get full semantic_context
+	result1 := callDescribeOrders(t, r.session)
+
+	_, hasSemantic1 := findContentWithKey(t, result1, chainTestSemanticCtx)
+	if !hasSemantic1 {
+		t.Fatal("call 1: expected semantic_context, not found")
+	}
+	_, hasRef1 := findContentWithKey(t, result1, chainTestMetadataRef)
+	if hasRef1 {
+		t.Error("call 1: should not have metadata_reference on first call")
+	}
+
+	// Call 2: same tool, same table — should get metadata_reference (dedup)
+	result2 := callDescribeOrders(t, r.session)
+	assertHasKeyDumpOnMiss(t, result2, chainTestMetadataRef, "call 2")
+
+	_, hasSemantic2 := findContentWithKey(t, result2, chainTestSemanticCtx)
+	if hasSemantic2 {
+		t.Error(chainTestDedupNoneSemantic)
+	}
+
+	// Call 3: trino_query with SQL referencing the same table — should also be deduped
+	result3, err := r.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestTrinoQuery,
+		Arguments: map[string]any{"sql": "SELECT * FROM catalog.schema.orders LIMIT 10"},
+	})
+	if err != nil {
+		t.Fatalf("call 3 (query): %v", err)
+	}
+	if result3.IsError {
+		t.Fatalf("call 3 returned error: %v", result3.Content)
+	}
+	assertHasKeyDumpOnMiss(t, result3, chainTestMetadataRef, "call 3")
+
+	// Verify session count
+	if count := r.cache.SessionCount(); count == 0 {
+		t.Error("cache has 0 sessions after calls")
+	}
+}
+
+// TestMiddlewareChain_SessionDedup_StreamableHTTP_Stateless verifies that
+// session metadata dedup works correctly when the Streamable HTTP handler runs
+// in stateless mode (as used in production with AwareHandler).
+func TestMiddlewareChain_SessionDedup_StreamableHTTP_Stateless(t *testing.T) {
+	semProvider := &mockSemanticProvider{
+		tableContext: &semantic.TableContext{
+			URN:         chainTestOrdersURN,
+			Description: chainTestCustOrderData,
+			Owners:      []semantic.Owner{{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{chainTestPII, chainTestProductionTag},
+		},
+		columnsCtx: map[string]*semantic.ColumnContext{
+			chainTestOrderID: {Description: chainTestPrimaryKey, Tags: []string{chainTestPKTag}},
+		},
+	}
+
+	cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "stateless-user",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-dedup-stateless",
+		Version: "v0.0.1",
+	}, nil)
+
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestDescribeTable,
+		Description: "Describe a table",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "order_id INT, customer_id INT"}},
+		}, nil
+	})
+
+	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
+		semProvider, nil, nil,
+		middleware.EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          middleware.DedupModeReference,
+		},
+	))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
+
+	// Stateless mode: each request creates a new temporary session
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return server
+	}, &mcp.StreamableHTTPOptions{
+		Stateless: true,
+	})
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+	ctx := context.Background()
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatalf("connecting streamable HTTP client: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// Call 1: full enrichment
+	result1, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestDescribeTable,
+		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
+	})
+	if err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	if result1.IsError {
+		t.Fatalf("call 1 error: %v", result1.Content)
+	}
+
+	_, hasSemantic1 := findContentWithKey(t, result1, chainTestSemanticCtx)
+	if !hasSemantic1 {
+		t.Fatal("call 1: expected semantic_context")
+	}
+
+	// Call 2: should be deduped
+	result2, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestDescribeTable,
+		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
+	})
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+	if result2.IsError {
+		t.Fatalf("call 2 error: %v", result2.Content)
+	}
+
+	_, hasRef2 := findContentWithKey(t, result2, chainTestMetadataRef)
+	_, hasSemantic2 := findContentWithKey(t, result2, chainTestSemanticCtx)
+
+	if !hasRef2 {
+		for i, c := range result2.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				t.Logf("call 2 content[%d]: %s", i, tc.Text)
+			}
+		}
+		if hasSemantic2 {
+			t.Log("call 2 got full semantic_context instead of metadata_reference — dedup failed in stateless mode")
+		}
+		t.Fatal("call 2: expected metadata_reference (dedup)")
+	}
+	if hasSemantic2 {
+		t.Error(chainTestDedupNoneSemantic)
+	}
+}
+
+// TestMiddlewareChain_SessionDedup_SSE verifies that session metadata dedup
+// works over SSE transport, where sseServerConn.SessionID() returns empty
+// and extractSessionID falls back to "stdio".
+func TestMiddlewareChain_SessionDedup_SSE(t *testing.T) {
+	semProvider := &mockSemanticProvider{
+		tableContext: &semantic.TableContext{
+			URN:         chainTestOrdersURN,
+			Description: chainTestCustOrderData,
+			Owners:      []semantic.Owner{{Name: chainTestDataTeam, Type: semantic.OwnerTypeGroup}},
+			Tags:        []string{chainTestPII, chainTestProductionTag},
+		},
+		columnsCtx: map[string]*semantic.ColumnContext{
+			chainTestOrderID: {Description: chainTestPrimaryKey, Tags: []string{chainTestPKTag}},
+		},
+	}
+
+	cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "sse-user",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestDescribeTable: {kind: chainTestTrino, name: chainTestProd, conn: chainTestProdTrino},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-dedup-sse",
+		Version: "v0.0.1",
+	}, nil)
+
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestDescribeTable,
+		Description: "Describe a table",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"catalog":{"type":"string"},"schema":{"type":"string"},"table":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "order_id INT, customer_id INT"}},
+		}, nil
+	})
+
+	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
+		semProvider, nil, nil,
+		middleware.EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       cache,
+			DedupMode:          middleware.DedupModeReference,
+		},
+	))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+
+	// SSE handler
+	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
+		return server
+	}, nil)
+	ts := httptest.NewServer(sseHandler)
+	defer ts.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+	ctx := context.Background()
+	session, err := client.Connect(ctx, &mcp.SSEClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatalf("connecting SSE client: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// Call 1: full enrichment
+	result1, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestDescribeTable,
+		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
+	})
+	if err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	if result1.IsError {
+		t.Fatalf("call 1 error: %v", result1.Content)
+	}
+
+	_, hasSemantic1 := findContentWithKey(t, result1, chainTestSemanticCtx)
+	if !hasSemantic1 {
+		t.Fatal("call 1: expected semantic_context")
+	}
+
+	// Call 2: should be deduped
+	result2, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestDescribeTable,
+		Arguments: map[string]any{"catalog": "catalog", "schema": "schema", "table": "orders"},
+	})
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+	if result2.IsError {
+		t.Fatalf("call 2 error: %v", result2.Content)
+	}
+
+	_, hasRef2 := findContentWithKey(t, result2, chainTestMetadataRef)
+	if !hasRef2 {
+		for i, c := range result2.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				t.Logf("call 2 content[%d]: %s", i, tc.Text)
+			}
+		}
+		t.Fatal("call 2: expected metadata_reference (dedup) via SSE transport")
+	}
+
+	_, hasSemantic2 := findContentWithKey(t, result2, chainTestSemanticCtx)
+	if hasSemantic2 {
+		t.Error(chainTestDedupNoneSemantic)
+	}
 }
 
 // Suppress unused import warnings for storage (used in EnrichmentConfig).
