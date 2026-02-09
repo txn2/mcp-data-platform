@@ -3,6 +3,8 @@
 # Used by Dockerfile.dev and docker-compose.dev.yml
 # Configured for Docker internal networking.
 
+apiVersion: v1
+
 server:
   name: mcp-data-platform-dev
   transport: sse

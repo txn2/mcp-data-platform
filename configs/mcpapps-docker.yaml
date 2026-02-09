@@ -13,6 +13,8 @@
 #     -v $(pwd)/mcpapps-custom.yaml:/config.yaml \
 #     ghcr.io/txn2/mcp-data-platform --config /config.yaml
 
+apiVersion: v1
+
 server:
   name: mcp-data-platform
   transport: sse
