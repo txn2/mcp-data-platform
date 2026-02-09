@@ -27,6 +27,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
+	"github.com/txn2/mcp-data-platform/pkg/session"
+	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -79,7 +81,8 @@ type Platform struct {
 	// Audit
 	auditLogger middleware.AuditLogger
 
-	// Session dedup
+	// Session management
+	sessionStore session.Store
 	sessionCache *middleware.SessionEnrichmentCache
 
 	// Tuning
@@ -136,6 +139,9 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	}
 	// Initialize audit logging after auth
 	if err := p.initAudit(opts); err != nil {
+		return err
+	}
+	if err := p.initSessions(opts); err != nil {
 		return err
 	}
 	if err := p.initOAuth(); err != nil {
@@ -309,6 +315,47 @@ func (p *Platform) initAudit(opts *Options) error {
 		"retention_days", p.config.Audit.RetentionDays,
 		"log_tool_calls", p.config.Audit.LogToolCalls,
 	)
+	return nil
+}
+
+// initSessions initializes the session store based on configuration.
+func (p *Platform) initSessions(opts *Options) error {
+	if opts.SessionStore != nil {
+		p.sessionStore = opts.SessionStore
+		return nil
+	}
+
+	ttl := p.config.Sessions.TTL
+	if ttl == 0 {
+		ttl = defaultSessionTimeout
+	}
+	cleanupInterval := p.config.Sessions.CleanupInterval
+	if cleanupInterval == 0 {
+		cleanupInterval = defaultCleanupInterval
+	}
+
+	switch p.config.Sessions.Store {
+	case SessionStoreDatabase:
+		if p.db == nil {
+			return fmt.Errorf("sessions.store is \"database\" but no database configured")
+		}
+		store := sessionpostgres.New(p.db, sessionpostgres.Config{TTL: ttl})
+		store.StartCleanupRoutine(cleanupInterval)
+		p.sessionStore = store
+		// Force stateless mode so the SDK skips its built-in session map.
+		p.config.Server.Streamable.Stateless = true
+		slog.Info("session store: database (stateless mode enabled)",
+			"ttl", ttl, "cleanup_interval", cleanupInterval)
+	case SessionStoreMemory, "":
+		store := session.NewMemoryStore(ttl)
+		store.StartCleanupRoutine(cleanupInterval)
+		p.sessionStore = store
+		slog.Info("session store: memory",
+			"ttl", ttl, "cleanup_interval", cleanupInterval)
+	default:
+		return fmt.Errorf("unknown session store: %q", p.config.Sessions.Store)
+	}
+
 	return nil
 }
 
@@ -600,6 +647,9 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 			"entry_ttl", p.config.Injection.SessionDedup.EntryTTL,
 			"session_timeout", p.config.Injection.SessionDedup.SessionTimeout,
 		)
+
+		// Restore dedup state from session store (if available)
+		p.loadPersistedEnrichmentState()
 	}
 
 	return cfg
@@ -901,6 +951,11 @@ func (p *Platform) HintManager() *tuning.HintManager {
 	return p.hintManager
 }
 
+// SessionStore returns the session store.
+func (p *Platform) SessionStore() session.Store {
+	return p.sessionStore
+}
+
 // OAuthServer returns the OAuth server, or nil if not enabled.
 func (p *Platform) OAuthServer() *oauth.Server {
 	return p.oauthServer
@@ -1111,17 +1166,26 @@ func closeResource(errs *[]error, closer Closer) {
 }
 
 // Close closes all platform resources in the correct order:
-//  1. Stop session cache goroutine (enrichment cache)
+//  1. Flush enrichment state, stop session cache, close session store
 //  2. Close audit logger + audit store (goroutine stops, can still use DB)
 //  3. Close providers and toolkit registry (trino, datahub, s3)
 //  4. Close database connection (last — nothing else needs it)
 func (p *Platform) Close() error {
 	var errs []error
 
-	// Phase 1: stop session cache goroutine
+	// Phase 1a: flush enrichment dedup state to session store
+	p.flushEnrichmentState()
+
+	// Phase 1b: stop session cache goroutine
 	if p.sessionCache != nil {
 		slog.Debug("shutdown: stopping session cache")
 		p.sessionCache.Stop()
+	}
+
+	// Phase 1c: close session store (stop cleanup goroutine)
+	if p.sessionStore != nil {
+		slog.Debug("shutdown: closing session store")
+		closeResource(&errs, p.sessionStore)
 	}
 
 	// Phase 2: close audit (cancel cleanup goroutine, wait for exit)
@@ -1154,4 +1218,90 @@ func (p *Platform) Close() error {
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// flushEnrichmentState persists enrichment dedup state from the session cache
+// to the session store for continuity across restarts.
+func (p *Platform) flushEnrichmentState() {
+	if p.sessionCache == nil || p.sessionStore == nil {
+		return
+	}
+
+	exported := p.sessionCache.ExportSessions()
+	if len(exported) == 0 {
+		return
+	}
+
+	ctx := context.Background()
+	flushed := 0
+	for sessionID, tables := range exported {
+		state := map[string]any{"enrichment_dedup": tables}
+		if err := p.sessionStore.UpdateState(ctx, sessionID, state); err != nil {
+			slog.Debug("shutdown: failed to flush enrichment state",
+				"session_id", sessionID, "error", err)
+			continue
+		}
+		flushed++
+	}
+	slog.Debug("shutdown: flushed enrichment state", "sessions", flushed)
+}
+
+// loadPersistedEnrichmentState restores enrichment dedup state from the
+// session store into the session cache on startup.
+func (p *Platform) loadPersistedEnrichmentState() {
+	if p.sessionCache == nil || p.sessionStore == nil {
+		return
+	}
+
+	ctx := context.Background()
+	sessions, err := p.sessionStore.List(ctx)
+	if err != nil {
+		slog.Warn("failed to load persisted enrichment state", "error", err)
+		return
+	}
+
+	loaded := 0
+	for _, sess := range sessions {
+		dedupRaw, ok := sess.State["enrichment_dedup"]
+		if !ok {
+			continue
+		}
+		tables := parseDedupState(dedupRaw)
+		if len(tables) > 0 {
+			p.sessionCache.LoadSession(sess.ID, tables)
+			loaded++
+		}
+	}
+	if loaded > 0 {
+		slog.Info("loaded persisted enrichment state", "sessions", loaded)
+	}
+}
+
+// parseDedupState converts the enrichment_dedup state value into the typed
+// map the session cache expects. Handles two storage formats:
+//   - map[string]time.Time (memory store preserves Go types directly)
+//   - map[string]any (database store deserializes JSON with string timestamps)
+func parseDedupState(raw any) map[string]time.Time {
+	// Memory store: value is already the correct type.
+	if typed, ok := raw.(map[string]time.Time); ok {
+		return typed
+	}
+
+	// Database store: JSON deserialized as map[string]any.
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]time.Time, len(m))
+	for table, v := range m {
+		switch t := v.(type) {
+		case time.Time:
+			result[table] = t
+		case string:
+			if parsed, err := time.Parse(time.RFC3339Nano, t); err == nil {
+				result[table] = parsed
+			}
+		}
+	}
+	return result
 }
