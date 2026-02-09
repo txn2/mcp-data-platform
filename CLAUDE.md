@@ -72,8 +72,10 @@ graph TB
    - Code formatting (`gofmt -s -w .`)
    - Unit tests with race detection (`go test -race ./...`)
    - Coverage verification — total must be ≥80% (hard gate)
+   - Patch coverage — changed lines vs main must be ≥80% (mirrors codecov patch check)
    - Linting (`golangci-lint run ./...`) — cyclomatic complexity ≤10, cognitive complexity ≤15
    - Security scanning (`gosec ./...` + `govulncheck`)
+   - Documentation check — warns when documentation-worthy changes lack doc updates (soft warning)
    - Dead code analysis
    - Mutation testing (`gremlins unleash --threshold-efficacy 60`) — ≥60% kill rate
    - GoReleaser dry-run — validates build, Docker, and release config
@@ -122,6 +124,8 @@ graph TB
     - `docs/llms.txt` - Index of documentation with brief descriptions
     - `docs/llms-full.txt` - Full documentation content for AI consumption
     These files follow the [llmstxt.org](https://llmstxt.org/) specification.
+
+12. **CRITICAL - Documentation Completeness**: `make doc-check` warns when documentation-worthy changes (new packages, config changes, new toolkits, new CLI flags, new Makefile targets, new migrations) are present but `README.md`, `docs/`, `docs/llms.txt`, and `docs/llms-full.txt` were not updated. While this is a soft warning for human developers, **it is a blocking requirement for AI agents**: if `make doc-check` emits a WARNING, you MUST update the relevant documentation before declaring the task complete.
 
 ## Project Structure
 
