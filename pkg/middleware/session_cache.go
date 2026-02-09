@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -115,6 +116,33 @@ func (c *SessionEnrichmentCache) getOrCreateSession(sessionID string) *sessionSt
 		c.sessions[sessionID] = state
 	}
 	return state
+}
+
+// LoadSession pre-populates dedup state for a session from external storage.
+// This is used on startup to restore enrichment dedup continuity from the
+// session store.
+func (c *SessionEnrichmentCache) LoadSession(sessionID string, sentTables map[string]time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	state := c.getOrCreateSession(sessionID)
+	maps.Copy(state.sentTables, sentTables)
+	state.lastAccess = time.Now()
+}
+
+// ExportSessions returns all session dedup states for persistence.
+// Each map entry maps a session ID to its sent-table timestamps.
+func (c *SessionEnrichmentCache) ExportSessions() map[string]map[string]time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(map[string]map[string]time.Time, len(c.sessions))
+	for id, state := range c.sessions {
+		tables := make(map[string]time.Time, len(state.sentTables))
+		maps.Copy(tables, state.sentTables)
+		result[id] = tables
+	}
+	return result
 }
 
 // cleanup evicts sessions that have been idle longer than sessionTimeout,
