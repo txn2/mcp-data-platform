@@ -3,7 +3,9 @@ package migrate
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -370,6 +372,108 @@ func TestMigration005_DownContent(t *testing.T) {
 	assert.Contains(t, migrationSQL, "sessions")
 }
 
+// TestMigrationTablesHaveConsumers verifies that every table created by a
+// migration is actually referenced (INSERT, SELECT, UPDATE, or DELETE) in
+// non-test, non-migration Go source code. This prevents "vaporware" tables
+// that exist in the database but are never used by the running application.
+//
+// If this test fails, one of two things is true:
+//  1. A migration creates a table that no Go code uses — delete the migration.
+//  2. Go code exists but isn't wired up — wire it into the platform or delete it.
+func TestMigrationTablesHaveConsumers(t *testing.T) {
+	// 1. Extract all table names from CREATE TABLE statements in up migrations.
+	entries, err := migrations.ReadDir("migrations")
+	require.NoError(t, err)
+
+	createTableRe := regexp.MustCompile(`(?i)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(\w+)`)
+
+	var tables []string
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".up.sql") {
+			continue
+		}
+		content, readErr := migrations.ReadFile("migrations/" + entry.Name())
+		require.NoError(t, readErr)
+
+		matches := createTableRe.FindAllStringSubmatch(string(content), -1)
+		for _, m := range matches {
+			table := m[1]
+			// Skip partition definitions (e.g. "audit_logs_default PARTITION OF audit_logs")
+			if strings.HasSuffix(table, "_default") {
+				continue
+			}
+			tables = append(tables, table)
+		}
+	}
+	require.NotEmpty(t, tables, "migrations should contain CREATE TABLE statements")
+
+	// 2. Collect all non-test, non-migration Go source files under pkg/.
+	pkgRoot := "../../.."
+	var goFiles []string
+	collectErr := collectGoSourceFiles(pkgRoot+"/pkg", &goFiles)
+	require.NoError(t, collectErr, "failed to walk pkg/ directory")
+	require.NotEmpty(t, goFiles, "should find Go source files under pkg/")
+
+	// 3. Read all source files into a single corpus.
+	var corpus strings.Builder
+	for _, path := range goFiles {
+		content, readErr := os.ReadFile(path) //nolint:gosec // test reads source files, not user input
+		require.NoError(t, readErr)
+		corpus.Write(content)  //nolint:revive // strings.Builder.Write never returns an error
+		corpus.WriteByte('\n') //nolint:revive // strings.Builder.WriteByte never returns an error
+	}
+	source := corpus.String()
+
+	// 4. For each table, verify at least one DML reference exists.
+	dmlPatterns := []string{
+		`INSERT INTO %s`,
+		`FROM %s`,
+		`UPDATE %s`,
+		`DELETE FROM %s`,
+	}
+
+	for _, table := range tables {
+		found := false
+		for _, pattern := range dmlPatterns {
+			if strings.Contains(source, strings.ReplaceAll(
+				pattern, "%s", table,
+			)) {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found,
+			"table %q is created by a migration but no non-test Go code references it "+
+				"(INSERT, SELECT, UPDATE, or DELETE). Either wire up the table or remove the migration.",
+			table)
+	}
+}
+
+// collectGoSourceFiles walks dir recursively and appends non-test, non-migration
+// Go source file paths to dst.
+func collectGoSourceFiles(dir string, dst *[]string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("reading directory %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		path := dir + "/" + entry.Name()
+		if entry.IsDir() {
+			if entry.Name() == "migrate" || entry.Name() == "vendor" {
+				continue // skip migration SQL and vendor
+			}
+			if err := collectGoSourceFiles(path, dst); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			*dst = append(*dst, path)
+		}
+	}
+	return nil
+}
+
 // TestMigration004_ColumnConsistency verifies that columns added by
 // migration 004 appear in the store's INSERT and SELECT queries.
 // This catches drift between DDL (migration) and DML (store.go).
@@ -413,5 +517,127 @@ func TestMigration004_ColumnConsistency(t *testing.T) {
 		// All migration-added columns should be in SELECT.
 		assert.Contains(t, selectCols, col,
 			"column %q added by migration 004 must appear in store SELECT column list", col)
+	}
+}
+
+// discoverPackages walks pkgDir and returns a map of import paths for all
+// packages that contain non-test Go source files. Each key is initially mapped
+// to false (not yet observed as imported).
+func discoverPackages(pkgDir, projectRoot, modulePath string) (map[string]bool, error) {
+	allPackages := map[string]bool{}
+	err := filepath.Walk(pkgDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		hasGo, dirErr := dirHasGoSource(path)
+		if dirErr != nil {
+			return fmt.Errorf("checking directory %s: %w", path, dirErr)
+		}
+		if hasGo {
+			rel, relErr := filepath.Rel(projectRoot, path)
+			if relErr != nil {
+				return fmt.Errorf("computing relative path for %s: %w", path, relErr)
+			}
+			importPath := modulePath + "/" + filepath.ToSlash(rel)
+			allPackages[importPath] = false
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walking package directory: %w", err)
+	}
+	return allPackages, nil
+}
+
+// dirHasGoSource reports whether dir contains at least one non-test Go file.
+func dirHasGoSource(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, fmt.Errorf("reading directory %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// collectImportsFromFile reads a Go source file and marks any matching
+// import paths as true in allPackages.
+func collectImportsFromFile(path string, importRe *regexp.Regexp, allPackages map[string]bool) error {
+	content, readErr := os.ReadFile(path) //nolint:gosec // test reads source files, not user input
+	if readErr != nil {
+		return fmt.Errorf("reading file %s: %w", path, readErr)
+	}
+	for _, match := range importRe.FindAllStringSubmatch(string(content), -1) {
+		if _, exists := allPackages[match[1]]; exists {
+			allPackages[match[1]] = true
+		}
+	}
+	return nil
+}
+
+// scanImports walks the given directories and marks imported packages as true
+// in the allPackages map.
+func scanImports(scanDirs []string, importRe *regexp.Regexp, allPackages map[string]bool) error {
+	for _, dir := range scanDirs {
+		if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+			continue
+		}
+		walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, fErr error) error {
+			if fErr != nil {
+				return fErr
+			}
+			if info.IsDir() || !strings.HasSuffix(info.Name(), ".go") || strings.HasSuffix(info.Name(), "_test.go") {
+				return nil
+			}
+			return collectImportsFromFile(path, importRe, allPackages)
+		})
+		if walkErr != nil {
+			return fmt.Errorf("scanning imports in %s: %w", dir, walkErr)
+		}
+	}
+	return nil
+}
+
+// TestNoDeadPackages verifies that every Go package under pkg/ is imported by
+// at least one non-test file in the project (pkg/ or cmd/). A package that
+// exists but is never imported is dead code — it compiles, passes its own unit
+// tests, but is never executed in the running application.
+//
+// This catches the "vaporware package" pattern where AI generates a complete
+// implementation with tests, but never wires it into the platform.
+func TestNoDeadPackages(t *testing.T) {
+	projectRoot, err := filepath.Abs("../../..")
+	require.NoError(t, err)
+
+	modulePath := "github.com/txn2/mcp-data-platform"
+
+	// 1. Discover all packages under pkg/ that contain non-test Go files.
+	pkgDir := filepath.Join(projectRoot, "pkg")
+	allPackages, err := discoverPackages(pkgDir, projectRoot, modulePath)
+	require.NoError(t, err)
+	require.NotEmpty(t, allPackages)
+
+	// 2. Scan all non-test Go files under pkg/, cmd/, and internal/ for import statements.
+	importRe := regexp.MustCompile(`"(` + regexp.QuoteMeta(modulePath) + `/[^"]+)"`)
+	scanDirs := []string{
+		filepath.Join(projectRoot, "pkg"),
+		filepath.Join(projectRoot, "cmd"),
+		filepath.Join(projectRoot, "internal"),
+	}
+
+	err = scanImports(scanDirs, importRe, allPackages)
+	require.NoError(t, err)
+
+	// 3. Report dead packages.
+	for pkg, imported := range allPackages {
+		assert.True(t, imported,
+			"package %q contains Go source files but is never imported by any non-test code. "+
+				"Either wire it into the platform or delete it.", pkg)
 	}
 }
