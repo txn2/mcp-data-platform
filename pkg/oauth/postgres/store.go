@@ -39,7 +39,14 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth.Client) error {
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO oauth_clients (id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (client_id) DO UPDATE SET
+			client_secret = EXCLUDED.client_secret,
+			name = EXCLUDED.name,
+			redirect_uris = EXCLUDED.redirect_uris,
+			grant_types = EXCLUDED.grant_types,
+			require_pkce = EXCLUDED.require_pkce,
+			active = EXCLUDED.active`,
 		client.ID, client.ClientID, client.ClientSecret, client.Name,
 		redirectURIs, grantTypes, client.RequirePKCE, client.CreatedAt, client.Active,
 	)
