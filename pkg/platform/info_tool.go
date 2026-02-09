@@ -12,14 +12,22 @@ import (
 
 // Info contains information about the platform deployment.
 type Info struct {
-	Name              string        `json:"name"`
-	Version           string        `json:"version"`
-	Description       string        `json:"description,omitempty"`
-	Tags              []string      `json:"tags,omitempty"`
-	AgentInstructions string        `json:"agent_instructions,omitempty"`
-	Toolkits          []string      `json:"toolkits"`
-	Personas          []PersonaInfo `json:"personas,omitempty"`
-	Features          Features      `json:"features"`
+	Name              string            `json:"name"`
+	Version           string            `json:"version"`
+	Description       string            `json:"description,omitempty"`
+	Tags              []string          `json:"tags,omitempty"`
+	AgentInstructions string            `json:"agent_instructions,omitempty"`
+	Toolkits          []string          `json:"toolkits"`
+	Personas          []PersonaInfo     `json:"personas,omitempty"`
+	Features          Features          `json:"features"`
+	ConfigVersion     ConfigVersionInfo `json:"config_version"`
+}
+
+// ConfigVersionInfo provides information about the config API version.
+type ConfigVersionInfo struct {
+	APIVersion        string   `json:"api_version"`
+	SupportedVersions []string `json:"supported_versions"`
+	LatestVersion     string   `json:"latest_version"`
 }
 
 // PersonaInfo provides summary information about a persona.
@@ -84,6 +92,7 @@ func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.C
 		})
 	}
 
+	reg := DefaultRegistry()
 	info := Info{
 		Name:              p.config.Server.Name,
 		Version:           p.config.Server.Version,
@@ -97,6 +106,11 @@ func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.C
 			QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
 			StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
 			AuditLogging:       p.config.Audit.Enabled,
+		},
+		ConfigVersion: ConfigVersionInfo{
+			APIVersion:        p.config.APIVersion,
+			SupportedVersions: reg.ListSupported(),
+			LatestVersion:     reg.Current(),
 		},
 	}
 
