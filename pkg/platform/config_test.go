@@ -37,6 +37,10 @@ const (
 	cfgTestLineageTO         = 5 * time.Second
 	cfgTestEntryTTL10m       = 10 * time.Minute
 	cfgTestSessTO60m         = 60 * time.Minute
+	cfgTestDefaultGrace      = 25 * time.Second
+	cfgTestDefaultPreDelay   = 2 * time.Second
+	cfgTestCustomGrace       = 20 * time.Second
+	cfgTestCustomPreDelay    = 3 * time.Second
 )
 
 // writeTestConfig writes a YAML config to a temp dir and returns the path.
@@ -176,6 +180,12 @@ func TestApplyDefaults(t *testing.T) {
 	}
 	if cfg.Server.Streamable.SessionTimeout != cfgTestDefaultSessTTL {
 		t.Errorf("Server.Streamable.SessionTimeout = %v, want %v", cfg.Server.Streamable.SessionTimeout, cfgTestDefaultSessTTL)
+	}
+	if cfg.Server.Shutdown.GracePeriod != cfgTestDefaultGrace {
+		t.Errorf("Server.Shutdown.GracePeriod = %v, want %v", cfg.Server.Shutdown.GracePeriod, cfgTestDefaultGrace)
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay != cfgTestDefaultPreDelay {
+		t.Errorf("Server.Shutdown.PreShutdownDelay = %v, want %v", cfg.Server.Shutdown.PreShutdownDelay, cfgTestDefaultPreDelay)
 	}
 }
 
@@ -527,6 +537,53 @@ func TestSessionDedupConfig_EffectiveMode(t *testing.T) {
 			t.Errorf("EffectiveMode() = %q, want %q", got, "none")
 		}
 	})
+}
+
+func TestApplyDefaults_ShutdownConfig(t *testing.T) {
+	t.Run("defaults applied", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.Server.Shutdown.GracePeriod != cfgTestDefaultGrace {
+			t.Errorf("GracePeriod = %v, want %v", cfg.Server.Shutdown.GracePeriod, cfgTestDefaultGrace)
+		}
+		if cfg.Server.Shutdown.PreShutdownDelay != cfgTestDefaultPreDelay {
+			t.Errorf("PreShutdownDelay = %v, want %v", cfg.Server.Shutdown.PreShutdownDelay, cfgTestDefaultPreDelay)
+		}
+	})
+
+	t.Run("custom values preserved", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{
+				Shutdown: ShutdownConfig{
+					GracePeriod:      cfgTestCustomGrace,
+					PreShutdownDelay: cfgTestCustomPreDelay,
+				},
+			},
+		}
+		applyDefaults(cfg)
+		if cfg.Server.Shutdown.GracePeriod != cfgTestCustomGrace {
+			t.Errorf("GracePeriod = %v, want %v (should preserve)", cfg.Server.Shutdown.GracePeriod, cfgTestCustomGrace)
+		}
+		if cfg.Server.Shutdown.PreShutdownDelay != cfgTestCustomPreDelay {
+			t.Errorf("PreShutdownDelay = %v, want %v (should preserve)", cfg.Server.Shutdown.PreShutdownDelay, cfgTestCustomPreDelay)
+		}
+	})
+}
+
+func TestLoadConfig_ShutdownFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+  shutdown:
+    grace_period: 20s
+    pre_shutdown_delay: 3s
+`)
+	if cfg.Server.Shutdown.GracePeriod != cfgTestCustomGrace {
+		t.Errorf("GracePeriod = %v, want %v", cfg.Server.Shutdown.GracePeriod, cfgTestCustomGrace)
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay != cfgTestCustomPreDelay {
+		t.Errorf("PreShutdownDelay = %v, want %v", cfg.Server.Shutdown.PreShutdownDelay, cfgTestCustomPreDelay)
+	}
 }
 
 func TestApplyDefaults_SessionDedupDefaults(t *testing.T) {
