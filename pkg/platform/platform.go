@@ -395,6 +395,7 @@ func (p *Platform) initOAuth() error {
 			RedirectURIs: clientCfg.RedirectURIs,
 			GrantTypes:   []string{"authorization_code", "refresh_token"},
 			RequirePKCE:  true,
+			CreatedAt:    time.Now(),
 			Active:       true,
 		}
 
