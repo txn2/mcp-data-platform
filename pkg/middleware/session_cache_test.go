@@ -10,10 +10,17 @@ import (
 
 // Test constants for session cache tests.
 const (
-	cacheTestSession1   = "session-1"
-	cacheTestTable      = "catalog.schema.table"
-	cacheTestTable1     = "table1"
-	cacheTestGoroutines = 10
+	cacheTestSession1      = "session-1"
+	cacheTestTable         = "catalog.schema.table"
+	cacheTestTable1        = "table1"
+	cacheTestGoroutines    = 10
+	cacheTestLoadedSession = "loaded-session"
+	cacheTestMergeSession  = "merge-session"
+	cacheTestSessionA      = "session-A"
+	cacheTestSessionB      = "session-B"
+	cacheTestUsersTable    = "catalog.schema.users"
+	cacheTestOrdersTable   = "catalog.schema.orders"
+	cacheTestSess1         = "sess-1"
 )
 
 func TestSessionEnrichmentCache_MarkAndCheck(t *testing.T) {
@@ -52,14 +59,14 @@ func TestSessionEnrichmentCache_TTLExpiry(t *testing.T) {
 func TestSessionEnrichmentCache_SessionIsolation(t *testing.T) {
 	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 
-	cache.MarkSent("session-A", "catalog.schema.users")
-	cache.MarkSent("session-B", "catalog.schema.orders")
+	cache.MarkSent(cacheTestSessionA, cacheTestUsersTable)
+	cache.MarkSent(cacheTestSessionB, cacheTestOrdersTable)
 
 	// Each session only knows about its own tables
-	assert.True(t, cache.WasSentRecently("session-A", "catalog.schema.users"))
-	assert.False(t, cache.WasSentRecently("session-A", "catalog.schema.orders"))
-	assert.False(t, cache.WasSentRecently("session-B", "catalog.schema.users"))
-	assert.True(t, cache.WasSentRecently("session-B", "catalog.schema.orders"))
+	assert.True(t, cache.WasSentRecently(cacheTestSessionA, cacheTestUsersTable))
+	assert.False(t, cache.WasSentRecently(cacheTestSessionA, cacheTestOrdersTable))
+	assert.False(t, cache.WasSentRecently(cacheTestSessionB, cacheTestUsersTable))
+	assert.True(t, cache.WasSentRecently(cacheTestSessionB, cacheTestOrdersTable))
 }
 
 func TestSessionEnrichmentCache_SessionCount(t *testing.T) {
@@ -127,6 +134,85 @@ func TestSessionEnrichmentCache_StartAndStopCleanup(t *testing.T) {
 
 	// Stop should not panic
 	cache.Stop()
+}
+
+func TestSessionEnrichmentCache_LoadSession(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	now := time.Now()
+	sentTables := map[string]time.Time{
+		"catalog.schema.table1": now.Add(-1 * time.Minute),
+		"catalog.schema.table2": now.Add(-2 * time.Minute),
+	}
+
+	cache.LoadSession(cacheTestLoadedSession, sentTables)
+
+	assert.True(t, cache.WasSentRecently(cacheTestLoadedSession, "catalog.schema.table1"))
+	assert.True(t, cache.WasSentRecently(cacheTestLoadedSession, "catalog.schema.table2"))
+	assert.False(t, cache.WasSentRecently(cacheTestLoadedSession, "catalog.schema.table3"))
+	assert.Equal(t, 1, cache.SessionCount())
+}
+
+func TestSessionEnrichmentCache_LoadSessionMerges(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	// Pre-populate
+	cache.MarkSent(cacheTestMergeSession, "catalog.schema.existing")
+
+	// Load additional tables
+	now := time.Now()
+	cache.LoadSession(cacheTestMergeSession, map[string]time.Time{
+		"catalog.schema.loaded": now,
+	})
+
+	assert.True(t, cache.WasSentRecently(cacheTestMergeSession, "catalog.schema.existing"))
+	assert.True(t, cache.WasSentRecently(cacheTestMergeSession, "catalog.schema.loaded"))
+}
+
+func TestSessionEnrichmentCache_ExportSessions(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	cache.MarkSent(cacheTestSessionA, "table1")
+	cache.MarkSent(cacheTestSessionA, "table2")
+	cache.MarkSent(cacheTestSessionB, "table3")
+
+	exported := cache.ExportSessions()
+	require.Len(t, exported, 2)
+	assert.Len(t, exported[cacheTestSessionA], 2)
+	assert.Len(t, exported[cacheTestSessionB], 1)
+	assert.Contains(t, exported[cacheTestSessionA], "table1")
+	assert.Contains(t, exported[cacheTestSessionA], "table2")
+	assert.Contains(t, exported[cacheTestSessionB], "table3")
+}
+
+func TestSessionEnrichmentCache_ExportSessionsEmpty(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+
+	exported := cache.ExportSessions()
+	assert.Empty(t, exported)
+}
+
+func TestSessionEnrichmentCache_LoadExportRoundTrip(t *testing.T) {
+	// Create cache, populate, export
+	cache1 := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	cache1.MarkSent(cacheTestSess1, cacheTestUsersTable)
+	cache1.MarkSent(cacheTestSess1, cacheTestOrdersTable)
+	cache1.MarkSent("sess-2", "catalog.schema.products")
+
+	exported := cache1.ExportSessions()
+
+	// Create new cache, load from export
+	cache2 := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	for sessionID, tables := range exported {
+		cache2.LoadSession(sessionID, tables)
+	}
+
+	// Verify state matches
+	assert.True(t, cache2.WasSentRecently(cacheTestSess1, cacheTestUsersTable))
+	assert.True(t, cache2.WasSentRecently(cacheTestSess1, cacheTestOrdersTable))
+	assert.True(t, cache2.WasSentRecently("sess-2", "catalog.schema.products"))
+	assert.False(t, cache2.WasSentRecently("sess-2", cacheTestUsersTable))
+	assert.Equal(t, 2, cache2.SessionCount())
 }
 
 func TestSessionEnrichmentCache_ConcurrentAccess(_ *testing.T) {

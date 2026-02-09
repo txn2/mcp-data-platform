@@ -72,6 +72,29 @@ server:
 | `server.tls.enabled` | bool | `false` | Enable TLS |
 | `server.tls.cert_file` | string | - | TLS certificate path |
 | `server.tls.key_file` | string | - | TLS private key path |
+| `server.shutdown.grace_period` | duration | `25s` | Max time to drain in-flight requests during shutdown |
+| `server.shutdown.pre_shutdown_delay` | duration | `2s` | Sleep before draining for load balancer deregistration |
+
+### Session Externalization
+
+```yaml
+sessions:
+  store: memory
+  ttl: 30m
+  idle_timeout: 30m
+  cleanup_interval: 1m
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sessions.store` | string | `memory` | Session store backend: `memory` or `database` |
+| `sessions.ttl` | duration | `streamable.session_timeout` | Session lifetime |
+| `sessions.idle_timeout` | duration | `streamable.session_timeout` | Idle session eviction timeout |
+| `sessions.cleanup_interval` | duration | `1m` | How often the cleanup routine removes expired sessions |
+
+When `sessions.store` is `database`, the platform forces `server.streamable.stateless: true` and manages sessions in PostgreSQL. This enables zero-downtime restarts and horizontal scaling. Requires `database.dsn` to be configured.
+
+When `sessions.store` is `memory` (default), the SDK manages sessions internally with no behavior change from previous versions.
 
 ## Authentication Configuration
 

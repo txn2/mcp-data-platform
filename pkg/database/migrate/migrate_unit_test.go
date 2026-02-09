@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 8
+	migrateTestFileCount    = 10
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -51,6 +51,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000003_response_size.down.sql",
 		"000004_audit_schema_improvements.up.sql",
 		"000004_audit_schema_improvements.down.sql",
+		"000005_sessions.up.sql",
+		"000005_sessions.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -73,6 +75,8 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000003_response_size.down.sql",
 		"migrations/000004_audit_schema_improvements.up.sql",
 		"migrations/000004_audit_schema_improvements.down.sql",
+		"migrations/000005_sessions.up.sql",
+		"migrations/000005_sessions.down.sql",
 	}
 
 	for _, file := range files {
@@ -86,6 +90,7 @@ func TestMigrationUpFilesContainCreateTable(t *testing.T) {
 	upFiles := []string{
 		"migrations/000001_oauth_clients.up.sql",
 		"migrations/000002_audit_logs.up.sql",
+		"migrations/000005_sessions.up.sql",
 	}
 
 	for _, file := range upFiles {
@@ -99,6 +104,7 @@ func TestMigrationDownFilesContainDropTable(t *testing.T) {
 	downFiles := []string{
 		"migrations/000001_oauth_clients.down.sql",
 		"migrations/000002_audit_logs.down.sql",
+		"migrations/000005_sessions.down.sql",
 	}
 
 	for _, file := range downFiles {
@@ -333,6 +339,35 @@ func TestMigration004_DownContent(t *testing.T) {
 
 	// Must restore the redundant column.
 	assert.Contains(t, migrationSQL, "ADD COLUMN response_token_estimate")
+}
+
+func TestMigration005_UpContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000005_sessions.up.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	assert.Contains(t, migrationSQL, "CREATE TABLE")
+	assert.Contains(t, migrationSQL, "sessions")
+
+	expectedColumns := []string{
+		"id", "user_id", "created_at", "last_active_at", "expires_at", "state",
+	}
+	for _, col := range expectedColumns {
+		assert.Contains(t, migrationSQL, col,
+			"up migration should contain column %s", col)
+	}
+
+	assert.Contains(t, migrationSQL, "idx_sessions_expires_at")
+	assert.Contains(t, migrationSQL, "idx_sessions_user_id")
+}
+
+func TestMigration005_DownContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000005_sessions.down.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	assert.Contains(t, migrationSQL, "DROP TABLE")
+	assert.Contains(t, migrationSQL, "sessions")
 }
 
 // TestMigration004_ColumnConsistency verifies that columns added by

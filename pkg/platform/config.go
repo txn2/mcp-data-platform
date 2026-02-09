@@ -23,10 +23,19 @@ const (
 	defaultQualityThreshold = 0.7
 )
 
+// Session store backend names.
+const (
+	SessionStoreMemory   = "memory"
+	SessionStoreDatabase = "database"
+)
+
 // Default durations for configuration.
 var (
-	defaultCacheTTL       = 5 * time.Minute
-	defaultSessionTimeout = 30 * time.Minute
+	defaultCacheTTL         = 5 * time.Minute
+	defaultSessionTimeout   = 30 * time.Minute
+	defaultGracePeriod      = 25 * time.Second
+	defaultPreShutdownDelay = 2 * time.Second
+	defaultCleanupInterval  = 1 * time.Minute
 )
 
 // Config holds the complete platform configuration.
@@ -44,6 +53,7 @@ type Config struct {
 	Tuning    TuningConfig    `yaml:"tuning"`
 	Audit     AuditConfig     `yaml:"audit"`
 	MCPApps   MCPAppsConfig   `yaml:"mcpapps"`
+	Sessions  SessionsConfig  `yaml:"sessions"`
 }
 
 // ServerConfig configures the MCP server.
@@ -58,6 +68,20 @@ type ServerConfig struct {
 	Address           string           `yaml:"address"`
 	TLS               TLSConfig        `yaml:"tls"`
 	Streamable        StreamableConfig `yaml:"streamable"`
+	Shutdown          ShutdownConfig   `yaml:"shutdown"`
+}
+
+// ShutdownConfig configures graceful shutdown timing.
+type ShutdownConfig struct {
+	// GracePeriod is the maximum time to drain in-flight requests after
+	// receiving a shutdown signal. Defaults to 25s (fits within K8s 30s
+	// terminationGracePeriodSeconds with headroom for pre-shutdown delay).
+	GracePeriod time.Duration `yaml:"grace_period"`
+
+	// PreShutdownDelay is the time to sleep after marking the pod as
+	// not-ready and before starting the HTTP drain. This gives the K8s
+	// load balancer time to deregister the pod. Defaults to 2s.
+	PreShutdownDelay time.Duration `yaml:"pre_shutdown_delay"`
 }
 
 // StreamableConfig configures the Streamable HTTP transport.
@@ -344,6 +368,22 @@ type CSPAppConfig struct {
 	ClipboardWrite bool `yaml:"clipboard_write"`
 }
 
+// SessionsConfig configures session externalization.
+type SessionsConfig struct {
+	// Store selects the session storage backend: "memory" (default) or "database".
+	Store string `yaml:"store"`
+
+	// TTL is the session lifetime. Defaults to streamable.session_timeout.
+	TTL time.Duration `yaml:"ttl"`
+
+	// IdleTimeout is the idle session eviction threshold.
+	// Defaults to streamable.session_timeout.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+
+	// CleanupInterval is how often the cleanup routine runs. Defaults to 1m.
+	CleanupInterval time.Duration `yaml:"cleanup_interval"`
+}
+
 // LoadConfig loads configuration from a file.
 // The path is expected to come from command line arguments, controlled by the administrator.
 func LoadConfig(path string) (*Config, error) {
@@ -402,7 +442,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Streamable.SessionTimeout == 0 {
 		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
 	}
+	if cfg.Server.Shutdown.GracePeriod == 0 {
+		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
+		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
+	}
 	applySessionDedupDefaults(cfg)
+	applySessionDefaults(cfg)
 }
 
 // applySessionDedupDefaults sets session dedup defaults from related config values.
@@ -415,6 +462,22 @@ func applySessionDedupDefaults(cfg *Config) {
 	}
 }
 
+// applySessionDefaults sets session config defaults from related config values.
+func applySessionDefaults(cfg *Config) {
+	if cfg.Sessions.Store == "" {
+		cfg.Sessions.Store = SessionStoreMemory
+	}
+	if cfg.Sessions.TTL == 0 {
+		cfg.Sessions.TTL = cfg.Server.Streamable.SessionTimeout
+	}
+	if cfg.Sessions.IdleTimeout == 0 {
+		cfg.Sessions.IdleTimeout = cfg.Server.Streamable.SessionTimeout
+	}
+	if cfg.Sessions.CleanupInterval == 0 {
+		cfg.Sessions.CleanupInterval = defaultCleanupInterval
+	}
+}
+
 // Validate validates the configuration.
 func (c *Config) Validate() error {
 	var errs []string
@@ -424,6 +487,7 @@ func (c *Config) Validate() error {
 	}
 
 	errs = c.validateOAuth(errs)
+	errs = c.validateSessions(errs)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation errors: %s", strings.Join(errs, "; "))
@@ -452,6 +516,14 @@ func (c *Config) validateOAuth(errs []string) []string {
 	}
 	if c.OAuth.Upstream.RedirectURI == "" {
 		errs = append(errs, "oauth.upstream.redirect_uri is required")
+	}
+	return errs
+}
+
+// validateSessions checks session configuration validity and appends any errors.
+func (c *Config) validateSessions(errs []string) []string {
+	if c.Sessions.Store == SessionStoreDatabase && c.Database.DSN == "" {
+		errs = append(errs, "database.dsn is required when sessions.store is \"database\"")
 	}
 	return errs
 }

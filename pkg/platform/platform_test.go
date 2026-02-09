@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -2256,6 +2257,288 @@ func TestNew_SigningKeyExactly32Bytes(t *testing.T) {
 
 	if p.OAuthServer() == nil {
 		t.Error("OAuthServer() should not be nil with exact 32-byte key")
+	}
+}
+
+func TestSessionStore_Accessor(t *testing.T) {
+	p := newTestPlatform(t)
+	defer func() { _ = p.Close() }()
+
+	store := p.SessionStore()
+	if store == nil {
+		t.Error("SessionStore() should return non-nil store (memory default)")
+	}
+}
+
+func TestWithSessionStore_Option(t *testing.T) {
+	injected := session.NewMemoryStore(5 * time.Minute)
+	defer func() { _ = injected.Close() }()
+
+	p := newTestPlatform(t, WithSessionStore(injected))
+	defer func() { _ = p.Close() }()
+
+	if p.SessionStore() != injected {
+		t.Error("SessionStore() should return injected store")
+	}
+}
+
+func TestInitSessions_UnknownStore(t *testing.T) {
+	_, err := New(WithConfig(&Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Sessions: SessionsConfig{Store: "redis"},
+	}))
+	if err == nil {
+		t.Fatal("expected error for unknown session store")
+	}
+	if !containsSubstr(err.Error(), "unknown session store") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestInitSessions_DatabaseWithoutDB(t *testing.T) {
+	_, err := New(WithConfig(&Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Sessions: SessionsConfig{Store: SessionStoreDatabase},
+	}))
+	if err == nil {
+		t.Fatal("expected error for database store without db")
+	}
+	if !containsSubstr(err.Error(), "no database configured") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParseDedupState(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := parseDedupState(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("non-map input", func(t *testing.T) {
+		result := parseDedupState("not a map")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("typed map[string]time.Time (memory store)", func(t *testing.T) {
+		now := time.Now()
+		input := map[string]time.Time{
+			"table1": now,
+			"table2": now.Add(-5 * time.Minute),
+		}
+		result := parseDedupState(input)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		if !result["table1"].Equal(now) {
+			t.Errorf("table1 time mismatch")
+		}
+	})
+
+	t.Run("map[string]any with time.Time values (JSON)", func(t *testing.T) {
+		now := time.Now()
+		input := map[string]any{
+			"table1": now,
+			"table2": now.Add(-5 * time.Minute),
+		}
+		result := parseDedupState(input)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		if !result["table1"].Equal(now) {
+			t.Errorf("table1 time mismatch")
+		}
+	})
+
+	t.Run("map with RFC3339 string values", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Nanosecond)
+		input := map[string]any{
+			"table1": now.Format(time.RFC3339Nano),
+		}
+		result := parseDedupState(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+	})
+
+	t.Run("map with invalid string skipped", func(t *testing.T) {
+		input := map[string]any{
+			"table1": "not-a-timestamp",
+		}
+		result := parseDedupState(input)
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries for bad timestamp, got %d", len(result))
+		}
+	})
+
+	t.Run("map with unsupported type skipped", func(t *testing.T) {
+		input := map[string]any{
+			"table1": 12345,
+		}
+		result := parseDedupState(input)
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries for int value, got %d", len(result))
+		}
+	})
+}
+
+func TestFlushEnrichmentState(t *testing.T) {
+	t.Run("nil cache or store is no-op", func(_ *testing.T) {
+		p := &Platform{}
+		p.flushEnrichmentState() // should not panic
+	})
+
+	t.Run("empty export is no-op", func(_ *testing.T) {
+		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+		store := session.NewMemoryStore(30 * time.Minute)
+		defer func() { _ = store.Close() }()
+
+		p := &Platform{sessionCache: cache, sessionStore: store}
+		p.flushEnrichmentState() // nothing to flush
+	})
+
+	t.Run("flushes dedup state to store", func(t *testing.T) {
+		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+		store := session.NewMemoryStore(30 * time.Minute)
+		defer func() { _ = store.Close() }()
+
+		// Create a session in the store
+		ctx := context.Background()
+		sess := &session.Session{
+			ID:        "flush-sess",
+			ExpiresAt: time.Now().Add(30 * time.Minute),
+			State:     make(map[string]any),
+		}
+		if err := store.Create(ctx, sess); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+
+		// Mark table as sent in cache
+		cache.MarkSent("flush-sess", "catalog.schema.users")
+
+		p := &Platform{sessionCache: cache, sessionStore: store}
+		p.flushEnrichmentState()
+
+		// Verify state was persisted
+		got, err := store.Get(ctx, "flush-sess")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if got.State == nil {
+			t.Fatal("expected non-nil state")
+		}
+		dedup, ok := got.State["enrichment_dedup"]
+		if !ok {
+			t.Fatal("expected enrichment_dedup key in state")
+		}
+		tables, ok := dedup.(map[string]time.Time)
+		if !ok {
+			t.Fatalf("expected map[string]time.Time, got %T", dedup)
+		}
+		if _, exists := tables["catalog.schema.users"]; !exists {
+			t.Error("expected catalog.schema.users in flushed dedup state")
+		}
+	})
+}
+
+func TestLoadPersistedEnrichmentState(t *testing.T) {
+	t.Run("nil cache or store is no-op", func(_ *testing.T) {
+		p := &Platform{}
+		p.loadPersistedEnrichmentState() // should not panic
+	})
+
+	t.Run("loads dedup state from store", func(t *testing.T) {
+		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+		store := session.NewMemoryStore(30 * time.Minute)
+		defer func() { _ = store.Close() }()
+
+		ctx := context.Background()
+		now := time.Now()
+		sess := &session.Session{
+			ID:        "load-sess",
+			ExpiresAt: now.Add(30 * time.Minute),
+			State: map[string]any{
+				"enrichment_dedup": map[string]any{
+					"catalog.schema.orders": now.Add(-2 * time.Minute),
+				},
+			},
+		}
+		if err := store.Create(ctx, sess); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+
+		p := &Platform{sessionCache: cache, sessionStore: store}
+		p.loadPersistedEnrichmentState()
+
+		// Verify cache was populated
+		if !cache.WasSentRecently("load-sess", "catalog.schema.orders") {
+			t.Error("expected catalog.schema.orders to be marked as sent")
+		}
+	})
+
+	t.Run("skips sessions without dedup state", func(t *testing.T) {
+		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+		store := session.NewMemoryStore(30 * time.Minute)
+		defer func() { _ = store.Close() }()
+
+		ctx := context.Background()
+		sess := &session.Session{
+			ID:        "no-dedup",
+			ExpiresAt: time.Now().Add(30 * time.Minute),
+			State:     map[string]any{"other_key": "value"},
+		}
+		if err := store.Create(ctx, sess); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+
+		p := &Platform{sessionCache: cache, sessionStore: store}
+		p.loadPersistedEnrichmentState()
+
+		if cache.SessionCount() != 0 {
+			t.Error("expected 0 sessions loaded")
+		}
+	})
+}
+
+func TestFlushLoadRoundTrip(t *testing.T) {
+	// Simulate: populate cache, flush to store, create new cache, load from store
+	store := session.NewMemoryStore(30 * time.Minute)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	// Create session in store
+	sess := &session.Session{
+		ID:        "rt-sess",
+		ExpiresAt: time.Now().Add(30 * time.Minute),
+		State:     make(map[string]any),
+	}
+	if err := store.Create(ctx, sess); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Phase 1: populate cache and flush
+	cache1 := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	cache1.MarkSent("rt-sess", "catalog.schema.products")
+
+	p1 := &Platform{sessionCache: cache1, sessionStore: store}
+	p1.flushEnrichmentState()
+
+	// Phase 2: load into new cache
+	cache2 := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	p2 := &Platform{sessionCache: cache2, sessionStore: store}
+	p2.loadPersistedEnrichmentState()
+
+	if !cache2.WasSentRecently("rt-sess", "catalog.schema.products") {
+		t.Error("expected round-trip to preserve dedup state")
 	}
 }
 

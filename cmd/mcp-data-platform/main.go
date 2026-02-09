@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,11 +18,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
-const defaultReadHeaderTimeout = 10 * time.Second
+const (
+	defaultReadHeaderTimeout = 10 * time.Second
+	fallbackGracePeriod      = 25 * time.Second
+	fallbackPreShutdownDelay = 2 * time.Second
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -52,7 +59,8 @@ func setupSignalHandler() context.Context {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigCh
+		sig := <-sigCh
+		slog.Info("received shutdown signal", "signal", sig)
 		cancel()
 	}()
 	return ctx
@@ -106,11 +114,16 @@ func run() error {
 
 func closeServer(result *serverResult) {
 	if result.platform != nil {
-		_ = result.platform.Close()
+		if err := result.platform.Close(); err != nil {
+			slog.Error("shutdown: platform close error", "error", err)
+		}
 	}
 	if result.toolkit != nil {
-		_ = result.toolkit.Close()
+		if err := result.toolkit.Close(); err != nil {
+			slog.Error("shutdown: toolkit close error", "error", err)
+		}
 	}
+	slog.Info("shutdown: complete")
 }
 
 func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
@@ -172,6 +185,7 @@ type httpConfig struct {
 	tlsCertFile   string
 	tlsKeyFile    string
 	streamableCfg platform.StreamableConfig
+	shutdownCfg   platform.ShutdownConfig
 }
 
 func extractHTTPConfig(p *platform.Platform) httpConfig {
@@ -183,6 +197,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 		cfg.tlsCertFile = c.Server.TLS.CertFile
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
 		cfg.streamableCfg = c.Server.Streamable
+		cfg.shutdownCfg = c.Server.Shutdown
 	}
 	return cfg
 }
@@ -214,10 +229,15 @@ func resourceMetadataURL(p *platform.Platform) string {
 func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
+	hc := health.NewChecker()
 
 	if !hcfg.tlsEnabled {
 		log.Println("WARNING: HTTP transport without TLS - credentials may be transmitted in plaintext")
 	}
+
+	// Health endpoints (registered before catch-all /)
+	mux.Handle("/healthz", hc.LivenessHandler())
+	mux.Handle("/readyz", hc.ReadinessHandler())
 
 	// Mount OAuth server if enabled
 	if p != nil && p.OAuthServer() != nil {
@@ -248,11 +268,6 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	log.Println("SSE transport enabled on /sse, /message")
 
 	// Mount Streamable HTTP handler at root (modern clients).
-	// MCPAuthGateway returns HTTP 401 with WWW-Authenticate header when
-	// no credentials are present, triggering the OAuth discovery flow in
-	// MCP clients (Claude.ai, Claude Desktop). Once a token is present,
-	// bridgeAuthToken in MCPToolCallMiddleware extracts it from
-	// RequestExtra.Header into the MCP context for authentication.
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
@@ -260,30 +275,71 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		Stateless:      hcfg.streamableCfg.Stateless,
 	})
 
+	// Wrap with AwareHandler when using external session store
+	// (database mode forces Stateless: true on the SDK, and sessions
+	// are managed by our handler against the external store).
+	var rootHandler http.Handler = streamableHandler
+	if p != nil && p.SessionStore() != nil && hcfg.streamableCfg.Stateless {
+		rootHandler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
+			Store: p.SessionStore(),
+			TTL:   p.Config().Sessions.TTL,
+		})
+		log.Println("Session-aware handler enabled (external session store)")
+	}
+
 	if hcfg.requireAuth {
-		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(streamableHandler))
+		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(rootHandler))
 		log.Println("Streamable HTTP transport enabled on / (auth required)")
 	} else {
-		mux.Handle("/", streamableHandler)
+		mux.Handle("/", rootHandler)
 		log.Println("Streamable HTTP transport enabled on / (anonymous)")
 	}
 
-	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg)
+	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg, hc)
 }
 
-func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg httpConfig) error {
+func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg httpConfig, hc *health.Checker) error {
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 	}
 
+	gracePeriod := hcfg.shutdownCfg.GracePeriod
+	if gracePeriod == 0 {
+		gracePeriod = fallbackGracePeriod
+	}
+	preDelay := hcfg.shutdownCfg.PreShutdownDelay
+	if preDelay == 0 {
+		preDelay = fallbackPreShutdownDelay
+	}
+
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+		// Mark not-ready so K8s load balancer stops sending traffic.
+		if hc != nil {
+			hc.SetDraining()
+			slog.Info("shutdown: readiness set to draining, waiting for LB deregistration",
+				"pre_shutdown_delay", preDelay)
+			time.Sleep(preDelay)
+		}
+
+		// Drain in-flight requests.
+		slog.Info("shutdown: draining HTTP connections", "grace_period", gracePeriod)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
 		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Error("shutdown: HTTP drain error", "error", err)
+		} else {
+			slog.Info("shutdown: HTTP server stopped")
+		}
 	}()
+
+	// Mark ready just before we start accepting connections.
+	if hc != nil {
+		hc.SetReady()
+	}
 
 	if hcfg.tlsEnabled {
 		log.Printf("Starting HTTP server with TLS on %s\n", addr)

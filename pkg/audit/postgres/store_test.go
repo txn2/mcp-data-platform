@@ -417,12 +417,35 @@ func TestCleanup(t *testing.T) {
 	})
 }
 
-func TestClose(t *testing.T) {
+func TestClose_NilCancel_NoPanic(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
+	// Close without ever calling StartCleanupRoutine — must not panic.
+	assert.NoError(t, store.Close())
+}
+
+func TestClose_StopsCleanupRoutine(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 7})
+
+	mock.MatchExpectationsInOrder(false)
+	mock.ExpectExec("DELETE FROM audit_logs").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM audit_logs").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	store.StartCleanupRoutine(10 * time.Millisecond)
+
+	// Let at least one cleanup tick fire.
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should cancel and wait for the goroutine to exit.
 	assert.NoError(t, store.Close())
 }
 
@@ -439,13 +462,10 @@ func TestStartCleanupRoutine(t *testing.T) {
 	mock.ExpectExec("DELETE FROM audit_logs").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	store.StartCleanupRoutine(ctx, 10*time.Millisecond)
+	store.StartCleanupRoutine(10 * time.Millisecond)
 
 	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	time.Sleep(20 * time.Millisecond)
+	assert.NoError(t, store.Close())
 }
 
 func TestQueryBuilder_Internal(t *testing.T) {

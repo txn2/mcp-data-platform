@@ -618,9 +618,34 @@ injection:
 
 - Enabled by default when `trino_semantic_enrichment: true`
 - Trino-only (DataHub/S3 enrichment is not deduplicated)
-- In-memory state, lost on restart (by design)
+- In-memory state by default; persisted to database session store if `sessions.store: database`
 - Each client session has independent dedup state
 - SQL parsing tracks multiple tables independently (`JOIN` queries)
+
+## Session Externalization
+
+Externalize MCP session state to PostgreSQL for zero-downtime restarts and horizontal scaling.
+
+### Configuration
+
+```yaml
+database:
+  dsn: "${DATABASE_URL}"
+
+sessions:
+  store: database              # "memory" (default) or "database"
+  ttl: 30m                     # session lifetime
+  cleanup_interval: 1m         # cleanup routine frequency
+```
+
+When `store: database`:
+- Platform forces `server.streamable.stateless: true` on the SDK
+- Sessions are managed in PostgreSQL via `SessionAwareHandler`
+- On shutdown, enrichment dedup state is flushed to the session store
+- On startup, dedup state is restored from persisted sessions
+- Multiple replicas share the same session store
+
+Session hijack prevention: each session stores a SHA-256 hash of the creation token. Requests with a different token get HTTP 403.
 
 ---
 
