@@ -50,5 +50,6 @@ func DefaultHints() map[string]string {
 		"s3_list_buckets":       "List available S3 buckets",
 		"s3_list_objects":       "List objects in a bucket with optional prefix",
 		"s3_get_object_preview": "Preview the first few lines of an object",
+		"capture_insight":       "Record domain knowledge for admin review and catalog integration",
 	}
 }
