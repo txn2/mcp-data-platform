@@ -300,7 +300,7 @@ func (p *Platform) initAudit(opts *Options) error {
 	})
 
 	// Start background cleanup routine
-	store.StartCleanupRoutine(context.Background(), 24*time.Hour)
+	store.StartCleanupRoutine(24 * time.Hour)
 
 	p.auditStore = store
 	p.auditLogger = middleware.NewAuditStoreAdapter(store)
@@ -1110,30 +1110,40 @@ func closeResource(errs *[]error, closer Closer) {
 	}
 }
 
-// Close closes all platform resources.
+// Close closes all platform resources in the correct order:
+//  1. Stop session cache goroutine (enrichment cache)
+//  2. Close audit logger + audit store (goroutine stops, can still use DB)
+//  3. Close providers and toolkit registry (trino, datahub, s3)
+//  4. Close database connection (last — nothing else needs it)
 func (p *Platform) Close() error {
 	var errs []error
 
+	// Phase 1: stop session cache goroutine
 	if p.sessionCache != nil {
+		slog.Debug("shutdown: stopping session cache")
 		p.sessionCache.Stop()
 	}
 
+	// Phase 2: close audit (cancel cleanup goroutine, wait for exit)
+	if closer, ok := p.auditLogger.(Closer); ok {
+		slog.Debug("shutdown: closing audit logger")
+		closeResource(&errs, closer)
+	}
+	if p.auditStore != nil {
+		slog.Debug("shutdown: closing audit store")
+		closeResource(&errs, p.auditStore)
+	}
+
+	// Phase 3: close providers and toolkit registry
+	slog.Debug("shutdown: closing providers")
 	closeResource(&errs, p.semanticProvider)
 	closeResource(&errs, p.queryProvider)
 	closeResource(&errs, p.storageProvider)
 	closeResource(&errs, p.toolkitRegistry)
 
-	if closer, ok := p.auditLogger.(Closer); ok {
-		closeResource(&errs, closer)
-	}
-
-	// Close audit store
-	if p.auditStore != nil {
-		closeResource(&errs, p.auditStore)
-	}
-
-	// Close database connection
+	// Phase 4: close database connection (last)
 	if p.db != nil {
+		slog.Debug("shutdown: closing database")
 		if err := p.db.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("closing database: %w", err))
 		}
@@ -1142,5 +1152,6 @@ func (p *Platform) Close() error {
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing platform: %v", errs)
 	}
+	slog.Debug("shutdown: platform closed")
 	return nil
 }
