@@ -16,6 +16,7 @@
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
 - [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference, parameter sanitization, retention, query examples, troubleshooting
 - [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
+- [Session Externalization](server/session-externalization.md): Externalize session state to PostgreSQL for zero-downtime restarts and horizontal scaling
 
 ## Cross-Injection
 
