@@ -25,8 +25,10 @@ const (
 
 // Default durations for configuration.
 var (
-	defaultCacheTTL       = 5 * time.Minute
-	defaultSessionTimeout = 30 * time.Minute
+	defaultCacheTTL         = 5 * time.Minute
+	defaultSessionTimeout   = 30 * time.Minute
+	defaultGracePeriod      = 25 * time.Second
+	defaultPreShutdownDelay = 2 * time.Second
 )
 
 // Config holds the complete platform configuration.
@@ -58,6 +60,20 @@ type ServerConfig struct {
 	Address           string           `yaml:"address"`
 	TLS               TLSConfig        `yaml:"tls"`
 	Streamable        StreamableConfig `yaml:"streamable"`
+	Shutdown          ShutdownConfig   `yaml:"shutdown"`
+}
+
+// ShutdownConfig configures graceful shutdown timing.
+type ShutdownConfig struct {
+	// GracePeriod is the maximum time to drain in-flight requests after
+	// receiving a shutdown signal. Defaults to 25s (fits within K8s 30s
+	// terminationGracePeriodSeconds with headroom for pre-shutdown delay).
+	GracePeriod time.Duration `yaml:"grace_period"`
+
+	// PreShutdownDelay is the time to sleep after marking the pod as
+	// not-ready and before starting the HTTP drain. This gives the K8s
+	// load balancer time to deregister the pod. Defaults to 2s.
+	PreShutdownDelay time.Duration `yaml:"pre_shutdown_delay"`
 }
 
 // StreamableConfig configures the Streamable HTTP transport.
@@ -401,6 +417,12 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.Streamable.SessionTimeout == 0 {
 		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
+	}
+	if cfg.Server.Shutdown.GracePeriod == 0 {
+		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
+		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
 	}
 	applySessionDedupDefaults(cfg)
 }
