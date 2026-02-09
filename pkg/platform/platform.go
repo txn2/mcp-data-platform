@@ -32,6 +32,7 @@ import (
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
+	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -150,11 +151,19 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	p.initTuning(opts)
-	if err := p.initMCPApps(); err != nil {
+	if err := p.initExtensions(); err != nil {
 		return err
 	}
 	p.finalizeSetup()
 	return nil
+}
+
+// initExtensions initializes optional extension toolkits and apps.
+func (p *Platform) initExtensions() error {
+	if err := p.initKnowledge(); err != nil {
+		return err
+	}
+	return p.initMCPApps()
 }
 
 // initDatabase initializes the database connection and runs migrations if configured.
@@ -486,6 +495,32 @@ func (p *Platform) initTuning(opts *Options) {
 			p.hintManager.SetHints(pers.Hints)
 		}
 	}
+}
+
+// initKnowledge initializes the knowledge capture toolkit if enabled.
+func (p *Platform) initKnowledge() error {
+	if !p.config.Knowledge.Enabled {
+		return nil
+	}
+
+	var store knowledgekit.InsightStore
+	if p.db != nil {
+		store = knowledgekit.NewPostgresStore(p.db)
+	} else {
+		store = knowledgekit.NewNoopStore()
+	}
+
+	tk, err := knowledgekit.New("default", store)
+	if err != nil {
+		return fmt.Errorf("creating knowledge toolkit: %w", err)
+	}
+
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering knowledge toolkit: %w", err)
+	}
+
+	slog.Info("knowledge capture enabled")
+	return nil
 }
 
 // initMCPApps initializes MCP Apps support.

@@ -240,6 +240,12 @@ tuning:
     quality_threshold: 0.7
   prompts_dir: ""
 
+# Knowledge capture
+# Enables the capture_insight tool for recording domain knowledge.
+# Insights are stored in the database for admin review.
+# knowledge:
+#   enabled: true
+
 # Audit logging
 audit:
   enabled: false

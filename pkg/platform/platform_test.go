@@ -63,6 +63,7 @@ const (
 	testNegFloatKeyExpected = -3
 	testEdgeFallback5s      = 5 * time.Second
 	testZeroFloat           = 0.0
+	testMCPServerNilMsg     = "MCPServer() should not be nil"
 )
 
 // newTestPlatform creates a Platform with noop providers for testing.
@@ -1939,7 +1940,7 @@ func TestInitAuditNoopWhenDisabled(t *testing.T) {
 
 	// Platform should have been created without error
 	if p.MCPServer() == nil {
-		t.Error("MCPServer() should not be nil")
+		t.Error(testMCPServerNilMsg)
 	}
 }
 
@@ -1965,7 +1966,7 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 
 	// Should succeed with noop logger when DB not configured
 	if p.MCPServer() == nil {
-		t.Error("MCPServer() should not be nil")
+		t.Error(testMCPServerNilMsg)
 	}
 }
 
@@ -2103,7 +2104,7 @@ func TestNew_NoAuthenticators_FallsBackToNoop(t *testing.T) {
 
 	// Should fall back to NoopAuthenticator (L761)
 	if p.MCPServer() == nil {
-		t.Error("MCPServer() should not be nil")
+		t.Error(testMCPServerNilMsg)
 	}
 }
 
@@ -2539,6 +2540,51 @@ func TestFlushLoadRoundTrip(t *testing.T) {
 
 	if !cache2.WasSentRecently("rt-sess", "catalog.schema.products") {
 		t.Error("expected round-trip to preserve dedup state")
+	}
+}
+
+func TestInitKnowledge_Disabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Knowledge: KnowledgeConfig{
+			Enabled: false,
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Error(testMCPServerNilMsg)
+	}
+}
+
+func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Knowledge: KnowledgeConfig{
+			Enabled: true,
+		},
+		// Database DSN intentionally left empty — should use noop store
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Error(testMCPServerNilMsg)
 	}
 }
 
