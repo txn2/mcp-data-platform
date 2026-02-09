@@ -456,6 +456,14 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
+	applyServerDefaults(cfg)
+	applyServiceDefaults(cfg)
+	applySessionDedupDefaults(cfg)
+	applySessionDefaults(cfg)
+}
+
+// applyServerDefaults sets defaults for server-related config fields.
+func applyServerDefaults(cfg *Config) {
 	if cfg.Server.Name == "" {
 		cfg.Server.Name = defaultServerName
 	}
@@ -465,6 +473,19 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
 	}
+	if cfg.Server.Streamable.SessionTimeout == 0 {
+		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
+	}
+	if cfg.Server.Shutdown.GracePeriod == 0 {
+		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
+		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
+	}
+}
+
+// applyServiceDefaults sets defaults for database, semantic, audit, and tuning config.
+func applyServiceDefaults(cfg *Config) {
 	if cfg.Database.MaxOpenConns == 0 {
 		cfg.Database.MaxOpenConns = defaultMaxOpenConns
 	}
@@ -477,17 +498,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.Tuning.Rules.QualityThreshold == 0 {
 		cfg.Tuning.Rules.QualityThreshold = defaultQualityThreshold
 	}
-	if cfg.Server.Streamable.SessionTimeout == 0 {
-		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
-	}
-	if cfg.Server.Shutdown.GracePeriod == 0 {
-		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
-	}
-	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
-		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
-	}
-	applySessionDedupDefaults(cfg)
-	applySessionDefaults(cfg)
 }
 
 // applySessionDedupDefaults sets session dedup defaults from related config values.
