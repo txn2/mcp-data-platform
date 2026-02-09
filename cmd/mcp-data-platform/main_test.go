@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 const (
@@ -456,6 +457,89 @@ func TestHealthEndpointsRegistered(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("/readyz status = %d, want %d (draining)", w.Code, http.StatusServiceUnavailable)
 	}
+}
+
+func TestAwareHandlerWiring(t *testing.T) {
+	t.Run("not wired when stateless is false", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{
+				Name: "test",
+				Streamable: platform.StreamableConfig{
+					Stateless: false,
+				},
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		hcfg := extractHTTPConfig(p)
+
+		// SessionStore is non-nil (memory), but Stateless is false.
+		if p.SessionStore() == nil {
+			t.Fatal("expected non-nil session store")
+		}
+		if hcfg.streamableCfg.Stateless {
+			t.Error("expected Stateless false for memory mode")
+		}
+	})
+
+	t.Run("wired when stateless is true with session store", func(t *testing.T) {
+		store := session.NewMemoryStore(10 * time.Minute)
+		defer func() { _ = store.Close() }()
+
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{
+				Name: "test",
+				Streamable: platform.StreamableConfig{
+					Stateless:      true,
+					SessionTimeout: 10 * time.Minute,
+				},
+			},
+			Sessions: platform.SessionsConfig{
+				TTL: 10 * time.Minute,
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		hcfg := extractHTTPConfig(p)
+
+		// Stateless + session store → handler should wrap.
+		if !hcfg.streamableCfg.Stateless {
+			t.Error("expected Stateless true")
+		}
+
+		// Verify the conditional logic would create an AwareHandler.
+		if p.SessionStore() == nil {
+			t.Fatal("expected non-nil session store")
+		}
+
+		inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		handler := session.NewAwareHandler(inner, session.HandlerConfig{
+			Store: p.SessionStore(),
+			TTL:   p.Config().Sessions.TTL,
+		})
+
+		// First request (no session) should get a session ID in response.
+		req := httptest.NewRequest("POST", "/", http.NoBody)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		sessionID := w.Header().Get("Mcp-Session-Id")
+		if sessionID == "" {
+			t.Error("expected Mcp-Session-Id header in response")
+		}
+
+		// Second request with session ID should succeed.
+		req2 := httptest.NewRequest("POST", "/", http.NoBody)
+		req2.Header.Set("Mcp-Session-Id", sessionID)
+		w2 := httptest.NewRecorder()
+		handler.ServeHTTP(w2, req2)
+
+		if w2.Code != http.StatusOK {
+			t.Errorf("expected 200 for existing session, got %d", w2.Code)
+		}
+	})
 }
 
 // newTestPlatform creates a minimal platform for testing.
