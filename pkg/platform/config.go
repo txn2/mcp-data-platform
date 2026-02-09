@@ -56,6 +56,12 @@ type Config struct {
 	Audit      AuditConfig     `yaml:"audit"`
 	MCPApps    MCPAppsConfig   `yaml:"mcpapps"`
 	Sessions   SessionsConfig  `yaml:"sessions"`
+	Knowledge  KnowledgeConfig `yaml:"knowledge"`
+}
+
+// KnowledgeConfig configures the knowledge capture feature.
+type KnowledgeConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ServerConfig configures the MCP server.
