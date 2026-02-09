@@ -21,6 +21,8 @@ const (
 type Store struct {
 	db            *sql.DB
 	retentionDays int
+	cancel        context.CancelFunc
+	done          chan struct{}
 }
 
 // Config configures the PostgreSQL audit store.
@@ -257,8 +259,13 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	return event, nil
 }
 
-// Close releases resources.
-func (*Store) Close() error {
+// Close cancels the cleanup goroutine and waits for it to exit.
+// It is safe to call Close even if StartCleanupRoutine was never called.
+func (s *Store) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+		<-s.done
+	}
 	return nil
 }
 
@@ -273,9 +280,16 @@ func (s *Store) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// StartCleanupRoutine starts a background routine to clean up old audit logs.
-func (s *Store) StartCleanupRoutine(ctx context.Context, interval time.Duration) {
+// StartCleanupRoutine starts a background goroutine that periodically deletes
+// old audit logs. The goroutine is stopped when Close is called.
+func (s *Store) StartCleanupRoutine(interval time.Duration) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.done = make(chan struct{})
+
 	go func() {
+		defer close(s.done)
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
