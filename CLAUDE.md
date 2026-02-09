@@ -64,20 +64,21 @@ graph TB
 1. **Idiomatic Go**: All code must follow idiomatic Go patterns and conventions. Use `gofmt`, follow Effective Go guidelines, and adhere to Go Code Review Comments.
 
 2. **Test Coverage**: Project must maintain >80% unit test coverage. Build mocks where necessary to achieve this. Use table-driven tests where appropriate.
-   - **New code must have >80% coverage**: Run `go test -coverprofile=coverage.out ./pkg/...` and verify new/modified functions meet the threshold
+   - **New code must have >80% coverage**: Run `go test -coverprofile=coverage.out ./...` and verify new/modified functions meet the threshold
    - Use `go tool cover -func=coverage.out | grep <function_name>` to check specific functions
    - Framework callbacks (e.g., MCP handlers that require client connections) may be excluded if the actual logic is extracted and tested separately
 
-3. **Testing Definition**: When asked to "test" or "testing" the code, this means running the full CI test suite:
+3. **Testing Definition**: When asked to "test" or "testing" the code, this means running `make verify`, which executes the full CI-equivalent suite:
    - Unit tests with race detection (`go test -race ./...`)
-   - Coverage verification (`go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`)
+   - Coverage verification with per-function summary
    - Linting (`golangci-lint run ./...`)
    - Security scanning (`gosec ./...`)
+   - Dead code analysis
    - GoReleaser dry-run (`goreleaser release --snapshot --clean --skip=publish,sign,sbom`) - validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
 
 4. **CRITICAL - Coverage Verification Before Completion**: Before declaring ANY implementation task complete:
-   - Run `go test -coverprofile=coverage.out ./pkg/...`
+   - Run `go test -coverprofile=coverage.out ./...` (note: `./...` not `./pkg/...` — covers `cmd/` too)
    - For EVERY new function or method added, run: `go tool cover -func=coverage.out | grep <function_name>`
    - **If ANY new function shows less than 80% coverage (or 0.0%), you MUST add tests before declaring done**
    - This is a BLOCKING requirement - do not tell the user the work is complete until all new code has adequate test coverage
