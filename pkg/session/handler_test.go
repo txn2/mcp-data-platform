@@ -19,6 +19,7 @@ const (
 	handlerTestProtectedSess = "protected-sess"
 	handlerTestAuthHeader    = "Authorization"
 	handlerTestSessID        = "test-sess"
+	handlerTestAPIKey        = "my-api-key"
 	sha256HexLen             = 64
 )
 
@@ -101,7 +102,7 @@ func TestHandler_Initialize_WithAPIKey(t *testing.T) {
 	handler, store, _ := newTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
-	req.Header.Set("X-API-Key", "my-api-key")
+	req.Header.Set("X-API-Key", handlerTestAPIKey)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -112,7 +113,7 @@ func TestHandler_Initialize_WithAPIKey(t *testing.T) {
 	sess, err := store.Get(context.Background(), sessionID)
 	require.NoError(t, err)
 	require.NotNil(t, sess)
-	assert.Equal(t, hashToken("my-api-key"), sess.UserID)
+	assert.Equal(t, hashToken(handlerTestAPIKey), sess.UserID)
 }
 
 func TestHandler_ExistingSession_Valid(t *testing.T) {
@@ -150,7 +151,7 @@ func TestHandler_ExistingSession_Expired(t *testing.T) {
 	handler, store, inner := newTestHandler()
 	ctx := context.Background()
 
-	// Create an already-expired session
+	// Create an already-expired session with no auth credentials
 	sess := newTestSession("expired-sess", -time.Second)
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
@@ -161,7 +162,82 @@ func TestHandler_ExistingSession_Expired(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	assert.False(t, inner.wasCalled(), "inner handler should NOT be called for expired session")
+	assert.False(t, inner.wasCalled(), "inner handler should NOT be called for expired session without credentials")
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestHandler_ExpiredSession_RecoveryWithBearer(t *testing.T) {
+	handler, store, inner := newTestHandler()
+	ctx := context.Background()
+
+	// Create an already-expired session
+	sess := newTestSession("expired-bearer", -time.Second)
+	sess.UserID = hashToken("my-bearer-token")
+	require.NoError(t, store.Create(ctx, sess))
+
+	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "expired-bearer")
+	req.Header.Set(handlerTestAuthHeader, "Bearer my-bearer-token")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.True(t, inner.wasCalled(), "inner handler should be called after session recovery")
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// A new session should have been created (different ID from the expired one)
+	newSessionID := w.Header().Get(sessionIDHeader)
+	assert.NotEmpty(t, newSessionID, "replacement session ID should be in response")
+	assert.NotEqual(t, "expired-bearer", newSessionID, "replacement session should have new ID")
+
+	// New session should exist in store
+	newSess, err := store.Get(ctx, newSessionID)
+	require.NoError(t, err)
+	assert.NotNil(t, newSess, "replacement session should exist in store")
+	assert.Equal(t, hashToken("my-bearer-token"), newSess.UserID)
+}
+
+func TestHandler_MissingSession_RecoveryWithAPIKey(t *testing.T) {
+	handler, store, inner := newTestHandler()
+
+	// No session created at all — completely missing
+	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "does-not-exist")
+	req.Header.Set("X-API-Key", handlerTestAPIKey)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.True(t, inner.wasCalled(), "inner handler should be called after session recovery")
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	newSessionID := w.Header().Get(sessionIDHeader)
+	assert.NotEmpty(t, newSessionID, "replacement session ID should be in response")
+	assert.NotEqual(t, "does-not-exist", newSessionID, "replacement session should have new ID")
+
+	newSess, err := store.Get(context.Background(), newSessionID)
+	require.NoError(t, err)
+	assert.NotNil(t, newSess, "replacement session should exist in store")
+	assert.Equal(t, hashToken(handlerTestAPIKey), newSess.UserID)
+}
+
+func TestHandler_ExpiredSession_NoCredentials_Returns404(t *testing.T) {
+	handler, store, inner := newTestHandler()
+	ctx := context.Background()
+
+	// Expired session with no credentials on the request
+	sess := newTestSession("expired-anon", -time.Second)
+	sess.UserID = ""
+	require.NoError(t, store.Create(ctx, sess))
+
+	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "expired-anon")
+	// No Authorization or X-API-Key headers
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.False(t, inner.wasCalled(), "inner handler should NOT be called without credentials")
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
