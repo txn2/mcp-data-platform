@@ -45,6 +45,8 @@ metadata:
     app: mcp-data-platform
 data:
   config.yaml: |
+    apiVersion: v1
+
     server:
       name: mcp-data-platform
       transport: sse

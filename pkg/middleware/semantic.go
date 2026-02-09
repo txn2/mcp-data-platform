@@ -675,15 +675,24 @@ func extractURNsFromMap(data map[string]any) []string {
 				urns = append(urns, urn)
 			}
 		}
-		if m, ok := v.(map[string]any); ok {
+		urns = append(urns, extractURNsFromValue(v)...)
+	}
+	return urns
+}
+
+// extractURNsFromValue extracts URNs from a nested value (map or slice).
+func extractURNsFromValue(v any) []string {
+	if m, ok := v.(map[string]any); ok {
+		return extractURNsFromMap(m)
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var urns []string
+	for _, item := range arr {
+		if m, ok := item.(map[string]any); ok {
 			urns = append(urns, extractURNsFromMap(m)...)
-		}
-		if arr, ok := v.([]any); ok {
-			for _, item := range arr {
-				if m, ok := item.(map[string]any); ok {
-					urns = append(urns, extractURNsFromMap(m)...)
-				}
-			}
 		}
 	}
 	return urns

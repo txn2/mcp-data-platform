@@ -3,6 +3,7 @@ package platform
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strings"
@@ -40,20 +41,21 @@ var (
 
 // Config holds the complete platform configuration.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Auth      AuthConfig      `yaml:"auth"`
-	OAuth     OAuthConfig     `yaml:"oauth"`
-	Database  DatabaseConfig  `yaml:"database"`
-	Personas  PersonasConfig  `yaml:"personas"`
-	Toolkits  map[string]any  `yaml:"toolkits"`
-	Semantic  SemanticConfig  `yaml:"semantic"`
-	Query     QueryConfig     `yaml:"query"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Injection InjectionConfig `yaml:"injection"`
-	Tuning    TuningConfig    `yaml:"tuning"`
-	Audit     AuditConfig     `yaml:"audit"`
-	MCPApps   MCPAppsConfig   `yaml:"mcpapps"`
-	Sessions  SessionsConfig  `yaml:"sessions"`
+	APIVersion string          `yaml:"apiVersion"`
+	Server     ServerConfig    `yaml:"server"`
+	Auth       AuthConfig      `yaml:"auth"`
+	OAuth      OAuthConfig     `yaml:"oauth"`
+	Database   DatabaseConfig  `yaml:"database"`
+	Personas   PersonasConfig  `yaml:"personas"`
+	Toolkits   map[string]any  `yaml:"toolkits"`
+	Semantic   SemanticConfig  `yaml:"semantic"`
+	Query      QueryConfig     `yaml:"query"`
+	Storage    StorageConfig   `yaml:"storage"`
+	Injection  InjectionConfig `yaml:"injection"`
+	Tuning     TuningConfig    `yaml:"tuning"`
+	Audit      AuditConfig     `yaml:"audit"`
+	MCPApps    MCPAppsConfig   `yaml:"mcpapps"`
+	Sessions   SessionsConfig  `yaml:"sessions"`
 }
 
 // ServerConfig configures the MCP server.
@@ -392,19 +394,55 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
+	return LoadConfigFromBytes(data)
+}
 
+// LoadConfigFromBytes loads configuration from raw YAML bytes.
+// Environment variables are expanded before parsing. The apiVersion field
+// is validated against the default version registry.
+func LoadConfigFromBytes(data []byte) (*Config, error) {
 	// Expand environment variables
-	data = []byte(expandEnvVars(string(data)))
+	expanded := []byte(expandEnvVars(string(data)))
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
+	// Peek at the version before full parse
+	version := PeekVersion(expanded)
+	reg := DefaultRegistry()
+
+	info, err := resolveVersion(reg, version)
+	if err != nil {
+		return nil, fmt.Errorf("config version: %w", err)
 	}
 
-	// Apply defaults
-	applyDefaults(&cfg)
+	// Warn on deprecated versions
+	if info.Status == VersionDeprecated {
+		slog.Warn("config apiVersion is deprecated",
+			"version", version,
+			"message", info.DeprecationMessage,
+		)
+	}
 
-	return &cfg, nil
+	// Parse the config
+	var cfg *Config
+	if info.Converter != nil {
+		cfg, err = info.Converter(expanded)
+		if err != nil {
+			return nil, fmt.Errorf("converting config from %s: %w", version, err)
+		}
+	} else {
+		cfg = &Config{}
+		if err := yaml.Unmarshal(expanded, cfg); err != nil {
+			return nil, fmt.Errorf("parsing config: %w", err)
+		}
+	}
+
+	// Ensure APIVersion is set
+	if cfg.APIVersion == "" {
+		cfg.APIVersion = version
+	}
+
+	applyDefaults(cfg)
+
+	return cfg, nil
 }
 
 // expandEnvVars expands ${VAR} patterns in the string.
@@ -418,6 +456,14 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
+	applyServerDefaults(cfg)
+	applyServiceDefaults(cfg)
+	applySessionDedupDefaults(cfg)
+	applySessionDefaults(cfg)
+}
+
+// applyServerDefaults sets defaults for server-related config fields.
+func applyServerDefaults(cfg *Config) {
 	if cfg.Server.Name == "" {
 		cfg.Server.Name = defaultServerName
 	}
@@ -427,6 +473,19 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
 	}
+	if cfg.Server.Streamable.SessionTimeout == 0 {
+		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
+	}
+	if cfg.Server.Shutdown.GracePeriod == 0 {
+		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
+	}
+	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
+		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
+	}
+}
+
+// applyServiceDefaults sets defaults for database, semantic, audit, and tuning config.
+func applyServiceDefaults(cfg *Config) {
 	if cfg.Database.MaxOpenConns == 0 {
 		cfg.Database.MaxOpenConns = defaultMaxOpenConns
 	}
@@ -439,17 +498,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.Tuning.Rules.QualityThreshold == 0 {
 		cfg.Tuning.Rules.QualityThreshold = defaultQualityThreshold
 	}
-	if cfg.Server.Streamable.SessionTimeout == 0 {
-		cfg.Server.Streamable.SessionTimeout = defaultSessionTimeout
-	}
-	if cfg.Server.Shutdown.GracePeriod == 0 {
-		cfg.Server.Shutdown.GracePeriod = defaultGracePeriod
-	}
-	if cfg.Server.Shutdown.PreShutdownDelay == 0 {
-		cfg.Server.Shutdown.PreShutdownDelay = defaultPreShutdownDelay
-	}
-	applySessionDedupDefaults(cfg)
-	applySessionDefaults(cfg)
 }
 
 // applySessionDedupDefaults sets session dedup defaults from related config values.

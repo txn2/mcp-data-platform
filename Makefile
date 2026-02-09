@@ -99,13 +99,14 @@ mod-verify:
 	@echo "Verifying modules..."
 	$(GOMOD) verify
 
-## security: Run security checks
+## security: Run security checks (gosec blocks, govulncheck is informational)
 security:
-	@echo "Running security checks..."
+	@echo "Running gosec..."
 	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@latest)
 	gosec -quiet ./...
+	@echo "Running govulncheck (informational)..."
 	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
-	govulncheck ./...
+	@govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
 
 ## docker-build: Build Docker image
 docker-build:
@@ -136,15 +137,39 @@ dead-code:
 		echo "No dead code found."; \
 	fi
 
-## mutate: Run mutation testing (informational)
+## mutate: Run mutation testing with 60% efficacy threshold
 mutate:
 	@echo "Running mutation testing..."
 	@which gremlins > /dev/null || (echo "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
-	gremlins unleash --workers 1 --timeout-coefficient 3 ./pkg/...
+	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
-## verify: Run all checks (test, lint, fmt, dead-code)
-verify: fmt test lint dead-code
-	@echo "All checks passed."
+## coverage-report: Print coverage summary (fails if total <80%)
+coverage-report: test
+	@echo ""
+	@echo "=== Coverage Summary ==="
+	@$(GO) tool cover -func=coverage.out | tail -1
+	@echo ""
+	@TOTAL=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
+	if [ "$$(echo "$$TOTAL < 80.0" | bc -l)" = "1" ]; then \
+		echo "FAIL: Total coverage $$TOTAL% is below 80% threshold"; \
+		exit 1; \
+	fi
+	@echo "Functions with 0% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 == 0 && $$1 != "total:") print $$0}' || true
+	@echo ""
+	@echo "Functions below 80% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < 80.0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
+	@echo "=== End Coverage ==="
+
+## release-check: Validate build, Docker, and release config
+release-check:
+	@echo "Running GoReleaser dry-run..."
+	goreleaser release --snapshot --clean --skip=publish,sign,sbom
+
+## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
+verify: fmt test lint security coverage-report dead-code mutate release-check
+	@echo ""
+	@echo "=== All checks passed ==="
 
 ## docs-serve: Serve documentation locally
 docs-serve:

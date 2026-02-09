@@ -9,6 +9,8 @@
 #
 # Edit apps in ./apps/ directory - changes are served immediately (no restart needed).
 
+apiVersion: v1
+
 server:
   name: mcp-data-platform-dev
   transport: sse

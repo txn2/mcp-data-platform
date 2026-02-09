@@ -156,6 +156,46 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 Configuration uses YAML with environment variable expansion (`${VAR_NAME}`).
 
+## Config Versioning
+
+Every configuration file should include an `apiVersion` field as the first key. This enables safe schema evolution with deprecation warnings and migration tooling.
+
+```yaml
+apiVersion: v1
+
+server:
+  name: mcp-data-platform
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `apiVersion` | string | `v1` | Config schema version. Omitting defaults to `v1` for backward compatibility. |
+
+**Supported versions**: `v1` (current)
+
+### Migration Tool
+
+Migrate config files to the latest version:
+
+```bash
+# From file to stdout
+mcp-data-platform migrate-config --config platform.yaml
+
+# From stdin to file
+cat platform.yaml | mcp-data-platform migrate-config --output migrated.yaml
+
+# Specify target version
+mcp-data-platform migrate-config --config platform.yaml --target-version v1
+```
+
+The migration tool preserves comments and `${VAR}` environment variable references.
+
+### Version Lifecycle
+
+- **current**: Actively supported, no warnings
+- **deprecated**: Still works, emits a warning at startup with migration guidance
+- **removed**: Rejected at startup with an error pointing to the migration tool
+
 ## Minimal Configuration
 
 ```yaml

@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	cfgTestVersionV1         = "v1"
 	cfgTestPlatformName      = "test-platform"
 	cfgTestProviderPostgres  = "postgres"
 	cfgTestCatalogWarehouse  = "warehouse"
@@ -81,6 +82,44 @@ auth:
 `)
 	if cfg.Server.Name != cfgTestPlatformName {
 		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, cfgTestPlatformName)
+	}
+}
+
+func TestLoadConfig_WithAPIVersion(t *testing.T) {
+	cfg := loadTestConfig(t, `
+apiVersion: v1
+server:
+  name: test-platform
+  transport: stdio
+`)
+	if cfg.APIVersion != cfgTestVersionV1 {
+		t.Errorf("APIVersion = %q, want %q", cfg.APIVersion, cfgTestVersionV1)
+	}
+	if cfg.Server.Name != cfgTestPlatformName {
+		t.Errorf("config Server.Name = %q, want %q", cfg.Server.Name, cfgTestPlatformName)
+	}
+}
+
+func TestLoadConfig_WithoutAPIVersion(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+  transport: stdio
+`)
+	if cfg.APIVersion != cfgTestVersionV1 {
+		t.Errorf("APIVersion = %q, want %q (should default to v1)", cfg.APIVersion, cfgTestVersionV1)
+	}
+}
+
+func TestLoadConfig_UnknownAPIVersion(t *testing.T) {
+	configPath := writeTestConfig(t, `
+apiVersion: v99
+server:
+  name: test-platform
+`)
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Error("LoadConfig() expected error for unknown apiVersion")
 	}
 }
 

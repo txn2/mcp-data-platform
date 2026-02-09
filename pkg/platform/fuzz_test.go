@@ -9,6 +9,15 @@ import (
 // FuzzLoadConfig fuzzes YAML config loading.
 func FuzzLoadConfig(f *testing.F) {
 	// Seed with various YAML structures
+	f.Add(`apiVersion: v1
+server:
+  name: test
+  transport: stdio`)
+
+	f.Add(`apiVersion: unknown-version
+server:
+  name: test`)
+
 	f.Add(`server:
   name: test
   transport: stdio`)
@@ -71,6 +80,38 @@ storage:
 
 		// Should never panic
 		_, _ = LoadConfig(configPath)
+	})
+}
+
+// FuzzPeekVersion fuzzes the version peek logic.
+func FuzzPeekVersion(f *testing.F) {
+	f.Add(`apiVersion: v1`)
+	f.Add(`apiVersion: ""`)
+	f.Add(`server: {}`)
+	f.Add(``)
+	f.Add(`:::invalid`)
+	f.Add(`apiVersion: v99`)
+
+	f.Fuzz(func(_ *testing.T, input string) {
+		// Should never panic
+		_ = PeekVersion([]byte(input))
+	})
+}
+
+// FuzzMigrateConfigBytes fuzzes the config migration logic.
+func FuzzMigrateConfigBytes(f *testing.F) {
+	f.Add(`apiVersion: v1
+server:
+  name: test`, "v1")
+	f.Add(`server:
+  name: test`, "")
+	f.Add(`apiVersion: v99
+server:
+  name: test`, "v1")
+
+	f.Fuzz(func(_ *testing.T, input, target string) {
+		// Should never panic
+		_, _ = MigrateConfigBytes([]byte(input), target)
 	})
 }
 

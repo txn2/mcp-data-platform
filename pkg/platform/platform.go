@@ -496,55 +496,55 @@ func (p *Platform) initMCPApps() error {
 
 	p.mcpAppsRegistry = mcpapps.NewRegistry()
 
-	// Register apps based on config
 	for appName, appCfg := range p.config.MCPApps.Apps {
 		if !appCfg.Enabled {
 			continue
 		}
-
-		// Create app definition directly from config
-		app := &mcpapps.AppDefinition{
-			Name:       appName,
-			ToolNames:  appCfg.Tools,
-			AssetsPath: appCfg.AssetsPath,
-			EntryPoint: appCfg.EntryPoint,
-			Config:     appCfg.Config,
+		if err := p.registerMCPApp(appName, appCfg); err != nil {
+			return err
 		}
-
-		// Apply defaults
-		if app.EntryPoint == "" {
-			app.EntryPoint = "index.html"
-		}
-
-		// Set ResourceURI from config or generate default
-		if appCfg.ResourceURI != "" {
-			app.ResourceURI = appCfg.ResourceURI
-		} else {
-			app.ResourceURI = fmt.Sprintf("ui://%s", appName)
-		}
-
-		// Convert CSP config
-		if appCfg.CSP != nil {
-			app.CSP = convertCSP(appCfg.CSP)
-		}
-
-		// Validate basic fields first
-		if err := app.Validate(); err != nil {
-			return fmt.Errorf("app %s: %w", appName, err)
-		}
-
-		// Validate assets exist on filesystem
-		if err := app.ValidateAssets(); err != nil {
-			return fmt.Errorf("app %s: %w", appName, err)
-		}
-
-		if err := p.mcpAppsRegistry.Register(app); err != nil {
-			return fmt.Errorf("registering %s app: %w", appName, err)
-		}
-
-		slog.Info("registered MCP app", "app", appName, "resource_uri", app.ResourceURI)
 	}
 
+	return nil
+}
+
+// registerMCPApp creates, validates, and registers a single MCP app.
+func (p *Platform) registerMCPApp(appName string, appCfg AppConfig) error {
+	app := &mcpapps.AppDefinition{
+		Name:       appName,
+		ToolNames:  appCfg.Tools,
+		AssetsPath: appCfg.AssetsPath,
+		EntryPoint: appCfg.EntryPoint,
+		Config:     appCfg.Config,
+	}
+
+	if app.EntryPoint == "" {
+		app.EntryPoint = "index.html"
+	}
+
+	if appCfg.ResourceURI != "" {
+		app.ResourceURI = appCfg.ResourceURI
+	} else {
+		app.ResourceURI = fmt.Sprintf("ui://%s", appName)
+	}
+
+	if appCfg.CSP != nil {
+		app.CSP = convertCSP(appCfg.CSP)
+	}
+
+	if err := app.Validate(); err != nil {
+		return fmt.Errorf("app %s: %w", appName, err)
+	}
+
+	if err := app.ValidateAssets(); err != nil {
+		return fmt.Errorf("app %s: %w", appName, err)
+	}
+
+	if err := p.mcpAppsRegistry.Register(app); err != nil {
+		return fmt.Errorf("registering %s app: %w", appName, err)
+	}
+
+	slog.Info("registered MCP app", "app", appName, "resource_uri", app.ResourceURI)
 	return nil
 }
 

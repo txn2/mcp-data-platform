@@ -1,6 +1,8 @@
 # MCP Data Platform Configuration
 # Copy this file and customize for your environment
 
+apiVersion: v1
+
 server:
   name: mcp-data-platform
   transport: stdio              # stdio, http

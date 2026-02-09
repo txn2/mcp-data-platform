@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,13 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "migrate-config" {
+		if err := runMigrateConfig(os.Args[2:]); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -352,6 +360,50 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 	log.Printf("Starting HTTP server on %s\n", addr)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		return fmt.Errorf("listening on %s: %w", addr, err)
+	}
+	return nil
+}
+
+// stdioMarker is the conventional marker for stdin/stdout in CLI tools.
+const stdioMarker = "-"
+
+func runMigrateConfig(args []string) error {
+	fs := flag.NewFlagSet("migrate-config", flag.ExitOnError)
+	configPath := fs.String("config", stdioMarker, "Config file path (- for stdin)")
+	outputPath := fs.String("output", stdioMarker, "Output file path (- for stdout)")
+	targetVersion := fs.String("target-version", "", "Target config version (default: latest)")
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing flags: %w", err)
+	}
+
+	var r io.Reader
+	if *configPath == stdioMarker {
+		r = os.Stdin
+	} else {
+		// #nosec G304 -- path is from CLI args, controlled by admin
+		f, err := os.Open(*configPath)
+		if err != nil {
+			return fmt.Errorf("opening config: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		r = f
+	}
+
+	var w io.Writer
+	if *outputPath == stdioMarker {
+		w = os.Stdout
+	} else {
+		// #nosec G304 -- path is from CLI args, controlled by admin
+		f, err := os.Create(*outputPath)
+		if err != nil {
+			return fmt.Errorf("creating output: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		w = f
+	}
+
+	if err := platform.MigrateConfig(r, w, *targetVersion); err != nil {
+		return fmt.Errorf("migrating config: %w", err)
 	}
 	return nil
 }

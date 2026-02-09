@@ -77,10 +77,10 @@ linters:
       for-loops: true
 
     gocyclo:
-      min-complexity: 15
+      min-complexity: 10
 
     gocognit:
-      min-complexity: 20
+      min-complexity: 15
 
     nestif:
       min-complexity: 5
@@ -170,10 +170,10 @@ linters:
           arguments: [5]
         - name: cognitive-complexity
           severity: warning
-          arguments: [20]
+          arguments: [15]
         - name: cyclomatic
           severity: warning
-          arguments: [15]
+          arguments: [10]
         - name: function-length
           severity: warning
           arguments: [80, 0]
@@ -310,6 +310,17 @@ linters:
         linters:
           - gocyclo
         text: "cyclomatic complexity"
+
+      # Test files: table-driven tests naturally have high cognitive/cyclomatic complexity
+      - path: _test\.go
+        linters:
+          - gocognit
+          - gocyclo
+
+      - path: _test\.go
+        linters:
+          - revive
+        text: "cognitive-complexity|cyclomatic"
 
 issues:
   max-issues-per-linter: 50

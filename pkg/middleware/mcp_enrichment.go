@@ -34,45 +34,45 @@ func MCPSemanticEnrichmentMiddleware(
 
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			// Only intercept tools/call requests
 			if method != "tools/call" {
 				return next(ctx, method, req)
 			}
 
-			// Execute tool handler first
 			result, err := next(ctx, method, req)
 			if err != nil {
 				return result, err
 			}
 
-			// Only enrich successful CallToolResults
-			callResult, ok := result.(*mcp.CallToolResult)
-			if !ok || callResult == nil || callResult.IsError {
-				return result, nil
-			}
-
-			// Get tool name from request
-			toolName, extractErr := extractToolName(req)
-			if extractErr != nil {
-				return result, nil //nolint:nilerr // enrichment is best-effort; skip if tool name extraction fails
-			}
-
-			// Determine toolkit kind from tool name prefix
-			toolkitKind := inferToolkitKind(toolName)
-			if toolkitKind == "" {
-				return result, nil
-			}
-
-			pc := GetPlatformContext(ctx)
-			if pc == nil {
-				pc = NewPlatformContext("")
-			}
-			pc.ToolkitKind = toolkitKind
-			pc.ToolName = toolName
-
-			return applyEnrichment(ctx, enricher, req, callResult, pc)
+			return enrichToolResult(ctx, enricher, req, result)
 		}
 	}
+}
+
+// enrichToolResult checks if a tool call result is eligible for enrichment and applies it.
+func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.Request, result mcp.Result) (mcp.Result, error) {
+	callResult, ok := result.(*mcp.CallToolResult)
+	if !ok || callResult == nil || callResult.IsError {
+		return result, nil
+	}
+
+	toolName, extractErr := extractToolName(req)
+	if extractErr != nil {
+		return result, nil //nolint:nilerr // enrichment is best-effort; skip if tool name extraction fails
+	}
+
+	toolkitKind := inferToolkitKind(toolName)
+	if toolkitKind == "" {
+		return result, nil
+	}
+
+	pc := GetPlatformContext(ctx)
+	if pc == nil {
+		pc = NewPlatformContext("")
+	}
+	pc.ToolkitKind = toolkitKind
+	pc.ToolName = toolName
+
+	return applyEnrichment(ctx, enricher, req, callResult, pc)
 }
 
 // applyEnrichment enriches the result and tracks whether enrichment was applied on the PlatformContext.
