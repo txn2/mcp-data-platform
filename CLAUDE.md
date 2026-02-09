@@ -69,12 +69,14 @@ graph TB
    - Framework callbacks (e.g., MCP handlers that require client connections) may be excluded if the actual logic is extracted and tested separately
 
 3. **Testing Definition**: When asked to "test" or "testing" the code, this means running `make verify`, which executes the full CI-equivalent suite:
+   - Code formatting (`gofmt -s -w .`)
    - Unit tests with race detection (`go test -race ./...`)
-   - Coverage verification with per-function summary
-   - Linting (`golangci-lint run ./...`)
-   - Security scanning (`gosec ./...`)
+   - Coverage verification — total must be ≥80% (hard gate)
+   - Linting (`golangci-lint run ./...`) — cyclomatic complexity ≤10, cognitive complexity ≤15
+   - Security scanning (`gosec ./...` + `govulncheck`)
    - Dead code analysis
-   - GoReleaser dry-run (`goreleaser release --snapshot --clean --skip=publish,sign,sbom`) - validates build, Docker, and release config
+   - Mutation testing (`gremlins unleash --threshold-efficacy 60`) — ≥60% kill rate
+   - GoReleaser dry-run — validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
 
 4. **CRITICAL - Coverage Verification Before Completion**: Before declaring ANY implementation task complete:
