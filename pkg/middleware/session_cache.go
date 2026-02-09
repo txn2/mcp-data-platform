@@ -104,6 +104,11 @@ func (c *SessionEnrichmentCache) SessionCount() int {
 	return len(c.sessions)
 }
 
+// EntryTTL returns the configured entry TTL for diagnostics.
+func (c *SessionEnrichmentCache) EntryTTL() time.Duration {
+	return c.entryTTL
+}
+
 // getOrCreateSession returns the session state, creating it if needed.
 // Caller must hold the write lock.
 func (c *SessionEnrichmentCache) getOrCreateSession(sessionID string) *sessionState {

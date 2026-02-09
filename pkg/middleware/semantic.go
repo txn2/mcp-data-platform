@@ -26,6 +26,7 @@ const (
 	keyDescription     = "description"
 	keyTags            = "tags"
 	keySemanticContext = "semantic_context"
+	keySessionID       = "session_id"
 )
 
 // tablePartsWithCatalog is the expected number of parts in a fully-qualified table name (catalog.schema.table).
@@ -94,25 +95,52 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 ) (*mcp.CallToolResult, error) {
 	cache := e.cfg.SessionCache
 	if cache == nil {
+		slog.Debug("dedup: cache is nil, full enrichment")
 		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
 	}
 
 	// Identify tables from the request
 	tableKeys := extractTableKeysFromRequest(request)
 	if len(tableKeys) == 0 {
+		slog.Debug("dedup: no table keys extracted, full enrichment",
+			"tool", pc.ToolName,
+			keySessionID, pc.SessionID,
+			"has_params", request.Params != nil,
+		)
 		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
 	}
+
+	slog.Debug("dedup: checking cache",
+		keySessionID, pc.SessionID,
+		"table_keys", tableKeys,
+		"entry_ttl", e.cfg.SessionCache.EntryTTL(),
+		"session_count", cache.SessionCount(),
+	)
 
 	// Check if all tables were recently enriched in this session
 	allSent := true
 	for _, key := range tableKeys {
-		if !cache.WasSentRecently(pc.SessionID, key) {
+		wasSent := cache.WasSentRecently(pc.SessionID, key)
+		if !wasSent {
+			slog.Debug("dedup: cache miss",
+				keySessionID, pc.SessionID,
+				"table_key", key,
+			)
 			allSent = false
 			break
 		}
+		slog.Debug("dedup: cache hit",
+			keySessionID, pc.SessionID,
+			"table_key", key,
+		)
 	}
 
 	if allSent {
+		slog.Debug("dedup: all tables cached, applying dedup mode",
+			keySessionID, pc.SessionID,
+			"mode", e.cfg.DedupMode,
+			"table_keys", tableKeys,
+		)
 		// All tables already enriched for this session - apply dedup mode
 		return e.applyDedupMode(ctx, result, request, tableKeys)
 	}
@@ -126,6 +154,10 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	// Mark all tables as sent
 	for _, key := range tableKeys {
 		cache.MarkSent(pc.SessionID, key)
+		slog.Debug("dedup: marked sent",
+			keySessionID, pc.SessionID,
+			"table_key", key,
+		)
 	}
 
 	return enrichedResult, nil

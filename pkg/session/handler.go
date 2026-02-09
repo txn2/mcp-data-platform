@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +24,9 @@ const (
 
 	// slogKeyError is the slog attribute key for error values.
 	slogKeyError = "error"
+
+	// touchTimeout is the maximum time for async session touch operations.
+	touchTimeout = 5 * time.Second
 )
 
 // HandlerConfig configures an AwareHandler.
@@ -101,6 +105,9 @@ func (h *AwareHandler) handleInitialize(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleExisting validates and forwards requests with an existing session ID.
+// If the session is expired or missing but the request carries auth credentials,
+// a new session is created transparently so API-key clients recover without
+// user intervention.
 func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, sessionID string) {
 	sess, err := h.store.Get(r.Context(), sessionID)
 	if err != nil {
@@ -109,6 +116,16 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		return
 	}
 	if sess == nil {
+		// Session expired or was cleaned up. If the request carries auth
+		// credentials, create a replacement session transparently instead
+		// of forcing the client to re-initialize (which the Go SDK client
+		// does not do automatically).
+		if extractToken(r) != "" {
+			slog.Info("session: expired, creating replacement",
+				"old_session_id", sessionID)
+			h.handleInitialize(w, r)
+			return
+		}
 		http.Error(w, "session not found or expired", http.StatusNotFound)
 		return
 	}
@@ -118,9 +135,12 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		return
 	}
 
-	// Touch asynchronously to avoid blocking the request.
+	// Touch with a detached context so the update is not canceled when
+	// the HTTP response completes before the goroutine runs.
 	go func() {
-		if err := h.store.Touch(r.Context(), sessionID); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), touchTimeout)
+		defer cancel()
+		if err := h.store.Touch(ctx, sessionID); err != nil {
 			slog.Debug("session: touch failed", "session_id", sessionID, slogKeyError, err)
 		}
 	}()
