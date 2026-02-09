@@ -95,6 +95,39 @@ func TestCreateClient(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestCreateClient_UpsertOnConflict(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+	client := testClient()
+
+	// First insert succeeds
+	mock.ExpectExec("INSERT INTO oauth_clients").
+		WithArgs(client.ID, client.ClientID, client.ClientSecret, client.Name,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), client.RequirePKCE, client.CreatedAt, client.Active).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = store.CreateClient(context.Background(), client)
+	require.NoError(t, err)
+
+	// Second insert with same client_id but updated fields succeeds (upsert)
+	updatedClient := testClient()
+	updatedClient.ClientSecret = "$2a$10$newsecret" //nolint:gosec // Test constant, not a real credential.
+	updatedClient.Name = "Updated Client"
+	updatedClient.RedirectURIs = []string{"http://localhost/callback", "http://localhost/new-callback"}
+
+	mock.ExpectExec("INSERT INTO oauth_clients").
+		WithArgs(updatedClient.ID, updatedClient.ClientID, updatedClient.ClientSecret, updatedClient.Name,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), updatedClient.RequirePKCE, updatedClient.CreatedAt, updatedClient.Active).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = store.CreateClient(context.Background(), updatedClient)
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestGetClient(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
