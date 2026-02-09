@@ -443,6 +443,96 @@ func TestExtractUserFromUpstreamToken(t *testing.T) {
 	})
 }
 
+func TestExtractTokenClaims(t *testing.T) {
+	t.Run("both tokens with realm_access merge", func(t *testing.T) {
+		idToken := createMockIDToken(map[string]any{
+			"sub":   "user-456",
+			"email": "merge@example.com",
+			"name":  "ID Name",
+		})
+		accessToken := createMockIDToken(map[string]any{
+			"sub":           "user-456",
+			"name":          "Access Name",
+			"realm_access":  map[string]any{"roles": []string{"admin"}},
+			"extra_from_at": "yes",
+		})
+
+		claims := extractTokenClaims(&upstreamTokenResponse{
+			IDToken:     idToken,
+			AccessToken: accessToken,
+		})
+
+		// realm_access always comes from access token
+		if claims["realm_access"] == nil {
+			t.Error("expected realm_access from access token")
+		}
+		// name should be preserved from ID token (not overwritten)
+		if claims["name"] != "ID Name" {
+			t.Errorf("expected name from ID token, got %v", claims["name"])
+		}
+		// extra claims from access token fill gaps
+		if claims["extra_from_at"] != "yes" {
+			t.Error("expected extra_from_at from access token")
+		}
+	})
+
+	t.Run("no access token", func(t *testing.T) {
+		idToken := createMockIDToken(map[string]any{"sub": "user-789"})
+		claims := extractTokenClaims(&upstreamTokenResponse{
+			IDToken: idToken,
+		})
+		if claims["sub"] != "user-789" {
+			t.Errorf("expected sub=user-789, got %v", claims["sub"])
+		}
+	})
+
+	t.Run("no ID token", func(t *testing.T) {
+		accessToken := createMockIDToken(map[string]any{"sub": "user-000"})
+		claims := extractTokenClaims(&upstreamTokenResponse{
+			AccessToken: accessToken,
+		})
+		if claims["sub"] != "user-000" {
+			t.Errorf("expected sub=user-000, got %v", claims["sub"])
+		}
+	})
+
+	t.Run("invalid access token", func(t *testing.T) {
+		idToken := createMockIDToken(map[string]any{"sub": "user-abc"})
+		claims := extractTokenClaims(&upstreamTokenResponse{
+			IDToken:     idToken,
+			AccessToken: "not-a-jwt",
+		})
+		// Should still return ID claims even if access token is invalid
+		if claims["sub"] != "user-abc" {
+			t.Errorf("expected sub=user-abc, got %v", claims["sub"])
+		}
+	})
+}
+
+func TestMergeAccessClaims(t *testing.T) {
+	t.Run("role claims overwrite", func(t *testing.T) {
+		claims := map[string]any{"realm_access": "old", "name": "keep"}
+		mergeAccessClaims(claims, map[string]any{
+			"realm_access":    "new",
+			"resource_access": "new-ra",
+			"name":            "discard",
+			"extra":           "added",
+		})
+		if claims["realm_access"] != "new" {
+			t.Errorf("expected realm_access overwritten, got %v", claims["realm_access"])
+		}
+		if claims["resource_access"] != "new-ra" {
+			t.Errorf("expected resource_access set, got %v", claims["resource_access"])
+		}
+		if claims["name"] != "keep" {
+			t.Errorf("expected name preserved, got %v", claims["name"])
+		}
+		if claims["extra"] != "added" {
+			t.Errorf("expected extra added, got %v", claims["extra"])
+		}
+	})
+}
+
 func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
 	storage := NewMemoryStorage()
 	server, _ := NewServer(ServerConfig{
