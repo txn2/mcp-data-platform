@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -550,4 +552,127 @@ func newTestPlatform(t *testing.T, cfg *platform.Config) *platform.Platform {
 		t.Fatalf("failed to create test platform: %v", err)
 	}
 	return p
+}
+
+const (
+	migrateTestFilePerms  = 0o600
+	migrateTestInput      = "server:\n  name: test\n"
+	migrateTestVersioned  = "apiVersion: v1\nserver:\n  name: test\n"
+	migrateTestInputFile  = "input.yaml"
+	migrateTestOutputFile = "output.yaml"
+)
+
+// writeMigrateInput creates a temp file with the given content and returns its path.
+func writeMigrateInput(t *testing.T, dir, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, migrateTestInputFile)
+	if err := os.WriteFile(p, []byte(content), migrateTestFilePerms); err != nil {
+		t.Fatalf("writing input: %v", err)
+	}
+	return p
+}
+
+// readMigrateOutput reads the output file from a migrate test.
+func readMigrateOutput(t *testing.T, path string) string {
+	t.Helper()
+	// #nosec G304 -- test helper reading from controlled temp dir
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading output: %v", err)
+	}
+	return string(out)
+}
+
+func TestRunMigrateConfig_FileToFile(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := writeMigrateInput(t, dir, migrateTestInput)
+	outputPath := filepath.Join(dir, migrateTestOutputFile)
+
+	err := runMigrateConfig([]string{"--config", inputPath, "--output", outputPath})
+	if err != nil {
+		t.Fatalf("runMigrateConfig() error = %v", err)
+	}
+
+	out := readMigrateOutput(t, outputPath)
+	if !strings.Contains(out, "apiVersion: v1") {
+		t.Errorf("output missing apiVersion: v1, got:\n%s", out)
+	}
+	if !strings.Contains(out, "name: test") {
+		t.Errorf("output missing original content, got:\n%s", out)
+	}
+}
+
+func TestRunMigrateConfig_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := writeMigrateInput(t, dir, migrateTestVersioned)
+	outputPath := filepath.Join(dir, migrateTestOutputFile)
+
+	err := runMigrateConfig([]string{"--config", inputPath, "--output", outputPath})
+	if err != nil {
+		t.Fatalf("runMigrateConfig() error = %v", err)
+	}
+
+	out := readMigrateOutput(t, outputPath)
+	if out != migrateTestVersioned {
+		t.Errorf("expected idempotent output, got:\n%s", out)
+	}
+}
+
+func TestRunMigrateConfig_WithTargetVersion(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := writeMigrateInput(t, dir, migrateTestInput)
+	outputPath := filepath.Join(dir, migrateTestOutputFile)
+
+	err := runMigrateConfig([]string{
+		"--config", inputPath,
+		"--output", outputPath,
+		"--target-version", "v1",
+	})
+	if err != nil {
+		t.Fatalf("runMigrateConfig() error = %v", err)
+	}
+
+	out := readMigrateOutput(t, outputPath)
+	if !strings.Contains(out, "apiVersion: v1") {
+		t.Errorf("output missing apiVersion: v1, got:\n%s", out)
+	}
+}
+
+func TestRunMigrateConfig_MissingInputFile(t *testing.T) {
+	err := runMigrateConfig([]string{"--config", "/nonexistent/path.yaml"})
+	if err == nil {
+		t.Fatal("expected error for missing input file")
+	}
+	if !strings.Contains(err.Error(), "opening config") {
+		t.Errorf("error = %q, want 'opening config'", err.Error())
+	}
+}
+
+func TestRunMigrateConfig_BadOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := writeMigrateInput(t, dir, migrateTestInput)
+
+	err := runMigrateConfig([]string{
+		"--config", inputPath,
+		"--output", "/nonexistent/dir/output.yaml",
+	})
+	if err == nil {
+		t.Fatal("expected error for bad output path")
+	}
+	if !strings.Contains(err.Error(), "creating output") {
+		t.Errorf("error = %q, want 'creating output'", err.Error())
+	}
+}
+
+func TestRunMigrateConfig_UnknownSourceVersion(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := writeMigrateInput(t, dir, "apiVersion: v99\nserver:\n  name: test\n")
+
+	err := runMigrateConfig([]string{"--config", inputPath})
+	if err == nil {
+		t.Fatal("expected error for unknown source version")
+	}
+	if !strings.Contains(err.Error(), "migrating config") {
+		t.Errorf("error = %q, want 'migrating config'", err.Error())
+	}
 }
