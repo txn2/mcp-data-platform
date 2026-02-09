@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -46,6 +47,9 @@ type Options struct {
 
 	// RuleEngine (optional, will be created from config if not provided).
 	RuleEngine *tuning.RuleEngine
+
+	// SessionStore (optional, will be created from config if not provided).
+	SessionStore session.Store
 }
 
 // Option is a functional option for configuring the platform.
@@ -125,5 +129,12 @@ func WithToolkitRegistry(reg *registry.Registry) Option {
 func WithRuleEngine(engine *tuning.RuleEngine) Option {
 	return func(o *Options) {
 		o.RuleEngine = engine
+	}
+}
+
+// WithSessionStore sets the session store.
+func WithSessionStore(store session.Store) Option {
+	return func(o *Options) {
+		o.SessionStore = store
 	}
 }
