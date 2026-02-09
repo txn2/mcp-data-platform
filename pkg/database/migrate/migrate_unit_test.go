@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 10
+	migrateTestFileCount    = 12
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -55,6 +55,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000004_audit_schema_improvements.down.sql",
 		"000005_sessions.up.sql",
 		"000005_sessions.down.sql",
+		"000006_knowledge_insights.up.sql",
+		"000006_knowledge_insights.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -79,6 +81,8 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000004_audit_schema_improvements.down.sql",
 		"migrations/000005_sessions.up.sql",
 		"migrations/000005_sessions.down.sql",
+		"migrations/000006_knowledge_insights.up.sql",
+		"migrations/000006_knowledge_insights.down.sql",
 	}
 
 	for _, file := range files {
@@ -93,6 +97,7 @@ func TestMigrationUpFilesContainCreateTable(t *testing.T) {
 		"migrations/000001_oauth_clients.up.sql",
 		"migrations/000002_audit_logs.up.sql",
 		"migrations/000005_sessions.up.sql",
+		"migrations/000006_knowledge_insights.up.sql",
 	}
 
 	for _, file := range upFiles {
@@ -107,6 +112,7 @@ func TestMigrationDownFilesContainDropTable(t *testing.T) {
 		"migrations/000001_oauth_clients.down.sql",
 		"migrations/000002_audit_logs.down.sql",
 		"migrations/000005_sessions.down.sql",
+		"migrations/000006_knowledge_insights.down.sql",
 	}
 
 	for _, file := range downFiles {
@@ -370,6 +376,46 @@ func TestMigration005_DownContent(t *testing.T) {
 
 	assert.Contains(t, migrationSQL, "DROP TABLE")
 	assert.Contains(t, migrationSQL, "sessions")
+}
+
+func TestMigration006_UpContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000006_knowledge_insights.up.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	assert.Contains(t, migrationSQL, "CREATE TABLE")
+	assert.Contains(t, migrationSQL, "knowledge_insights")
+
+	expectedColumns := []string{
+		"id", "created_at", "session_id", "captured_by", "persona",
+		"category", "insight_text", "confidence", "entity_urns",
+		"related_columns", "suggested_actions", "status",
+	}
+	for _, col := range expectedColumns {
+		assert.Contains(t, migrationSQL, col,
+			"up migration should contain column %s", col)
+	}
+
+	expectedIndexes := []string{
+		"idx_knowledge_insights_session_id",
+		"idx_knowledge_insights_captured_by",
+		"idx_knowledge_insights_status",
+		"idx_knowledge_insights_category",
+		"idx_knowledge_insights_created_at",
+	}
+	for _, idx := range expectedIndexes {
+		assert.Contains(t, migrationSQL, idx,
+			"up migration should contain index %s", idx)
+	}
+}
+
+func TestMigration006_DownContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000006_knowledge_insights.down.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	assert.Contains(t, migrationSQL, "DROP TABLE")
+	assert.Contains(t, migrationSQL, "knowledge_insights")
 }
 
 // TestMigrationTablesHaveConsumers verifies that every table created by a
