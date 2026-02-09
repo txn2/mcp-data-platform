@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
+	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
@@ -75,8 +76,9 @@ type Platform struct {
 	authorizer    middleware.Authorizer
 
 	// OAuth
-	oauthServer     *oauth.Server
-	oauthSigningKey []byte
+	oauthServer      *oauth.Server
+	oauthSigningKey  []byte
+	oauthStoreCloser interface{ Close() error }
 
 	// Audit
 	auditLogger middleware.AuditLogger
@@ -365,8 +367,18 @@ func (p *Platform) initOAuth() error {
 		return nil
 	}
 
-	// Create in-memory storage
-	oauthStorage := oauth.NewMemoryStorage()
+	// Create storage: use PostgreSQL if database is available, otherwise in-memory.
+	var oauthStorage oauth.Storage
+	if p.db != nil {
+		pgStore := oauthpostgres.New(p.db)
+		pgStore.StartCleanupRoutine(time.Minute)
+		p.oauthStoreCloser = pgStore
+		oauthStorage = pgStore
+		slog.Info("OAuth storage: database")
+	} else {
+		oauthStorage = oauth.NewMemoryStorage()
+		slog.Info("OAuth storage: memory")
+	}
 
 	// Pre-register clients from config
 	for _, clientCfg := range p.config.OAuth.Clients {
@@ -1186,6 +1198,12 @@ func (p *Platform) Close() error {
 	if p.sessionStore != nil {
 		slog.Debug("shutdown: closing session store")
 		closeResource(&errs, p.sessionStore)
+	}
+
+	// Phase 1d: close OAuth store (stop cleanup goroutine)
+	if p.oauthStoreCloser != nil {
+		slog.Debug("shutdown: closing OAuth store")
+		closeResource(&errs, p.oauthStoreCloser)
 	}
 
 	// Phase 2: close audit (cancel cleanup goroutine, wait for exit)
