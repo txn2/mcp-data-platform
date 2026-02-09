@@ -790,38 +790,50 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 
 // extractUserFromUpstreamToken extracts user information from the upstream token.
 func (*Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (string, map[string]any) { //nolint:gocritic // unnamedResult: names would shadow local variables
-	claims := make(map[string]any)
+	claims := extractTokenClaims(token)
 
-	// Extract claims from ID token first (basic profile info)
-	if token.IDToken != "" {
-		if idClaims := decodeJWTClaims(token.IDToken); idClaims != nil {
-			claims = idClaims
-		}
-	}
-
-	// Also extract claims from access token - Keycloak puts realm_access here
-	if token.AccessToken != "" {
-		if accessClaims := decodeJWTClaims(token.AccessToken); accessClaims != nil {
-			// Merge access token claims, prioritizing realm_access for roles
-			for key, value := range accessClaims {
-				// Always take realm_access from access token (contains roles)
-				// For other claims, only add if not already present from ID token
-				if key == "realm_access" || key == "resource_access" {
-					claims[key] = value
-				} else if _, exists := claims[key]; !exists {
-					claims[key] = value
-				}
-			}
-		}
-	}
-
-	// Extract user ID from claims
 	userID := "unknown"
 	if sub, ok := claims["sub"].(string); ok {
 		userID = sub
 	}
 
 	return userID, claims
+}
+
+// extractTokenClaims merges claims from ID and access tokens.
+func extractTokenClaims(token *upstreamTokenResponse) map[string]any {
+	claims := make(map[string]any)
+
+	if token.IDToken != "" {
+		if idClaims := decodeJWTClaims(token.IDToken); idClaims != nil {
+			claims = idClaims
+		}
+	}
+
+	if token.AccessToken == "" {
+		return claims
+	}
+
+	accessClaims := decodeJWTClaims(token.AccessToken)
+	if accessClaims == nil {
+		return claims
+	}
+
+	mergeAccessClaims(claims, accessClaims)
+	return claims
+}
+
+// mergeAccessClaims merges access token claims into existing claims.
+// Role-related claims (realm_access, resource_access) always overwrite;
+// other claims only fill gaps.
+func mergeAccessClaims(claims, accessClaims map[string]any) {
+	for key, value := range accessClaims {
+		if key == "realm_access" || key == "resource_access" {
+			claims[key] = value
+		} else if _, exists := claims[key]; !exists {
+			claims[key] = value
+		}
+	}
 }
 
 // decodeJWTClaims decodes the claims from a JWT without verification.
