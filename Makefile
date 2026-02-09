@@ -137,20 +137,28 @@ dead-code:
 		echo "No dead code found."; \
 	fi
 
-## mutate: Run mutation testing (informational)
+## mutate: Run mutation testing with 60% efficacy threshold
 mutate:
 	@echo "Running mutation testing..."
 	@which gremlins > /dev/null || (echo "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
-	gremlins unleash --workers 1 --timeout-coefficient 3 ./pkg/...
+	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
-## coverage-report: Print per-function coverage summary
+## coverage-report: Print coverage summary (fails if total <80%)
 coverage-report: test
 	@echo ""
 	@echo "=== Coverage Summary ==="
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@echo ""
-	@echo "Functions below 80%:"
-	@$(GO) tool cover -func=coverage.out | awk '$$3 != "100.0%" { gsub(/%/, "", $$3); if ($$3+0 < 80.0) print $$0 }' || true
+	@TOTAL=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
+	if [ "$$(echo "$$TOTAL < 80.0" | bc -l)" = "1" ]; then \
+		echo "FAIL: Total coverage $$TOTAL% is below 80% threshold"; \
+		exit 1; \
+	fi
+	@echo "Functions with 0% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 == 0 && $$1 != "total:") print $$0}' || true
+	@echo ""
+	@echo "Functions below 80% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < 80.0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
 	@echo "=== End Coverage ==="
 
 ## release-check: Validate build, Docker, and release config
@@ -158,8 +166,8 @@ release-check:
 	@echo "Running GoReleaser dry-run..."
 	goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
-## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, release)
-verify: fmt test lint security coverage-report dead-code release-check
+## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
+verify: fmt test lint security coverage-report dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
