@@ -10,10 +10,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/health"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
-const testSessionTimeout = 10 * time.Minute
+const (
+	testSessionTimeout = 10 * time.Minute
+	testGracePeriod20s = 20 * time.Second
+	testPreDelay3s     = 3 * time.Second
+)
 
 func TestRegisterOAuthRoutes(t *testing.T) {
 	mux := http.NewServeMux()
@@ -266,13 +271,26 @@ func TestListenAndServe_GracefulShutdown(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	hc := health.NewChecker()
+	hcfg := httpConfig{
+		shutdownCfg: platform.ShutdownConfig{
+			GracePeriod:      1 * time.Second,
+			PreShutdownDelay: 0, // skip delay in tests
+		},
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- listenAndServe(ctx, "127.0.0.1:0", handler, httpConfig{})
+		errCh <- listenAndServe(ctx, "127.0.0.1:0", handler, hcfg, hc)
 	}()
 
 	// Give the server a moment to start, then cancel.
 	time.Sleep(50 * time.Millisecond)
+
+	if !hc.IsReady() {
+		t.Error("health checker should be ready after server starts")
+	}
+
 	cancel()
 
 	select {
@@ -282,6 +300,10 @@ func TestListenAndServe_GracefulShutdown(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("listenAndServe did not shut down in time")
+	}
+
+	if hc.IsReady() {
+		t.Error("health checker should not be ready after shutdown")
 	}
 }
 
@@ -298,9 +320,33 @@ func TestListenAndServe_TLSBadCert(t *testing.T) {
 		tlsKeyFile:  "/nonexistent/key.pem",
 	}
 
-	err := listenAndServe(ctx, "127.0.0.1:0", handler, hcfg)
+	err := listenAndServe(ctx, "127.0.0.1:0", handler, hcfg, nil)
 	if err == nil {
 		t.Fatal("expected error for bad TLS cert path")
+	}
+}
+
+func TestListenAndServe_NilHealthChecker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- listenAndServe(ctx, "127.0.0.1:0", handler, httpConfig{}, nil)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("listenAndServe returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("listenAndServe did not shut down in time")
 	}
 }
 
@@ -356,6 +402,59 @@ func TestStartServer_HTTPBackwardCompat(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("startServer did not shut down in time")
+	}
+}
+
+func TestExtractHTTPConfig_ShutdownConfig(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{
+			Name: "test",
+			Shutdown: platform.ShutdownConfig{
+				GracePeriod:      testGracePeriod20s,
+				PreShutdownDelay: testPreDelay3s,
+			},
+		},
+	})
+	defer func() { _ = p.Close() }()
+
+	cfg := extractHTTPConfig(p)
+	if cfg.shutdownCfg.GracePeriod != testGracePeriod20s {
+		t.Errorf("shutdownCfg.GracePeriod = %v, want %v", cfg.shutdownCfg.GracePeriod, testGracePeriod20s)
+	}
+	if cfg.shutdownCfg.PreShutdownDelay != testPreDelay3s {
+		t.Errorf("shutdownCfg.PreShutdownDelay = %v, want %v", cfg.shutdownCfg.PreShutdownDelay, testPreDelay3s)
+	}
+}
+
+func TestHealthEndpointsRegistered(t *testing.T) {
+	mux := http.NewServeMux()
+	hc := health.NewChecker()
+	mux.Handle("/healthz", hc.LivenessHandler())
+	mux.Handle("/readyz", hc.ReadinessHandler())
+
+	// Set ready (simulating what listenAndServe does)
+	hc.SetReady()
+
+	// Test /healthz
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", http.NoBody))
+	if w.Code != http.StatusOK {
+		t.Errorf("/healthz status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Test /readyz when ready
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", http.NoBody))
+	if w.Code != http.StatusOK {
+		t.Errorf("/readyz status = %d, want %d (ready)", w.Code, http.StatusOK)
+	}
+
+	// Test /readyz when draining
+	hc.SetDraining()
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", http.NoBody))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("/readyz status = %d, want %d (draining)", w.Code, http.StatusServiceUnavailable)
 	}
 }
 
