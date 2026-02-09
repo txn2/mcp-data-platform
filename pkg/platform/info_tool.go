@@ -43,6 +43,7 @@ type Features struct {
 	QueryEnrichment    bool `json:"query_enrichment"`
 	StorageEnrichment  bool `json:"storage_enrichment"`
 	AuditLogging       bool `json:"audit_logging"`
+	KnowledgeCapture   bool `json:"knowledge_capture"`
 }
 
 // platformInfoInput is empty since this tool has no parameters.
@@ -106,6 +107,7 @@ func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.C
 			QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
 			StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
 			AuditLogging:       p.config.Audit.Enabled,
+			KnowledgeCapture:   p.config.Knowledge.Enabled,
 		},
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
