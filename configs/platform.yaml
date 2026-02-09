@@ -12,6 +12,9 @@ server:
   streamable:
     session_timeout: 30m        # idle session timeout (default: 30m)
     stateless: false            # disable session tracking
+  shutdown:
+    grace_period: 25s           # max time to drain in-flight requests (default: 25s)
+    pre_shutdown_delay: 2s      # sleep before draining for LB deregistration (default: 2s)
 
 # Generic OIDC authentication
 auth:
