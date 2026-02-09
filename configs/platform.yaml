@@ -16,6 +16,13 @@ server:
     grace_period: 25s           # max time to drain in-flight requests (default: 25s)
     pre_shutdown_delay: 2s      # sleep before draining for LB deregistration (default: 2s)
 
+# Session externalization for zero-downtime upgrades
+# sessions:
+#   store: memory               # "memory" (default) or "database"
+#   ttl: 30m                    # session lifetime (defaults to streamable.session_timeout)
+#   idle_timeout: 30m           # idle session eviction (defaults to streamable.session_timeout)
+#   cleanup_interval: 1m        # cleanup routine frequency
+
 # Generic OIDC authentication
 auth:
   oidc:
