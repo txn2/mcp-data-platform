@@ -15,6 +15,7 @@ import (
 const (
 	testInfoVersion      = "1.0.0"
 	testInfoToolkitCount = 3
+	testInfoVersionV1    = "v1"
 )
 
 // requireInfoFromResult extracts an Info struct from a tool call result.
@@ -153,6 +154,29 @@ func TestInfoFeatures(t *testing.T) {
 	assert.True(t, info.Features.QueryEnrichment, "query enrichment should be enabled")
 	assert.True(t, info.Features.StorageEnrichment, "storage enrichment should be enabled")
 	assert.True(t, info.Features.AuditLogging, "audit logging should be enabled")
+}
+
+func TestInfoConfigVersion(t *testing.T) {
+	config := Config{
+		APIVersion: testInfoVersionV1,
+		Server: ServerConfig{
+			Name:    "version-test",
+			Version: testInfoVersion,
+		},
+	}
+
+	p := &Platform{
+		config:          &config,
+		personaRegistry: persona.NewRegistry(),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.Equal(t, testInfoVersionV1, info.ConfigVersion.APIVersion)
+	assert.Equal(t, testInfoVersionV1, info.ConfigVersion.LatestVersion)
+	assert.Contains(t, info.ConfigVersion.SupportedVersions, testInfoVersionV1)
 }
 
 func TestBuildInfoToolDescription(t *testing.T) {
