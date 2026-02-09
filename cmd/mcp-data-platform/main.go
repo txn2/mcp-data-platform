@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 const (
@@ -274,11 +275,23 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		Stateless:      hcfg.streamableCfg.Stateless,
 	})
 
+	// Wrap with AwareHandler when using external session store
+	// (database mode forces Stateless: true on the SDK, and sessions
+	// are managed by our handler against the external store).
+	var rootHandler http.Handler = streamableHandler
+	if p != nil && p.SessionStore() != nil && hcfg.streamableCfg.Stateless {
+		rootHandler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
+			Store: p.SessionStore(),
+			TTL:   p.Config().Sessions.TTL,
+		})
+		log.Println("Session-aware handler enabled (external session store)")
+	}
+
 	if hcfg.requireAuth {
-		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(streamableHandler))
+		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(rootHandler))
 		log.Println("Streamable HTTP transport enabled on / (auth required)")
 	} else {
-		mux.Handle("/", streamableHandler)
+		mux.Handle("/", rootHandler)
 		log.Println("Streamable HTTP transport enabled on / (anonymous)")
 	}
 
