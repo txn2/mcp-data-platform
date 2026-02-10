@@ -389,6 +389,29 @@ personas:
 !!! warning "Default-Deny Security"
     Users without a resolved persona have **no tool access**. The built-in default persona denies all tools. You must define explicit personas with tool access for your users.
 
+## Knowledge Capture Configuration
+
+Knowledge capture records domain knowledge shared during AI sessions and provides a workflow for applying approved insights to the DataHub catalog.
+
+```yaml
+knowledge:
+  enabled: true
+  apply:
+    enabled: true
+    datahub_connection: primary
+    require_confirmation: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable knowledge capture toolkit (`capture_insight` tool) |
+| `apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
+| `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
+
+!!! note "Prerequisites"
+    Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.
+
 ## MCP Apps Configuration
 
 MCP Apps provide interactive UI components that enhance tool results. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
