@@ -2588,6 +2588,33 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 	}
 }
 
+func TestInitKnowledge_ApplyEnabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Knowledge: KnowledgeConfig{
+			Enabled: true,
+			Apply: KnowledgeApplyConfig{
+				Enabled:             true,
+				DataHubConnection:   "primary",
+				RequireConfirmation: true,
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Error(testMCPServerNilMsg)
+	}
+}
+
 // containsSubstr checks if s contains substr using strings.Contains.
 func containsSubstr(s, substr string) bool {
 	return strings.Contains(s, substr)
