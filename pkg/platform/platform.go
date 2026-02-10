@@ -515,6 +515,29 @@ func (p *Platform) initKnowledge() error {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
 
+	// Configure apply_knowledge tool if enabled
+	if p.config.Knowledge.Apply.Enabled {
+		var csStore knowledgekit.ChangesetStore
+		if p.db != nil {
+			csStore = knowledgekit.NewPostgresChangesetStore(p.db)
+		} else {
+			csStore = knowledgekit.NewNoopChangesetStore()
+		}
+
+		writer := &knowledgekit.NoopDataHubWriter{}
+
+		tk.SetApplyConfig(knowledgekit.ApplyConfig{
+			Enabled:             true,
+			DataHubConnection:   p.config.Knowledge.Apply.DataHubConnection,
+			RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
+		}, csStore, writer)
+
+		slog.Info("knowledge apply enabled",
+			"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
+			"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
+		)
+	}
+
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering knowledge toolkit: %w", err)
 	}
