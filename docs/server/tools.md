@@ -1,10 +1,10 @@
 ---
-description: All 27 MCP tools from DataHub, Trino, and S3 toolkits. Search metadata, run SQL queries, access S3 objects with automatic semantic enrichment.
+description: MCP tools from DataHub, Trino, S3, and Knowledge toolkits. Search metadata, run SQL queries, access S3 objects with automatic semantic enrichment, and capture domain knowledge.
 ---
 
 # Available Tools
 
-mcp-data-platform provides tools from three integrated toolkits. Each tool can be invoked by name through any MCP client.
+mcp-data-platform provides tools from four integrated toolkits. Each tool can be invoked by name through any MCP client.
 
 ## Tools Summary
 
@@ -37,6 +37,8 @@ mcp-data-platform provides tools from three integrated toolkits. Each tool can b
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
+| Knowledge | `capture_insight` | Record domain knowledge |
+| Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
 
 ---
 
@@ -439,6 +441,50 @@ Copy an object. Only available when `read_only: false`.
 | `dest_bucket` | string | Yes | - | Destination bucket name |
 | `dest_key` | string | Yes | - | Destination object key |
 | `connection` | string | No | default | Connection name to use |
+
+---
+
+## Knowledge Tools
+
+### capture_insight
+
+Record domain knowledge shared during a session. Available to all personas when `knowledge.enabled: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `category` | string | Yes | - | correction, business_context, data_quality, usage_guidance, relationship, enhancement |
+| `insight_text` | string | Yes | - | Knowledge to record (10-4000 chars) |
+| `confidence` | string | No | medium | high, medium, low |
+| `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
+| `related_columns` | array | No | [] | Related columns (max 20) |
+| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5) |
+
+---
+
+### apply_knowledge
+
+Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject |
+| `entity_urn` | string | Conditional | Required for review, synthesize, apply |
+| `insight_ids` | array | Conditional | Required for approve, reject |
+| `changes` | array | Conditional | Required for apply |
+| `confirm` | bool | No | Required when `require_confirmation` is true |
+| `review_notes` | string | No | Notes for approve/reject actions |
+
+**Actions:**
+
+- **bulk_review**: Summary of all pending insights grouped by entity
+- **review**: Insights for a specific entity with current DataHub metadata
+- **approve/reject**: Transition insight status with optional notes
+- **synthesize**: Structured change proposals from approved insights
+- **apply**: Write changes to DataHub with changeset tracking
 
 ---
 
