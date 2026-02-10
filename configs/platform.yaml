@@ -240,11 +240,15 @@ tuning:
     quality_threshold: 0.7
   prompts_dir: ""
 
-# Knowledge capture
+# Knowledge capture and apply
 # Enables the capture_insight tool for recording domain knowledge.
 # Insights are stored in the database for admin review.
 # knowledge:
 #   enabled: true
+#   apply:
+#     enabled: true                # Enable apply_knowledge tool (default: false)
+#     datahub_connection: primary  # Which DataHub instance to write to
+#     require_confirmation: true   # Require confirm: true on apply (default: false)
 
 # Audit logging
 audit:
