@@ -110,6 +110,9 @@ Define who can use which tools. Analysts get read access to queries and searches
 ### Comprehensive Audit Logging
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
+### Knowledge Capture
+AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The knowledge toolkit records these insights automatically and provides a structured workflow for admin review, approval, and write-back to DataHub with full changeset tracking and rollback.
+
 ### Extensible Middleware Architecture
 Add custom authentication, rate limiting, or logging. Swap providers to integrate different semantic layers or query engines. The Go library exposes everything—build the platform your organization needs.
 
@@ -352,7 +355,8 @@ database:
 | `pkg/audit` | Audit logging with PostgreSQL storage |
 | `pkg/tuning` | Prompts, hints, and operational rules |
 | `pkg/storage` | S3-compatible storage provider abstraction |
-| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3) |
+| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge) |
+| `pkg/admin` | Admin REST API for knowledge management |
 | `pkg/client` | Platform client utilities |
 
 ---
