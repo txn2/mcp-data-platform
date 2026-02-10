@@ -48,6 +48,11 @@
 - [Architecture](library/architecture.md): Package structure, MCP protocol middleware, provider interfaces
 - [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
 
+## Knowledge Capture
+
+- [Overview](knowledge/overview.md): AI-assisted knowledge capture and catalog enrichment. capture_insight records domain knowledge during sessions; apply_knowledge reviews, synthesizes, and writes approved changes to DataHub
+- [Admin API](knowledge/admin-api.md): REST endpoints for managing insights and changesets. List, filter, approve, reject insights. View and rollback changesets. Requires admin role
+
 ## MCP Apps
 
 - [Overview](mcpapps/overview.md): Interactive UI components for tool results. Platform provides infrastructure, you provide HTML/JS/CSS apps.

@@ -1,5 +1,5 @@
 // Package knowledge provides a knowledge capture toolkit for the MCP data platform.
-package knowledge
+package knowledge //nolint:revive // max-public-structs: domain types require more than 5 public structs
 
 import (
 	"fmt"
@@ -84,6 +84,8 @@ const (
 	MaxEntityURNs       = 10
 	MaxRelatedColumns   = 20
 	MaxSuggestedActions = 5
+	MaxApplyChanges     = 20
+	MaxInsightIDs       = 50
 )
 
 // ValidateInsightText checks whether the insight text meets length requirements.
@@ -178,4 +180,197 @@ type Insight struct {
 	RelatedColumns   []RelatedColumn   `json:"related_columns"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions"`
 	Status           string            `json:"status"`
+
+	// Lifecycle fields (populated by migrations 000007 and 000008)
+	ReviewedBy   string     `json:"reviewed_by,omitempty"`
+	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
+	ReviewNotes  string     `json:"review_notes,omitempty"`
+	AppliedBy    string     `json:"applied_by,omitempty"`
+	AppliedAt    *time.Time `json:"applied_at,omitempty"`
+	ChangesetRef string     `json:"changeset_ref,omitempty"`
+}
+
+// Insight status constants.
+const (
+	StatusPending    = "pending"
+	StatusApproved   = "approved"
+	StatusRejected   = "rejected"
+	StatusApplied    = "applied"
+	StatusSuperseded = "superseded"
+	StatusRolledBack = "rolled_back"
+)
+
+// validTransitions defines allowed status transitions.
+var validTransitions = map[string]map[string]bool{
+	StatusPending: {
+		StatusApproved:   true,
+		StatusRejected:   true,
+		StatusSuperseded: true,
+	},
+	StatusApproved: {
+		StatusApplied: true,
+	},
+	StatusApplied: {
+		StatusRolledBack: true,
+	},
+}
+
+// ValidateStatusTransition checks whether a status transition is allowed.
+func ValidateStatusTransition(from, to string) error {
+	allowed, ok := validTransitions[from]
+	if !ok || !allowed[to] {
+		return fmt.Errorf("invalid status transition from %q to %q", from, to)
+	}
+	return nil
+}
+
+// InsightFilter defines filtering criteria for listing insights.
+type InsightFilter struct {
+	Status     string
+	Category   string
+	EntityURN  string
+	CapturedBy string
+	Confidence string
+	Since      *time.Time
+	Until      *time.Time
+	Limit      int
+	Offset     int
+}
+
+// DefaultLimit is the default page size for list queries.
+const DefaultLimit = 20
+
+// MaxLimit is the maximum page size for list queries.
+const MaxLimit = 100
+
+// EffectiveLimit returns the limit to use, applying defaults and caps.
+func (f *InsightFilter) EffectiveLimit() int {
+	if f.Limit <= 0 {
+		return DefaultLimit
+	}
+	if f.Limit > MaxLimit {
+		return MaxLimit
+	}
+	return f.Limit
+}
+
+// InsightStats holds aggregated insight statistics.
+type InsightStats struct {
+	TotalPending int                    `json:"total_pending"`
+	ByEntity     []EntityInsightSummary `json:"by_entity"`
+	ByCategory   map[string]int         `json:"by_category"`
+	ByConfidence map[string]int         `json:"by_confidence"`
+	ByStatus     map[string]int         `json:"by_status"`
+}
+
+// EntityInsightSummary summarizes insights for a single entity.
+type EntityInsightSummary struct {
+	EntityURN  string   `json:"entity_urn"`
+	Count      int      `json:"count"`
+	Categories []string `json:"categories"`
+	LatestAt   string   `json:"latest_at"`
+}
+
+// InsightUpdate holds fields that can be edited on a non-applied insight.
+type InsightUpdate struct {
+	InsightText string `json:"insight_text,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Confidence  string `json:"confidence,omitempty"`
+}
+
+// Changeset records a set of changes applied to DataHub from insights.
+type Changeset struct {
+	ID               string         `json:"id"`
+	CreatedAt        time.Time      `json:"created_at"`
+	TargetURN        string         `json:"target_urn"`
+	ChangeType       string         `json:"change_type"`
+	PreviousValue    map[string]any `json:"previous_value"`
+	NewValue         map[string]any `json:"new_value"`
+	SourceInsightIDs []string       `json:"source_insight_ids"`
+	ApprovedBy       string         `json:"approved_by"`
+	AppliedBy        string         `json:"applied_by"`
+	RolledBack       bool           `json:"rolled_back"`
+	RolledBackBy     string         `json:"rolled_back_by,omitempty"`
+	RolledBackAt     *time.Time     `json:"rolled_back_at,omitempty"`
+}
+
+// ChangesetFilter defines filtering criteria for listing changesets.
+type ChangesetFilter struct {
+	EntityURN  string
+	AppliedBy  string
+	Since      *time.Time
+	Until      *time.Time
+	RolledBack *bool
+	Limit      int
+	Offset     int
+}
+
+// EffectiveLimit returns the limit to use, applying defaults and caps.
+func (f *ChangesetFilter) EffectiveLimit() int {
+	if f.Limit <= 0 {
+		return DefaultLimit
+	}
+	if f.Limit > MaxLimit {
+		return MaxLimit
+	}
+	return f.Limit
+}
+
+// ApplyChange represents a single change to apply to DataHub.
+type ApplyChange struct {
+	ChangeType string `json:"change_type"`
+	Target     string `json:"target"`
+	Detail     string `json:"detail"`
+}
+
+// ValidateApplyChanges validates the changes slice for the apply action.
+func ValidateApplyChanges(changes []ApplyChange) error {
+	if len(changes) == 0 {
+		return fmt.Errorf("changes is required and must not be empty")
+	}
+	if len(changes) > MaxApplyChanges {
+		return fmt.Errorf("changes exceeds maximum of %d (got %d)", MaxApplyChanges, len(changes))
+	}
+	for i, c := range changes {
+		if !validActionTypes[actionType(c.ChangeType)] {
+			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: update_description, add_tag, add_glossary_term, flag_quality_issue, add_documentation", i, c.ChangeType)
+		}
+	}
+	return nil
+}
+
+// EntityMetadata holds current metadata for an entity from DataHub.
+type EntityMetadata struct {
+	Description   string   `json:"description"`
+	Tags          []string `json:"tags"`
+	GlossaryTerms []string `json:"glossary_terms"`
+	Owners        []string `json:"owners"`
+}
+
+// ProposedChange represents a deterministic change proposal from synthesis.
+type ProposedChange struct {
+	ChangeType       string   `json:"change_type"`
+	Target           string   `json:"target"`
+	CurrentValue     string   `json:"current_value"`
+	SuggestedValue   string   `json:"suggested_value"`
+	SourceInsightIDs []string `json:"source_insight_ids"`
+}
+
+// ValidateAction checks whether an action value is valid.
+func ValidateAction(action string) error {
+	validActions := map[string]bool{
+		"bulk_review": true,
+		"review":      true,
+		"synthesize":  true,
+		"apply":       true,
+		"approve":     true,
+		"reject":      true,
+	}
+	if action == "" {
+		return fmt.Errorf("action is required and must be one of: bulk_review, review, synthesize, apply, approve, reject")
+	}
+	if !validActions[action] {
+		return fmt.Errorf("invalid action %q: must be one of: bulk_review, review, synthesize, apply, approve, reject", action)
+	}
+	return nil
 }

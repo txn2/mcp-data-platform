@@ -16,6 +16,7 @@ import (
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
+	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -64,6 +65,9 @@ const (
 	testEdgeFallback5s      = 5 * time.Second
 	testZeroFloat           = 0.0
 	testMCPServerNilMsg     = "MCPServer() should not be nil"
+	testToolkitKeyDatahub   = "datahub"
+	testCfgKeyURL           = "url"
+	testCfgKeyToken         = "token"
 )
 
 // newTestPlatform creates a Platform with noop providers for testing.
@@ -2585,6 +2589,150 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 
 	if p.MCPServer() == nil {
 		t.Error(testMCPServerNilMsg)
+	}
+}
+
+func TestInitKnowledge_ApplyEnabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Knowledge: KnowledgeConfig{
+			Enabled: true,
+			Apply: KnowledgeApplyConfig{
+				Enabled:             true,
+				DataHubConnection:   "primary",
+				RequireConfirmation: true,
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Error(testMCPServerNilMsg)
+	}
+}
+
+func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Knowledge: KnowledgeConfig{
+			Enabled: true,
+			Apply: KnowledgeApplyConfig{
+				Enabled:             true,
+				DataHubConnection:   testInstanceDefault,
+				RequireConfirmation: true,
+			},
+		},
+		Toolkits: map[string]any{
+			testToolkitKeyDatahub: map[string]any{
+				testInstancesKey: map[string]any{
+					testInstanceDefault: map[string]any{
+						testCfgKeyURL:   "http://datahub:8080",
+						testCfgKeyToken: "test-token",
+					},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Error(testMCPServerNilMsg)
+	}
+}
+
+func TestCreateDataHubWriter_NoConnection(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Knowledge: KnowledgeConfig{
+				Apply: KnowledgeApplyConfig{
+					DataHubConnection: "nonexistent",
+				},
+			},
+			Toolkits: map[string]any{},
+		},
+	}
+
+	writer, err := p.createDataHubWriter()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if _, ok := writer.(*knowledgekit.NoopDataHubWriter); !ok {
+		t.Error("expected NoopDataHubWriter when connection not found")
+	}
+}
+
+func TestCreateDataHubWriter_WithConnection(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Knowledge: KnowledgeConfig{
+				Apply: KnowledgeApplyConfig{
+					DataHubConnection: testInstanceDefault,
+				},
+			},
+			Toolkits: map[string]any{
+				testToolkitKeyDatahub: map[string]any{
+					testInstancesKey: map[string]any{
+						testInstanceDefault: map[string]any{
+							testCfgKeyURL:   "http://datahub:8080",
+							testCfgKeyToken: "test-token",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	writer, err := p.createDataHubWriter()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if _, ok := writer.(*knowledgekit.DataHubClientWriter); !ok {
+		t.Errorf("expected DataHubClientWriter, got %T", writer)
+	}
+}
+
+func TestCreateDataHubWriter_InvalidConfig(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Knowledge: KnowledgeConfig{
+				Apply: KnowledgeApplyConfig{
+					DataHubConnection: testInstanceDefault,
+				},
+			},
+			Toolkits: map[string]any{
+				testToolkitKeyDatahub: map[string]any{
+					testInstancesKey: map[string]any{
+						testInstanceDefault: map[string]any{
+							testCfgKeyURL:   "",
+							testCfgKeyToken: "",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := p.createDataHubWriter()
+	if err == nil {
+		t.Error("expected error for invalid datahub config")
 	}
 }
 

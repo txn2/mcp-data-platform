@@ -39,11 +39,38 @@ type PersonaInfo struct {
 
 // Features describes enabled platform features.
 type Features struct {
-	SemanticEnrichment bool `json:"semantic_enrichment"`
-	QueryEnrichment    bool `json:"query_enrichment"`
-	StorageEnrichment  bool `json:"storage_enrichment"`
-	AuditLogging       bool `json:"audit_logging"`
-	KnowledgeCapture   bool `json:"knowledge_capture"`
+	SemanticEnrichment bool                `json:"semantic_enrichment"`
+	QueryEnrichment    bool                `json:"query_enrichment"`
+	StorageEnrichment  bool                `json:"storage_enrichment"`
+	AuditLogging       bool                `json:"audit_logging"`
+	KnowledgeCapture   bool                `json:"knowledge_capture"`
+	KnowledgeApply     *KnowledgeApplyInfo `json:"knowledge_apply,omitempty"`
+}
+
+// KnowledgeApplyInfo provides information about the knowledge apply feature.
+type KnowledgeApplyInfo struct {
+	Enabled           bool   `json:"enabled"`
+	DataHubConnection string `json:"datahub_connection,omitempty"`
+}
+
+// buildFeatures constructs the Features struct from platform config.
+func (p *Platform) buildFeatures() Features {
+	f := Features{
+		SemanticEnrichment: p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.S3SemanticEnrichment,
+		QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
+		StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
+		AuditLogging:       p.config.Audit.Enabled,
+		KnowledgeCapture:   p.config.Knowledge.Enabled,
+	}
+
+	if p.config.Knowledge.Apply.Enabled {
+		f.KnowledgeApply = &KnowledgeApplyInfo{
+			Enabled:           true,
+			DataHubConnection: p.config.Knowledge.Apply.DataHubConnection,
+		}
+	}
+
+	return f
 }
 
 // platformInfoInput is empty since this tool has no parameters.
@@ -102,13 +129,7 @@ func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.C
 		AgentInstructions: p.config.Server.AgentInstructions,
 		Toolkits:          toolkits,
 		Personas:          personas,
-		Features: Features{
-			SemanticEnrichment: p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.S3SemanticEnrichment,
-			QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
-			StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
-			AuditLogging:       p.config.Audit.Enabled,
-			KnowledgeCapture:   p.config.Knowledge.Enabled,
-		},
+		Features:          p.buildFeatures(),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
 			SupportedVersions: reg.ListSupported(),

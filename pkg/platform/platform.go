@@ -9,11 +9,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/crypto/bcrypt"
-
 	// PostgreSQL driver for database/sql.
 	_ "github.com/lib/pq"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+	"golang.org/x/crypto/bcrypt"
 
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -515,12 +515,64 @@ func (p *Platform) initKnowledge() error {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
 
+	// Configure apply_knowledge tool if enabled
+	if p.config.Knowledge.Apply.Enabled {
+		var csStore knowledgekit.ChangesetStore
+		if p.db != nil {
+			csStore = knowledgekit.NewPostgresChangesetStore(p.db)
+		} else {
+			csStore = knowledgekit.NewNoopChangesetStore()
+		}
+
+		writer, writerErr := p.createDataHubWriter()
+		if writerErr != nil {
+			return fmt.Errorf("creating datahub writer: %w", writerErr)
+		}
+
+		tk.SetApplyConfig(knowledgekit.ApplyConfig{
+			Enabled:             true,
+			DataHubConnection:   p.config.Knowledge.Apply.DataHubConnection,
+			RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
+		}, csStore, writer)
+
+		slog.Info("knowledge apply enabled",
+			"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
+			"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
+		)
+	}
+
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering knowledge toolkit: %w", err)
 	}
 
 	slog.Info("knowledge capture enabled")
 	return nil
+}
+
+// createDataHubWriter creates a DataHubWriter backed by a real DataHub client
+// when a datahub_connection is configured, or falls back to a noop writer.
+func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
+	connName := p.config.Knowledge.Apply.DataHubConnection
+	dhCfg := p.getDataHubConfig(connName)
+	if dhCfg == nil {
+		slog.Warn("knowledge apply: datahub connection not found, using noop writer",
+			"connection", connName)
+		return &knowledgekit.NoopDataHubWriter{}, nil
+	}
+
+	clientCfg := dhclient.DefaultConfig()
+	clientCfg.URL = dhCfg.URL
+	clientCfg.Token = dhCfg.Token
+	clientCfg.Timeout = dhCfg.Timeout
+	clientCfg.Debug = dhCfg.Debug
+
+	c, err := dhclient.New(clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating datahub client for connection %q: %w", connName, err)
+	}
+
+	slog.Info("knowledge apply: using datahub writer", "connection", connName)
+	return knowledgekit.NewDataHubClientWriter(c), nil
 }
 
 // initMCPApps initializes MCP Apps support.

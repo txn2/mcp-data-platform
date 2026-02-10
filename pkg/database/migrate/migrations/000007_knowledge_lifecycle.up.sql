@@ -1,0 +1,4 @@
+ALTER TABLE knowledge_insights
+    ADD COLUMN IF NOT EXISTS reviewed_by   TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reviewed_at   TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS review_notes  TEXT NOT NULL DEFAULT '';

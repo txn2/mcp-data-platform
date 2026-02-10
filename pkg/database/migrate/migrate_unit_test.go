@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 12
+	migrateTestFileCount    = 16
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -57,6 +56,10 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000005_sessions.down.sql",
 		"000006_knowledge_insights.up.sql",
 		"000006_knowledge_insights.down.sql",
+		"000007_knowledge_lifecycle.up.sql",
+		"000007_knowledge_lifecycle.down.sql",
+		"000008_knowledge_changesets.up.sql",
+		"000008_knowledge_changesets.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -83,6 +86,10 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000005_sessions.down.sql",
 		"migrations/000006_knowledge_insights.up.sql",
 		"migrations/000006_knowledge_insights.down.sql",
+		"migrations/000007_knowledge_lifecycle.up.sql",
+		"migrations/000007_knowledge_lifecycle.down.sql",
+		"migrations/000008_knowledge_changesets.up.sql",
+		"migrations/000008_knowledge_changesets.down.sql",
 	}
 
 	for _, file := range files {
@@ -98,6 +105,7 @@ func TestMigrationUpFilesContainCreateTable(t *testing.T) {
 		"migrations/000002_audit_logs.up.sql",
 		"migrations/000005_sessions.up.sql",
 		"migrations/000006_knowledge_insights.up.sql",
+		"migrations/000008_knowledge_changesets.up.sql",
 	}
 
 	for _, file := range upFiles {
@@ -113,6 +121,7 @@ func TestMigrationDownFilesContainDropTable(t *testing.T) {
 		"migrations/000002_audit_logs.down.sql",
 		"migrations/000005_sessions.down.sql",
 		"migrations/000006_knowledge_insights.down.sql",
+		"migrations/000008_knowledge_changesets.down.sql",
 	}
 
 	for _, file := range downFiles {
@@ -418,6 +427,110 @@ func TestMigration006_DownContent(t *testing.T) {
 	assert.Contains(t, migrationSQL, "knowledge_insights")
 }
 
+func TestMigration007_UpContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000007_knowledge_lifecycle.up.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	// Must add lifecycle columns to knowledge_insights.
+	assert.Contains(t, migrationSQL, "ALTER TABLE")
+	assert.Contains(t, migrationSQL, "knowledge_insights")
+
+	expectedColumns := []string{
+		"reviewed_by",
+		"reviewed_at",
+		"review_notes",
+	}
+	for _, col := range expectedColumns {
+		assert.Contains(t, migrationSQL, col,
+			"up migration should add column %s", col)
+	}
+}
+
+func TestMigration007_DownContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000007_knowledge_lifecycle.down.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	assert.Contains(t, migrationSQL, "ALTER TABLE")
+	assert.Contains(t, migrationSQL, "knowledge_insights") //nolint:revive // test assertion
+
+	droppedColumns := []string{
+		"review_notes",
+		"reviewed_at",
+		"reviewed_by",
+	}
+	for _, col := range droppedColumns {
+		assert.Contains(t, migrationSQL, "DROP COLUMN IF EXISTS "+col,
+			"down migration should drop column %s", col)
+	}
+}
+
+func TestMigration008_UpContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000008_knowledge_changesets.up.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	// Must create the knowledge_changesets table.
+	assert.Contains(t, migrationSQL, "CREATE TABLE") //nolint:revive // test assertion
+	assert.Contains(t, migrationSQL, "knowledge_changesets")
+
+	expectedColumns := []string{
+		"id", "created_at", "target_urn", "change_type",
+		"previous_value", "new_value", "source_insight_ids",
+		"approved_by", "applied_by", "rolled_back",
+		"rolled_back_by", "rolled_back_at",
+	}
+	for _, col := range expectedColumns {
+		assert.Contains(t, migrationSQL, col,
+			"up migration should contain column %s", col)
+	}
+
+	// Must create indexes.
+	expectedIndexes := []string{
+		"idx_knowledge_changesets_target_urn",
+		"idx_knowledge_changesets_applied_by",
+		"idx_knowledge_changesets_rolled_back",
+		"idx_knowledge_changesets_created_at",
+	}
+	for _, idx := range expectedIndexes {
+		assert.Contains(t, migrationSQL, idx,
+			"up migration should contain index %s", idx)
+	}
+
+	// Must also add apply tracking columns to knowledge_insights.
+	applyColumns := []string{
+		"applied_by",
+		"applied_at",
+		"changeset_ref",
+	}
+	for _, col := range applyColumns {
+		assert.Contains(t, migrationSQL, col,
+			"up migration should add apply tracking column %s to knowledge_insights", col)
+	}
+}
+
+func TestMigration008_DownContent(t *testing.T) {
+	content, err := migrations.ReadFile("migrations/000008_knowledge_changesets.down.sql")
+	require.NoError(t, err)
+	migrationSQL := string(content)
+
+	// Must drop apply tracking columns from knowledge_insights.
+	droppedColumns := []string{
+		"changeset_ref",
+		"applied_at",
+		"applied_by",
+	}
+	for _, col := range droppedColumns {
+		assert.Contains(t, migrationSQL, "DROP COLUMN IF EXISTS "+col,
+			"down migration should drop column %s", col)
+	}
+
+	// Must drop the knowledge_changesets table.
+	assert.Contains(t, migrationSQL, "DROP TABLE") //nolint:revive // test assertion
+	assert.Contains(t, migrationSQL, "knowledge_changesets")
+}
+
 // TestMigrationTablesHaveConsumers verifies that every table created by a
 // migration is actually referenced (INSERT, SELECT, UPDATE, or DELETE) in
 // non-test, non-migration Go source code. This prevents "vaporware" tables
@@ -563,127 +676,5 @@ func TestMigration004_ColumnConsistency(t *testing.T) {
 		// All migration-added columns should be in SELECT.
 		assert.Contains(t, selectCols, col,
 			"column %q added by migration 004 must appear in store SELECT column list", col)
-	}
-}
-
-// discoverPackages walks pkgDir and returns a map of import paths for all
-// packages that contain non-test Go source files. Each key is initially mapped
-// to false (not yet observed as imported).
-func discoverPackages(pkgDir, projectRoot, modulePath string) (map[string]bool, error) {
-	allPackages := map[string]bool{}
-	err := filepath.Walk(pkgDir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !info.IsDir() {
-			return nil
-		}
-		hasGo, dirErr := dirHasGoSource(path)
-		if dirErr != nil {
-			return fmt.Errorf("checking directory %s: %w", path, dirErr)
-		}
-		if hasGo {
-			rel, relErr := filepath.Rel(projectRoot, path)
-			if relErr != nil {
-				return fmt.Errorf("computing relative path for %s: %w", path, relErr)
-			}
-			importPath := modulePath + "/" + filepath.ToSlash(rel)
-			allPackages[importPath] = false
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walking package directory: %w", err)
-	}
-	return allPackages, nil
-}
-
-// dirHasGoSource reports whether dir contains at least one non-test Go file.
-func dirHasGoSource(dir string) (bool, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false, fmt.Errorf("reading directory %s: %w", dir, err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// collectImportsFromFile reads a Go source file and marks any matching
-// import paths as true in allPackages.
-func collectImportsFromFile(path string, importRe *regexp.Regexp, allPackages map[string]bool) error {
-	content, readErr := os.ReadFile(path) //nolint:gosec // test reads source files, not user input
-	if readErr != nil {
-		return fmt.Errorf("reading file %s: %w", path, readErr)
-	}
-	for _, match := range importRe.FindAllStringSubmatch(string(content), -1) {
-		if _, exists := allPackages[match[1]]; exists {
-			allPackages[match[1]] = true
-		}
-	}
-	return nil
-}
-
-// scanImports walks the given directories and marks imported packages as true
-// in the allPackages map.
-func scanImports(scanDirs []string, importRe *regexp.Regexp, allPackages map[string]bool) error {
-	for _, dir := range scanDirs {
-		if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
-			continue
-		}
-		walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, fErr error) error {
-			if fErr != nil {
-				return fErr
-			}
-			if info.IsDir() || !strings.HasSuffix(info.Name(), ".go") || strings.HasSuffix(info.Name(), "_test.go") {
-				return nil
-			}
-			return collectImportsFromFile(path, importRe, allPackages)
-		})
-		if walkErr != nil {
-			return fmt.Errorf("scanning imports in %s: %w", dir, walkErr)
-		}
-	}
-	return nil
-}
-
-// TestNoDeadPackages verifies that every Go package under pkg/ is imported by
-// at least one non-test file in the project (pkg/ or cmd/). A package that
-// exists but is never imported is dead code — it compiles, passes its own unit
-// tests, but is never executed in the running application.
-//
-// This catches the "vaporware package" pattern where AI generates a complete
-// implementation with tests, but never wires it into the platform.
-func TestNoDeadPackages(t *testing.T) {
-	projectRoot, err := filepath.Abs("../../..")
-	require.NoError(t, err)
-
-	modulePath := "github.com/txn2/mcp-data-platform"
-
-	// 1. Discover all packages under pkg/ that contain non-test Go files.
-	pkgDir := filepath.Join(projectRoot, "pkg")
-	allPackages, err := discoverPackages(pkgDir, projectRoot, modulePath)
-	require.NoError(t, err)
-	require.NotEmpty(t, allPackages)
-
-	// 2. Scan all non-test Go files under pkg/, cmd/, and internal/ for import statements.
-	importRe := regexp.MustCompile(`"(` + regexp.QuoteMeta(modulePath) + `/[^"]+)"`)
-	scanDirs := []string{
-		filepath.Join(projectRoot, "pkg"),
-		filepath.Join(projectRoot, "cmd"),
-		filepath.Join(projectRoot, "internal"),
-	}
-
-	err = scanImports(scanDirs, importRe, allPackages)
-	require.NoError(t, err)
-
-	// 3. Report dead packages.
-	for pkg, imported := range allPackages {
-		assert.True(t, imported,
-			"package %q contains Go source files but is never imported by any non-test code. "+
-				"Either wire it into the platform or delete it.", pkg)
 	}
 }

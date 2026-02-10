@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -17,6 +18,9 @@ import (
 const (
 	// toolName is the MCP tool name for capturing insights.
 	toolName = "capture_insight"
+
+	// applyToolName is the MCP tool name for applying knowledge.
+	applyToolName = "apply_knowledge"
 
 	// idLength is the number of random bytes used to generate insight IDs.
 	idLength = 16
@@ -42,10 +46,33 @@ type captureInsightOutput struct {
 	Message   string `json:"message"`
 }
 
+// applyKnowledgeInput defines the input schema for the apply_knowledge tool.
+type applyKnowledgeInput struct {
+	Action     string        `json:"action"`
+	EntityURN  string        `json:"entity_urn,omitempty"`
+	InsightIDs []string      `json:"insight_ids,omitempty"`
+	Changes    []ApplyChange `json:"changes,omitempty"`
+	Confirm    bool          `json:"confirm,omitempty"`
+	// For approve/reject actions
+	ReviewNotes string `json:"review_notes,omitempty"`
+}
+
+// ApplyConfig configures the apply_knowledge tool.
+type ApplyConfig struct {
+	Enabled             bool   `yaml:"enabled"`
+	DataHubConnection   string `yaml:"datahub_connection"`
+	RequireConfirmation bool   `yaml:"require_confirmation"`
+}
+
 // Toolkit implements the knowledge capture toolkit.
 type Toolkit struct {
 	name  string
 	store InsightStore
+
+	applyEnabled        bool
+	requireConfirmation bool
+	changesetStore      ChangesetStore
+	datahubWriter       DataHubWriter
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -62,6 +89,22 @@ func New(name string, store InsightStore) (*Toolkit, error) {
 		name:  name,
 		store: store,
 	}, nil
+}
+
+// SetApplyConfig enables the apply_knowledge tool with its dependencies.
+func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, writer DataHubWriter) {
+	t.applyEnabled = cfg.Enabled
+	t.requireConfirmation = cfg.RequireConfirmation
+	if csStore != nil {
+		t.changesetStore = csStore
+	} else {
+		t.changesetStore = NewNoopChangesetStore()
+	}
+	if writer != nil {
+		t.datahubWriter = writer
+	} else {
+		t.datahubWriter = &NoopDataHubWriter{}
+	}
 }
 
 // Kind returns the toolkit kind.
@@ -88,12 +131,24 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"data quality observations, usage tips, or relationships between datasets.",
 	}, t.handleCaptureInsight)
 
+	if t.applyEnabled {
+		mcp.AddTool(s, &mcp.Tool{
+			Name: applyToolName,
+			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
+				"Actions: bulk_review, review, synthesize, apply, approve, reject.",
+		}, t.handleApplyKnowledge)
+	}
+
 	t.registerPrompt(s)
 }
 
 // Tools returns the list of tool names provided by this toolkit.
-func (*Toolkit) Tools() []string {
-	return []string{toolName}
+func (t *Toolkit) Tools() []string {
+	tools := []string{toolName}
+	if t.applyEnabled {
+		tools = append(tools, applyToolName)
+	}
+	return tools
 }
 
 // SetSemanticProvider sets the semantic metadata provider.
@@ -137,6 +192,331 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 
 	// Return success
 	return successResult(id)
+}
+
+// handleApplyKnowledge dispatches to the appropriate action handler.
+func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolRequest, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	if err := ValidateAction(input.Action); err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	switch input.Action {
+	case "bulk_review":
+		return t.handleBulkReview(ctx)
+	case "review":
+		return t.handleReview(ctx, input)
+	case "synthesize":
+		return t.handleSynthesize(ctx, input)
+	case "apply":
+		return t.handleApply(ctx, input)
+	case "approve":
+		return t.handleApproveReject(ctx, input, StatusApproved)
+	case "reject":
+		return t.handleApproveReject(ctx, input, StatusRejected)
+	default:
+		return errorResult("unknown action: " + input.Action), nil, nil
+	}
+}
+
+// handleBulkReview returns a summary of all pending insights.
+func (t *Toolkit) handleBulkReview(ctx context.Context) (*mcp.CallToolResult, any, error) {
+	stats, err := t.store.Stats(ctx, InsightFilter{Status: StatusPending})
+	if err != nil {
+		return errorResult("failed to get stats: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Get pending insights grouped by entity
+	insights, _, err := t.store.List(ctx, InsightFilter{Status: StatusPending, Limit: MaxLimit})
+	if err != nil {
+		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	byEntity := buildEntitySummaries(insights)
+
+	result := map[string]any{
+		"total_pending": stats.TotalPending,
+		"by_entity":     byEntity,
+		"by_category":   stats.ByCategory,
+		"by_confidence": stats.ByConfidence,
+	}
+
+	return jsonResult(result)
+}
+
+// buildEntitySummaries groups insights by entity URN.
+func buildEntitySummaries(insights []Insight) []EntityInsightSummary {
+	entityMap := make(map[string]*EntityInsightSummary)
+
+	for _, ins := range insights {
+		for _, urn := range ins.EntityURNs {
+			summary, ok := entityMap[urn]
+			if !ok {
+				summary = &EntityInsightSummary{EntityURN: urn}
+				entityMap[urn] = summary
+			}
+			summary.Count++
+			if !containsString(summary.Categories, ins.Category) {
+				summary.Categories = append(summary.Categories, ins.Category)
+			}
+			ts := ins.CreatedAt.Format("2006-01-02T15:04:05Z")
+			if summary.LatestAt == "" || ts > summary.LatestAt {
+				summary.LatestAt = ts
+			}
+		}
+	}
+
+	result := make([]EntityInsightSummary, 0, len(entityMap))
+	for _, s := range entityMap {
+		result = append(result, *s)
+	}
+	return result
+}
+
+// handleReview returns insights for a specific entity with current metadata.
+func (t *Toolkit) handleReview(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	if input.EntityURN == "" {
+		return errorResult("entity_urn is required for review action"), nil, nil
+	}
+
+	insights, _, err := t.store.List(ctx, InsightFilter{EntityURN: input.EntityURN, Limit: MaxLimit})
+	if err != nil {
+		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	var currentMeta *EntityMetadata
+	if t.datahubWriter != nil {
+		meta, metaErr := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
+		if metaErr == nil {
+			currentMeta = meta
+		}
+	}
+
+	result := map[string]any{
+		"entity_urn":       input.EntityURN,
+		"current_metadata": currentMeta,
+		"insights":         insights,
+	}
+
+	return jsonResult(result)
+}
+
+// handleSynthesize gathers approved insights and returns a structured proposal.
+func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	if input.EntityURN == "" {
+		return errorResult("entity_urn is required for synthesize action"), nil, nil
+	}
+
+	// Get approved insights for this entity
+	filter := InsightFilter{
+		EntityURN: input.EntityURN,
+		Status:    StatusApproved,
+		Limit:     MaxLimit,
+	}
+	insights, _, err := t.store.List(ctx, filter)
+	if err != nil {
+		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Filter by specific IDs if provided
+	if len(input.InsightIDs) > 0 {
+		insights = filterByIDs(insights, input.InsightIDs)
+	}
+
+	// Get current metadata
+	var currentMeta *EntityMetadata
+	if t.datahubWriter != nil {
+		meta, metaErr := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
+		if metaErr == nil {
+			currentMeta = meta
+		}
+	}
+
+	// Build proposed changes from suggested actions
+	proposed := buildProposedChanges(insights, currentMeta)
+
+	result := map[string]any{
+		"entity_urn":        input.EntityURN,
+		"current_metadata":  currentMeta,
+		"approved_insights": insights,
+		"proposed_changes":  proposed,
+	}
+
+	return jsonResult(result)
+}
+
+// buildProposedChanges assembles proposed changes from insight suggested actions.
+func buildProposedChanges(insights []Insight, meta *EntityMetadata) []ProposedChange {
+	proposed := make([]ProposedChange, 0, len(insights))
+
+	for _, ins := range insights {
+		for _, sa := range ins.SuggestedActions {
+			pc := ProposedChange{
+				ChangeType:       sa.ActionType,
+				Target:           sa.Target,
+				SuggestedValue:   sa.Detail,
+				SourceInsightIDs: []string{ins.ID},
+			}
+			if meta != nil && sa.ActionType == string(actionUpdateDescription) {
+				pc.CurrentValue = meta.Description
+			}
+			proposed = append(proposed, pc)
+		}
+	}
+
+	return proposed
+}
+
+// handleApply writes changes to DataHub and records a changeset.
+func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	if input.EntityURN == "" {
+		return errorResult("entity_urn is required for apply action"), nil, nil
+	}
+	if err := ValidateApplyChanges(input.Changes); err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Check confirmation requirement
+	if t.requireConfirmation && !input.Confirm {
+		return jsonResult(map[string]any{
+			"confirmation_required": true,
+			"entity_urn":            input.EntityURN,
+			"changes_count":         len(input.Changes),
+			"message":               "Set confirm: true to apply these changes.",
+		})
+	}
+
+	appliedBy := userIDFromContext(ctx)
+
+	// Get current metadata for recording previous values
+	prevMeta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
+	if err != nil {
+		return errorResult("failed to get current metadata: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Apply all changes atomically — collect writes first, then execute
+	if err := t.executeChanges(ctx, input.EntityURN, input.Changes); err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	return t.recordChangesetAndMarkApplied(ctx, input, prevMeta, appliedBy)
+}
+
+// recordChangesetAndMarkApplied records a changeset and marks source insights as applied.
+func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prevMeta *EntityMetadata, appliedBy string) (*mcp.CallToolResult, any, error) {
+	csID, err := generateID()
+	if err != nil {
+		return errorResult("internal error generating changeset ID"), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	insightIDs := input.InsightIDs
+	if insightIDs == nil {
+		insightIDs = []string{}
+	}
+
+	cs := Changeset{
+		ID:               csID,
+		TargetURN:        input.EntityURN,
+		ChangeType:       summarizeChangeTypes(input.Changes),
+		PreviousValue:    metadataToMap(prevMeta),
+		NewValue:         changesToMap(input.Changes),
+		SourceInsightIDs: insightIDs,
+		AppliedBy:        appliedBy,
+	}
+
+	if err := t.changesetStore.InsertChangeset(ctx, cs); err != nil {
+		return errorResult("failed to record changeset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Mark source insights as applied
+	for _, insID := range input.InsightIDs {
+		_ = t.store.MarkApplied(ctx, insID, appliedBy, csID)
+	}
+
+	result := map[string]any{
+		"changeset_id":            csID,
+		"entity_urn":              input.EntityURN,
+		"changes_applied":         len(input.Changes),
+		"insights_marked_applied": len(input.InsightIDs),
+		"message":                 fmt.Sprintf("Changes applied to DataHub. Changeset %s recorded for rollback.", csID),
+	}
+
+	return jsonResult(result)
+}
+
+// userIDFromContext extracts the user ID from the platform context, or returns empty.
+func userIDFromContext(ctx context.Context) string {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil {
+		return pc.UserID
+	}
+	return ""
+}
+
+// executeChanges applies changes to DataHub, rolling back on failure.
+func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) error {
+	for i, c := range changes {
+		var err error
+		switch c.ChangeType {
+		case string(actionUpdateDescription):
+			err = t.datahubWriter.UpdateDescription(ctx, urn, c.Detail)
+		case string(actionAddTag):
+			err = t.datahubWriter.AddTag(ctx, urn, c.Detail)
+		case string(actionAddGlossaryTerm):
+			err = t.datahubWriter.AddGlossaryTerm(ctx, urn, c.Detail)
+		case string(actionAddDocumentation):
+			err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Detail, c.Target)
+		case string(actionFlagQualityIssue):
+			err = t.datahubWriter.AddTag(ctx, urn, "quality_issue:"+c.Detail)
+		}
+		if err != nil {
+			return fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
+		}
+	}
+	return nil
+}
+
+// handleApproveReject transitions insight statuses.
+func (t *Toolkit) handleApproveReject(ctx context.Context, input applyKnowledgeInput, targetStatus string) (*mcp.CallToolResult, any, error) {
+	if len(input.InsightIDs) == 0 {
+		return errorResult("insight_ids is required for " + input.Action + " action"), nil, nil
+	}
+
+	pc := middleware.GetPlatformContext(ctx)
+	reviewedBy := ""
+	if pc != nil {
+		reviewedBy = pc.UserID
+	}
+
+	var updated int
+	var errors []string
+	for _, id := range input.InsightIDs {
+		// Get current insight to validate transition
+		insight, err := t.store.Get(ctx, id)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: not found", id))
+			continue
+		}
+		if err := ValidateStatusTransition(insight.Status, targetStatus); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %s", id, err.Error()))
+			continue
+		}
+		if err := t.store.UpdateStatus(ctx, id, targetStatus, reviewedBy, input.ReviewNotes); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %s", id, err.Error()))
+			continue
+		}
+		updated++
+	}
+
+	result := map[string]any{
+		"action":  input.Action,
+		"updated": updated,
+		"total":   len(input.InsightIDs),
+	}
+	if len(errors) > 0 {
+		result["errors"] = errors
+	}
+
+	return jsonResult(result)
 }
 
 // validateInput validates all input fields.
@@ -232,6 +612,20 @@ func successResult(insightID string) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
+// jsonResult marshals a value to JSON and returns it as a CallToolResult.
+func jsonResult(v any) (*mcp.CallToolResult, any, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errorResult("internal error marshaling response"), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(data)},
+		},
+	}, nil, nil
+}
+
 // registerPrompt registers the knowledge capture guidance prompt.
 func (*Toolkit) registerPrompt(s *mcp.Server) {
 	s.AddPrompt(&mcp.Prompt{
@@ -247,6 +641,66 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 			},
 		}, nil
 	})
+}
+
+// Helper functions
+
+func containsString(slice []string, s string) bool {
+	return slices.Contains(slice, s)
+}
+
+func filterByIDs(insights []Insight, ids []string) []Insight {
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	var result []Insight
+	for _, ins := range insights {
+		if idSet[ins.ID] {
+			result = append(result, ins)
+		}
+	}
+	return result
+}
+
+func summarizeChangeTypes(changes []ApplyChange) string {
+	types := make(map[string]bool)
+	for _, c := range changes {
+		types[c.ChangeType] = true
+	}
+	result := make([]string, 0, len(types))
+	for t := range types {
+		result = append(result, t)
+	}
+	if len(result) == 1 {
+		return result[0]
+	}
+	return "multiple"
+}
+
+func metadataToMap(meta *EntityMetadata) map[string]any {
+	if meta == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"description":    meta.Description,
+		"tags":           meta.Tags,
+		"glossary_terms": meta.GlossaryTerms,
+		"owners":         meta.Owners,
+	}
+}
+
+func changesToMap(changes []ApplyChange) map[string]any {
+	result := map[string]any{}
+	for i, c := range changes {
+		key := fmt.Sprintf("change_%d", i)
+		result[key] = map[string]any{
+			"change_type": c.ChangeType,
+			"target":      c.Target,
+			"detail":      c.Detail,
+		}
+	}
+	return result
 }
 
 // knowledgeCapturePrompt guides the AI agent on when to suggest capturing insights.

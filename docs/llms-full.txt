@@ -84,6 +84,7 @@ This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analyt
 | DataHub | 11 tools | Yes |
 | Trino | 7 tools | No |
 | S3 | 6-9 tools | No |
+| Knowledge | 1-2 tools | No |
 
 ---
 
@@ -842,6 +843,34 @@ Delete an object. Only available when `read_only: false`. Parameters: `bucket`, 
 
 Copy an object. Only available when `read_only: false`. Parameters: `source_bucket`, `source_key`, `dest_bucket`, `dest_key` (required), `connection`.
 
+## Knowledge Tools
+
+### capture_insight
+
+Record domain knowledge shared during a session.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `category` | string | Yes | - | correction, business_context, data_quality, usage_guidance, relationship, enhancement |
+| `insight_text` | string | Yes | - | Knowledge to record (10-4000 chars) |
+| `confidence` | string | No | medium | high, medium, low |
+| `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
+| `related_columns` | array | No | [] | Related columns (max 20) |
+| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5) |
+
+### apply_knowledge
+
+Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject |
+| `entity_urn` | string | Conditional | Required for review, synthesize, apply |
+| `insight_ids` | array | Conditional | Required for approve, reject; optional for synthesize, apply |
+| `changes` | array | Conditional | Required for apply |
+| `confirm` | bool | No | Required when `require_confirmation` is true |
+| `review_notes` | string | No | Notes for approve/reject actions |
+
 ---
 
 # Personas
@@ -895,12 +924,13 @@ Use the library when you need to:
 | Package | What it does |
 |---------|--------------|
 | `pkg/platform` | Main entry point, orchestration |
-| `pkg/toolkits/*` | Trino, DataHub, S3 adapters |
+| `pkg/toolkits/*` | Trino, DataHub, S3, Knowledge adapters |
 | `pkg/semantic` | Semantic provider interface |
 | `pkg/query` | Query provider interface |
 | `pkg/middleware` | Request/response processing |
 | `pkg/persona` | Role-based tool filtering |
 | `pkg/auth` | OIDC and API key validation |
+| `pkg/admin` | Admin REST API for knowledge management |
 
 ## Minimal Example
 
@@ -929,6 +959,254 @@ func main() {
     p.Run()
 }
 ```
+
+---
+
+# Knowledge Capture
+
+mcp-data-platform includes a knowledge capture system that records domain knowledge shared during AI sessions and provides a structured workflow for applying approved insights to the DataHub catalog.
+
+## Overview
+
+During data exploration, users share valuable context: column meanings, data quality issues, business rules, relationships between datasets. Without knowledge capture, this information is lost when the session ends. The knowledge toolkit persists these insights for admin review and optional write-back to DataHub.
+
+The system has two MCP tools and an admin REST API:
+
+- **`capture_insight`**: Records domain knowledge during sessions. Available to all personas. Creates insights with status `pending`.
+- **`apply_knowledge`**: Admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub. Six actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`.
+- **Admin REST API**: HTTP endpoints for managing insights and changesets outside the MCP protocol.
+
+## Prerequisites
+
+Knowledge capture requires:
+1. A PostgreSQL database (the `database.dsn` must be set)
+2. `knowledge.enabled: true` in configuration
+3. For the `apply_knowledge` tool: `knowledge.apply.enabled: true`
+
+## Configuration
+
+```yaml
+knowledge:
+  enabled: true
+  apply:
+    enabled: true                # Enable apply_knowledge tool (default: false)
+    datahub_connection: primary  # Which DataHub instance to write to
+    require_confirmation: true   # Require confirm: true on apply (default: false)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool. |
+| `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back. |
+| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations. |
+| `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request. |
+
+## capture_insight Tool
+
+Records domain knowledge shared during a session.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | Yes | One of: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement` |
+| `insight_text` | string | Yes | The knowledge to record (10-4000 characters) |
+| `confidence` | string | No | `high`, `medium` (default), or `low` |
+| `entity_urns` | array | No | DataHub URNs this insight relates to (max 10) |
+| `related_columns` | array | No | Columns related to this insight (max 20) |
+| `suggested_actions` | array | No | Proposed catalog changes (max 5) |
+
+**Suggested action types:** `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`
+
+**Response:**
+
+```json
+{
+  "insight_id": "a1b2c3d4e5f6...",
+  "status": "pending",
+  "message": "Insight captured. It will be reviewed by a data catalog administrator."
+}
+```
+
+The tool also registers an MCP prompt `knowledge_capture_guidance` that provides AI agents with guidance on when to capture insights.
+
+## apply_knowledge Tool
+
+Admin-only tool for reviewing and applying captured insights. Requires the `admin` persona.
+
+### Actions
+
+**bulk_review**: Returns a summary of all pending insights grouped by entity.
+
+```json
+{"action": "bulk_review"}
+```
+
+**review**: Returns insights for a specific entity with current DataHub metadata.
+
+```json
+{"action": "review", "entity_urn": "urn:li:dataset:..."}
+```
+
+**approve/reject**: Transitions insight status. Accepts optional review notes.
+
+```json
+{
+  "action": "approve",
+  "insight_ids": ["id1", "id2"],
+  "review_notes": "Verified with data engineering team"
+}
+```
+
+**synthesize**: Gathers approved insights for an entity and returns structured change proposals.
+
+```json
+{"action": "synthesize", "entity_urn": "urn:li:dataset:..."}
+```
+
+**apply**: Writes changes to DataHub and records a changeset for auditability.
+
+```json
+{
+  "action": "apply",
+  "entity_urn": "urn:li:dataset:...",
+  "changes": [
+    {"change_type": "update_description", "target": "entity", "detail": "New description"},
+    {"change_type": "add_tag", "target": "entity", "detail": "pii"}
+  ],
+  "insight_ids": ["id1", "id2"],
+  "confirm": true
+}
+```
+
+## Insight Lifecycle
+
+Insights follow a defined status lifecycle:
+
+```
+pending -> approved -> applied
+pending -> rejected
+pending -> superseded
+applied -> rolled_back
+```
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Newly captured, awaiting review |
+| `approved` | Reviewed and approved for application |
+| `rejected` | Reviewed and rejected |
+| `applied` | Changes written to DataHub |
+| `superseded` | Replaced by newer insights for the same entity |
+| `rolled_back` | Applied changes were reverted |
+
+## Changeset Tracking
+
+Every `apply` action creates a changeset record that captures:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique changeset identifier |
+| `target_urn` | The DataHub entity that was modified |
+| `change_type` | Summary of change types applied |
+| `previous_value` | Entity metadata before changes (for rollback) |
+| `new_value` | Changes that were applied |
+| `source_insight_ids` | Insights that produced this changeset |
+| `applied_by` | User who applied the changes |
+| `rolled_back` | Whether this changeset has been reverted |
+
+Changesets enable full auditability and rollback of catalog modifications.
+
+## Admin REST API
+
+The admin API provides HTTP endpoints for managing insights and changesets. All endpoints require admin authentication (API key with admin role or OIDC token with admin role).
+
+### Insight Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/knowledge/insights` | List insights with filtering and pagination |
+| GET | `/api/v1/admin/knowledge/insights/{id}` | Get a single insight by ID |
+| PUT | `/api/v1/admin/knowledge/insights/{id}` | Update insight text, category, or confidence |
+| PUT | `/api/v1/admin/knowledge/insights/{id}/status` | Approve or reject an insight |
+| GET | `/api/v1/admin/knowledge/insights/stats` | Get insight statistics |
+
+**Query parameters for listing:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Filter by status (pending, approved, rejected, applied) |
+| `category` | string | Filter by category |
+| `entity_urn` | string | Filter by entity URN |
+| `captured_by` | string | Filter by user who captured |
+| `confidence` | string | Filter by confidence level |
+| `since` | RFC3339 | Filter by creation time (after) |
+| `until` | RFC3339 | Filter by creation time (before) |
+| `page` | integer | Page number (1-based) |
+| `per_page` | integer | Results per page (default 20, max 100) |
+
+### Changeset Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/knowledge/changesets` | List changesets with filtering and pagination |
+| GET | `/api/v1/admin/knowledge/changesets/{id}` | Get a single changeset by ID |
+| POST | `/api/v1/admin/knowledge/changesets/{id}/rollback` | Rollback a changeset (restores previous metadata) |
+
+**Query parameters for listing changesets:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `entity_urn` | string | Filter by target entity URN |
+| `applied_by` | string | Filter by user who applied |
+| `rolled_back` | boolean | Filter by rollback status |
+| `since` | RFC3339 | Filter by creation time (after) |
+| `until` | RFC3339 | Filter by creation time (before) |
+| `page` | integer | Page number (1-based) |
+| `per_page` | integer | Results per page (default 20, max 100) |
+
+## Database Schema
+
+Knowledge capture uses two tables:
+
+**knowledge_insights** (migration 000006, extended by 000007 and 000008):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT | Primary key |
+| `created_at` | TIMESTAMPTZ | When the insight was captured |
+| `session_id` | TEXT | MCP session that produced it |
+| `captured_by` | TEXT | User who shared the knowledge |
+| `persona` | TEXT | Active persona at capture time |
+| `category` | TEXT | Insight category |
+| `insight_text` | TEXT | The domain knowledge |
+| `confidence` | TEXT | Confidence level |
+| `entity_urns` | JSONB | Related DataHub entities |
+| `related_columns` | JSONB | Related columns |
+| `suggested_actions` | JSONB | Proposed catalog changes |
+| `status` | TEXT | Current lifecycle status |
+| `reviewed_by` | TEXT | Who reviewed the insight |
+| `reviewed_at` | TIMESTAMPTZ | When it was reviewed |
+| `review_notes` | TEXT | Reviewer comments |
+| `applied_by` | TEXT | Who applied the insight |
+| `applied_at` | TIMESTAMPTZ | When it was applied |
+| `changeset_ref` | TEXT | Link to the changeset |
+
+**knowledge_changesets** (migration 000008):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT | Primary key |
+| `created_at` | TIMESTAMPTZ | When changes were applied |
+| `target_urn` | TEXT | DataHub entity that was modified |
+| `change_type` | TEXT | Type of changes applied |
+| `previous_value` | JSONB | Metadata before changes |
+| `new_value` | JSONB | Changes applied |
+| `source_insight_ids` | JSONB | Insights that produced this |
+| `approved_by` | TEXT | Who approved the changes |
+| `applied_by` | TEXT | Who applied the changes |
+| `rolled_back` | BOOLEAN | Whether changes were reverted |
+| `rolled_back_by` | TEXT | Who reverted the changes |
+| `rolled_back_at` | TIMESTAMPTZ | When changes were reverted |
 
 ---
 

@@ -61,7 +61,15 @@ type Config struct {
 
 // KnowledgeConfig configures the knowledge capture feature.
 type KnowledgeConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool                 `yaml:"enabled"`
+	Apply   KnowledgeApplyConfig `yaml:"apply"`
+}
+
+// KnowledgeApplyConfig configures the apply_knowledge tool.
+type KnowledgeApplyConfig struct {
+	Enabled             bool   `yaml:"enabled"`
+	DataHubConnection   string `yaml:"datahub_connection"`
+	RequireConfirmation bool   `yaml:"require_confirmation"`
 }
 
 // ServerConfig configures the MCP server.

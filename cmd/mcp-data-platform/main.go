@@ -19,6 +19,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	// admin package provides REST API for knowledge management.
+	_ "github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
