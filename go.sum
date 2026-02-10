@@ -225,8 +225,8 @@ github.com/tklauser/numcpus v0.6.1 h1:ng9scYS7az0Bk4OZLvrNXNSAO2Pxr1XXRAPyjhIx+F
 github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9fESEdAacY=
 github.com/trinodb/trino-go-client v0.333.0 h1:+bsW8/uLFNF00MEL9JZJym94LlUnle25VgDlWGPEZos=
 github.com/trinodb/trino-go-client v0.333.0/go.mod h1:91okdYtRUZoj3XJu/tqdzu11sNliQuN4A+vMFEB8GVE=
-github.com/txn2/mcp-datahub v0.4.4 h1:Ex1Nz5vLrGyaB0H2weXf5Wa4TxvSI/khTHnnQpJQAFs=
-github.com/txn2/mcp-datahub v0.4.4/go.mod h1:9YWiNjhmFjmXMK9PX9QmlQgouaZLu/edqJ5hKC5qZUA=
+github.com/txn2/mcp-datahub v0.5.0 h1:aNrKXo3PSQN3bVe+zbtjexUi03fGe3pN80Er9M9Ib2k=
+github.com/txn2/mcp-datahub v0.5.0/go.mod h1:9YWiNjhmFjmXMK9PX9QmlQgouaZLu/edqJ5hKC5qZUA=
 github.com/txn2/mcp-s3 v0.1.4 h1:73VfwofCNUoVAzWQgh1LoaAsNW42jEUTGfRPe1s7Vkk=
 github.com/txn2/mcp-s3 v0.1.4/go.mod h1:yu2m8DZdsHJEWj+Ktkhz1XUk17jqPdVSa4UcyZWetkc=
 github.com/txn2/mcp-trino v0.3.0 h1:q3mLQPvgDDfODZNgL86JKUrHaDUxpdWhNzaOt6iu6sM=
