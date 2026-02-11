@@ -11,7 +11,9 @@
 - [Home](index.md): Introduction, quick start, and key features
 - [Server Overview](server/overview.md): What the platform does, architecture, request flow
 - [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
-- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field)
+- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), config store options (file vs database mode), database, admin API, audit, and session configuration
+- [Operating Modes](server/operating-modes.md): Three deployment modes — standalone (no database), full-config file + database, bootstrap + database config. Feature availability by mode, example configurations, decision guide
+- [Admin API](server/admin-api.md): REST endpoints for system info, config management, personas, auth keys, audit, knowledge. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`
 - [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
 - [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference, parameter sanitization, retention, query examples, troubleshooting
