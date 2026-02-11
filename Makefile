@@ -57,10 +57,15 @@ coverage: test
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
-## lint: Run linter
+## lint: Run linter (full + patch-scoped to match CI)
 lint:
 	@echo "Running linter..."
 	$(GOLINT) run ./...
+	@echo "Running patch-scoped lint (matches CI only-new-issues)..."
+	@MERGE_BASE=$$(git merge-base main HEAD 2>/dev/null) || true; \
+	if [ -n "$$MERGE_BASE" ] && [ "$$MERGE_BASE" != "$$(git rev-parse HEAD)" ]; then \
+		$(GOLINT) run --new-from-rev=$$MERGE_BASE ./...; \
+	fi
 
 ## lint-fix: Run linter with auto-fix
 lint-fix:
