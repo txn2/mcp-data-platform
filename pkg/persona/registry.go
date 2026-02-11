@@ -104,6 +104,28 @@ func (r *Registry) GetForRoles(roles []string) (*Persona, bool) {
 	return nil, false
 }
 
+// Unregister removes a persona by name. Returns error if not found.
+func (r *Registry) Unregister(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.personas[name]; !ok {
+		return fmt.Errorf("persona %q not found", name)
+	}
+	delete(r.personas, name)
+	if r.defaultPersona == name {
+		r.defaultPersona = ""
+	}
+	return nil
+}
+
+// DefaultName returns the default persona name.
+func (r *Registry) DefaultName() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.defaultPersona
+}
+
 // matchesAnyRole checks if any persona role matches any user role.
 func matchesAnyRole(personaRoles, userRoles []string) bool {
 	for _, pr := range personaRoles {

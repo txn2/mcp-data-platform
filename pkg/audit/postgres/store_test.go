@@ -24,6 +24,8 @@ const (
 	testFilterOffset  = 5
 	testPageLimit     = 25
 	testPageOffset    = 50
+	testCountResult   = 42
+	testCountFiltered = 7
 )
 
 // selectColumns lists the 22 SELECT column names in scan order.
@@ -581,6 +583,115 @@ func TestQuery_EmptyParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Nil(t, results[0].Parameters)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCount_NoFilter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"count"}).AddRow(testCountResult)
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(rows)
+
+	count, err := store.Count(context.Background(), audit.QueryFilter{})
+	assert.NoError(t, err)
+	assert.Equal(t, testCountResult, count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCount_WithFilters(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	success := true
+	filter := audit.QueryFilter{
+		UserID:  "user-abc",
+		Success: &success,
+	}
+
+	rows := sqlmock.NewRows([]string{"count"}).AddRow(testCountFiltered)
+	mock.ExpectQuery("SELECT COUNT").WithArgs("user-abc", true).WillReturnRows(rows)
+
+	count, err := store.Count(context.Background(), filter)
+	assert.NoError(t, err)
+	assert.Equal(t, testCountFiltered, count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCount_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	mock.ExpectQuery("SELECT COUNT").
+		WillReturnError(errors.New("count failed"))
+
+	count, err := store.Count(context.Background(), audit.QueryFilter{})
+	assert.Error(t, err)
+	assert.Equal(t, 0, count)
+	assert.Contains(t, err.Error(), "counting audit logs")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestQuery_IDFilter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	event := newTestEvent()
+	event.ID = "evt-specific"
+
+	rows := sqlmock.NewRows(selectColumns)
+	paramsJSON, _ := json.Marshal(event.Parameters)
+	rows.AddRow(
+		event.ID, event.Timestamp, event.DurationMS,
+		event.RequestID, event.SessionID,
+		event.UserID, event.UserEmail, event.Persona,
+		event.ToolName, event.ToolkitKind, event.ToolkitName,
+		event.Connection, paramsJSON,
+		event.Success, event.ErrorMessage,
+		event.ResponseChars, event.RequestChars, event.ContentBlocks,
+		event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+	)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), audit.QueryFilter{ID: "evt-specific"})
+	assert.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "evt-specific", results[0].ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestExecuteQuery_CapsCapacity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	// Use an excessive limit that would cause a huge allocation without the cap.
+	filter := audit.QueryFilter{
+		Limit: maxQueryCapacity * 2,
+	}
+
+	rows := sqlmock.NewRows(selectColumns)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
+		filter.Limit,
+	).WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), filter)
+	assert.NoError(t, err)
+	assert.Empty(t, results)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

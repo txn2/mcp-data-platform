@@ -63,6 +63,9 @@ nav:
       - Governance Workflow: knowledge/governance.md
       - Admin API: knowledge/admin-api.md
     - Audit Logging: server/audit.md
+    - Admin API: server/admin-api.md
+    - Operating Modes: server/operating-modes.md
+    - Session Externalization: server/session-externalization.md
     - MCP Apps:
       - Overview: mcpapps/overview.md
       - Configuration: mcpapps/configuration.md

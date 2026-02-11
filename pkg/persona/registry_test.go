@@ -111,6 +111,82 @@ func TestRegistry_GetForRolesNoMatchNoDefault(t *testing.T) {
 	}
 }
 
+func TestRegistry_Unregister(t *testing.T) {
+	t.Run("removes existing persona", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&Persona{Name: "test"})
+
+		err := reg.Unregister("test")
+		if err != nil {
+			t.Fatalf("Unregister() error = %v", err)
+		}
+
+		_, ok := reg.Get("test")
+		if ok {
+			t.Error("Get() returned true after Unregister")
+		}
+	})
+
+	t.Run("returns error for non-existent persona", func(t *testing.T) {
+		reg := NewRegistry()
+
+		err := reg.Unregister("nonexistent")
+		if err == nil {
+			t.Error("Unregister() expected error for non-existent persona")
+		}
+	})
+
+	t.Run("clears default when unregistering default persona", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&Persona{Name: personaTestDefault})
+		reg.SetDefault(personaTestDefault)
+
+		err := reg.Unregister(personaTestDefault)
+		if err != nil {
+			t.Fatalf("Unregister() error = %v", err)
+		}
+
+		if reg.DefaultName() != "" {
+			t.Errorf("DefaultName() = %q, want empty after unregistering default", reg.DefaultName())
+		}
+	})
+
+	t.Run("does not clear default when unregistering other persona", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&Persona{Name: personaTestDefault})
+		_ = reg.Register(&Persona{Name: "other"})
+		reg.SetDefault(personaTestDefault)
+
+		err := reg.Unregister("other")
+		if err != nil {
+			t.Fatalf("Unregister() error = %v", err)
+		}
+
+		if reg.DefaultName() != personaTestDefault {
+			t.Errorf("DefaultName() = %q, want %q", reg.DefaultName(), personaTestDefault)
+		}
+	})
+}
+
+func TestRegistry_DefaultName(t *testing.T) {
+	t.Run("returns empty when no default set", func(t *testing.T) {
+		reg := NewRegistry()
+		if reg.DefaultName() != "" {
+			t.Errorf("DefaultName() = %q, want empty", reg.DefaultName())
+		}
+	})
+
+	t.Run("returns default name", func(t *testing.T) {
+		reg := NewRegistry()
+		_ = reg.Register(&Persona{Name: personaTestDefault})
+		reg.SetDefault(personaTestDefault)
+
+		if reg.DefaultName() != personaTestDefault {
+			t.Errorf("DefaultName() = %q, want %q", reg.DefaultName(), personaTestDefault)
+		}
+	})
+}
+
 func TestRegistry_GetDefaultNotSet(t *testing.T) {
 	reg := NewRegistry()
 	_, ok := reg.GetDefault()

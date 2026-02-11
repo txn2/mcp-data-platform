@@ -1,0 +1,1359 @@
+basePath: /api/v1/admin
+definitions:
+  admin.auditEventResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/audit.Event'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.auditStatsResponse:
+    properties:
+      failures:
+        type: integer
+      success:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.authKeyCreateRequest:
+    properties:
+      name:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.authKeyCreateResponse:
+    properties:
+      key:
+        type: string
+      name:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      warning:
+        type: string
+    type: object
+  admin.authKeyListResponse:
+    properties:
+      keys:
+        items:
+          $ref: '#/definitions/auth.APIKeySummary'
+        type: array
+      total:
+        type: integer
+    type: object
+  admin.changesetListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/knowledge.Changeset'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.configHistoryResponse:
+    properties:
+      revisions:
+        items:
+          $ref: '#/definitions/configstore.Revision'
+        type: array
+      total:
+        type: integer
+    type: object
+  admin.configImportResponse:
+    properties:
+      note:
+        type: string
+      status:
+        type: string
+    type: object
+  admin.configModeResponse:
+    properties:
+      mode:
+        type: string
+      read_only:
+        type: boolean
+    type: object
+  admin.connectionInfo:
+    properties:
+      connection:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.connectionListResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/admin.connectionInfo'
+        type: array
+      total:
+        type: integer
+    type: object
+  admin.insightListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/knowledge.Insight'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.insightUpdateRequest:
+    properties:
+      category:
+        type: string
+      confidence:
+        type: string
+      insight_text:
+        type: string
+    type: object
+  admin.personaCreateRequest:
+    properties:
+      allow_tools:
+        items:
+          type: string
+        type: array
+      deny_tools:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      roles:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.personaDetail:
+    properties:
+      allow_tools:
+        items:
+          type: string
+        type: array
+      deny_tools:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      roles:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.personaListResponse:
+    properties:
+      personas:
+        items:
+          $ref: '#/definitions/admin.personaSummary'
+        type: array
+      total:
+        type: integer
+    type: object
+  admin.personaSummary:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      tool_count:
+        type: integer
+    type: object
+  admin.problemDetail:
+    properties:
+      detail:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  admin.statusResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  admin.statusUpdateRequest:
+    properties:
+      review_notes:
+        type: string
+      status:
+        type: string
+    type: object
+  admin.systemFeatures:
+    properties:
+      admin:
+        type: boolean
+      audit:
+        type: boolean
+      database:
+        type: boolean
+      knowledge:
+        type: boolean
+      oauth:
+        type: boolean
+    type: object
+  admin.systemInfoResponse:
+    properties:
+      config_mode:
+        type: string
+      description:
+        type: string
+      features:
+        $ref: '#/definitions/admin.systemFeatures'
+      name:
+        type: string
+      persona_count:
+        type: integer
+      toolkit_count:
+        type: integer
+      transport:
+        type: string
+      version:
+        type: string
+    type: object
+  admin.toolInfo:
+    properties:
+      connection:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      toolkit:
+        type: string
+    type: object
+  admin.toolListResponse:
+    properties:
+      tools:
+        items:
+          $ref: '#/definitions/admin.toolInfo'
+        type: array
+      total:
+        type: integer
+    type: object
+  audit.Event:
+    properties:
+      authorized:
+        type: boolean
+      connection:
+        type: string
+      content_blocks:
+        type: integer
+      duration_ms:
+        type: integer
+      enrichment_applied:
+        type: boolean
+      error_message:
+        type: string
+      id:
+        type: string
+      parameters:
+        additionalProperties: {}
+        type: object
+      persona:
+        type: string
+      request_chars:
+        type: integer
+      request_id:
+        type: string
+      response_chars:
+        type: integer
+      session_id:
+        type: string
+      source:
+        type: string
+      success:
+        type: boolean
+      timestamp:
+        type: string
+      tool_name:
+        type: string
+      toolkit_kind:
+        type: string
+      toolkit_name:
+        type: string
+      transport:
+        type: string
+      user_email:
+        type: string
+      user_id:
+        type: string
+    type: object
+  auth.APIKeySummary:
+    properties:
+      name:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+    type: object
+  configstore.Revision:
+    properties:
+      author:
+        type: string
+      comment:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      version:
+        type: integer
+    type: object
+  knowledge.Changeset:
+    properties:
+      applied_by:
+        type: string
+      approved_by:
+        type: string
+      change_type:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      new_value:
+        additionalProperties: {}
+        type: object
+      previous_value:
+        additionalProperties: {}
+        type: object
+      rolled_back:
+        type: boolean
+      rolled_back_at:
+        type: string
+      rolled_back_by:
+        type: string
+      source_insight_ids:
+        items:
+          type: string
+        type: array
+      target_urn:
+        type: string
+    type: object
+  knowledge.EntityInsightSummary:
+    properties:
+      categories:
+        items:
+          type: string
+        type: array
+      count:
+        type: integer
+      entity_urn:
+        type: string
+      latest_at:
+        type: string
+    type: object
+  knowledge.Insight:
+    properties:
+      applied_at:
+        type: string
+      applied_by:
+        type: string
+      captured_by:
+        type: string
+      category:
+        type: string
+      changeset_ref:
+        type: string
+      confidence:
+        type: string
+      created_at:
+        type: string
+      entity_urns:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      insight_text:
+        type: string
+      persona:
+        type: string
+      related_columns:
+        items:
+          $ref: '#/definitions/knowledge.RelatedColumn'
+        type: array
+      review_notes:
+        type: string
+      reviewed_at:
+        type: string
+      reviewed_by:
+        description: Lifecycle fields (populated by migrations 000007 and 000008)
+        type: string
+      session_id:
+        type: string
+      status:
+        type: string
+      suggested_actions:
+        items:
+          $ref: '#/definitions/knowledge.SuggestedAction'
+        type: array
+    type: object
+  knowledge.InsightStats:
+    properties:
+      by_category:
+        additionalProperties:
+          type: integer
+        type: object
+      by_confidence:
+        additionalProperties:
+          type: integer
+        type: object
+      by_entity:
+        items:
+          $ref: '#/definitions/knowledge.EntityInsightSummary'
+        type: array
+      by_status:
+        additionalProperties:
+          type: integer
+        type: object
+      total_pending:
+        type: integer
+    type: object
+  knowledge.RelatedColumn:
+    properties:
+      column:
+        type: string
+      relevance:
+        type: string
+      urn:
+        type: string
+    type: object
+  knowledge.SuggestedAction:
+    properties:
+      action_type:
+        type: string
+      detail:
+        type: string
+      target:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: |-
+    Administrative REST API for managing the MCP Data Platform.
+    Endpoints cover system info, configuration, personas, auth keys, audit logs, and knowledge management.
+  title: MCP Data Platform Admin API
+  version: "1.0"
+paths:
+  /audit/events:
+    get:
+      description: Returns paginated audit events with optional filtering.
+      parameters:
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by tool name
+        in: query
+        name: tool_name
+        type: string
+      - description: Filter by MCP session ID
+        in: query
+        name: session_id
+        type: string
+      - description: Filter by success/failure
+        in: query
+        name: success
+        type: boolean
+      - description: Events after this time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: Events before this time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 50)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.auditEventResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List audit events
+      tags:
+      - Audit
+  /audit/events/{id}:
+    get:
+      description: Returns a single audit event by ID.
+      parameters:
+      - description: Audit event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.Event'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit event
+      tags:
+      - Audit
+  /audit/stats:
+    get:
+      description: Returns aggregate counts for total, successful, and failed events.
+        Supports time and filter parameters.
+      parameters:
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by tool name
+        in: query
+        name: tool_name
+        type: string
+      - description: Events after this time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: Events before this time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.auditStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit stats
+      tags:
+      - Audit
+  /auth/keys:
+    get:
+      description: Returns all API keys (key values are never exposed, only names
+        and roles).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.authKeyListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List auth keys
+      tags:
+      - Auth Keys
+    post:
+      consumes:
+      - application/json
+      description: Generates a new API key. Only available in database config mode.
+        The key value is returned only once.
+      parameters:
+      - description: Key definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.authKeyCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/admin.authKeyCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create auth key
+      tags:
+      - Auth Keys
+  /auth/keys/{name}:
+    delete:
+      description: Deletes an API key. Only available in database config mode.
+      parameters:
+      - description: Key name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete auth key
+      tags:
+      - Auth Keys
+  /config:
+    get:
+      description: Returns the current configuration as JSON with sensitive values
+        redacted.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get config
+      tags:
+      - Config
+  /config/export:
+    get:
+      description: Returns the current configuration as downloadable YAML. Sensitive
+        values are redacted by default.
+      parameters:
+      - description: Set to 'true' to include sensitive values
+        in: query
+        name: secrets
+        type: string
+      produces:
+      - application/x-yaml
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export config
+      tags:
+      - Config
+  /config/history:
+    get:
+      description: Returns config revision history. Only available in database config
+        mode.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.configHistoryResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Config history
+      tags:
+      - Config
+  /config/import:
+    post:
+      consumes:
+      - application/x-yaml
+      description: Imports a YAML configuration into the config store. Only available
+        in database config mode.
+      parameters:
+      - description: Revision comment
+        in: query
+        name: comment
+        type: string
+      - description: YAML configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.configImportResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Import config
+      tags:
+      - Config
+  /config/mode:
+    get:
+      description: Returns the current config store mode (file or database).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.configModeResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get config mode
+      tags:
+      - Config
+  /connections:
+    get:
+      description: Returns all toolkit connections with their tools.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.connectionListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List connections
+      tags:
+      - System
+  /knowledge/changesets:
+    get:
+      description: Returns paginated changesets with optional filtering.
+      parameters:
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by applier
+        in: query
+        name: applied_by
+        type: string
+      - description: Filter by rollback state
+        in: query
+        name: rolled_back
+        type: boolean
+      - description: Changesets after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Changesets before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.changesetListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List changesets
+      tags:
+      - Knowledge
+  /knowledge/changesets/{id}:
+    get:
+      description: Returns a single changeset by ID.
+      parameters:
+      - description: Changeset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.Changeset'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get changeset
+      tags:
+      - Knowledge
+  /knowledge/changesets/{id}/rollback:
+    post:
+      description: Rolls back a changeset, restoring previous values to DataHub.
+      parameters:
+      - description: Changeset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Rollback changeset
+      tags:
+      - Knowledge
+  /knowledge/insights:
+    get:
+      description: Returns paginated insights with optional filtering.
+      parameters:
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by capturer
+        in: query
+        name: captured_by
+        type: string
+      - description: Filter by confidence level
+        in: query
+        name: confidence
+        type: string
+      - description: Insights after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Insights before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.insightListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List insights
+      tags:
+      - Knowledge
+  /knowledge/insights/{id}:
+    get:
+      description: Returns a single insight by ID.
+      parameters:
+      - description: Insight ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.Insight'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get insight
+      tags:
+      - Knowledge
+    put:
+      consumes:
+      - application/json
+      description: Update insight text, category, or confidence. Cannot edit an applied
+        insight.
+      parameters:
+      - description: Insight ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.insightUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update insight
+      tags:
+      - Knowledge
+  /knowledge/insights/{id}/status:
+    put:
+      consumes:
+      - application/json
+      description: Approve or reject an insight. Status must be 'approved' or 'rejected'.
+      parameters:
+      - description: Insight ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Status update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.statusUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update insight status
+      tags:
+      - Knowledge
+  /knowledge/insights/stats:
+    get:
+      description: Returns aggregated insight statistics by entity, category, confidence,
+        and status.
+      parameters:
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by capturer
+        in: query
+        name: captured_by
+        type: string
+      - description: Filter by confidence level
+        in: query
+        name: confidence
+        type: string
+      - description: Insights after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Insights before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.InsightStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get insight stats
+      tags:
+      - Knowledge
+  /personas:
+    get:
+      description: Returns all configured personas with tool counts.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.personaListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List personas
+      tags:
+      - Personas
+    post:
+      consumes:
+      - application/json
+      description: Creates a new persona. Only available in database config mode.
+      parameters:
+      - description: Persona definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.personaCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/admin.personaDetail'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create persona
+      tags:
+      - Personas
+  /personas/{name}:
+    delete:
+      description: Deletes a persona. Only available in database config mode. Cannot
+        delete the admin persona.
+      parameters:
+      - description: Persona name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete persona
+      tags:
+      - Personas
+    get:
+      description: Returns a single persona with resolved tool list.
+      parameters:
+      - description: Persona name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.personaDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get persona
+      tags:
+      - Personas
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing persona. Only available in database config
+        mode.
+      parameters:
+      - description: Persona name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Persona definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.personaCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.personaDetail'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update persona
+      tags:
+      - Personas
+  /system/info:
+    get:
+      description: Returns platform identity, version, runtime feature availability,
+        and config mode.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.systemInfoResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get system info
+      tags:
+      - System
+  /tools:
+    get:
+      description: Returns all registered tools across all toolkits.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.toolListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List tools
+      tags:
+      - System
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: X-API-Key
+    type: apiKey
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -15,6 +15,7 @@ import (
 const (
 	defaultRetentionDays = 90
 	defaultQueryCapacity = 100
+	maxQueryCapacity     = 10000
 )
 
 // Store implements audit.Logger using PostgreSQL.
@@ -149,6 +150,9 @@ func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Ev
 }
 
 func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
+	if filter.ID != "" {
+		b.addCondition("id", filter.ID)
+	}
 	if filter.StartTime != nil {
 		b.addTimeCondition("timestamp", ">=", *filter.StartTime)
 	}
@@ -170,6 +174,20 @@ func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
 	if filter.Success != nil {
 		b.addCondition("success", *filter.Success)
 	}
+}
+
+// Count returns the number of audit events matching the filter.
+func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error) {
+	builder := newQueryBuilder()
+	s.buildFilterConditions(builder, filter)
+
+	q := "SELECT COUNT(*) FROM audit_logs" + builder.whereClause()
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, q, builder.args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("counting audit logs: %w", err)
+	}
+	return count, nil
 }
 
 func (*Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) string {
@@ -199,11 +217,11 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 	}
 	defer func() { _ = rows.Close() }()
 
-	capacity := limit
-	if capacity <= 0 {
-		capacity = defaultQueryCapacity
+	allocCap := defaultQueryCapacity
+	if limit > 0 && limit <= maxQueryCapacity {
+		allocCap = limit
 	}
-	events := make([]audit.Event, 0, capacity)
+	events := make([]audit.Event, 0, allocCap)
 
 	for rows.Next() {
 		event, err := s.scanEvent(rows)

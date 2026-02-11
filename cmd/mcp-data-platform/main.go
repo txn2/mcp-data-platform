@@ -18,9 +18,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
-	// admin package provides REST API for knowledge management.
-	_ "github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -271,6 +271,9 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		log.Println("OAuth protected resource metadata enabled on /.well-known/oauth-protected-resource")
 	}
 
+	// Mount admin API if enabled
+	mountAdminAPI(mux, p)
+
 	// Mount SSE handler (legacy clients)
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
 	mux.Handle("/sse", wrappedSSE)
@@ -408,6 +411,52 @@ func runMigrateConfig(args []string) error {
 		return fmt.Errorf("migrating config: %w", err)
 	}
 	return nil
+}
+
+// mountAdminAPI registers the admin REST API on the mux if enabled.
+func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || !p.Config().Admin.Enabled {
+		return
+	}
+	adminHandler := buildAdminHandler(p)
+	prefix := p.Config().Admin.PathPrefix
+	mux.Handle(prefix+"/", adminHandler)
+	log.Println("Admin API enabled on", prefix)
+}
+
+// buildAdminHandler constructs the admin REST API handler from the platform.
+func buildAdminHandler(p *platform.Platform) http.Handler {
+	platAuth := admin.NewPlatformAuthenticator(
+		p.Authenticator(),
+		p.Config().Admin.Persona,
+		p.PersonaRegistry(),
+	)
+
+	deps := admin.Deps{
+		Config:            p.Config(),
+		ConfigStore:       p.ConfigStore(),
+		PersonaRegistry:   p.PersonaRegistry(),
+		ToolkitRegistry:   p.ToolkitRegistry(),
+		DatabaseAvailable: p.Config().Database.DSN != "",
+	}
+
+	if p.AuditStore() != nil {
+		deps.AuditQuerier = p.AuditStore()
+	}
+
+	if p.KnowledgeInsightStore() != nil {
+		deps.Knowledge = admin.NewKnowledgeHandler(
+			p.KnowledgeInsightStore(),
+			p.KnowledgeChangesetStore(),
+			p.KnowledgeDataHubWriter(),
+		)
+	}
+
+	if p.APIKeyAuthenticator() != nil {
+		deps.APIKeyManager = p.APIKeyAuthenticator()
+	}
+
+	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
 }
 
 // registerOAuthRoutes registers OAuth endpoints on the given mux.

@@ -12,6 +12,10 @@ CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
 
+# Tool versions — keep in sync with .github/workflows/ci.yml
+GOLANGCI_LINT_VERSION := v2.8.0
+GOSEC_VERSION := v2.22.0
+
 # Go commands
 GO := go
 GOTEST := $(GO) test
@@ -21,14 +25,15 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
-	dead-code mutate patch-coverage doc-check \
+	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
+	semgrep codeql sast \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
 all: build test lint
 
 ## build: Build the binary
-build:
+build: swagger
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
@@ -56,10 +61,15 @@ coverage: test
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
-## lint: Run linter
+## lint: Run linter (full + patch-scoped to match CI)
 lint:
 	@echo "Running linter..."
 	$(GOLINT) run ./...
+	@echo "Running patch-scoped lint (matches CI only-new-issues)..."
+	@MERGE_BASE=$$(git merge-base main HEAD 2>/dev/null) || true; \
+	if [ -n "$$MERGE_BASE" ] && [ "$$MERGE_BASE" != "$$(git rev-parse HEAD)" ]; then \
+		$(GOLINT) run --new-from-rev=$$MERGE_BASE ./...; \
+	fi
 
 ## lint-fix: Run linter with auto-fix
 lint-fix:
@@ -99,14 +109,38 @@ mod-verify:
 	@echo "Verifying modules..."
 	$(GOMOD) verify
 
-## security: Run security checks (gosec blocks, govulncheck is informational)
+## security: Run security checks (gosec + govulncheck)
 security:
 	@echo "Running gosec..."
-	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@latest)
 	gosec -quiet ./...
-	@echo "Running govulncheck (informational)..."
-	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
-	@govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
+	@echo "Running govulncheck..."
+	govulncheck ./...
+
+## semgrep: Run Semgrep SAST with standard and custom rules
+semgrep:
+	@echo "Running Semgrep..."
+	semgrep scan --config p/golang --config .semgrep/ --error --quiet .
+
+## codeql: Run CodeQL analysis (requires codeql CLI)
+codeql:
+	@echo "Running CodeQL analysis..."
+	@rm -rf /tmp/mcp-dp-codeql-db
+	codeql database create /tmp/mcp-dp-codeql-db --language=go --source-root=. --overwrite
+	@codeql database analyze /tmp/mcp-dp-codeql-db \
+		--format=sarif-latest --output=codeql-results.sarif \
+		codeql/go-queries:codeql-suites/go-security-and-quality.qls
+	@ISSUES=$$(python3 -c "import json,sys; d=json.load(open('codeql-results.sarif')); \
+		print(sum(1 for run in d.get('runs',[]) for r in run.get('results',[]) \
+		if r.get('level','note')=='error'))" 2>/dev/null || echo 0); \
+	if [ "$$ISSUES" -gt 0 ]; then \
+		echo "FAIL: CodeQL found $$ISSUES error-level issues. See codeql-results.sarif for details."; \
+		exit 1; \
+	else \
+		echo "CodeQL: no error-level issues found."; \
+	fi
+
+## sast: Run all SAST scanners (semgrep + codeql)
+sast: semgrep codeql
 
 ## docker-build: Build Docker image
 docker-build:
@@ -128,7 +162,6 @@ version:
 ## dead-code: Report unreachable functions (informational, not blocking)
 dead-code:
 	@echo "Checking for dead code..."
-	@which deadcode > /dev/null || (echo "Installing deadcode..." && go install golang.org/x/tools/cmd/deadcode@latest)
 	@OUTPUT=$$(deadcode ./... 2>&1 | grep -v "^$$") || true; \
 	if [ -n "$$OUTPUT" ]; then \
 		echo "Dead code detected (review for false positives):"; \
@@ -140,7 +173,6 @@ dead-code:
 ## mutate: Run mutation testing with 60% efficacy threshold
 mutate:
 	@echo "Running mutation testing..."
-	@which gremlins > /dev/null || (echo "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
 	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
 ## coverage-report: Print coverage summary (fails if total <80%)
@@ -175,8 +207,46 @@ release-check:
 	@echo "Running GoReleaser dry-run..."
 	goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
-## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
-verify: fmt test lint security coverage-report patch-coverage doc-check dead-code mutate release-check
+## swagger: Generate OpenAPI/Swagger documentation from annotations
+swagger:
+	@echo "Generating Swagger docs..."
+	swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
+	@echo "Swagger docs generated in internal/apidocs/"
+
+## swagger-check: Verify Swagger docs are up to date
+swagger-check: swagger
+	@if git diff --quiet internal/apidocs/; then \
+		echo "Swagger docs are up to date"; \
+	else \
+		echo "ERROR: Swagger docs are out of date. Run 'make swagger' and commit."; \
+		exit 1; \
+	fi
+
+## tools-check: Verify all required tools are installed before running verify
+tools-check:
+	@echo "Checking required tools..."
+	@missing=""; \
+	which golangci-lint > /dev/null 2>&1 || missing="$$missing  golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+	which gosec > /dev/null 2>&1         || missing="$$missing  gosec: go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+	which govulncheck > /dev/null 2>&1   || missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest\n"; \
+	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
+	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
+	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \
+	which gremlins > /dev/null 2>&1      || missing="$$missing  gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest\n"; \
+	which goreleaser > /dev/null 2>&1    || missing="$$missing  goreleaser: brew install goreleaser\n"; \
+	which swag > /dev/null 2>&1          || missing="$$missing  swag: go install github.com/swaggo/swag/cmd/swag@latest\n"; \
+	if [ -n "$$missing" ]; then \
+		echo ""; \
+		echo "FAIL: Missing required tools:"; \
+		printf "$$missing"; \
+		echo ""; \
+		echo "Install all missing tools before running make verify."; \
+		exit 1; \
+	fi
+	@echo "All required tools found."
+
+## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
+verify: tools-check fmt swagger-check test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 

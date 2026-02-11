@@ -238,6 +238,54 @@ injection:
 | `server.streamable.session_timeout` | duration | `30m` | How long an idle Streamable HTTP session persists before cleanup |
 | `server.streamable.stateless` | bool | `false` | Disable session tracking (no `Mcp-Session-Id` validation) |
 
+## Database Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `database.dsn` | string | - | PostgreSQL connection string |
+| `database.max_open_conns` | int | 25 | Maximum open database connections |
+
+Setting `dsn` enables audit logging, knowledge capture, session externalization, and OAuth persistence. Without it, these features degrade to in-memory or noop implementations.
+
+## Config Store
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `config_store.mode` | string | `file` | Config storage mode: `file` or `database` |
+
+**`file` mode**: Configuration loaded from YAML at startup, read-only. Admin API mutation endpoints return `409 Conflict`.
+
+**`database` mode**: Configuration persisted to PostgreSQL. Requires `database.dsn`. Supports runtime mutations via the admin API. Bootstrap fields (`server`, `database`, `auth`, `admin`, `config_store`, `apiVersion`) always load from YAML.
+
+## Admin API Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `admin.enabled` | bool | `false` | Enable admin REST API |
+| `admin.persona` | string | `admin` | Persona required for admin access |
+| `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
+## Audit Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `audit.enabled` | bool | `false` | Enable audit logging |
+| `audit.log_tool_calls` | bool | `false` | Log MCP tool call events |
+| `audit.retention_days` | int | 90 | Days to retain audit events |
+
+Requires `database.dsn`. Both `enabled` and `log_tool_calls` must be `true` for tool call events to be recorded.
+
+## Session Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sessions.store` | string | `memory` | Backend: `memory` or `database` |
+| `sessions.ttl` | duration | streamable session_timeout | Session lifetime |
+| `sessions.idle_timeout` | duration | streamable session_timeout | Idle eviction threshold |
+| `sessions.cleanup_interval` | duration | `1m` | Cleanup routine interval |
+
+The `database` store requires `database.dsn`. Database-backed sessions survive restarts and support multi-replica deployments.
+
 ## Toolkit Configuration
 
 ### Trino
@@ -1393,6 +1441,108 @@ For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tuto
 export LOG_LEVEL=debug
 mcp-data-platform --config platform.yaml
 ```
+
+---
+
+# Operating Modes
+
+mcp-data-platform supports three operating modes based on available infrastructure. The mode is determined by whether `database.dsn` is set and the `config_store.mode` setting.
+
+## Mode Comparison
+
+| Aspect | Standalone | File + Database | Bootstrap + DB Config |
+|--------|-----------|-----------------|----------------------|
+| `database.dsn` | empty | set | set |
+| `config_store.mode` | `file` (default) | `file` (default) | `database` |
+| Config source | YAML file only | YAML file only | Bootstrap YAML + DB |
+| Config mutations | blocked | blocked | enabled |
+| Knowledge tools | hidden (not registered) | registered | registered |
+| Knowledge admin API | 409 Conflict | available | available |
+| Audit logging | noop (silent) | PostgreSQL | PostgreSQL |
+| Audit admin API | 409 Conflict | available | available |
+| Sessions | memory | database | database |
+| OAuth | available (memory store) | available (DB store) | available (DB store) |
+| Persona/auth key CRUD | read-only | read-only | enabled |
+| Config import | blocked | blocked | enabled |
+
+**Standalone (No Database)**: Lightest deployment. No external database. Features requiring persistence (audit, knowledge) run in noop mode, tools are hidden. Admin API database-dependent endpoints return 409 Conflict.
+
+**Full-Config File + Database**: Production default. Complete YAML config, database for persistence. Audit, knowledge, session externalization all available. Config immutable at runtime.
+
+**Bootstrap + Database Config**: Minimal YAML for connections, full config in PostgreSQL with versioning. Admin API enables runtime mutations. Bootstrap fields always override DB on restart.
+
+## Config Store
+
+```yaml
+config_store:
+  mode: file      # "file" (default) or "database"
+```
+
+- `file`: Config loaded from YAML, read-only. Admin mutation endpoints return 409.
+- `database`: Config persisted to PostgreSQL `config_versions` table. Requires `database.dsn`. Supports import, export, history, and runtime mutations. Bootstrap fields always override.
+
+---
+
+# Admin API
+
+REST endpoints for managing the platform outside the MCP protocol. Mounted under a configurable path prefix (default: `/api/v1/admin`).
+
+## Authentication
+
+All endpoints require admin persona authentication via `X-API-Key` or `Authorization: Bearer` headers. Errors use RFC 9457 Problem Details format.
+
+## Interactive API Documentation
+
+Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is auto-generated from source code annotations and available at `/api/v1/admin/docs/doc.json`. Regenerate with `make swagger`.
+
+## System Endpoints
+
+- `GET /system/info` — Platform identity, version, runtime feature availability, config mode
+- `GET /tools` — All registered tools across toolkits
+- `GET /connections` — Toolkit connections with their tools
+
+## Config Endpoints
+
+- `GET /config` — Current config as JSON (sensitive values redacted)
+- `GET /config/mode` — Config store mode and read-only status
+- `GET /config/export` — Downloadable YAML config (`?secrets=true` to include sensitive values)
+- `POST /config/import` — Import YAML config (database mode only, 409 in file mode)
+- `GET /config/history` — Config revision history (database mode only)
+
+## Persona Endpoints
+
+- `GET /personas` — List personas with tool counts
+- `GET /personas/{name}` — Single persona with resolved tool list
+- `POST /personas` — Create persona (database config mode only)
+- `PUT /personas/{name}` — Update persona (database config mode only)
+- `DELETE /personas/{name}` — Delete persona (database config mode only, cannot delete admin persona)
+
+## Auth Key Endpoints
+
+- `GET /auth/keys` — List API keys (values never exposed)
+- `POST /auth/keys` — Generate new API key (database config mode only, key shown once)
+- `DELETE /auth/keys/{name}` — Delete API key (database config mode only)
+
+## Audit Endpoints
+
+Requires `audit.enabled: true` and database. Returns 409 without database.
+
+- `GET /audit/events` — Paginated audit events with filtering (user_id, tool_name, session_id, success, time range)
+- `GET /audit/events/{id}` — Single audit event
+- `GET /audit/stats` — Aggregate counts (total, success, failures)
+
+## Knowledge Endpoints
+
+Requires `knowledge.enabled: true` and database. Returns 409 without database.
+
+- `GET /knowledge/insights` — List insights with filtering
+- `GET /knowledge/insights/stats` — Insight statistics
+- `GET /knowledge/insights/{id}` — Get single insight
+- `PUT /knowledge/insights/{id}` — Update insight text/category
+- `PUT /knowledge/insights/{id}/status` — Approve or reject
+- `GET /knowledge/changesets` — List changesets
+- `GET /knowledge/changesets/{id}` — Get single changeset
+- `POST /knowledge/changesets/{id}/rollback` — Rollback changes
 
 ---
 

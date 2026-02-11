@@ -406,6 +406,9 @@ golangci-lint run ./...
 # Run security scan
 gosec ./...
 
+# Run SAST (Semgrep + CodeQL)
+make sast
+
 # Build
 go build -o mcp-data-platform ./cmd/mcp-data-platform
 ```
@@ -432,6 +435,7 @@ We welcome contributions for bug fixes, tests, and documentation. Please ensure:
 2. Code is formatted (`gofmt`)
 3. Linter passes (`golangci-lint run ./...`)
 4. Security scan passes (`gosec ./...`)
+5. SAST passes (`make sast` — Semgrep + CodeQL)
 
 ---
 

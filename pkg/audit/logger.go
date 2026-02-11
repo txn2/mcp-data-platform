@@ -46,6 +46,7 @@ type Event struct {
 
 // QueryFilter defines criteria for querying audit events.
 type QueryFilter struct {
+	ID          string
 	StartTime   *time.Time
 	EndTime     *time.Time
 	UserID      string
