@@ -391,7 +391,7 @@ personas:
 
 ## Knowledge Capture Configuration
 
-Knowledge capture records domain knowledge shared during AI sessions and provides a workflow for applying approved insights to the DataHub catalog.
+Knowledge capture records domain knowledge shared during AI sessions and provides a workflow for applying approved insights to the DataHub catalog. See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
 
 ```yaml
 knowledge:
