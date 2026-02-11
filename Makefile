@@ -12,6 +12,10 @@ CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
 
+# Tool versions — keep in sync with .github/workflows/ci.yml
+GOLANGCI_LINT_VERSION := v2.8.0
+GOSEC_VERSION := v2.22.0
+
 # Go commands
 GO := go
 GOTEST := $(GO) test
@@ -21,7 +25,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
-	dead-code mutate patch-coverage doc-check swagger swagger-check \
+	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
@@ -105,25 +109,21 @@ mod-verify:
 	@echo "Verifying modules..."
 	$(GOMOD) verify
 
-## security: Run security checks (gosec blocks, govulncheck is informational)
+## security: Run security checks (gosec + govulncheck)
 security:
 	@echo "Running gosec..."
-	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@latest)
-	$(shell go env GOPATH)/bin/gosec -quiet ./...
-	@echo "Running govulncheck (informational)..."
-	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
-	@$(shell go env GOPATH)/bin/govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
+	gosec -quiet ./...
+	@echo "Running govulncheck..."
+	govulncheck ./...
 
 ## semgrep: Run Semgrep SAST with standard and custom rules
 semgrep:
 	@echo "Running Semgrep..."
-	@which semgrep > /dev/null || (echo "Installing semgrep..." && pip3 install semgrep --quiet)
 	semgrep scan --config p/golang --config .semgrep/ --error --quiet .
 
 ## codeql: Run CodeQL analysis (requires codeql CLI)
 codeql:
 	@echo "Running CodeQL analysis..."
-	@which codeql > /dev/null || (echo "ERROR: codeql CLI not found. Install: brew install codeql"; exit 1)
 	@rm -rf /tmp/mcp-dp-codeql-db
 	codeql database create /tmp/mcp-dp-codeql-db --language=go --source-root=. --overwrite
 	@codeql database analyze /tmp/mcp-dp-codeql-db \
@@ -162,8 +162,7 @@ version:
 ## dead-code: Report unreachable functions (informational, not blocking)
 dead-code:
 	@echo "Checking for dead code..."
-	@which deadcode > /dev/null || (echo "Installing deadcode..." && go install golang.org/x/tools/cmd/deadcode@latest)
-	@OUTPUT=$$($(shell go env GOPATH)/bin/deadcode ./... 2>&1 | grep -v "^$$") || true; \
+	@OUTPUT=$$(deadcode ./... 2>&1 | grep -v "^$$") || true; \
 	if [ -n "$$OUTPUT" ]; then \
 		echo "Dead code detected (review for false positives):"; \
 		echo "$$OUTPUT"; \
@@ -174,8 +173,7 @@ dead-code:
 ## mutate: Run mutation testing with 60% efficacy threshold
 mutate:
 	@echo "Running mutation testing..."
-	@which gremlins > /dev/null || (echo "Installing gremlins..." && go install github.com/go-gremlins/gremlins/cmd/gremlins@latest)
-	$(shell go env GOPATH)/bin/gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
+	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
 ## coverage-report: Print coverage summary (fails if total <80%)
 coverage-report: test
@@ -212,8 +210,7 @@ release-check:
 ## swagger: Generate OpenAPI/Swagger documentation from annotations
 swagger:
 	@echo "Generating Swagger docs..."
-	@which swag > /dev/null || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
-	$(shell go env GOPATH)/bin/swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
+	swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
 	@echo "Swagger docs generated in internal/apidocs/"
 
 ## swagger-check: Verify Swagger docs are up to date
@@ -225,8 +222,31 @@ swagger-check: swagger
 		exit 1; \
 	fi
 
+## tools-check: Verify all required tools are installed before running verify
+tools-check:
+	@echo "Checking required tools..."
+	@missing=""; \
+	which golangci-lint > /dev/null 2>&1 || missing="$$missing  golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+	which gosec > /dev/null 2>&1         || missing="$$missing  gosec: go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+	which govulncheck > /dev/null 2>&1   || missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest\n"; \
+	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
+	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
+	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \
+	which gremlins > /dev/null 2>&1      || missing="$$missing  gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest\n"; \
+	which goreleaser > /dev/null 2>&1    || missing="$$missing  goreleaser: brew install goreleaser\n"; \
+	which swag > /dev/null 2>&1          || missing="$$missing  swag: go install github.com/swaggo/swag/cmd/swag@latest\n"; \
+	if [ -n "$$missing" ]; then \
+		echo ""; \
+		echo "FAIL: Missing required tools:"; \
+		printf "$$missing"; \
+		echo ""; \
+		echo "Install all missing tools before running make verify."; \
+		exit 1; \
+	fi
+	@echo "All required tools found."
+
 ## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
-verify: fmt swagger-check test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
+verify: tools-check fmt swagger-check test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
