@@ -3,6 +3,12 @@
 
 apiVersion: v1
 
+# Config store mode: "file" (default, read-only) or "database" (persistent mutations)
+# In file mode, config mutations (persona CRUD, auth key management) are blocked.
+# In database mode, mutations are persisted to PostgreSQL and survive restarts.
+# config_store:
+#   mode: file
+
 server:
   name: mcp-data-platform
   transport: stdio              # stdio, http
@@ -249,6 +255,12 @@ tuning:
 #     enabled: true                # Enable apply_knowledge tool (default: false)
 #     datahub_connection: primary  # Which DataHub instance to write to
 #     require_confirmation: true   # Require confirm: true on apply (default: false)
+
+# Admin REST API
+# admin:
+#   enabled: true
+#   persona: admin              # persona required for admin access (default: "admin")
+#   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
 
 # Audit logging
 audit:
