@@ -832,3 +832,92 @@ Copy an object. Only available when `read_only: false`.
   "copied": true
 }
 ```
+
+---
+
+## Knowledge Tools
+
+For the full governance workflow, see [Knowledge Capture](../knowledge/overview.md).
+
+### capture_insight
+
+Record domain knowledge shared during a session. Available to all personas when `knowledge.enabled: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `category` | string | Yes | - | One of: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement` |
+| `insight_text` | string | Yes | - | The knowledge to record (10-4000 characters) |
+| `confidence` | string | No | `medium` | Confidence level: `high`, `medium`, `low` |
+| `entity_urns` | array | No | `[]` | DataHub URNs this insight relates to (max 10) |
+| `related_columns` | array | No | `[]` | Columns related to this insight (max 20) |
+| `suggested_actions` | array | No | `[]` | Proposed catalog changes (max 5) |
+
+**Suggested Action Schema:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation` |
+| `target` | string | Yes | Target of the change (entity name, column name, or URL) |
+| `detail` | string | Yes | Change detail (new description, tag name, term name, etc.) |
+
+**Response Schema:**
+
+```json
+{
+  "insight_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "status": "pending",
+  "message": "Insight captured. It will be reviewed by a data catalog administrator."
+}
+```
+
+---
+
+### apply_knowledge
+
+Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject` |
+| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply` |
+| `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
+| `changes` | array | Conditional | Required for `apply` |
+| `confirm` | bool | No | Required when `require_confirmation` is enabled |
+| `review_notes` | string | No | Notes for `approve`/`reject` actions |
+
+**Change Schema (for `apply` action):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation` |
+| `target` | string | Yes | Target of the change |
+| `detail` | string | Yes | Change detail |
+
+**Actions:**
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `bulk_review` | Summary of all pending insights grouped by entity | None |
+| `review` | Insights for a specific entity with current DataHub metadata | `entity_urn` |
+| `approve` | Transition insights to approved status | `insight_ids` |
+| `reject` | Transition insights to rejected status | `insight_ids` |
+| `synthesize` | Structured change proposals from approved insights | `entity_urn` |
+| `apply` | Write changes to DataHub with changeset tracking | `entity_urn`, `changes` |
+
+**Response Schema (apply):**
+
+```json
+{
+  "changeset_id": "cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6",
+  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "changes_applied": 2,
+  "insights_marked_applied": 1,
+  "message": "Changes applied to DataHub. Changeset cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6 recorded for rollback."
+}
+```
+
+See [Governance Workflow](../knowledge/governance.md) for detailed examples of each action.
