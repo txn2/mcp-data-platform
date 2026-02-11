@@ -22,6 +22,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	dead-code mutate patch-coverage doc-check swagger swagger-check \
+	semgrep codeql sast \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
@@ -108,6 +109,34 @@ security:
 	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
 	@$(shell go env GOPATH)/bin/govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
 
+## semgrep: Run Semgrep SAST with standard and custom rules
+semgrep:
+	@echo "Running Semgrep..."
+	@which semgrep > /dev/null || (echo "Installing semgrep..." && pip3 install semgrep --quiet)
+	semgrep scan --config p/golang --config .semgrep/ --error --quiet .
+
+## codeql: Run CodeQL analysis (requires codeql CLI)
+codeql:
+	@echo "Running CodeQL analysis..."
+	@which codeql > /dev/null || (echo "ERROR: codeql CLI not found. Install: brew install codeql"; exit 1)
+	@rm -rf /tmp/mcp-dp-codeql-db
+	codeql database create /tmp/mcp-dp-codeql-db --language=go --source-root=. --overwrite
+	@codeql database analyze /tmp/mcp-dp-codeql-db \
+		--format=sarif-latest --output=codeql-results.sarif \
+		codeql/go-queries:codeql-suites/go-security-and-quality.qls
+	@ISSUES=$$(python3 -c "import json,sys; d=json.load(open('codeql-results.sarif')); \
+		print(sum(1 for run in d.get('runs',[]) for r in run.get('results',[]) \
+		if r.get('level','note')=='error'))" 2>/dev/null || echo 0); \
+	if [ "$$ISSUES" -gt 0 ]; then \
+		echo "FAIL: CodeQL found $$ISSUES error-level issues. See codeql-results.sarif for details."; \
+		exit 1; \
+	else \
+		echo "CodeQL: no error-level issues found."; \
+	fi
+
+## sast: Run all SAST scanners (semgrep + codeql)
+sast: semgrep codeql
+
 ## docker-build: Build Docker image
 docker-build:
 	@echo "Building Docker image..."
@@ -191,8 +220,8 @@ swagger-check: swagger
 		exit 1; \
 	fi
 
-## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
-verify: fmt swagger-check test lint security coverage-report patch-coverage doc-check dead-code mutate release-check
+## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
+verify: fmt swagger-check test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
