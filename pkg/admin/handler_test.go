@@ -144,6 +144,22 @@ func TestHandler_ServeHTTP_WithAuthMiddleware(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
+
+	t.Run("docs bypass auth middleware", func(t *testing.T) {
+		authMiddle := func(_ http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeError(w, http.StatusUnauthorized, "authentication required")
+			})
+		}
+		h := NewHandler(Deps{Knowledge: kh}, authMiddle)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/docs/index.html", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusUnauthorized, w.Code,
+			"docs should bypass auth middleware")
+	})
 }
 
 func TestHandler_NilKnowledgeHandler_SystemRoutesStillWork(t *testing.T) {

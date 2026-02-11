@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
@@ -65,9 +66,13 @@ type Deps struct {
 	DatabaseAvailable bool
 }
 
+// docsPrefix is the path prefix for the public Swagger UI.
+const docsPrefix = "/api/v1/admin/docs/"
+
 // Handler provides admin REST API endpoints.
 type Handler struct {
 	mux        *http.ServeMux
+	publicMux  *http.ServeMux
 	deps       Deps
 	authMiddle func(http.Handler) http.Handler
 }
@@ -97,6 +102,7 @@ type statusResponse struct {
 func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler {
 	h := &Handler{
 		mux:        http.NewServeMux(),
+		publicMux:  http.NewServeMux(),
 		deps:       deps,
 		authMiddle: authMiddle,
 	}
@@ -106,6 +112,10 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, docsPrefix) {
+		h.publicMux.ServeHTTP(w, r)
+		return
+	}
 	if h.authMiddle != nil {
 		h.authMiddle(h.mux).ServeHTTP(w, r)
 		return
@@ -145,8 +155,8 @@ func (h *Handler) registerSystemRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/system/info", h.getSystemInfo)
 	h.mux.HandleFunc("GET /api/v1/admin/tools", h.listTools)
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
-	h.mux.Handle("/api/v1/admin/docs/", httpswagger.Handler(
-		httpswagger.URL("/api/v1/admin/docs/doc.json"),
+	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
+		httpswagger.URL(docsPrefix+"doc.json"),
 	))
 }
 
