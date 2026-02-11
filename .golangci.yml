@@ -56,6 +56,10 @@ linters:
     - modernize          # Go modernization suggestions
 
   settings:
+    godot:
+      exclude:
+        - "@"  # Exclude swag annotations
+
     errcheck:
       check-type-assertions: true
       check-blank: false
