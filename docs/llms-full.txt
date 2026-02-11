@@ -964,24 +964,19 @@ func main() {
 
 # Knowledge Capture
 
-mcp-data-platform includes a knowledge capture system that records domain knowledge shared during AI sessions and provides a structured workflow for applying approved insights to the DataHub catalog.
+Domain knowledge shared during AI sessions -- column meanings, data quality issues, business rules -- is captured, reviewed through a governance workflow, and written back to DataHub with changeset tracking and rollback.
 
-## Overview
+## The Problem
 
-During data exploration, users share valuable context: column meanings, data quality issues, business rules, relationships between datasets. Without knowledge capture, this information is lost when the session ends. The knowledge toolkit persists these insights for admin review and optional write-back to DataHub.
+Every organization has tribal knowledge about its data that lives in the heads of experienced team members. AI-assisted data exploration surfaces this knowledge in conversations, but without capture, it's lost when the session ends. Knowledge capture persists these insights for admin review and catalog write-back.
 
-The system has two MCP tools and an admin REST API:
+## How It Works
 
-- **`capture_insight`**: Records domain knowledge during sessions. Available to all personas. Creates insights with status `pending`.
-- **`apply_knowledge`**: Admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub. Six actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`.
-- **Admin REST API**: HTTP endpoints for managing insights and changesets outside the MCP protocol.
+The system has two MCP tools and an Admin REST API:
 
-## Prerequisites
-
-Knowledge capture requires:
-1. A PostgreSQL database (the `database.dsn` must be set)
-2. `knowledge.enabled: true` in configuration
-3. For the `apply_knowledge` tool: `knowledge.apply.enabled: true`
+- `capture_insight`: Records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`.
+- `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`.
+- Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Configuration
 
@@ -989,17 +984,30 @@ Knowledge capture requires:
 knowledge:
   enabled: true
   apply:
-    enabled: true                # Enable apply_knowledge tool (default: false)
-    datahub_connection: primary  # Which DataHub instance to write to
-    require_confirmation: true   # Require confirm: true on apply (default: false)
+    enabled: true
+    datahub_connection: primary
+    require_confirmation: true
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool. |
-| `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back. |
-| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations. |
-| `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request. |
+| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool |
+| `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
+| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
+
+Prerequisites: `database.dsn` must be configured. The `apply_knowledge` tool requires the admin persona.
+
+## Insight Categories
+
+| Category | Description | Example |
+|----------|-------------|---------|
+| `correction` | Fixes wrong metadata | "The amount column is gross margin, not revenue" |
+| `business_context` | Business meaning not in metadata | "MRR counts active subscriptions only, not trials" |
+| `data_quality` | Quality issues or limitations | "Timestamps before March 2024 are UTC; after that, America/Chicago" |
+| `usage_guidance` | Tips for querying correctly | "Always filter status='active' to avoid soft-delete duplicates" |
+| `relationship` | Dataset connections not in lineage | "customer_id in orders joins to the legacy CRM export" |
+| `enhancement` | Suggested metadata improvements | "Tag sales_daily with its 6 AM CT refresh schedule" |
 
 ## capture_insight Tool
 
@@ -1022,7 +1030,7 @@ Records domain knowledge shared during a session.
 
 ```json
 {
-  "insight_id": "a1b2c3d4e5f6...",
+  "insight_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
   "status": "pending",
   "message": "Insight captured. It will be reviewed by a data catalog administrator."
 }
@@ -1036,52 +1044,50 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 
 ### Actions
 
-**bulk_review**: Returns a summary of all pending insights grouped by entity.
+**bulk_review**: Summary of all pending insights grouped by entity.
 
 ```json
 {"action": "bulk_review"}
 ```
 
-**review**: Returns insights for a specific entity with current DataHub metadata.
+**review**: Insights for a specific entity with current DataHub metadata.
 
 ```json
-{"action": "review", "entity_urn": "urn:li:dataset:..."}
+{"action": "review", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"}
 ```
 
-**approve/reject**: Transitions insight status. Accepts optional review notes.
+**approve/reject**: Transition insight status with optional review notes.
 
 ```json
 {
   "action": "approve",
-  "insight_ids": ["id1", "id2"],
+  "insight_ids": ["a1b2c3d4e5f67890", "f6e5d4c3b2a10987"],
   "review_notes": "Verified with data engineering team"
 }
 ```
 
-**synthesize**: Gathers approved insights for an entity and returns structured change proposals.
+**synthesize**: Structured change proposals from approved insights.
 
 ```json
-{"action": "synthesize", "entity_urn": "urn:li:dataset:..."}
+{"action": "synthesize", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"}
 ```
 
-**apply**: Writes changes to DataHub and records a changeset for auditability.
+**apply**: Write changes to DataHub with changeset tracking.
 
 ```json
 {
   "action": "apply",
-  "entity_urn": "urn:li:dataset:...",
+  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes": [
-    {"change_type": "update_description", "target": "entity", "detail": "New description"},
-    {"change_type": "add_tag", "target": "entity", "detail": "pii"}
+    {"change_type": "update_description", "target": "entity", "detail": "Order records with gross margin amounts (before returns)"},
+    {"change_type": "add_tag", "target": "entity", "detail": "gross-margin"}
   ],
-  "insight_ids": ["id1", "id2"],
+  "insight_ids": ["a1b2c3d4e5f67890"],
   "confirm": true
 }
 ```
 
 ## Insight Lifecycle
-
-Insights follow a defined status lifecycle:
 
 ```
 pending -> approved -> applied
@@ -1099,9 +1105,22 @@ applied -> rolled_back
 | `superseded` | Replaced by newer insights for the same entity |
 | `rolled_back` | Applied changes were reverted |
 
+## Governance Workflow
+
+1. User shares domain knowledge during an AI session
+2. AI calls `capture_insight` to record it (status: pending)
+3. Admin uses `bulk_review` to see pending insights
+4. Admin reviews and approves/rejects via `approve`/`reject`
+5. Admin calls `synthesize` to generate change proposals from approved insights
+6. Admin calls `apply` to write changes to DataHub with changeset tracking
+7. Source insights are marked as applied with a changeset reference
+8. Changeset stores previous values for rollback if needed
+
+This is a human-in-the-loop metadata curation workflow. Every change to the catalog goes through admin review and is tracked for auditability.
+
 ## Changeset Tracking
 
-Every `apply` action creates a changeset record that captures:
+Every `apply` action creates a changeset record:
 
 | Field | Description |
 |-------|-------------|
@@ -1114,11 +1133,29 @@ Every `apply` action creates a changeset record that captures:
 | `applied_by` | User who applied the changes |
 | `rolled_back` | Whether this changeset has been reverted |
 
-Changesets enable full auditability and rollback of catalog modifications.
+## Persona Integration
+
+Control access through persona tool filtering:
+
+```yaml
+personas:
+  definitions:
+    analyst:
+      tools:
+        allow: ["trino_*", "datahub_*", "capture_insight"]
+        deny: ["apply_knowledge"]
+    admin:
+      tools:
+        allow: ["*"]
+    etl_service:
+      tools:
+        allow: ["trino_*"]
+        deny: ["capture_insight", "apply_knowledge"]
+```
 
 ## Admin REST API
 
-The admin API provides HTTP endpoints for managing insights and changesets. All endpoints require admin authentication (API key with admin role or OIDC token with admin role).
+HTTP endpoints for managing insights and changesets. All endpoints require admin authentication via API key (X-API-Key or Authorization: Bearer header) with the admin role.
 
 ### Insight Endpoints
 
@@ -1134,7 +1171,7 @@ The admin API provides HTTP endpoints for managing insights and changesets. All 
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `status` | string | Filter by status (pending, approved, rejected, applied) |
+| `status` | string | Filter by status (pending, approved, rejected, applied, superseded, rolled_back) |
 | `category` | string | Filter by category |
 | `entity_urn` | string | Filter by entity URN |
 | `captured_by` | string | Filter by user who captured |
@@ -1166,13 +1203,13 @@ The admin API provides HTTP endpoints for managing insights and changesets. All 
 
 ## Database Schema
 
-Knowledge capture uses two tables:
+Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008).
 
-**knowledge_insights** (migration 000006, extended by 000007 and 000008):
+**knowledge_insights:**
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | TEXT | Primary key |
+| `id` | TEXT | Primary key (cryptographic random hex) |
 | `created_at` | TIMESTAMPTZ | When the insight was captured |
 | `session_id` | TEXT | MCP session that produced it |
 | `captured_by` | TEXT | User who shared the knowledge |
@@ -1191,11 +1228,11 @@ Knowledge capture uses two tables:
 | `applied_at` | TIMESTAMPTZ | When it was applied |
 | `changeset_ref` | TEXT | Link to the changeset |
 
-**knowledge_changesets** (migration 000008):
+**knowledge_changesets:**
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | TEXT | Primary key |
+| `id` | TEXT | Primary key (cryptographic random hex) |
 | `created_at` | TIMESTAMPTZ | When changes were applied |
 | `target_urn` | TEXT | DataHub entity that was modified |
 | `change_type` | TEXT | Type of changes applied |

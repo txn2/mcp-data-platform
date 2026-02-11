@@ -446,6 +446,9 @@ Copy an object. Only available when `read_only: false`.
 
 ## Knowledge Tools
 
+!!! tip "Full Documentation"
+    For the complete knowledge capture workflow including governance, lifecycle, and configuration, see [Knowledge Capture](../knowledge/overview.md).
+
 ### capture_insight
 
 Record domain knowledge shared during a session. Available to all personas when `knowledge.enabled: true`.

@@ -176,6 +176,43 @@ analyst:
 
 Hints are passed to the AI as additional context when using tools.
 
+## Knowledge Tool Access
+
+The knowledge capture tools follow the same allow/deny patterns. Control who can capture insights and who can apply them:
+
+```yaml
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow:
+          - "trino_*"
+          - "datahub_*"
+          - "capture_insight"       # Can capture knowledge
+        deny:
+          - "apply_knowledge"       # Cannot apply changes
+
+    admin:
+      display_name: "Administrator"
+      roles: ["admin"]
+      tools:
+        allow: ["*"]               # Full access including apply_knowledge
+
+    etl_service:
+      display_name: "ETL Service"
+      roles: ["service"]
+      tools:
+        allow:
+          - "trino_*"
+        deny:
+          - "capture_insight"       # Automated processes should not capture
+          - "apply_knowledge"
+```
+
+See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
+
 ## Example: Data Mesh Personas
 
 ```yaml

@@ -534,6 +534,29 @@ audit:
 
 If `audit.enabled` is `true` but no database is configured, the platform logs a warning and falls back to a no-op logger.
 
+## Knowledge Configuration
+
+Knowledge capture records domain knowledge shared during AI sessions and provides a governance workflow for applying approved insights to DataHub. See [Knowledge Capture](../knowledge/overview.md) for full documentation.
+
+```yaml
+knowledge:
+  enabled: true
+  apply:
+    enabled: true
+    datahub_connection: primary
+    require_confirmation: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool |
+| `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
+| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
+
+!!! note "Prerequisites"
+    Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.
+
 ## Complete Example
 
 ```yaml
@@ -615,6 +638,13 @@ injection:
   session_dedup:
     enabled: true
     mode: reference
+
+knowledge:
+  enabled: true
+  apply:
+    enabled: true
+    datahub_connection: primary
+    require_confirmation: true
 
 audit:
   enabled: true
