@@ -21,14 +21,14 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
-	dead-code mutate patch-coverage doc-check \
+	dead-code mutate patch-coverage doc-check swagger swagger-check \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
 all: build test lint
 
 ## build: Build the binary
-build:
+build: swagger
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
@@ -103,10 +103,10 @@ mod-verify:
 security:
 	@echo "Running gosec..."
 	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@latest)
-	gosec -quiet ./...
+	$(shell go env GOPATH)/bin/gosec -quiet ./...
 	@echo "Running govulncheck (informational)..."
 	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
-	@govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
+	@$(shell go env GOPATH)/bin/govulncheck ./... || echo "NOTE: govulncheck found issues — review above (stdlib vulns require Go upgrade)"
 
 ## docker-build: Build Docker image
 docker-build:
@@ -129,7 +129,7 @@ version:
 dead-code:
 	@echo "Checking for dead code..."
 	@which deadcode > /dev/null || (echo "Installing deadcode..." && go install golang.org/x/tools/cmd/deadcode@latest)
-	@OUTPUT=$$(deadcode ./... 2>&1 | grep -v "^$$") || true; \
+	@OUTPUT=$$($(shell go env GOPATH)/bin/deadcode ./... 2>&1 | grep -v "^$$") || true; \
 	if [ -n "$$OUTPUT" ]; then \
 		echo "Dead code detected (review for false positives):"; \
 		echo "$$OUTPUT"; \
@@ -140,8 +140,8 @@ dead-code:
 ## mutate: Run mutation testing with 60% efficacy threshold
 mutate:
 	@echo "Running mutation testing..."
-	@which gremlins > /dev/null || (echo "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
-	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
+	@which gremlins > /dev/null || (echo "Installing gremlins..." && go install github.com/go-gremlins/gremlins/cmd/gremlins@latest)
+	$(shell go env GOPATH)/bin/gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
 ## coverage-report: Print coverage summary (fails if total <80%)
 coverage-report: test
@@ -175,8 +175,24 @@ release-check:
 	@echo "Running GoReleaser dry-run..."
 	goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
+## swagger: Generate OpenAPI/Swagger documentation from annotations
+swagger:
+	@echo "Generating Swagger docs..."
+	@which swag > /dev/null || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+	$(shell go env GOPATH)/bin/swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
+	@echo "Swagger docs generated in internal/apidocs/"
+
+## swagger-check: Verify Swagger docs are up to date
+swagger-check: swagger
+	@if git diff --quiet internal/apidocs/; then \
+		echo "Swagger docs are up to date"; \
+	else \
+		echo "ERROR: Swagger docs are out of date. Run 'make swagger' and commit."; \
+		exit 1; \
+	fi
+
 ## verify: Run the full CI-equivalent check suite (test, lint, security, coverage, mutation, release)
-verify: fmt test lint security coverage-report patch-coverage doc-check dead-code mutate release-check
+verify: fmt swagger-check test lint security coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
