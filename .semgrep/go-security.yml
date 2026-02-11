@@ -1,0 +1,118 @@
+rules:
+  # Rule 1: Unbounded slice allocation from struct field
+  # Detects make([]T, len, cap) where cap comes from a struct field or
+  # function parameter without a preceding bounds check. This can cause
+  # OOM if the value is user-controlled (e.g., query parameter, request body).
+  - id: unbounded-make-slice-capacity
+    patterns:
+      - pattern: make($TYPE, $LEN, $CAP)
+      - pattern-not-inside: |
+          if $CAP > $MAX {
+            ...
+          }
+          ...
+          make($TYPE, $LEN, $CAP)
+      - pattern-not-inside: |
+          if $CAP >= $MAX {
+            ...
+          }
+          ...
+          make($TYPE, $LEN, $CAP)
+      - pattern-not-inside: |
+          if ... > $CAP {
+            ...
+          }
+          ...
+          make($TYPE, $LEN, $CAP)
+      - pattern-not-inside: |
+          if ... >= $CAP {
+            ...
+          }
+          ...
+          make($TYPE, $LEN, $CAP)
+      - pattern-not-inside: |
+          $CAP = min($CAP, $MAX)
+          ...
+          make($TYPE, $LEN, $CAP)
+      - metavariable-pattern:
+          metavariable: $CAP
+          patterns:
+            - pattern-either:
+                - pattern: $OBJ.$FIELD
+                - pattern: $FUNC(...)
+            - pattern-not: len(...)
+            - pattern-not: cap(...)
+    message: >-
+      Slice allocation uses potentially unbounded capacity `$CAP`.
+      If this value originates from user input (query parameter, request body,
+      database row), an attacker can trigger OOM by supplying a large number.
+      Add a bounds check: `if $CAP > maxAllowed { $CAP = maxAllowed }`.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-770: Allocation of Resources Without Limits or Throttling"
+      confidence: MEDIUM
+      impact: HIGH
+      technology:
+        - go
+
+  # Rule 2: Unbounded map allocation from struct field
+  # Same pattern for make(map[K]V, size) where size is user-controlled.
+  - id: unbounded-make-map-size
+    patterns:
+      - pattern: make($TYPE, $SIZE)
+      - metavariable-pattern:
+          metavariable: $TYPE
+          pattern: map[$K]$V
+      - pattern-not-inside: |
+          if $SIZE > $MAX {
+            ...
+          }
+          ...
+          make($TYPE, $SIZE)
+      - pattern-not-inside: |
+          if $SIZE >= $MAX {
+            ...
+          }
+          ...
+          make($TYPE, $SIZE)
+      - pattern-not-inside: |
+          if ... > $SIZE {
+            ...
+          }
+          ...
+          make($TYPE, $SIZE)
+      - pattern-not-inside: |
+          if ... >= $SIZE {
+            ...
+          }
+          ...
+          make($TYPE, $SIZE)
+      - pattern-not-inside: |
+          $SIZE = min($SIZE, $MAX)
+          ...
+          make($TYPE, $SIZE)
+      - metavariable-pattern:
+          metavariable: $SIZE
+          patterns:
+            - pattern-either:
+                - pattern: $OBJ.$FIELD
+                - pattern: $FUNC(...)
+            - pattern-not: len(...)
+            - pattern-not: cap(...)
+    message: >-
+      Map allocation uses potentially unbounded size hint `$SIZE`.
+      If this value originates from user input, an attacker can trigger OOM.
+      Add a bounds check: `if $SIZE > maxAllowed { $SIZE = maxAllowed }`.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-770: Allocation of Resources Without Limits or Throttling"
+      confidence: MEDIUM
+      impact: HIGH
+      technology:
+        - go
