@@ -341,6 +341,11 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 		"proposed_changes":  proposed,
 	}
 
+	if len(proposed) == 0 {
+		result["note"] = "These insights were captured without suggested_actions. " +
+			"Review the insight text above and the current metadata, then construct changes for the apply action."
+	}
+
 	return jsonResult(result)
 }
 
