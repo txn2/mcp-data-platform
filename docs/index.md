@@ -1,5 +1,7 @@
 ---
 description: MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context.
+hide:
+  - navigation
 ---
 
 # mcp-data-platform
@@ -18,11 +20,15 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups needed.
 
+    [:octicons-arrow-right-24: Cross-injection](cross-injection/overview.md)
+
 -   :material-swap-horizontal: **Cross-Injection**
 
     ---
 
     Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
+
+    [:octicons-arrow-right-24: How it works](cross-injection/overview.md)
 
 -   :material-shield-check: **Enterprise Security**
 
@@ -30,11 +36,15 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     Fail-closed authentication, TLS enforcement, prompt injection protection, and read-only mode. Built for production environments.
 
+    [:octicons-arrow-right-24: Security](auth/overview.md)
+
 -   :material-account-group: **Personas**
 
     ---
 
     Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
+
+    [:octicons-arrow-right-24: Personas](personas/overview.md)
 
 -   :material-text-box-search-outline: **Audit Logging**
 
@@ -42,19 +52,31 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     Every tool call logged to PostgreSQL: who called what, when, how long, success or failure. Automatic retention cleanup and parameter sanitization.
 
+    [:octicons-arrow-right-24: Audit logging](server/audit.md)
+
 -   :material-brain: **Knowledge Capture**
 
     ---
 
-    Domain knowledge shared during AI sessions -- column meanings, business rules, quality issues -- is captured, reviewed, and written back to DataHub with changeset tracking.
+    Domain knowledge shared during AI sessions (column meanings, business rules, quality issues) is captured, reviewed, and written back to DataHub with changeset tracking.
 
     [:octicons-arrow-right-24: Knowledge capture](knowledge/overview.md)
+
+-   :material-api: **REST Admin API**
+
+    ---
+
+    Manage the platform over HTTP. System info, configuration import/export, persona CRUD, API key management, audit queries, and knowledge review.
+
+    [:octicons-arrow-right-24: Admin API](server/admin-api.md)
 
 -   :material-monitor-dashboard: **MCP Apps**
 
     ---
 
     Interactive UI components for tool results. Tables, charts, and filters rendered in iframes alongside AI responses.
+
+    [:octicons-arrow-right-24: MCP Apps](mcpapps/overview.md)
 
 </div>
 
