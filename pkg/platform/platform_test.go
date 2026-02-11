@@ -2578,7 +2578,7 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 		Knowledge: KnowledgeConfig{
 			Enabled: true,
 		},
-		// Database DSN intentionally left empty — should use noop store
+		// Database DSN intentionally left empty — knowledge tools should NOT register
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -2590,9 +2590,21 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 	if p.MCPServer() == nil {
 		t.Error(testMCPServerNilMsg)
 	}
+
+	// Without a database, knowledge stores should be nil (tools not registered)
+	if p.KnowledgeInsightStore() != nil {
+		t.Error("KnowledgeInsightStore() should be nil when no database is configured")
+	}
+
+	// Toolkit registry should not contain knowledge toolkit
+	for _, tk := range p.ToolkitRegistry().All() {
+		if tk.Kind() == "knowledge" {
+			t.Error("knowledge toolkit should not be registered without a database")
+		}
+	}
 }
 
-func TestInitKnowledge_ApplyEnabled(t *testing.T) {
+func TestInitKnowledge_ApplyEnabled_NoDatabase(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
@@ -2616,6 +2628,14 @@ func TestInitKnowledge_ApplyEnabled(t *testing.T) {
 
 	if p.MCPServer() == nil {
 		t.Error(testMCPServerNilMsg)
+	}
+
+	// Without a database, knowledge (including apply) should not register
+	if p.KnowledgeInsightStore() != nil {
+		t.Error("KnowledgeInsightStore() should be nil without database")
+	}
+	if p.KnowledgeChangesetStore() != nil {
+		t.Error("KnowledgeChangesetStore() should be nil without database")
 	}
 }
 
@@ -2736,7 +2756,225 @@ func TestCreateDataHubWriter_InvalidConfig(t *testing.T) {
 	}
 }
 
+func TestAuditStore_Accessor(t *testing.T) {
+	p := newTestPlatform(t)
+	defer func() { _ = p.Close() }()
+
+	// Without database config, auditStore is nil
+	if p.AuditStore() != nil {
+		t.Error("AuditStore() should be nil without database configured")
+	}
+}
+
+func TestAuthenticator_Accessor(t *testing.T) {
+	p := newTestPlatform(t)
+	defer func() { _ = p.Close() }()
+
+	// Even without auth config, authenticator should be non-nil (noop fallback)
+	if p.Authenticator() == nil {
+		t.Error("Authenticator() should not be nil (falls back to noop)")
+	}
+}
+
+func TestAPIKeyAuthenticator_Accessor(t *testing.T) {
+	t.Run("nil when API keys disabled", func(t *testing.T) {
+		p := newTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		if p.APIKeyAuthenticator() != nil {
+			t.Error("APIKeyAuthenticator() should be nil without API keys configured")
+		}
+	})
+
+	t.Run("non-nil when API keys enabled", func(t *testing.T) {
+		cfg := &Config{
+			Server:   ServerConfig{Name: testServerName},
+			Semantic: SemanticConfig{Provider: testProviderNoop},
+			Query:    QueryConfig{Provider: testProviderNoop},
+			Storage:  StorageConfig{Provider: testProviderNoop},
+			Auth: AuthConfig{
+				APIKeys: APIKeyAuthConfig{
+					Enabled: true,
+					Keys: []APIKeyDef{
+						{Key: "test-key", Name: "test", Roles: []string{testRoleAdmin}},
+					},
+				},
+			},
+		}
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf(testNewErrFmt, err)
+		}
+		defer func() { _ = p.Close() }()
+
+		if p.APIKeyAuthenticator() == nil {
+			t.Error("APIKeyAuthenticator() should not be nil when API keys enabled")
+		}
+	})
+}
+
+func TestKnowledgeInsightStore_Accessor(t *testing.T) {
+	t.Run("nil when knowledge disabled", func(t *testing.T) {
+		p := newTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		if p.KnowledgeInsightStore() != nil {
+			t.Error("KnowledgeInsightStore() should be nil when knowledge disabled")
+		}
+	})
+
+	t.Run("nil when knowledge enabled but no database", func(t *testing.T) {
+		cfg := &Config{
+			Server:    ServerConfig{Name: testServerName},
+			Semantic:  SemanticConfig{Provider: testProviderNoop},
+			Query:     QueryConfig{Provider: testProviderNoop},
+			Storage:   StorageConfig{Provider: testProviderNoop},
+			Knowledge: KnowledgeConfig{Enabled: true},
+		}
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf(testNewErrFmt, err)
+		}
+		defer func() { _ = p.Close() }()
+
+		if p.KnowledgeInsightStore() != nil {
+			t.Error("KnowledgeInsightStore() should be nil when no database configured")
+		}
+	})
+}
+
+func TestKnowledgeChangesetStore_Accessor(t *testing.T) {
+	t.Run("nil when knowledge disabled", func(t *testing.T) {
+		p := newTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		if p.KnowledgeChangesetStore() != nil {
+			t.Error("KnowledgeChangesetStore() should be nil when knowledge disabled")
+		}
+	})
+
+	t.Run("nil when knowledge enabled but no database", func(t *testing.T) {
+		cfg := &Config{
+			Server:    ServerConfig{Name: testServerName},
+			Semantic:  SemanticConfig{Provider: testProviderNoop},
+			Query:     QueryConfig{Provider: testProviderNoop},
+			Storage:   StorageConfig{Provider: testProviderNoop},
+			Knowledge: KnowledgeConfig{Enabled: true},
+		}
+		p, err := New(WithConfig(cfg))
+		if err != nil {
+			t.Fatalf(testNewErrFmt, err)
+		}
+		defer func() { _ = p.Close() }()
+
+		if p.KnowledgeChangesetStore() != nil {
+			t.Error("KnowledgeChangesetStore() should be nil without database")
+		}
+	})
+}
+
+func TestKnowledgeDataHubWriter_Accessor(t *testing.T) {
+	t.Run("nil when knowledge disabled", func(t *testing.T) {
+		p := newTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		if p.KnowledgeDataHubWriter() != nil {
+			t.Error("KnowledgeDataHubWriter() should be nil when knowledge disabled")
+		}
+	})
+}
+
 // containsSubstr checks if s contains substr using strings.Contains.
 func containsSubstr(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestMergeBootstrap(t *testing.T) {
+	dbCfg := &Config{
+		APIVersion:  "v0",
+		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+		Server:      ServerConfig{Name: "db-name", Transport: "http"},
+		Database:    DatabaseConfig{DSN: "db-dsn"},
+		Auth:        AuthConfig{AllowAnonymous: true},
+		Admin:       AdminConfig{Enabled: true, Persona: "db-admin"},
+		Personas:    PersonasConfig{DefaultPersona: testRoleAnalyst},
+		Audit:       AuditConfig{Enabled: true, RetentionDays: testRetentionDays},
+		Semantic:    SemanticConfig{Provider: testToolkitKeyDatahub},
+	}
+
+	bootstrap := &Config{
+		APIVersion:  "v1",
+		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+		Server:      ServerConfig{Name: "bootstrap-name", Transport: "stdio"},
+		Database:    DatabaseConfig{DSN: "bootstrap-dsn"},
+		Auth:        AuthConfig{AllowAnonymous: false},
+		Admin:       AdminConfig{Enabled: true, Persona: "superadmin"},
+		Personas:    PersonasConfig{DefaultPersona: "executive"},
+		Audit:       AuditConfig{Enabled: false, RetentionDays: testDefaultRetention},
+	}
+
+	merged := mergeBootstrap(dbCfg, bootstrap)
+
+	// Bootstrap fields should come from bootstrap
+	if merged.APIVersion != "v1" {
+		t.Errorf("APIVersion = %q, want %q", merged.APIVersion, "v1")
+	}
+	if merged.Server.Name != "bootstrap-name" {
+		t.Errorf("Server.Name = %q, want %q", merged.Server.Name, "bootstrap-name")
+	}
+	if merged.Database.DSN != "bootstrap-dsn" {
+		t.Errorf("Database.DSN = %q, want %q", merged.Database.DSN, "bootstrap-dsn")
+	}
+	if merged.Admin.Persona != "superadmin" {
+		t.Errorf("Admin.Persona = %q, want %q", merged.Admin.Persona, "superadmin")
+	}
+
+	// Non-bootstrap fields should come from DB config
+	if merged.Personas.DefaultPersona != testRoleAnalyst {
+		t.Errorf("Personas.DefaultPersona = %q, want %q", merged.Personas.DefaultPersona, testRoleAnalyst)
+	}
+	if !merged.Audit.Enabled {
+		t.Error("Audit.Enabled = false, want true (from DB)")
+	}
+	if merged.Semantic.Provider != testToolkitKeyDatahub {
+		t.Errorf("Semantic.Provider = %q, want %q", merged.Semantic.Provider, testToolkitKeyDatahub)
+	}
+
+	// Original should not be modified
+	if dbCfg.APIVersion != "v0" {
+		t.Error("mergeBootstrap modified original dbCfg")
+	}
+}
+
+func TestPlatform_ConfigStore_FileMode(t *testing.T) {
+	cfg := &Config{
+		ConfigStore: ConfigStoreConfig{Mode: "file"},
+		Server:      ServerConfig{Name: testServerName},
+	}
+	applyDefaults(cfg)
+
+	p, err := New(
+		WithConfig(cfg),
+		WithSemanticProvider(semantic.NewNoopProvider()),
+		WithQueryProvider(query.NewNoopProvider()),
+		WithStorageProvider(storage.NewNoopProvider()),
+		WithPersonaRegistry(persona.NewRegistry()),
+		WithToolkitRegistry(registry.NewRegistry()),
+		WithAuthenticator(&middleware.NoopAuthenticator{}),
+		WithAuthorizer(&middleware.NoopAuthorizer{}),
+		WithAuditLogger(&middleware.NoopAuditLogger{}),
+		WithSessionStore(session.NewMemoryStore(time.Hour)),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	cs := p.ConfigStore()
+	if cs == nil {
+		t.Fatal("ConfigStore() returned nil")
+	}
+	if cs.Mode() != "file" {
+		t.Errorf("ConfigStore().Mode() = %q, want %q", cs.Mode(), "file")
+	}
 }
