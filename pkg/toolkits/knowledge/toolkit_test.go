@@ -1348,6 +1348,67 @@ func TestHandleSynthesize_MetadataError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// AC-25: synthesize returns note when proposed_changes is empty
+// ---------------------------------------------------------------------------
+
+func TestHandleSynthesize_NoteWhenNoProposedChanges(t *testing.T) {
+	store := &fullSpyStore{
+		Insights: []Insight{
+			{
+				ID:         "i1",
+				Status:     StatusApproved,
+				EntityURNs: []string{testEntityURN},
+				Category:   "observation",
+				// No SuggestedActions — this triggers the note
+			},
+		},
+	}
+	writer := &spyWriter{
+		Metadata: &EntityMetadata{Description: "Existing desc"},
+	}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
+
+	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+
+	m := parseJSONResult(t, result)
+	proposed, ok := m["proposed_changes"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, proposed)
+
+	note, ok := m["note"].(string)
+	require.True(t, ok, "response should contain a note when proposed_changes is empty")
+	assert.Contains(t, note, "without suggested_actions")
+}
+
+func TestHandleSynthesize_NoNoteWhenProposalsExist(t *testing.T) {
+	store := &fullSpyStore{
+		Insights: []Insight{
+			{
+				ID:         "i1",
+				Status:     StatusApproved,
+				EntityURNs: []string{testEntityURN},
+				SuggestedActions: []SuggestedAction{
+					{ActionType: "add_tag", Target: testEntityURN, Detail: "verified"},
+				},
+			},
+		},
+	}
+	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
+
+	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+
+	m := parseJSONResult(t, result)
+	assert.Nil(t, m["note"], "note should not be present when proposed_changes is non-empty")
+}
+
+// ---------------------------------------------------------------------------
 // AC-19: apply writes to DataHub via spy writer
 // ---------------------------------------------------------------------------
 
