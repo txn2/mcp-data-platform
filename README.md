@@ -111,7 +111,7 @@ Define who can use which tools. Analysts get read access to queries and searches
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
 ### Knowledge Capture
-AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The knowledge toolkit records these insights automatically and provides a structured workflow for admin review, approval, and write-back to DataHub with full changeset tracking and rollback.
+AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions, and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://txn2.github.io/mcp-data-platform/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://txn2.github.io/mcp-data-platform/knowledge/overview/) for details.
 
 ### Extensible Middleware Architecture
 Add custom authentication, rate limiting, or logging. Swap providers to integrate different semantic layers or query engines. The Go library exposes everything—build the platform your organization needs.
