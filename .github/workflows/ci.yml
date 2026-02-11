@@ -113,3 +113,10 @@ jobs:
         with:
           go-version-file: go.mod
           repo-checkout: false
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
+        with:
+          config: >-
+            p/golang
+            .semgrep/
