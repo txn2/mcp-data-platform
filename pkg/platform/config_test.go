@@ -45,6 +45,7 @@ const (
 	cfgTestDefaultCleanupInt = 1 * time.Minute
 	cfgTestCustomSessionsTTL = 15 * time.Minute
 	cfgTestCustomCleanup     = 2 * time.Minute
+	cfgTestPersonaSuperadmin = "superadmin"
 )
 
 // writeTestConfig writes a YAML config to a temp dir and returns the path.
@@ -686,6 +687,56 @@ injection:
 	}
 }
 
+func TestApplyDefaults_AdminConfig(t *testing.T) {
+	t.Run("defaults applied", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.Admin.Persona != "admin" {
+			t.Errorf("Admin.Persona = %q, want %q", cfg.Admin.Persona, "admin")
+		}
+		if cfg.Admin.PathPrefix != "/api/v1/admin" {
+			t.Errorf("Admin.PathPrefix = %q, want %q", cfg.Admin.PathPrefix, "/api/v1/admin")
+		}
+	})
+
+	t.Run("custom values preserved", func(t *testing.T) {
+		cfg := &Config{
+			Admin: AdminConfig{
+				Enabled:    true,
+				Persona:    cfgTestPersonaSuperadmin,
+				PathPrefix: "/admin/v2",
+			},
+		}
+		applyDefaults(cfg)
+		if cfg.Admin.Persona != cfgTestPersonaSuperadmin {
+			t.Errorf("Admin.Persona = %q, want %q (should preserve)", cfg.Admin.Persona, cfgTestPersonaSuperadmin)
+		}
+		if cfg.Admin.PathPrefix != "/admin/v2" {
+			t.Errorf("Admin.PathPrefix = %q, want %q (should preserve)", cfg.Admin.PathPrefix, "/admin/v2")
+		}
+	})
+}
+
+func TestLoadConfig_AdminFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+admin:
+  enabled: true
+  persona: superadmin
+  path_prefix: /admin/v2
+`)
+	if !cfg.Admin.Enabled {
+		t.Error("Admin.Enabled = false, want true")
+	}
+	if cfg.Admin.Persona != cfgTestPersonaSuperadmin {
+		t.Errorf("Admin.Persona = %q, want %q", cfg.Admin.Persona, cfgTestPersonaSuperadmin)
+	}
+	if cfg.Admin.PathPrefix != "/admin/v2" {
+		t.Errorf("Admin.PathPrefix = %q, want %q", cfg.Admin.PathPrefix, "/admin/v2")
+	}
+}
+
 func TestLoadConfig_DataHubDebugFromYAML(t *testing.T) {
 	cfg := loadTestConfig(t, `
 server:
@@ -934,5 +985,61 @@ func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
 	err := cfg.Validate()
 	if err != nil {
 		t.Errorf("Validate() unexpected error: %v", err)
+	}
+}
+
+func TestApplyDefaults_ConfigStore(t *testing.T) {
+	t.Run("defaults to file mode", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.ConfigStore.Mode != ConfigStoreModeFile {
+			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeFile)
+		}
+	})
+
+	t.Run("preserves explicit mode", func(t *testing.T) {
+		cfg := &Config{
+			ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+		}
+		applyDefaults(cfg)
+		if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
+			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
+		}
+	})
+}
+
+func TestConfigValidate_ConfigStoreDatabaseWithoutDSN(t *testing.T) {
+	cfg := &Config{
+		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+		Database:    DatabaseConfig{DSN: ""},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() expected error for config_store.mode=database without DSN")
+	}
+}
+
+func TestConfigValidate_ConfigStoreDatabaseWithDSN(t *testing.T) {
+	cfg := &Config{
+		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+		Database:    DatabaseConfig{DSN: "postgres://localhost/test"},
+	}
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() unexpected error: %v", err)
+	}
+}
+
+func TestLoadConfig_ConfigStoreFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+config_store:
+  mode: database
+database:
+  dsn: "postgres://localhost/test"
+`)
+	if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
+		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
 	}
 }
