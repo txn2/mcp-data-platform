@@ -14,9 +14,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/yaml.v3"
 
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/configstore"
+	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -63,6 +66,9 @@ type Platform struct {
 	db         *sql.DB
 	auditStore *auditpostgres.Store
 
+	// Config store
+	configStore configstore.Store
+
 	// Providers
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -75,6 +81,7 @@ type Platform struct {
 	// Auth
 	authenticator middleware.Authenticator
 	authorizer    middleware.Authorizer
+	apiKeyAuth    *auth.APIKeyAuthenticator
 
 	// OAuth
 	oauthServer      *oauth.Server
@@ -92,6 +99,11 @@ type Platform struct {
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
 	hintManager   *tuning.HintManager
+
+	// Knowledge stores (exposed for admin API)
+	knowledgeInsightStore   knowledgekit.InsightStore
+	knowledgeChangesetStore knowledgekit.ChangesetStore
+	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
@@ -123,8 +135,8 @@ func New(opts ...Option) (*Platform, error) {
 
 // initializeComponents initializes all platform components.
 func (p *Platform) initializeComponents(opts *Options) error {
-	// Initialize database first (required for audit logging)
-	if err := p.initDatabase(); err != nil {
+	// Initialize data infrastructure first (database + config store)
+	if err := p.initDataInfra(); err != nil {
 		return err
 	}
 	if err := p.initProviders(opts); err != nil {
@@ -156,6 +168,14 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	}
 	p.finalizeSetup()
 	return nil
+}
+
+// initDataInfra initializes the database and config store.
+func (p *Platform) initDataInfra() error {
+	if err := p.initDatabase(); err != nil {
+		return err
+	}
+	return p.initConfigStore()
 }
 
 // initExtensions initializes optional extension toolkits and apps.
@@ -195,6 +215,70 @@ func (p *Platform) initDatabase() error {
 	}
 
 	return nil
+}
+
+// initConfigStore initializes the config store based on the configured mode.
+func (p *Platform) initConfigStore() error {
+	switch p.config.ConfigStore.Mode {
+	case ConfigStoreModeDatabase:
+		if p.db == nil {
+			return fmt.Errorf("config_store.mode is \"database\" but no database configured")
+		}
+		store := configpostgres.New(p.db)
+		data, err := store.Load(context.Background())
+		if err != nil {
+			return fmt.Errorf("loading config from database: %w", err)
+		}
+		if data == nil {
+			// First boot: seed the database with the current config
+			slog.Info("config store: first boot, seeding database with bootstrap config")
+			if err := p.seedConfigStore(store); err != nil {
+				return fmt.Errorf("seeding config to database: %w", err)
+			}
+		} else {
+			// Parse the DB config and merge with bootstrap
+			dbCfg, parseErr := LoadConfigFromBytes(data)
+			if parseErr != nil {
+				return fmt.Errorf("parsing stored config: %w", parseErr)
+			}
+			p.config = mergeBootstrap(dbCfg, p.config)
+			slog.Info("config store: loaded config from database, merged with bootstrap")
+		}
+		p.configStore = store
+	default:
+		// File mode (default)
+		p.configStore = configstore.NewFileStore(p.config)
+	}
+	return nil
+}
+
+// seedConfigStore marshals the current config and saves it to the store.
+func (p *Platform) seedConfigStore(store configstore.Store) error {
+	data, err := yaml.Marshal(p.config)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	if err := store.Save(context.Background(), data, configstore.SaveMeta{
+		Author:  "system",
+		Comment: "initial bootstrap",
+	}); err != nil {
+		return fmt.Errorf("seeding config store: %w", err)
+	}
+	return nil
+}
+
+// mergeBootstrap overlays bootstrap-only fields from the YAML file onto
+// the database-loaded config. Bootstrap fields (server, database, auth,
+// admin, config_store, apiVersion) always come from the YAML file.
+func mergeBootstrap(dbCfg, bootstrap *Config) *Config {
+	merged := *dbCfg
+	merged.APIVersion = bootstrap.APIVersion
+	merged.ConfigStore = bootstrap.ConfigStore
+	merged.Server = bootstrap.Server
+	merged.Database = bootstrap.Database
+	merged.Auth = bootstrap.Auth
+	merged.Admin = bootstrap.Admin
+	return &merged
 }
 
 // initOAuthSigningKey parses or generates the OAuth signing key.
@@ -498,17 +582,20 @@ func (p *Platform) initTuning(opts *Options) {
 }
 
 // initKnowledge initializes the knowledge capture toolkit if enabled.
+// Knowledge tools require database persistence — without a database the
+// toolkit is not registered and its tools won't appear in tools/list.
 func (p *Platform) initKnowledge() error {
 	if !p.config.Knowledge.Enabled {
 		return nil
 	}
 
-	var store knowledgekit.InsightStore
-	if p.db != nil {
-		store = knowledgekit.NewPostgresStore(p.db)
-	} else {
-		store = knowledgekit.NewNoopStore()
+	if p.db == nil {
+		slog.Warn("knowledge enabled but no database configured; knowledge tools will not be registered")
+		return nil
 	}
+
+	store := knowledgekit.NewPostgresStore(p.db)
+	p.knowledgeInsightStore = store
 
 	tk, err := knowledgekit.New("default", store)
 	if err != nil {
@@ -517,17 +604,14 @@ func (p *Platform) initKnowledge() error {
 
 	// Configure apply_knowledge tool if enabled
 	if p.config.Knowledge.Apply.Enabled {
-		var csStore knowledgekit.ChangesetStore
-		if p.db != nil {
-			csStore = knowledgekit.NewPostgresChangesetStore(p.db)
-		} else {
-			csStore = knowledgekit.NewNoopChangesetStore()
-		}
+		csStore := knowledgekit.NewPostgresChangesetStore(p.db)
+		p.knowledgeChangesetStore = csStore
 
 		writer, writerErr := p.createDataHubWriter()
 		if writerErr != nil {
 			return fmt.Errorf("creating datahub writer: %w", writerErr)
 		}
+		p.knowledgeDataHubWriter = writer
 
 		tk.SetApplyConfig(knowledgekit.ApplyConfig{
 			Enabled:             true,
@@ -947,6 +1031,7 @@ func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
 			})
 		}
 		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{Keys: keys})
+		p.apiKeyAuth = apiKeyAuth
 		authenticators = append(authenticators, apiKeyAuth)
 	}
 
@@ -1059,6 +1144,41 @@ func (p *Platform) SessionStore() session.Store {
 // OAuthServer returns the OAuth server, or nil if not enabled.
 func (p *Platform) OAuthServer() *oauth.Server {
 	return p.oauthServer
+}
+
+// AuditStore returns the PostgreSQL audit store, or nil if audit is disabled.
+func (p *Platform) AuditStore() *auditpostgres.Store {
+	return p.auditStore
+}
+
+// Authenticator returns the platform authenticator.
+func (p *Platform) Authenticator() middleware.Authenticator {
+	return p.authenticator
+}
+
+// APIKeyAuthenticator returns the API key authenticator, or nil if API keys are disabled.
+func (p *Platform) APIKeyAuthenticator() *auth.APIKeyAuthenticator {
+	return p.apiKeyAuth
+}
+
+// ConfigStore returns the config store.
+func (p *Platform) ConfigStore() configstore.Store {
+	return p.configStore
+}
+
+// KnowledgeInsightStore returns the insight store, or nil if knowledge is disabled.
+func (p *Platform) KnowledgeInsightStore() knowledgekit.InsightStore {
+	return p.knowledgeInsightStore
+}
+
+// KnowledgeChangesetStore returns the changeset store, or nil if knowledge apply is disabled.
+func (p *Platform) KnowledgeChangesetStore() knowledgekit.ChangesetStore {
+	return p.knowledgeChangesetStore
+}
+
+// KnowledgeDataHubWriter returns the DataHub writer, or nil if knowledge apply is disabled.
+func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
+	return p.knowledgeDataHubWriter
 }
 
 // datahubConfig holds extracted DataHub configuration.
