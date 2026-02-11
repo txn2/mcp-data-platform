@@ -75,6 +75,8 @@ graph TB
    - Patch coverage — changed lines vs main must be ≥80% (mirrors codecov patch check)
    - Linting (`golangci-lint run ./...`) — cyclomatic complexity ≤10, cognitive complexity ≤15
    - Security scanning (`gosec ./...` + `govulncheck`)
+   - Semgrep SAST — `p/golang` ruleset + custom `.semgrep/` rules (unbounded allocations, etc.)
+   - CodeQL analysis — `security-and-quality` query suite, fails on error-level findings
    - Documentation check — warns when documentation-worthy changes lack doc updates (soft warning)
    - Dead code analysis
    - Mutation testing (`gremlins unleash --threshold-efficacy 60`) — ≥60% kill rate
