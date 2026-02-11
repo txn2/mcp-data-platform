@@ -672,6 +672,29 @@ func TestQuery_IDFilter(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestExecuteQuery_CapsCapacity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	// Use an excessive limit that would cause a huge allocation without the cap.
+	filter := audit.QueryFilter{
+		Limit: maxQueryCapacity * 2,
+	}
+
+	rows := sqlmock.NewRows(selectColumns)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
+		filter.Limit,
+	).WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), filter)
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestInterfaceCompliance(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)

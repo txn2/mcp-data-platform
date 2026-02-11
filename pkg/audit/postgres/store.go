@@ -15,6 +15,7 @@ import (
 const (
 	defaultRetentionDays = 90
 	defaultQueryCapacity = 100
+	maxQueryCapacity     = 10000
 )
 
 // Store implements audit.Logger using PostgreSQL.
@@ -219,6 +220,9 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 	capacity := limit
 	if capacity <= 0 {
 		capacity = defaultQueryCapacity
+	}
+	if capacity > maxQueryCapacity {
+		capacity = maxQueryCapacity
 	}
 	events := make([]audit.Event, 0, capacity)
 
