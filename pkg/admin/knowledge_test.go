@@ -292,9 +292,8 @@ func TestListInsights(t *testing.T) {
 		kh.ListInsights(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		var body map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Contains(t, body["error"], "db connection failed")
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "db connection failed")
 	})
 }
 
@@ -333,9 +332,8 @@ func TestGetInsight(t *testing.T) {
 		kh.GetInsight(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
-		var body map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, "insight not found", body["error"])
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "insight not found", pd.Detail)
 	})
 }
 
@@ -391,9 +389,8 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh.UpdateInsightStatus(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		var resp map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Contains(t, resp["error"], "status must be")
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "status must be")
 	})
 
 	t.Run("invalid status transition returns 409", func(t *testing.T) {
@@ -411,9 +408,8 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh.UpdateInsightStatus(w, req)
 
 		assert.Equal(t, http.StatusConflict, w.Code)
-		var resp map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Contains(t, resp["error"], "invalid status transition")
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "invalid status transition")
 	})
 
 	t.Run("insight not found returns 404", func(t *testing.T) {
@@ -517,9 +513,8 @@ func TestUpdateInsight(t *testing.T) {
 		kh.UpdateInsight(w, req)
 
 		assert.Equal(t, http.StatusConflict, w.Code)
-		var resp map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Equal(t, "cannot edit an applied insight", resp["error"])
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "cannot edit an applied insight", pd.Detail)
 	})
 
 	t.Run("insight not found returns 404", func(t *testing.T) {
@@ -731,9 +726,8 @@ func TestGetChangeset(t *testing.T) {
 		kh.GetChangeset(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
-		var body map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, "changeset not found", body["error"])
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "changeset not found", pd.Detail)
 	})
 }
 
@@ -780,9 +774,8 @@ func TestRollbackChangeset(t *testing.T) {
 		kh.RollbackChangeset(w, req)
 
 		assert.Equal(t, http.StatusConflict, w.Code)
-		var resp map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Equal(t, "changeset already rolled back", resp["error"])
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "changeset already rolled back", pd.Detail)
 	})
 
 	t.Run("changeset not found returns 404", func(t *testing.T) {
@@ -814,9 +807,8 @@ func TestRollbackChangeset(t *testing.T) {
 		kh.RollbackChangeset(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		var resp map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Contains(t, resp["error"], "rollback failed")
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "rollback failed")
 	})
 
 	t.Run("rollback without datahub writer skips write-back", func(t *testing.T) {
