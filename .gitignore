@@ -49,5 +49,8 @@ NOTES_*
 e2e-test-output.log
 test/e2e/**/*.log
 
+# SAST artifacts
+codeql-results.sarif
+
 # MCP Apps test host
 ext-apps/
