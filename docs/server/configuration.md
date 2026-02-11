@@ -2,11 +2,30 @@
 
 mcp-data-platform uses YAML configuration with environment variable expansion. Variables in the format `${VAR_NAME}` are replaced with their environment values at load time.
 
+## How Configuration Works
+
+The platform has two configuration modes that control how settings are stored and whether they can be changed at runtime:
+
+**File mode** (default): Configuration is loaded from a YAML file at startup and is read-only. This is the simplest deployment — no database required.
+
+**Database mode**: Adding `database.dsn` unlocks persistent platform features (audit logging, knowledge capture, session externalization). Setting `config_store.mode: database` additionally enables runtime configuration mutations through the admin API.
+
+| What you configure | What it unlocks |
+|--------------------|-----------------|
+| YAML file only | Read-only config, in-memory sessions, no audit |
+| `database.dsn` | Audit logging, knowledge capture, OAuth persistence, database-backed sessions |
+| `database.dsn` + `config_store.mode: database` | All of the above, plus runtime config mutations via admin API |
+| `database.dsn` + `admin.enabled: true` | REST endpoints for system health, config, personas, auth keys, audit |
+
+See [Operating Modes](operating-modes.md) for the full comparison and [Admin API](admin-api.md) for the REST endpoints.
+
 ## Configuration File
 
 Create a `platform.yaml` file:
 
 ```yaml
+apiVersion: v1
+
 server:
   name: mcp-data-platform
   transport: stdio
@@ -38,6 +57,46 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
 ```
+
+## Config Versioning
+
+Every configuration file should include an `apiVersion` field as the first key. This enables safe schema evolution with deprecation warnings and migration tooling.
+
+```yaml
+apiVersion: v1
+
+server:
+  name: mcp-data-platform
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `apiVersion` | string | `v1` | Config schema version. Omitting defaults to `v1` for backward compatibility. |
+
+**Supported versions**: `v1` (current)
+
+### Version Lifecycle
+
+- **current**: Actively supported, no warnings
+- **deprecated**: Still works, emits a warning at startup with migration guidance
+- **removed**: Rejected at startup with an error pointing to the migration tool
+
+### Migration Tool
+
+Migrate config files to the latest version:
+
+```bash
+# From file to stdout
+mcp-data-platform migrate-config --config platform.yaml
+
+# From stdin to file
+cat platform.yaml | mcp-data-platform migrate-config --output migrated.yaml
+
+# Specify target version
+mcp-data-platform migrate-config --config platform.yaml --target-version v1
+```
+
+The migration tool preserves `${VAR}` environment variable references.
 
 ## Server Configuration
 
@@ -118,6 +177,111 @@ auth:
 
 !!! note "Fail-Closed Security"
     Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access.
+
+## Database Configuration
+
+The `database` block configures the PostgreSQL connection used by audit logging, knowledge capture, session externalization, OAuth persistence, and (optionally) the config store.
+
+```yaml
+database:
+  dsn: ${DATABASE_URL}
+  max_open_conns: 25
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dsn` | string | - | PostgreSQL connection string |
+| `max_open_conns` | int | `25` | Maximum open database connections |
+
+!!! note "What the database unlocks"
+    Setting `dsn` enables audit logging, knowledge capture, session externalization, and OAuth persistence. Without it, these features degrade to in-memory or noop implementations.
+
+## Config Store
+
+The `config_store` block controls where platform configuration is persisted. By default, configuration is loaded from the YAML file and is read-only. Setting mode to `database` enables runtime config mutations via the admin API.
+
+```yaml
+config_store:
+  mode: file      # "file" (default) or "database"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode` | string | `file` | Config storage mode: `file` or `database` |
+
+**`file` mode**: Configuration loaded from YAML at startup. Read-only. Admin API mutation endpoints (config import, persona CRUD, auth key CRUD) return `409 Conflict`. This is the default and requires no database.
+
+**`database` mode**: Configuration persisted to PostgreSQL `config_versions` table. Requires `database.dsn` to be configured. Supports import, export, history, and runtime mutations via the admin API. On startup, bootstrap fields (`server`, `database`, `auth`, `admin`, `config_store`, `apiVersion`) are always loaded from the YAML file and override database values.
+
+See [Operating Modes](operating-modes.md) for the full comparison of deployment configurations.
+
+## Admin API Configuration
+
+The `admin` block enables and configures the REST API for system health, configuration management, persona CRUD, auth key management, and audit queries.
+
+```yaml
+admin:
+  enabled: true
+  persona: admin
+  path_prefix: /api/v1/admin
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable admin REST API |
+| `persona` | string | `admin` | Persona required for admin access |
+| `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
+!!! note "HTTP transport required"
+    The admin API is served over HTTP. It is not available when running in `stdio` transport mode.
+
+See [Admin API](admin-api.md) for the full endpoint reference.
+
+## Audit Configuration
+
+The `audit` block controls audit logging of MCP tool calls. Audit events are written asynchronously to PostgreSQL.
+
+```yaml
+audit:
+  enabled: true
+  log_tool_calls: true
+  retention_days: 90
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable audit logging |
+| `log_tool_calls` | bool | `false` | Log MCP tool call events |
+| `retention_days` | int | `90` | Days to retain audit events |
+
+!!! note "Requires database"
+    Audit logging requires `database.dsn` to be configured. Both `enabled` and `log_tool_calls` must be `true` for tool call events to be recorded.
+
+See [Audit Logging](audit.md) for query examples and retention details.
+
+## Session Configuration
+
+The `sessions` block controls how MCP session state is stored. In-memory sessions are lost on restart; database-backed sessions survive restarts and support multi-replica deployments.
+
+```yaml
+sessions:
+  store: database
+  ttl: 30m
+  idle_timeout: 30m
+  cleanup_interval: 1m
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `store` | string | `memory` | Backend: `memory` or `database` |
+| `ttl` | duration | streamable `session_timeout` | Session lifetime |
+| `idle_timeout` | duration | streamable `session_timeout` | Idle eviction threshold |
+| `cleanup_interval` | duration | `1m` | Cleanup routine interval |
+
+!!! note "Requires database"
+    The `database` store requires `database.dsn` to be configured.
+
+See [Session Externalization](session-externalization.md) for architecture details and multi-replica considerations.
 
 ## Toolkit Configuration
 
@@ -271,91 +435,6 @@ storage:
   instance: primary           # Which S3 instance to use
 ```
 
-## Environment Variables
-
-Common environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `TRINO_USER` | Trino username |
-| `TRINO_PASSWORD` | Trino password |
-| `DATAHUB_TOKEN` | DataHub access token |
-| `AWS_ACCESS_KEY_ID` | AWS access key |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
-| `AWS_SESSION_TOKEN` | AWS session token |
-| `DATABASE_URL` | PostgreSQL connection string (for audit/OAuth) |
-
-## Complete Example
-
-```yaml
-server:
-  name: mcp-data-platform
-  transport: stdio
-
-toolkits:
-  trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
-      catalog: hive
-      schema: default
-      default_limit: 1000
-      max_limit: 10000
-
-  datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
-      default_limit: 10
-      max_limit: 100
-
-  s3:
-    primary:
-      region: us-east-1
-      read_only: true
-
-semantic:
-  provider: datahub
-  instance: primary
-  cache:
-    enabled: true
-    ttl: 5m
-
-query:
-  provider: trino
-  instance: primary
-
-storage:
-  provider: s3
-  instance: primary
-
-injection:
-  trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  s3_semantic_enrichment: true
-
-audit:
-  enabled: true
-  log_tool_calls: true
-  retention_days: 90
-
-database:
-  dsn: ${DATABASE_URL}
-
-personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "trino_explain", "datahub_*"]
-        deny: ["*_delete_*"]
-  default_persona: analyst
-```
-
 ## Persona Configuration
 
 Personas define tool access based on user roles. The security model follows a **default-deny** approach.
@@ -441,8 +520,124 @@ mcpapps:
 
 See [MCP Apps Configuration](../mcpapps/configuration.md) for complete options.
 
+## Environment Variables
+
+Common environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `TRINO_USER` | Trino username |
+| `TRINO_PASSWORD` | Trino password |
+| `DATAHUB_TOKEN` | DataHub access token |
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `AWS_SESSION_TOKEN` | AWS session token |
+| `DATABASE_URL` | PostgreSQL connection string (for audit/OAuth) |
+
+## Complete Example
+
+```yaml
+apiVersion: v1
+
+server:
+  name: mcp-data-platform
+  transport: http
+  address: ":8080"
+
+database:
+  dsn: ${DATABASE_URL}
+
+config_store:
+  mode: database
+
+admin:
+  enabled: true
+  persona: admin
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  retention_days: 90
+
+sessions:
+  store: database
+  ttl: 30m
+  idle_timeout: 30m
+  cleanup_interval: 1m
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - key: ${API_KEY_ADMIN}
+        name: "admin"
+        roles: ["admin"]
+
+toolkits:
+  trino:
+    primary:
+      host: trino.example.com
+      port: 443
+      user: ${TRINO_USER}
+      password: ${TRINO_PASSWORD}
+      ssl: true
+      catalog: hive
+      schema: default
+      default_limit: 1000
+      max_limit: 10000
+
+  datahub:
+    primary:
+      url: https://datahub.example.com
+      token: ${DATAHUB_TOKEN}
+      default_limit: 10
+      max_limit: 100
+
+  s3:
+    primary:
+      region: us-east-1
+      read_only: true
+
+semantic:
+  provider: datahub
+  instance: primary
+  cache:
+    enabled: true
+    ttl: 5m
+
+query:
+  provider: trino
+  instance: primary
+
+storage:
+  provider: s3
+  instance: primary
+
+injection:
+  trino_semantic_enrichment: true
+  datahub_query_enrichment: true
+  s3_semantic_enrichment: true
+
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_query", "trino_explain", "datahub_*"]
+        deny: ["*_delete_*"]
+    admin:
+      display_name: "Administrator"
+      roles: ["admin"]
+      tools:
+        allow: ["*"]
+  default_persona: analyst
+```
+
 ## Next Steps
 
+- [Operating Modes](operating-modes.md) - Standalone, file + DB, and bootstrap + DB config modes
+- [Admin API](admin-api.md) - REST endpoints for system, config, personas, auth keys, audit
 - [Tools](tools.md) - Available tools and parameters
 - [Multi-Provider](multi-provider.md) - Configure multiple instances
 - [Authentication](../auth/overview.md) - Add authentication
