@@ -42,6 +42,14 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     Every tool call logged to PostgreSQL: who called what, when, how long, success or failure. Automatic retention cleanup and parameter sanitization.
 
+-   :material-brain: **Knowledge Capture**
+
+    ---
+
+    Domain knowledge shared during AI sessions -- column meanings, business rules, quality issues -- is captured, reviewed, and written back to DataHub with changeset tracking.
+
+    [:octicons-arrow-right-24: Knowledge capture](knowledge/overview.md)
+
 -   :material-monitor-dashboard: **MCP Apps**
 
     ---
