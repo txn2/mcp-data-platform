@@ -30,6 +30,12 @@ const (
 	SessionStoreDatabase = "database"
 )
 
+// Config store mode names.
+const (
+	ConfigStoreModeFile     = "file"
+	ConfigStoreModeDatabase = "database"
+)
+
 // Default durations for configuration.
 var (
 	defaultCacheTTL         = 5 * time.Minute
@@ -39,24 +45,38 @@ var (
 	defaultCleanupInterval  = 1 * time.Minute
 )
 
+// ConfigStoreConfig configures how configuration is stored and managed.
+type ConfigStoreConfig struct {
+	Mode string `yaml:"mode"` // "file" (default) or "database"
+}
+
 // Config holds the complete platform configuration.
 type Config struct {
-	APIVersion string          `yaml:"apiVersion"`
-	Server     ServerConfig    `yaml:"server"`
-	Auth       AuthConfig      `yaml:"auth"`
-	OAuth      OAuthConfig     `yaml:"oauth"`
-	Database   DatabaseConfig  `yaml:"database"`
-	Personas   PersonasConfig  `yaml:"personas"`
-	Toolkits   map[string]any  `yaml:"toolkits"`
-	Semantic   SemanticConfig  `yaml:"semantic"`
-	Query      QueryConfig     `yaml:"query"`
-	Storage    StorageConfig   `yaml:"storage"`
-	Injection  InjectionConfig `yaml:"injection"`
-	Tuning     TuningConfig    `yaml:"tuning"`
-	Audit      AuditConfig     `yaml:"audit"`
-	MCPApps    MCPAppsConfig   `yaml:"mcpapps"`
-	Sessions   SessionsConfig  `yaml:"sessions"`
-	Knowledge  KnowledgeConfig `yaml:"knowledge"`
+	APIVersion  string            `yaml:"apiVersion"`
+	ConfigStore ConfigStoreConfig `yaml:"config_store"`
+	Server      ServerConfig      `yaml:"server"`
+	Auth        AuthConfig        `yaml:"auth"`
+	OAuth       OAuthConfig       `yaml:"oauth"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Personas    PersonasConfig    `yaml:"personas"`
+	Toolkits    map[string]any    `yaml:"toolkits"`
+	Semantic    SemanticConfig    `yaml:"semantic"`
+	Query       QueryConfig       `yaml:"query"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Injection   InjectionConfig   `yaml:"injection"`
+	Tuning      TuningConfig      `yaml:"tuning"`
+	Audit       AuditConfig       `yaml:"audit"`
+	MCPApps     MCPAppsConfig     `yaml:"mcpapps"`
+	Sessions    SessionsConfig    `yaml:"sessions"`
+	Knowledge   KnowledgeConfig   `yaml:"knowledge"`
+	Admin       AdminConfig       `yaml:"admin"`
+}
+
+// AdminConfig configures the admin REST API.
+type AdminConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Persona    string `yaml:"persona"`     // required admin persona (default: "admin")
+	PathPrefix string `yaml:"path_prefix"` // URL prefix (default: "/api/v1/admin")
 }
 
 // KnowledgeConfig configures the knowledge capture feature.
@@ -470,10 +490,29 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
+	applyConfigStoreDefaults(cfg)
 	applyServerDefaults(cfg)
 	applyServiceDefaults(cfg)
 	applySessionDedupDefaults(cfg)
 	applySessionDefaults(cfg)
+	applyAdminDefaults(cfg)
+}
+
+// applyConfigStoreDefaults sets defaults for config store settings.
+func applyConfigStoreDefaults(cfg *Config) {
+	if cfg.ConfigStore.Mode == "" {
+		cfg.ConfigStore.Mode = ConfigStoreModeFile
+	}
+}
+
+// applyAdminDefaults sets defaults for admin API config.
+func applyAdminDefaults(cfg *Config) {
+	if cfg.Admin.Persona == "" {
+		cfg.Admin.Persona = "admin"
+	}
+	if cfg.Admin.PathPrefix == "" {
+		cfg.Admin.PathPrefix = "/api/v1/admin"
+	}
 }
 
 // applyServerDefaults sets defaults for server-related config fields.
@@ -548,6 +587,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
 
+	errs = c.validateConfigStore(errs)
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
 
@@ -556,6 +596,14 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validateConfigStore checks config store configuration validity and appends any errors.
+func (c *Config) validateConfigStore(errs []string) []string {
+	if c.ConfigStore.Mode == ConfigStoreModeDatabase && c.Database.DSN == "" {
+		errs = append(errs, "database.dsn is required when config_store.mode is \"database\"")
+	}
+	return errs
 }
 
 // validateOAuth checks OAuth configuration validity and appends any errors.
