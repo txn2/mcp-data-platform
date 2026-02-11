@@ -58,6 +58,10 @@ nav:
       - Overview: personas/overview.md
       - Tool Filtering: personas/tool-filtering.md
       - Role Mapping: personas/role-mapping.md
+    - Knowledge Capture:
+      - Overview: knowledge/overview.md
+      - Governance Workflow: knowledge/governance.md
+      - Admin API: knowledge/admin-api.md
     - Audit Logging: server/audit.md
     - MCP Apps:
       - Overview: mcpapps/overview.md
