@@ -51,4 +51,7 @@
     "mainEntityOfPage": "{{ page_url }}"
   }
   </script>
+
+  <!-- Load mermaid fullscreen BEFORE Material's bundle to capture diagram sources -->
+  <script src="{{ 'javascripts/mermaid-fullscreen.js' | url }}"></script>
 {% endblock %}
