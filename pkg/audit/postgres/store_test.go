@@ -695,6 +695,27 @@ func TestExecuteQuery_CapsCapacity(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestQueryCapacity(t *testing.T) {
+	const normalLimit = 50
+
+	tests := []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{"negative returns default", -1, defaultQueryCapacity},
+		{"zero returns default", 0, defaultQueryCapacity},
+		{"normal value passes through", normalLimit, normalLimit},
+		{"at cap returns cap", maxQueryCapacity, maxQueryCapacity},
+		{"over cap returns cap", maxQueryCapacity + 1, maxQueryCapacity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, queryCapacity(tt.limit))
+		})
+	}
+}
+
 func TestInterfaceCompliance(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
