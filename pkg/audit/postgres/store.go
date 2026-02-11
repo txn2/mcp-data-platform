@@ -217,7 +217,11 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 	}
 	defer func() { _ = rows.Close() }()
 
-	events := make([]audit.Event, 0, queryCapacity(limit))
+	allocCap := defaultQueryCapacity
+	if limit > 0 && limit <= maxQueryCapacity {
+		allocCap = limit
+	}
+	events := make([]audit.Event, 0, allocCap)
 
 	for rows.Next() {
 		event, err := s.scanEvent(rows)
@@ -232,14 +236,6 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 	}
 
 	return events, nil
-}
-
-// queryCapacity returns a bounded allocation capacity for audit queries.
-func queryCapacity(limit int) int {
-	if limit <= 0 {
-		return defaultQueryCapacity
-	}
-	return min(limit, maxQueryCapacity)
 }
 
 func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
