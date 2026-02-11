@@ -34,14 +34,9 @@ rules:
           $CAP = min($CAP, $MAX)
           ...
           make($TYPE, $LEN, $CAP)
-      - metavariable-pattern:
+      - metavariable-regex:
           metavariable: $CAP
-          patterns:
-            - pattern-either:
-                - pattern: $OBJ.$FIELD
-                - pattern: $FUNC(...)
-            - pattern-not: len(...)
-            - pattern-not: cap(...)
+          regex: '^[a-zA-Z_]\w*\.[a-zA-Z_]\w*$'
     message: >-
       Slice allocation uses potentially unbounded capacity `$CAP`.
       If this value originates from user input (query parameter, request body,
@@ -63,9 +58,9 @@ rules:
   - id: unbounded-make-map-size
     patterns:
       - pattern: make($TYPE, $SIZE)
-      - metavariable-pattern:
+      - metavariable-regex:
           metavariable: $TYPE
-          pattern: map[$K]$V
+          regex: '^map\[.+\].+'
       - pattern-not-inside: |
           if $SIZE > $MAX {
             ...
@@ -94,14 +89,9 @@ rules:
           $SIZE = min($SIZE, $MAX)
           ...
           make($TYPE, $SIZE)
-      - metavariable-pattern:
+      - metavariable-regex:
           metavariable: $SIZE
-          patterns:
-            - pattern-either:
-                - pattern: $OBJ.$FIELD
-                - pattern: $FUNC(...)
-            - pattern-not: len(...)
-            - pattern-not: cap(...)
+          regex: '^[a-zA-Z_]\w*\.[a-zA-Z_]\w*$'
     message: >-
       Map allocation uses potentially unbounded size hint `$SIZE`.
       If this value originates from user input, an attacker can trigger OOM.
