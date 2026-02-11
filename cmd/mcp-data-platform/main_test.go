@@ -676,3 +676,105 @@ func TestRunMigrateConfig_UnknownSourceVersion(t *testing.T) {
 		t.Errorf("error = %q, want 'migrating config'", err.Error())
 	}
 }
+
+func TestMountAdminAPI(t *testing.T) {
+	t.Run("skips when platform is nil", func(_ *testing.T) {
+		mux := http.NewServeMux()
+		mountAdminAPI(mux, nil) // should not panic
+	})
+
+	t.Run("skips when admin not enabled", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			Admin:  platform.AdminConfig{Enabled: false},
+		})
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountAdminAPI(mux, p) // should not register any routes
+	})
+
+	t.Run("mounts when admin enabled", func(t *testing.T) {
+		cfg := &platform.Config{
+			Server:   platform.ServerConfig{Name: "test", Transport: "http"},
+			Semantic: platform.SemanticConfig{Provider: "noop"},
+			Query:    platform.QueryConfig{Provider: "noop"},
+			Storage:  platform.StorageConfig{Provider: "noop"},
+			Admin:    platform.AdminConfig{Enabled: true, Persona: "admin"},
+			Personas: platform.PersonasConfig{
+				Definitions: map[string]platform.PersonaDef{
+					"admin": {
+						DisplayName: "Administrator",
+						Roles:       []string{"admin"},
+						Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+					},
+				},
+			},
+		}
+
+		p, err := platform.New(platform.WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountAdminAPI(mux, p)
+
+		// Admin route should be registered and return 401 (no auth)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", w.Code)
+		}
+	})
+}
+
+func TestBuildAdminHandler(t *testing.T) {
+	cfg := &platform.Config{
+		Server: platform.ServerConfig{
+			Name:      "test-platform",
+			Transport: "http",
+		},
+		Semantic: platform.SemanticConfig{Provider: "noop"},
+		Query:    platform.QueryConfig{Provider: "noop"},
+		Storage:  platform.StorageConfig{Provider: "noop"},
+		Admin: platform.AdminConfig{
+			Enabled: true,
+			Persona: "admin",
+		},
+		Personas: platform.PersonasConfig{
+			Definitions: map[string]platform.PersonaDef{
+				"admin": {
+					DisplayName: "Administrator",
+					Roles:       []string{"admin"},
+					Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+				},
+			},
+		},
+	}
+
+	p, err := platform.New(platform.WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	handler := buildAdminHandler(p)
+	if handler == nil {
+		t.Fatal("buildAdminHandler() returned nil")
+	}
+
+	// The handler should respond to admin routes
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Without a valid API key, we expect 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated request, got %d", w.Code)
+	}
+}
