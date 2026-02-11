@@ -644,6 +644,7 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 
 	// Redirect to upstream IdP without prompt=none
 	upstreamURL := s.buildUpstreamAuthURLWithPrompt(stateParam, false)
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- URL built from server OIDC config, not user input
 	http.Redirect(w, r, upstreamURL, http.StatusFound)
 	return true
 }
@@ -712,6 +713,7 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 
 	// Redirect back to the original client with the MCP authorization code
 	redirectURL := s.buildClientRedirectURL(authState.RedirectURI, mcpCode, authState.State)
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- redirect URI validated during client registration
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
