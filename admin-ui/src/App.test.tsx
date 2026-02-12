@@ -18,7 +18,7 @@ describe("App", () => {
   it("renders app shell when authenticated", () => {
     useAuthStore.getState().setApiKey("test-key");
     render(<App />);
-    expect(screen.getByText("MCP Admin")).toBeInTheDocument();
+    expect(screen.getByText("MCP Platform")).toBeInTheDocument();
     // "Dashboard" appears in both sidebar and header
     expect(screen.getAllByText("Dashboard")).toHaveLength(2);
     expect(screen.getByText("Audit Log")).toBeInTheDocument();
