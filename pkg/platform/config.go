@@ -1,4 +1,3 @@
-//nolint:revive // package contains related config DTOs
 package platform
 
 import (
