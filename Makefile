@@ -11,6 +11,8 @@ LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Versio
 CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
+ADMIN_UI_DIR := ./admin-ui
+ADMIN_UI_EMBED_DIR := ./internal/adminui/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.8.0
@@ -27,6 +29,7 @@ GOLINT := golangci-lint
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast \
+	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
 
 ## all: Build and test
@@ -86,6 +89,9 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@rm -f coverage.out coverage.html
+	@rm -rf $(ADMIN_UI_DIR)/dist $(ADMIN_UI_DIR)/node_modules
+	@# Reset embed dir but keep .gitkeep
+	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
 	@echo "Clean complete."
 
 ## install: Install the binary
@@ -268,6 +274,40 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
+
+# =============================================================================
+# Admin UI Frontend Targets
+# =============================================================================
+
+## frontend-install: Install admin UI dependencies
+frontend-install:
+	@echo "Installing admin UI dependencies..."
+	cd $(ADMIN_UI_DIR) && npm ci
+	@echo "Admin UI dependencies installed."
+
+## frontend-build: Build admin UI and copy to embed directory
+frontend-build: frontend-install
+	@echo "Building admin UI..."
+	cd $(ADMIN_UI_DIR) && npm run build
+	@echo "Copying dist to embed directory..."
+	@rm -rf $(ADMIN_UI_EMBED_DIR)/*
+	@cp -r $(ADMIN_UI_DIR)/dist/* $(ADMIN_UI_EMBED_DIR)/
+	@echo "Admin UI built and embedded."
+
+## frontend-dev: Run admin UI dev server (hot reload)
+frontend-dev:
+	cd $(ADMIN_UI_DIR) && npm run dev
+
+## frontend-test: Run admin UI tests
+frontend-test:
+	cd $(ADMIN_UI_DIR) && npm run test
+
+## frontend-storybook: Run Storybook for component development
+frontend-storybook:
+	cd $(ADMIN_UI_DIR) && npm run storybook
+
+## build-with-ui: Build Go binary with embedded admin UI
+build-with-ui: frontend-build build
 
 # =============================================================================
 # E2E Testing Targets
