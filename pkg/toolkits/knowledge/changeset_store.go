@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 // ChangesetStore persists and queries knowledge changesets.
@@ -109,26 +110,59 @@ func unmarshalChangesetJSON(cs *Changeset, prevVal, newVal, srcIDs []byte) error
 	return nil
 }
 
+// applyChangesetFilter adds filter conditions to a SELECT builder.
+func applyChangesetFilter(qb sq.SelectBuilder, filter ChangesetFilter) sq.SelectBuilder {
+	if filter.EntityURN != "" {
+		qb = qb.Where(sq.Eq{"target_urn": filter.EntityURN})
+	}
+	if filter.AppliedBy != "" {
+		qb = qb.Where(sq.Eq{"applied_by": filter.AppliedBy})
+	}
+	if filter.Since != nil {
+		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
+	}
+	if filter.Until != nil {
+		qb = qb.Where(sq.LtOrEq{"created_at": *filter.Until})
+	}
+	if filter.RolledBack != nil {
+		qb = qb.Where(sq.Eq{"rolled_back": *filter.RolledBack})
+	}
+	return qb
+}
+
 // ListChangesets returns changesets matching the filter with pagination.
 func (s *postgresChangesetStore) ListChangesets(ctx context.Context, filter ChangesetFilter) ([]Changeset, int, error) {
-	where, args := buildChangesetFilterWhere(filter)
+	countQB := applyChangesetFilter(psq.Select("COUNT(*)").From("knowledge_changesets"), filter)
+	countQuery, countArgs, err := countQB.ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("building count query: %w", err)
+	}
 
-	countQuery := "SELECT COUNT(*) FROM knowledge_changesets" + where
 	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("counting changesets: %w", err)
 	}
 
 	limit := filter.EffectiveLimit()
-	// #nosec G202 -- concatenation uses parameterized args ($N), not user input
-	selectQuery := `
-		SELECT id, created_at, target_urn, change_type, previous_value, new_value,
-		       source_insight_ids, approved_by, applied_by, rolled_back,
-		       rolled_back_by, rolled_back_at
-		FROM knowledge_changesets` + where +
-		fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d OFFSET %d", limit, filter.Offset)
+	selectQB := applyChangesetFilter(psq.Select(
+		"id", "created_at", "target_urn", "change_type", "previous_value", "new_value",
+		"source_insight_ids", "approved_by", "applied_by", "rolled_back",
+		"rolled_back_by", "rolled_back_at",
+	).From("knowledge_changesets"), filter).
+		OrderBy("created_at DESC")
+	if limit > 0 {
+		selectQB = selectQB.Limit(uint64(limit))
+	}
+	if filter.Offset > 0 {
+		selectQB = selectQB.Offset(uint64(filter.Offset))
+	}
 
-	rows, err := s.db.QueryContext(ctx, selectQuery, args...)
+	selectQuery, selectArgs, err := selectQB.ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("building select query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying changesets: %w", err)
 	}
@@ -163,42 +197,6 @@ func (s *postgresChangesetStore) ListChangesets(ctx context.Context, filter Chan
 	}
 
 	return changesets, total, nil
-}
-
-// buildChangesetFilterWhere builds a WHERE clause from a ChangesetFilter.
-func buildChangesetFilterWhere(filter ChangesetFilter) (where string, args []any) {
-	var conditions []string
-	argN := 1
-
-	if filter.EntityURN != "" {
-		conditions = append(conditions, fmt.Sprintf("target_urn = $%d", argN))
-		args = append(args, filter.EntityURN)
-		argN++
-	}
-	if filter.AppliedBy != "" {
-		conditions = append(conditions, fmt.Sprintf("applied_by = $%d", argN))
-		args = append(args, filter.AppliedBy)
-		argN++
-	}
-	if filter.Since != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argN))
-		args = append(args, *filter.Since)
-		argN++
-	}
-	if filter.Until != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argN))
-		args = append(args, *filter.Until)
-		argN++
-	}
-	if filter.RolledBack != nil {
-		conditions = append(conditions, fmt.Sprintf("rolled_back = $%d", argN))
-		args = append(args, *filter.RolledBack)
-	}
-
-	if len(conditions) == 0 {
-		return "", nil
-	}
-	return " WHERE " + strings.Join(conditions, " AND "), args
 }
 
 // RollbackChangeset marks a changeset as rolled back.
