@@ -248,8 +248,6 @@ func TestQuery_AllFilters(t *testing.T) {
 		"trino_query",
 		"trino",
 		true,
-		testFilterLimit,
-		testFilterOffset,
 	).WillReturnRows(rows)
 
 	results, err := store.Query(context.Background(), filter)
@@ -293,10 +291,7 @@ func TestQuery_WithLimitOffset(t *testing.T) {
 	}
 
 	rows := sqlmock.NewRows(selectColumns)
-	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
-		testPageLimit,
-		testPageOffset,
-	).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
 	results, err := store.Query(context.Background(), filter)
 	assert.NoError(t, err)
@@ -470,52 +465,107 @@ func TestStartCleanupRoutine(t *testing.T) {
 	assert.NoError(t, store.Close())
 }
 
-func TestQueryBuilder_Internal(t *testing.T) {
-	t.Run("empty where clause", func(t *testing.T) {
-		b := newQueryBuilder()
-		assert.Empty(t, b.whereClause())
-	})
+func TestApplyAuditFilter(t *testing.T) {
+	startTime := time.Date(testYear, testMonth, 1, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(testYear, testMonth, 30, 23, 59, 59, 0, time.UTC) //nolint:revive // test fixture date
+	success := true
 
-	t.Run("single condition", func(t *testing.T) {
-		b := newQueryBuilder()
-		b.addCondition("user_id", "test")
-		assert.Equal(t, " WHERE user_id = $1", b.whereClause())
-		assert.Equal(t, []any{"test"}, b.args)
-	})
+	tests := []struct {
+		name         string
+		filter       audit.QueryFilter
+		wantArgCount int
+		wantContains []string
+	}{
+		{
+			name:         "empty filter",
+			filter:       audit.QueryFilter{},
+			wantArgCount: 0,
+		},
+		{
+			name:         "id only",
+			filter:       audit.QueryFilter{ID: "evt-1"},
+			wantArgCount: 1,
+			wantContains: []string{"id = $1"},
+		},
+		{
+			name:         "start_time only",
+			filter:       audit.QueryFilter{StartTime: &startTime},
+			wantArgCount: 1,
+			wantContains: []string{"timestamp >= $1"},
+		},
+		{
+			name:         "end_time only",
+			filter:       audit.QueryFilter{EndTime: &endTime},
+			wantArgCount: 1,
+			wantContains: []string{"timestamp <= $1"},
+		},
+		{
+			name:         "user_id only",
+			filter:       audit.QueryFilter{UserID: "user-1"},
+			wantArgCount: 1,
+			wantContains: []string{"user_id = $1"},
+		},
+		{
+			name:         "session_id only",
+			filter:       audit.QueryFilter{SessionID: "sess-1"},
+			wantArgCount: 1,
+			wantContains: []string{"session_id = $1"},
+		},
+		{
+			name:         "tool_name only",
+			filter:       audit.QueryFilter{ToolName: "trino_query"},
+			wantArgCount: 1,
+			wantContains: []string{"tool_name = $1"},
+		},
+		{
+			name:         "toolkit_kind only",
+			filter:       audit.QueryFilter{ToolkitKind: "trino"},
+			wantArgCount: 1,
+			wantContains: []string{"toolkit_kind = $1"},
+		},
+		{
+			name:         "success only",
+			filter:       audit.QueryFilter{Success: &success},
+			wantArgCount: 1,
+			wantContains: []string{"success = $1"},
+		},
+		{
+			name: "all filters",
+			filter: audit.QueryFilter{
+				ID:          "evt-1",
+				StartTime:   &startTime,
+				EndTime:     &endTime,
+				UserID:      "user-1",
+				SessionID:   "sess-1",
+				ToolName:    "trino_query",
+				ToolkitKind: "trino",
+				Success:     &success,
+			},
+			wantArgCount: 8, //nolint:revive // 8 filters
+			wantContains: []string{
+				"id = $1",
+				"timestamp >= $2",
+				"timestamp <= $3",
+				"user_id = $4",
+				"session_id = $5",
+				"tool_name = $6",
+				"toolkit_kind = $7",
+				"success = $8",
+			},
+		},
+	}
 
-	t.Run("multiple conditions", func(t *testing.T) {
-		b := newQueryBuilder()
-		b.addCondition("user_id", "test")
-		b.addCondition("tool_name", "query")
-		assert.Equal(t, " WHERE user_id = $1 AND tool_name = $2", b.whereClause())
-	})
-
-	t.Run("time condition", func(t *testing.T) {
-		b := newQueryBuilder()
-		ts := time.Now()
-		b.addTimeCondition("timestamp", ">=", ts)
-		assert.Contains(t, b.whereClause(), "timestamp >= $1")
-	})
-
-	t.Run("limit clause zero", func(t *testing.T) {
-		b := newQueryBuilder()
-		assert.Empty(t, b.limitClause(0))
-	})
-
-	t.Run("limit clause positive", func(t *testing.T) {
-		b := newQueryBuilder()
-		assert.Contains(t, b.limitClause(testFilterLimit), "LIMIT $1")
-	})
-
-	t.Run("offset clause zero", func(t *testing.T) {
-		b := newQueryBuilder()
-		assert.Empty(t, b.offsetClause(0))
-	})
-
-	t.Run("offset clause positive", func(t *testing.T) {
-		b := newQueryBuilder()
-		assert.Contains(t, b.offsetClause(testFilterOffset), "OFFSET $1")
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			qb := applyAuditFilter(psq.Select("*").From("audit_logs"), tc.filter)
+			query, args, err := qb.ToSql()
+			require.NoError(t, err)
+			assert.Len(t, args, tc.wantArgCount)
+			for _, s := range tc.wantContains {
+				assert.Contains(t, query, s)
+			}
+		})
+	}
 }
 
 func TestQuery_MultipleRows(t *testing.T) {
@@ -685,9 +735,7 @@ func TestExecuteQuery_CapsCapacity(t *testing.T) {
 	}
 
 	rows := sqlmock.NewRows(selectColumns)
-	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
-		filter.Limit,
-	).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
 	results, err := store.Query(context.Background(), filter)
 	assert.NoError(t, err)
