@@ -18,7 +18,7 @@ export function Sidebar({ currentPath, onNavigate }: SidebarProps) {
   return (
     <aside className="flex h-screen w-[var(--sidebar-width)] flex-col border-r bg-card">
       <div className="flex h-14 items-center border-b px-4">
-        <span className="text-sm font-semibold">MCP Admin</span>
+        <span className="text-sm font-semibold">MCP Platform</span>
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
