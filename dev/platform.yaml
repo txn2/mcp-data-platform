@@ -1,0 +1,211 @@
+# ACME Corporation — Local Dev Configuration
+#
+# Usage:
+#   make dev-up
+#   go run ./cmd/mcp-data-platform --config dev/platform.yaml
+#
+# Then in another terminal:
+#   cd admin-ui && npm run dev
+#   Open http://localhost:5173/admin/
+
+apiVersion: v1
+
+config_store:
+  mode: database
+
+server:
+  name: acme-data-platform
+  transport: http
+  address: ":8080"
+
+auth:
+  oidc:
+    enabled: false
+  api_keys:
+    enabled: true
+    keys:
+      - key: "acme-dev-key-2024"
+        name: "admin"
+        roles: ["admin"]
+
+oauth:
+  enabled: true
+  dcr:
+    enabled: true
+    allowed_redirect_patterns:
+      - "http://localhost:.*/callback"
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  max_open_conns: 10
+
+# Six ACME personas
+personas:
+  admin:
+    display_name: "Administrator"
+    roles:
+      - admin
+    tools:
+      allow:
+        - "*"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are the ACME data platform administrator with full access.
+
+  data-engineer:
+    display_name: "Data Engineer"
+    roles:
+      - data_engineer
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+        - "s3_*"
+      deny:
+        - "s3_delete_*"
+    prompts:
+      system_prefix: |
+        You are helping an ACME data engineer build and maintain data pipelines.
+    hints:
+      trino_query: "Use iceberg catalog for production tables"
+      datahub_search: "Search the catalog before writing new queries"
+
+  inventory-analyst:
+    display_name: "Inventory Analyst"
+    roles:
+      - inventory_analyst
+    tools:
+      allow:
+        - "trino_query"
+        - "trino_describe_table"
+        - "trino_list_*"
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_get_schema"
+        - "s3_list_*"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are helping an ACME inventory analyst track stock levels across 1,000 stores.
+        Focus on the inventory and retail schemas.
+    hints:
+      trino_query: "Start with inventory.inventory_levels for current stock"
+      datahub_search: "Check metadata before joining tables"
+
+  regional-director:
+    display_name: "Regional Director"
+    roles:
+      - regional_director
+    tools:
+      allow:
+        - "trino_query"
+        - "trino_describe_table"
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "s3_list_objects"
+        - "s3_get_object"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are providing regional performance data to an ACME regional director.
+        Focus on the analytics schema and regional reports.
+
+  finance-executive:
+    display_name: "Finance Executive"
+    roles:
+      - finance_executive
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_get_schema"
+        - "s3_list_objects"
+        - "s3_get_object"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are providing financial insights to an ACME executive.
+        Focus on revenue, margins, and high-level KPIs. Avoid technical details.
+
+  store-manager:
+    display_name: "Store Manager"
+    roles:
+      - store_manager
+    tools:
+      allow:
+        - "trino_query"
+        - "trino_describe_table"
+        - "datahub_search"
+        - "s3_get_object"
+      deny: []
+    prompts:
+      system_prefix: |
+        You are helping an ACME store manager access store-level data.
+        Focus on daily sales, inventory, and employee scheduling.
+
+  default_persona: inventory-analyst
+
+  role_mapping:
+    oidc_to_persona:
+      "dp_admin": "admin"
+      "dp_data_engineer": "data-engineer"
+      "dp_inventory_analyst": "inventory-analyst"
+      "dp_regional_director": "regional-director"
+      "dp_finance_executive": "finance-executive"
+      "dp_store_manager": "store-manager"
+    user_personas:
+      "sarah.chen@acme-corp.com": "admin"
+      "marcus.johnson@acme-corp.com": "data-engineer"
+      "amanda.lee@acme-corp.com": "data-engineer"
+      "lisa.chang@acme-corp.com": "data-engineer"
+      "rachel.thompson@acme-corp.com": "inventory-analyst"
+      "emily.watson@acme-corp.com": "inventory-analyst"
+      "david.park@acme-corp.com": "regional-director"
+      "carlos.rodriguez@acme-corp.com": "regional-director"
+      "jennifer.martinez@acme-corp.com": "finance-executive"
+      "brian.taylor@acme-corp.com": "finance-executive"
+      "kevin.wilson@acme-corp.com": "store-manager"
+      "mike.davis@acme-corp.com": "store-manager"
+
+# Toolkits disabled — no external services needed for admin UI dev
+toolkits:
+  trino:
+    enabled: false
+  datahub:
+    enabled: false
+  s3:
+    enabled: false
+
+# Providers: noop (no external services)
+semantic:
+  provider: noop
+
+query:
+  provider: noop
+
+injection:
+  trino_semantic_enrichment: true
+  datahub_query_enrichment: true
+
+tuning:
+  rules:
+    require_datahub_check: true
+    warn_on_deprecated: true
+    quality_threshold: 0.7
+
+knowledge:
+  enabled: true
+  apply:
+    enabled: true
+    require_confirmation: true
+
+admin:
+  enabled: true
+  persona: admin
+  path_prefix: /api/v1/admin
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  retention_days: 90
