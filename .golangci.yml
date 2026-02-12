@@ -326,6 +326,35 @@ linters:
           - revive
         text: "cognitive-complexity|cyclomatic"
 
+      # Test files use literal values for fixtures — extracting constants hurts readability
+      - path: _test\.go
+        linters:
+          - revive
+        text: "add-constant"
+
+      # DTO/types packages naturally exceed 5 public structs — their job is to define types
+      - path: pkg/audit/
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: pkg/admin/
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: pkg/oauth/
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: pkg/platform/config\.go
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: pkg/toolkits/knowledge/types\.go
+        linters:
+          - revive
+        text: "max-public-structs"
+
+
 issues:
   max-issues-per-linter: 50
   max-same-issues: 10
