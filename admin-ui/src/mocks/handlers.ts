@@ -4,6 +4,9 @@ import {
   mockTimeseries,
   mockToolBreakdown,
   mockUserBreakdown,
+  mockPersonaBreakdown,
+  mockConnectionBreakdown,
+  mockToolkitBreakdown,
   mockOverview,
   mockPerformance,
 } from "./data/audit";
@@ -60,8 +63,18 @@ export const handlers = [
   http.get(`${BASE}/audit/metrics/breakdown`, ({ request }) => {
     const url = new URL(request.url);
     const groupBy = url.searchParams.get("group_by");
-    if (groupBy === "user_id") return HttpResponse.json(mockUserBreakdown);
-    return HttpResponse.json(mockToolBreakdown);
+    switch (groupBy) {
+      case "user_id":
+        return HttpResponse.json(mockUserBreakdown);
+      case "persona":
+        return HttpResponse.json(mockPersonaBreakdown);
+      case "connection":
+        return HttpResponse.json(mockConnectionBreakdown);
+      case "toolkit_kind":
+        return HttpResponse.json(mockToolkitBreakdown);
+      default:
+        return HttpResponse.json(mockToolBreakdown);
+    }
   }),
 
   http.get(`${BASE}/audit/metrics/overview`, () =>
