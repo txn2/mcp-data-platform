@@ -148,6 +148,235 @@ const docTemplate = `{
                 }
             }
         },
+        "/audit/metrics/breakdown": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns audit event counts grouped by a dimension.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get audit breakdown",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dimension: tool_name, user_id, persona, toolkit_kind, connection",
+                        "name": "group_by",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max entries (default: 10, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/audit.BreakdownEntry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/audit/metrics/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate audit statistics for the given time range.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get audit overview",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.Overview"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/audit/metrics/performance": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns latency percentile statistics for the given time range.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get audit performance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.PerformanceStats"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/audit/metrics/timeseries": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns audit event counts bucketed by time resolution.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get audit timeseries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Time bucket resolution: minute, hour, day (default: hour)",
+                        "name": "resolution",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/audit.TimeseriesBucket"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/audit/stats": {
             "get": {
                 "security": [
@@ -1829,6 +2058,23 @@ const docTemplate = `{
                 }
             }
         },
+        "audit.BreakdownEntry": {
+            "type": "object",
+            "properties": {
+                "avg_duration_ms": {
+                    "type": "number"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "dimension": {
+                    "type": "string"
+                },
+                "success_rate": {
+                    "type": "number"
+                }
+            }
+        },
         "audit.Event": {
             "type": "object",
             "properties": {
@@ -1898,6 +2144,78 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
+                }
+            }
+        },
+        "audit.Overview": {
+            "type": "object",
+            "properties": {
+                "avg_duration_ms": {
+                    "type": "number"
+                },
+                "enrichment_rate": {
+                    "type": "number"
+                },
+                "error_count": {
+                    "type": "integer"
+                },
+                "success_rate": {
+                    "type": "number"
+                },
+                "total_calls": {
+                    "type": "integer"
+                },
+                "unique_tools": {
+                    "type": "integer"
+                },
+                "unique_users": {
+                    "type": "integer"
+                }
+            }
+        },
+        "audit.PerformanceStats": {
+            "type": "object",
+            "properties": {
+                "avg_ms": {
+                    "type": "number"
+                },
+                "avg_request_chars": {
+                    "type": "number"
+                },
+                "avg_response_chars": {
+                    "type": "number"
+                },
+                "max_ms": {
+                    "type": "number"
+                },
+                "p50_ms": {
+                    "type": "number"
+                },
+                "p95_ms": {
+                    "type": "number"
+                },
+                "p99_ms": {
+                    "type": "number"
+                }
+            }
+        },
+        "audit.TimeseriesBucket": {
+            "type": "object",
+            "properties": {
+                "avg_duration_ms": {
+                    "type": "number"
+                },
+                "bucket": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "error_count": {
+                    "type": "integer"
+                },
+                "success_count": {
+                    "type": "integer"
                 }
             }
         },
