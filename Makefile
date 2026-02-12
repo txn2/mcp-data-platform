@@ -30,7 +30,8 @@ GOLINT := golangci-lint
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast \
 	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
-	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
+	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
+	dev-up dev-down
 
 ## all: Build and test
 all: build test lint
@@ -374,3 +375,46 @@ e2e-clean: e2e-down
 	@echo "Cleaning E2E artifacts..."
 	@docker volume rm -f mcp-data-platform_postgres_data mcp-data-platform_minio_data 2>/dev/null || true
 	@echo "E2E cleanup complete."
+
+# =============================================================================
+# Local Dev Environment (ACME Corporation)
+# =============================================================================
+
+DEV_COMPOSE := docker compose -f dev/docker-compose.yml
+
+## dev-up: Start ACME dev environment (PostgreSQL)
+dev-up:
+	@echo "Starting ACME dev environment..."
+	$(DEV_COMPOSE) up -d
+	@echo "Waiting for PostgreSQL to be healthy..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if docker exec acme-dev-postgres pg_isready -U platform -d mcp_platform -q 2>/dev/null; then \
+			echo "PostgreSQL is ready."; \
+			break; \
+		fi; \
+		if [ $$i -eq 10 ]; then echo "ERROR: PostgreSQL failed to start"; exit 1; fi; \
+		sleep 1; \
+	done
+	@echo ""
+	@echo "=== ACME Dev Environment Ready ==="
+	@echo ""
+	@echo "Start the Go server:"
+	@echo "  go run ./cmd/mcp-data-platform --config dev/platform.yaml"
+	@echo ""
+	@echo "(Optional) Seed historical data:"
+	@echo "  psql -h localhost -U platform -d mcp_platform -f dev/seed.sql"
+	@echo ""
+	@echo "Start the admin UI:"
+	@echo "  cd admin-ui && npm run dev"
+	@echo ""
+	@echo "Or use MSW mode (no backend needed):"
+	@echo "  cd admin-ui && VITE_MSW=true npm run dev"
+	@echo ""
+	@echo "API Key: acme-dev-key-2024"
+	@echo ""
+
+## dev-down: Stop ACME dev environment and remove volumes
+dev-down:
+	@echo "Stopping ACME dev environment..."
+	$(DEV_COMPOSE) down -v
+	@echo "ACME dev environment stopped."
