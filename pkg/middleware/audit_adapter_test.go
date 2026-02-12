@@ -97,7 +97,7 @@ func TestAuditStoreAdapter_Log(t *testing.T) {
 	assert.Equal(t, "session-xyz", logged.SessionID)
 	assert.Equal(t, adapterTestRespChars, logged.ResponseChars)
 	assert.Equal(t, adapterTestReqChars, logged.RequestChars)
-	assert.Equal(t, 2, logged.ContentBlocks) //nolint:revive // test value
+	assert.Equal(t, 2, logged.ContentBlocks)
 	assert.Equal(t, "stdio", logged.Transport)
 	assert.Equal(t, "mcp", logged.Source)
 	assert.True(t, logged.EnrichmentApplied)
