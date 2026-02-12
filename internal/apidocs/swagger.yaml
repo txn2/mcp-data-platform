@@ -282,6 +282,17 @@ definitions:
       total:
         type: integer
     type: object
+  audit.BreakdownEntry:
+    properties:
+      avg_duration_ms:
+        type: number
+      count:
+        type: integer
+      dimension:
+        type: string
+      success_rate:
+        type: number
+    type: object
   audit.Event:
     properties:
       authorized:
@@ -329,6 +340,53 @@ definitions:
         type: string
       user_id:
         type: string
+    type: object
+  audit.Overview:
+    properties:
+      avg_duration_ms:
+        type: number
+      enrichment_rate:
+        type: number
+      error_count:
+        type: integer
+      success_rate:
+        type: number
+      total_calls:
+        type: integer
+      unique_tools:
+        type: integer
+      unique_users:
+        type: integer
+    type: object
+  audit.PerformanceStats:
+    properties:
+      avg_ms:
+        type: number
+      avg_request_chars:
+        type: number
+      avg_response_chars:
+        type: number
+      max_ms:
+        type: number
+      p50_ms:
+        type: number
+      p95_ms:
+        type: number
+      p99_ms:
+        type: number
+    type: object
+  audit.TimeseriesBucket:
+    properties:
+      avg_duration_ms:
+        type: number
+      bucket:
+        type: string
+      count:
+        type: integer
+      error_count:
+        type: integer
+      success_count:
+        type: integer
     type: object
   auth.APIKeySummary:
     properties:
@@ -573,6 +631,147 @@ paths:
       summary: Get audit event
       tags:
       - Audit
+  /audit/metrics/breakdown:
+    get:
+      description: Returns audit event counts grouped by a dimension.
+      parameters:
+      - description: 'Dimension: tool_name, user_id, persona, toolkit_kind, connection'
+        in: query
+        name: group_by
+        required: true
+        type: string
+      - description: 'Max entries (default: 10, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/audit.BreakdownEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit breakdown
+      tags:
+      - Audit Metrics
+  /audit/metrics/overview:
+    get:
+      description: Returns aggregate audit statistics for the given time range.
+      parameters:
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.Overview'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit overview
+      tags:
+      - Audit Metrics
+  /audit/metrics/performance:
+    get:
+      description: Returns latency percentile statistics for the given time range.
+      parameters:
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.PerformanceStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit performance
+      tags:
+      - Audit Metrics
+  /audit/metrics/timeseries:
+    get:
+      description: Returns audit event counts bucketed by time resolution.
+      parameters:
+      - description: 'Time bucket resolution: minute, hour, day (default: hour)'
+        in: query
+        name: resolution
+        type: string
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/audit.TimeseriesBucket'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit timeseries
+      tags:
+      - Audit Metrics
   /audit/stats:
     get:
       description: Returns aggregate counts for total, successful, and failed events.
