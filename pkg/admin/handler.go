@@ -1,5 +1,5 @@
 // Package admin provides REST API endpoints for administrative operations.
-package admin //nolint:revive // max-public-structs: admin API surface requires Handler, Deps, KnowledgeHandler, User, auth types
+package admin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
@@ -22,6 +23,14 @@ import (
 type AuditQuerier interface {
 	Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error)
 	Count(ctx context.Context, filter audit.QueryFilter) (int, error)
+}
+
+// AuditMetricsQuerier provides aggregate audit metrics.
+type AuditMetricsQuerier interface {
+	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
+	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
+	Overview(ctx context.Context, startTime, endTime *time.Time) (*audit.Overview, error)
+	Performance(ctx context.Context, startTime, endTime *time.Time) (*audit.PerformanceStats, error)
 }
 
 // PersonaRegistry abstracts persona.Registry for testability.
@@ -56,14 +65,15 @@ type ConfigStore interface {
 
 // Deps holds dependencies for the admin handler.
 type Deps struct {
-	Config            *platform.Config
-	ConfigStore       ConfigStore
-	PersonaRegistry   PersonaRegistry
-	ToolkitRegistry   ToolkitRegistry
-	AuditQuerier      AuditQuerier
-	Knowledge         *KnowledgeHandler
-	APIKeyManager     APIKeyManager
-	DatabaseAvailable bool
+	Config              *platform.Config
+	ConfigStore         ConfigStore
+	PersonaRegistry     PersonaRegistry
+	ToolkitRegistry     ToolkitRegistry
+	AuditQuerier        AuditQuerier
+	AuditMetricsQuerier AuditMetricsQuerier
+	Knowledge           *KnowledgeHandler
+	APIKeyManager       APIKeyManager
+	DatabaseAvailable   bool
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -128,6 +138,7 @@ func (h *Handler) registerRoutes() {
 	h.registerKnowledgeRoutes()
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
+	h.registerAuditMetricsRoutes()
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
