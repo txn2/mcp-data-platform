@@ -562,9 +562,9 @@ func TestPostgresChangesetStore_RollbackChangeset_RowsAffectedError(t *testing.T
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// --- buildChangesetFilterWhere tests ---
+// --- applyChangesetFilter tests ---
 
-func TestBuildChangesetFilterWhere(t *testing.T) {
+func TestApplyChangesetFilter(t *testing.T) {
 	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)      //nolint:revive // test value
 	until := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC) //nolint:revive // test value
 	rolledBackTrue := true
@@ -573,14 +573,12 @@ func TestBuildChangesetFilterWhere(t *testing.T) {
 	tests := []struct {
 		name         string
 		filter       ChangesetFilter
-		wantWhere    string
 		wantArgCount int
 		wantContains []string
 	}{
 		{
 			name:         "empty filter",
 			filter:       ChangesetFilter{},
-			wantWhere:    "",
 			wantArgCount: 0,
 		},
 		{
@@ -655,15 +653,13 @@ func TestBuildChangesetFilterWhere(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			where, args := buildChangesetFilterWhere(tc.filter)
+			qb := applyChangesetFilter(psq.Select("*").From("knowledge_changesets"), tc.filter)
+			query, args, err := qb.ToSql()
+			require.NoError(t, err)
 			assert.Len(t, args, tc.wantArgCount)
 
-			if tc.wantWhere != "" {
-				assert.Equal(t, tc.wantWhere, where)
-			}
-
 			for _, s := range tc.wantContains {
-				assert.Contains(t, where, s)
+				assert.Contains(t, query, s)
 			}
 		})
 	}
