@@ -1,4 +1,4 @@
-package oauth //nolint:revive // max-public-structs: OAuth server requires multiple public types for its API surface
+package oauth
 
 import (
 	"context"
