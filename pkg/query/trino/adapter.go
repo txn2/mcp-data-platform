@@ -41,6 +41,12 @@ type Config struct {
 	// This is the reverse of the semantic layer's catalog mapping.
 	// For example: {"warehouse": "rdbms"} means DataHub "warehouse" → Trino "rdbms"
 	CatalogMapping map[string]string
+
+	// EstimateRowCounts controls whether GetTableAvailability runs
+	// SELECT COUNT(*) to estimate row counts. Disabled by default because
+	// COUNT(*) can cause full table scans on large tables, making DataHub
+	// search enrichment very slow.
+	EstimateRowCounts bool
 }
 
 // Client defines the interface for Trino operations.
@@ -194,27 +200,11 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 		}, nil
 	}
 
-	// Try to get an estimated row count by running a quick COUNT query
+	// Optionally estimate row count via COUNT(*). Disabled by default
+	// because COUNT(*) can trigger full table scans on large tables.
 	var estimatedRows *int64
-	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s.%s",
-		trinoclient.QuoteIdentifier(table.Catalog),
-		trinoclient.QuoteIdentifier(table.Schema),
-		trinoclient.QuoteIdentifier(table.Table),
-	)
-
-	countResult, err := a.client.Query(ctx, countSQL, trinoclient.QueryOptions{Limit: 1})
-	if err == nil && len(countResult.Rows) > 0 {
-		for _, v := range countResult.Rows[0] {
-			if count, ok := v.(int64); ok {
-				estimatedRows = &count
-				break
-			}
-			if count, ok := v.(float64); ok {
-				c := int64(count)
-				estimatedRows = &c
-				break
-			}
-		}
+	if a.cfg.EstimateRowCounts {
+		estimatedRows = a.estimateRowCount(ctx, table)
 	}
 
 	return &query.TableAvailability{
@@ -223,6 +213,31 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 		Connection:    a.cfg.ConnectionName,
 		EstimatedRows: estimatedRows,
 	}, nil
+}
+
+// estimateRowCount runs SELECT COUNT(*) and returns the result, or nil on error.
+func (a *Adapter) estimateRowCount(ctx context.Context, table *query.TableIdentifier) *int64 {
+	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s.%s",
+		trinoclient.QuoteIdentifier(table.Catalog),
+		trinoclient.QuoteIdentifier(table.Schema),
+		trinoclient.QuoteIdentifier(table.Table),
+	)
+
+	result, err := a.client.Query(ctx, countSQL, trinoclient.QueryOptions{Limit: 1})
+	if err != nil || len(result.Rows) == 0 {
+		return nil
+	}
+
+	for _, v := range result.Rows[0] {
+		if count, ok := v.(int64); ok {
+			return &count
+		}
+		if count, ok := v.(float64); ok {
+			c := int64(count)
+			return &c
+		}
+	}
+	return nil
 }
 
 // GetQueryExamples returns sample queries for a table.

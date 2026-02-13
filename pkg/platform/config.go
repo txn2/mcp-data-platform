@@ -295,6 +295,7 @@ type InjectionConfig struct {
 	DataHubQueryEnrichment   bool               `yaml:"datahub_query_enrichment"`
 	S3SemanticEnrichment     bool               `yaml:"s3_semantic_enrichment"`
 	DataHubStorageEnrichment bool               `yaml:"datahub_storage_enrichment"`
+	EstimateRowCounts        bool               `yaml:"estimate_row_counts"`
 	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
 }
 

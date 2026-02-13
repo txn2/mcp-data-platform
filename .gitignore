@@ -58,5 +58,10 @@ ext-apps/
 # Admin UI
 admin-ui/node_modules/
 admin-ui/dist/
+admin-ui/.vite/
+admin-ui/test-results/
+
+# Root node_modules (if any)
+node_modules/
 internal/adminui/dist/*
 !internal/adminui/dist/.gitkeep
