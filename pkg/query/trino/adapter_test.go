@@ -210,7 +210,7 @@ func TestGetTableAvailability_TableExists(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
 
 	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
 	if err != nil {
@@ -236,7 +236,7 @@ func TestGetTableAvailability_FloatCount(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
 
 	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
 	if err != nil {
@@ -244,6 +244,38 @@ func TestGetTableAvailability_FloatCount(t *testing.T) {
 	}
 	if result.EstimatedRows == nil || *result.EstimatedRows != adapterTestRowCount200 {
 		t.Error("expected EstimatedRows to be 200")
+	}
+}
+
+func TestGetTableAvailability_RowCountsDisabled(t *testing.T) {
+	ctx := context.Background()
+	queryCalled := false
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return &trinoclient.TableInfo{Name: "test_table"}, nil
+		},
+		queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
+			queryCalled = true
+			return &trinoclient.QueryResult{
+				Rows: []map[string]any{{"_col0": int64(adapterTestRowCount100)}},
+			}, nil
+		},
+	}
+	// EstimateRowCounts defaults to false (zero value)
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+
+	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if !result.Available {
+		t.Error("expected Available to be true")
+	}
+	if result.EstimatedRows != nil {
+		t.Errorf("expected EstimatedRows to be nil when row counts disabled, got %d", *result.EstimatedRows)
+	}
+	if queryCalled {
+		t.Error("expected Query to NOT be called when EstimateRowCounts is false")
 	}
 }
 
@@ -316,7 +348,7 @@ func TestGetExecutionContext(t *testing.T) {
 			}, nil
 		},
 	}
-	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "main"}, mock)
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "main", EstimateRowCounts: true}, mock)
 	ctx := context.Background()
 
 	urns := []string{

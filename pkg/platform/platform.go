@@ -895,20 +895,21 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		}
 
 		adapter, err := trinoquery.New(trinoquery.Config{
-			Host:           trinoCfg.Host,
-			Port:           trinoCfg.Port,
-			User:           trinoCfg.User,
-			Password:       trinoCfg.Password,
-			Catalog:        trinoCfg.Catalog,
-			Schema:         trinoCfg.Schema,
-			SSL:            trinoCfg.SSL,
-			SSLVerify:      trinoCfg.SSLVerify,
-			Timeout:        trinoCfg.Timeout,
-			DefaultLimit:   trinoCfg.DefaultLimit,
-			MaxLimit:       trinoCfg.MaxLimit,
-			ReadOnly:       trinoCfg.ReadOnly,
-			ConnectionName: trinoCfg.ConnectionName,
-			CatalogMapping: p.config.Query.URNMapping.CatalogMapping,
+			Host:              trinoCfg.Host,
+			Port:              trinoCfg.Port,
+			User:              trinoCfg.User,
+			Password:          trinoCfg.Password,
+			Catalog:           trinoCfg.Catalog,
+			Schema:            trinoCfg.Schema,
+			SSL:               trinoCfg.SSL,
+			SSLVerify:         trinoCfg.SSLVerify,
+			Timeout:           trinoCfg.Timeout,
+			DefaultLimit:      trinoCfg.DefaultLimit,
+			MaxLimit:          trinoCfg.MaxLimit,
+			ReadOnly:          trinoCfg.ReadOnly,
+			ConnectionName:    trinoCfg.ConnectionName,
+			CatalogMapping:    p.config.Query.URNMapping.CatalogMapping,
+			EstimateRowCounts: p.config.Injection.EstimateRowCounts,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)

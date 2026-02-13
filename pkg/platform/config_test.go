@@ -230,6 +230,9 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Server.Shutdown.PreShutdownDelay != cfgTestDefaultPreDelay {
 		t.Errorf("Server.Shutdown.PreShutdownDelay = %v, want %v", cfg.Server.Shutdown.PreShutdownDelay, cfgTestDefaultPreDelay)
 	}
+	if cfg.Injection.EstimateRowCounts {
+		t.Error("Injection.EstimateRowCounts should default to false")
+	}
 }
 
 func TestApplyDefaults_PreservesExisting(t *testing.T) {
