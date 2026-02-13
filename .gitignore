@@ -40,7 +40,7 @@ settings.local.json
 site/
 
 # Build artifacts
-dist/
+/dist/
 build/
 /mcp-data-platform
 NOTES_*
