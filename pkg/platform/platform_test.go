@@ -2978,3 +2978,26 @@ func TestPlatform_ConfigStore_FileMode(t *testing.T) {
 		t.Errorf("ConfigStore().Mode() = %q, want %q", cs.Mode(), "file")
 	}
 }
+
+func TestNew_WithToolVisibilityFilter(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Tools: ToolsConfig{
+			Allow: []string{"trino_*", "datahub_*"},
+			Deny:  []string{"*_delete_*"},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.MCPServer() == nil {
+		t.Fatal(testMCPServerNilMsg)
+	}
+}

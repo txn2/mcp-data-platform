@@ -460,6 +460,43 @@ semantic:
 
 This maps `elasticsearch.index.rxtxmsg.payload.field_name` to lookup `field_name` in upstream sources.
 
+## Tool Visibility Configuration
+
+Reduce LLM token usage by hiding tools from `tools/list` responses. This is a visibility optimization, not a security boundary — persona-level tool filtering continues to gate `tools/call`.
+
+```yaml
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+  deny:
+    - "*_delete_*"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
+| `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+
+No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
+
+## Admin API Configuration
+
+```yaml
+admin:
+  enabled: true
+  portal: true
+  persona: admin
+  path_prefix: /api/v1/admin
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `admin.enabled` | bool | `false` | Enable admin REST API |
+| `admin.portal` | bool | `false` | Enable the admin web portal UI |
+| `admin.persona` | string | `admin` | Persona required for admin access |
+| `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
 ## Injection Configuration
 
 ```yaml
@@ -567,6 +604,18 @@ server:
     Enterprise data platform providing unified access to analytics data.
     Includes semantic enrichment from DataHub and query execution via Trino.
   transport: stdio
+
+admin:
+  enabled: true
+  portal: true
+
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+    - "capture_insight"
+  deny:
+    - "*_delete_*"
 
 auth:
   oidc:

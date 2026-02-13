@@ -754,7 +754,7 @@ func (p *Platform) finalizeSetup() {
 	// added runs FIRST. We add innermost middleware first and outermost last.
 	//
 	// Desired execution order (outermost → innermost → handler):
-	//   Apps metadata → Auth/Authz → Audit → Rules → Enrichment → handler
+	//   Tool visibility → Apps metadata → Auth/Authz → Audit → Rules → Enrichment → handler
 	//
 	// Therefore we add in reverse (innermost first):
 
@@ -797,14 +797,33 @@ func (p *Platform) finalizeSetup() {
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport),
 	)
 
-	// 5. MCP Apps metadata (overall outermost) - injects _meta.ui into tools/list
-	if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
-		p.mcpServer.AddReceivingMiddleware(
-			mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
-		)
-		// Register UI resources for each app
-		p.mcpAppsRegistry.RegisterResources(p.mcpServer)
+	// 5. MCP Apps metadata - injects _meta.ui into tools/list
+	p.addMCPAppsMiddleware()
+
+	// 6. Tool visibility (absolute outermost) - reduces tools/list for token savings
+	p.addToolVisibilityMiddleware()
+}
+
+// addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.
+func (p *Platform) addMCPAppsMiddleware() {
+	if p.mcpAppsRegistry == nil || !p.mcpAppsRegistry.HasApps() {
+		return
 	}
+	p.mcpServer.AddReceivingMiddleware(
+		mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
+	)
+	p.mcpAppsRegistry.RegisterResources(p.mcpServer)
+}
+
+// addToolVisibilityMiddleware registers tool visibility filtering middleware
+// when allow/deny patterns are configured.
+func (p *Platform) addToolVisibilityMiddleware() {
+	if len(p.config.Tools.Allow) == 0 && len(p.config.Tools.Deny) == 0 {
+		return
+	}
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPToolVisibilityMiddleware(p.config.Tools.Allow, p.config.Tools.Deny),
+	)
 }
 
 // buildEnrichmentConfig creates the enrichment middleware config, including

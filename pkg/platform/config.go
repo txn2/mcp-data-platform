@@ -59,6 +59,7 @@ type Config struct {
 	Database    DatabaseConfig    `yaml:"database"`
 	Personas    PersonasConfig    `yaml:"personas"`
 	Toolkits    map[string]any    `yaml:"toolkits"`
+	Tools       ToolsConfig       `yaml:"tools"`
 	Semantic    SemanticConfig    `yaml:"semantic"`
 	Query       QueryConfig       `yaml:"query"`
 	Storage     StorageConfig     `yaml:"storage"`
@@ -227,6 +228,14 @@ type PersonaDef struct {
 	Prompts     PromptsDef        `yaml:"prompts"`
 	Hints       map[string]string `yaml:"hints,omitempty"`
 	Priority    int               `yaml:"priority,omitempty"`
+}
+
+// ToolsConfig configures global tool visibility filtering for tools/list responses.
+// This is a visibility filter to reduce token usage — not a security boundary.
+// Persona auth continues to gate tools/call independently.
+type ToolsConfig struct {
+	Allow []string `yaml:"allow"`
+	Deny  []string `yaml:"deny"`
 }
 
 // ToolRulesDef defines tool access rules.

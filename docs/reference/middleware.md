@@ -6,7 +6,8 @@ Middleware processes requests and responses at the MCP protocol level. Each midd
 
 ```mermaid
 graph LR
-    Request --> AppsMetadata
+    Request --> ToolVisibility
+    ToolVisibility --> AppsMetadata
     AppsMetadata --> MCPToolCall
     MCPToolCall --> MCPAudit
     MCPAudit --> MCPRules
@@ -17,10 +18,11 @@ graph LR
     MCPRules --> MCPAudit
     MCPAudit --> MCPToolCall
     MCPToolCall --> AppsMetadata
-    AppsMetadata --> Response
+    AppsMetadata --> ToolVisibility
+    ToolVisibility --> Response
 ```
 
-The platform registers five middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
+The platform registers up to six middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
 
 ## MCP Middleware Interface
 
@@ -38,13 +40,14 @@ type MethodHandler func(ctx context.Context, method string, req Request) (Result
 To achieve the desired execution order, middleware must be added innermost-first:
 
 ```go
-// Desired execution: Apps → Auth → Audit → Rules → Enrichment → handler
+// Desired execution: Visibility → Apps → Auth → Audit → Rules → Enrichment → handler
 // Add order (innermost first):
-server.AddReceivingMiddleware(enrichment)  // innermost
+server.AddReceivingMiddleware(enrichment)   // innermost
 server.AddReceivingMiddleware(rules)
 server.AddReceivingMiddleware(audit)
-server.AddReceivingMiddleware(auth)        // outermost for tools/call
-server.AddReceivingMiddleware(apps)        // overall outermost
+server.AddReceivingMiddleware(auth)         // outermost for tools/call
+server.AddReceivingMiddleware(apps)         // apps metadata
+server.AddReceivingMiddleware(visibility)   // overall outermost (if configured)
 ```
 
 This ordering is critical for context propagation. Go's `context.WithValue` creates a new context. Values set in an outer middleware (like `PlatformContext` set by Auth) are visible to inner middleware (like Audit), but not the other way around.
@@ -174,6 +177,26 @@ func MCPSemanticEnrichmentMiddleware(
 5. Calls appropriate enrichment function based on toolkit
 6. Appends semantic context to result content
 
+### MCPToolVisibilityMiddleware
+
+Filters `tools/list` responses to hide tools that don't match configured allow/deny patterns. This reduces LLM token usage for deployments that only use a subset of toolkits. Only registered when patterns are configured.
+
+```go
+func MCPToolVisibilityMiddleware(allow, deny []string) mcp.Middleware
+```
+
+**Behavior:**
+
+1. Only intercepts `tools/list` responses (passes through all other methods including `tools/call`)
+2. Calls next handler to get the full tool list
+3. Filters tools using `filepath.Match` patterns
+4. No patterns configured = all tools visible
+5. Allow only = only matching tools pass
+6. Deny only = all tools pass except denied
+7. Both = allow first, then deny removes from that set
+
+This is a **visibility filter**, not a security boundary. Persona-level tool filtering via MCPToolCallMiddleware continues to gate `tools/call` independently.
+
 ### ToolMetadataMiddleware (MCP Apps)
 
 Injects `_meta.ui` fields into `tools/list` responses for tools that have associated MCP Apps.
@@ -231,10 +254,17 @@ p.mcpServer.AddReceivingMiddleware(
     middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
 )
 
-// 5. MCP Apps metadata (overall outermost)
+// 5. MCP Apps metadata
 if p.mcpAppsRegistry != nil && p.mcpAppsRegistry.HasApps() {
     p.mcpServer.AddReceivingMiddleware(
         mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
+    )
+}
+
+// 6. Tool visibility (overall outermost, only if patterns configured)
+if len(p.config.Tools.Allow) > 0 || len(p.config.Tools.Deny) > 0 {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPToolVisibilityMiddleware(p.config.Tools.Allow, p.config.Tools.Deny),
     )
 }
 ```

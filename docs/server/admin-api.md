@@ -34,9 +34,27 @@ make swagger
 ```yaml
 admin:
   enabled: true
+  portal: true                # Enable the admin web portal
   persona: admin              # Persona required for admin access
   path_prefix: /api/v1/admin  # URL prefix for all admin endpoints
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable admin REST API |
+| `portal` | bool | `false` | Enable the admin web portal |
+| `persona` | string | `admin` | Persona required for admin access |
+| `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
+## Admin Portal
+
+When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix (e.g., `http://localhost:8080/api/v1/admin/`). The portal provides:
+
+- **Audit Dashboard**: Browse and filter audit log events with time-series visualization
+- **Tool Execution**: Test tool calls directly from the browser
+- **System Monitoring**: View platform status, connected toolkits, and registered tools
+
+The portal requires authentication — access it with the same credentials used for admin API requests. In production builds, the service worker (`mockServiceWorker.js`) is stripped automatically.
 
 ## Error Format
 

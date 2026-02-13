@@ -119,6 +119,17 @@ personas:
     user_personas:
       "admin@example.com": "admin"
 
+# Tool visibility filter
+# Reduces token usage by hiding tools from tools/list responses.
+# This is a visibility filter, not a security boundary — persona auth
+# continues to gate tools/call independently.
+# tools:
+#   allow:
+#     - "trino_*"
+#     - "datahub_*"
+#   deny:
+#     - "*_delete_*"
+
 # Toolkit instances
 toolkits:
   trino:

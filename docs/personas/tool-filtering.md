@@ -2,6 +2,11 @@
 
 Tool filtering controls which MCP tools are available to each persona. Rules use wildcard patterns to allow or deny tools by name.
 
+!!! note "Two levels of tool filtering"
+    **Persona tool filtering** (this page) is a **security boundary**. It controls which tools a user can call via `tools/call` based on their persona. Unauthorized calls are rejected.
+
+    **Global tool visibility** (configured via the top-level `tools:` block) is a **token optimization**. It controls which tools appear in `tools/list` responses to reduce LLM context usage. It does not block `tools/call`. See [Tool Visibility Configuration](../server/configuration.md#tool-visibility-configuration) for details.
+
 ## Rule Structure
 
 Each persona has `allow` and `deny` lists:
