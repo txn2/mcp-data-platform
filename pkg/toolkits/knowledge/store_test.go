@@ -583,7 +583,7 @@ func TestPostgresStore_Update_AllFields(t *testing.T) {
 	}
 
 	mock.ExpectExec("UPDATE knowledge_insights SET").
-		WithArgs("Updated text here", "business_context", "high", "ins-1").
+		WithArgs("Updated text here", "business_context", "high", "ins-1", StatusApplied).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), "ins-1", updates)
@@ -601,7 +601,7 @@ func TestPostgresStore_Update_SingleField(t *testing.T) {
 	updates := InsightUpdate{InsightText: "Updated text only"}
 
 	mock.ExpectExec("UPDATE knowledge_insights SET").
-		WithArgs("Updated text only", "ins-1").
+		WithArgs("Updated text only", "ins-1", StatusApplied).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), "ins-1", updates)
@@ -629,7 +629,7 @@ func TestPostgresStore_Update_NotFoundOrApplied(t *testing.T) {
 	store := NewPostgresStore(db)
 
 	mock.ExpectExec("UPDATE knowledge_insights SET").
-		WithArgs("New text content", "ins-applied").
+		WithArgs("New text content", "ins-applied", StatusApplied).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = store.Update(context.Background(), "ins-applied", InsightUpdate{InsightText: "New text content"})
@@ -646,7 +646,7 @@ func TestPostgresStore_Update_DBError(t *testing.T) {
 	store := NewPostgresStore(db)
 
 	mock.ExpectExec("UPDATE knowledge_insights SET").
-		WithArgs("New text content", "ins-1").
+		WithArgs("New text content", "ins-1", StatusApplied).
 		WillReturnError(errors.New("db error"))
 
 	err = store.Update(context.Background(), "ins-1", InsightUpdate{InsightText: "New text content"})
@@ -663,7 +663,7 @@ func TestPostgresStore_Update_RowsAffectedError(t *testing.T) {
 	store := NewPostgresStore(db)
 
 	mock.ExpectExec("UPDATE knowledge_insights SET").
-		WithArgs("Updated text", "ins-1").
+		WithArgs("Updated text", "ins-1", StatusApplied).
 		WillReturnResult(sqlmock.NewErrorResult(errors.New("rows affected error")))
 
 	err = store.Update(context.Background(), "ins-1", InsightUpdate{InsightText: "Updated text"})
@@ -979,24 +979,21 @@ func TestPostgresStore_Supersede_RowsAffectedError(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// --- buildFilterWhere tests ---
+// --- applyInsightFilter tests ---
 
-func TestBuildFilterWhere(t *testing.T) {
+func TestApplyInsightFilter(t *testing.T) {
 	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)      //nolint:revive // test value
 	until := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC) //nolint:revive // test value
 
 	tests := []struct {
-		name           string
-		filter         InsightFilter
-		wantWhere      string
-		wantArgCount   int
-		wantContains   []string
-		wantNoContains []string
+		name         string
+		filter       InsightFilter
+		wantArgCount int
+		wantContains []string
 	}{
 		{
 			name:         "empty filter",
 			filter:       InsightFilter{},
-			wantWhere:    "",
 			wantArgCount: 0,
 		},
 		{
@@ -1081,18 +1078,13 @@ func TestBuildFilterWhere(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			where, args := buildFilterWhere(tc.filter)
+			qb := applyInsightFilter(psq.Select("*").From("knowledge_insights"), tc.filter)
+			query, args, err := qb.ToSql()
+			require.NoError(t, err)
 			assert.Len(t, args, tc.wantArgCount)
 
-			if tc.wantWhere != "" {
-				assert.Equal(t, tc.wantWhere, where)
-			}
-
 			for _, s := range tc.wantContains {
-				assert.Contains(t, where, s)
-			}
-			for _, s := range tc.wantNoContains {
-				assert.NotContains(t, where, s)
+				assert.Contains(t, query, s)
 			}
 		})
 	}

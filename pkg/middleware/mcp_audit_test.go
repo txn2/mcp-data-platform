@@ -208,7 +208,7 @@ func TestMCPAuditMiddleware_DurationTracking(t *testing.T) {
 	_, _ = wrapped(ctx, testAuditMethodCall, req)
 
 	// Wait for async logging.
-	time.Sleep(100 * time.Millisecond) //nolint:revive // test timing
+	time.Sleep(100 * time.Millisecond)
 
 	events := mockLogger.Events()
 	require.Len(t, events, 1)
@@ -224,9 +224,9 @@ func TestExtractMCPParameters(t *testing.T) {
 	})
 
 	t.Run("with arguments", func(t *testing.T) {
-		req := createAuditTestRequest(t, "test", map[string]any{"key": "value", "num": float64(42)}) //nolint:revive // test fixture
+		req := createAuditTestRequest(t, "test", map[string]any{"key": "value", "num": float64(42)})
 		result := extractMCPParameters(req)
-		assert.Equal(t, map[string]any{"key": "value", "num": float64(42)}, result) //nolint:revive // test fixture
+		assert.Equal(t, map[string]any{"key": "value", "num": float64(42)}, result)
 	})
 }
 
@@ -274,11 +274,11 @@ func TestCalculateResponseSize_SingleText(t *testing.T) {
 
 func TestCalculateResponseSize_MultipleItems(t *testing.T) {
 	// Build 1000 chars across multiple content items.
-	text1 := make([]byte, 600) //nolint:revive // test size
+	text1 := make([]byte, 600)
 	for i := range text1 {
 		text1[i] = 'a'
 	}
-	text2 := make([]byte, 400) //nolint:revive // test size
+	text2 := make([]byte, 400)
 	for i := range text2 {
 		text2[i] = 'b'
 	}
@@ -290,7 +290,7 @@ func TestCalculateResponseSize_MultipleItems(t *testing.T) {
 		},
 	}
 	chars, blocks := calculateResponseSize(result, nil)
-	assert.Equal(t, 1000, chars) //nolint:revive // expected test value
+	assert.Equal(t, 1000, chars)
 	assert.Equal(t, 2, blocks)
 }
 

@@ -1,5 +1,5 @@
 // Package knowledge provides a knowledge capture toolkit for the MCP data platform.
-package knowledge //nolint:revive // max-public-structs: domain types require more than 5 public structs
+package knowledge
 
 import (
 	"fmt"

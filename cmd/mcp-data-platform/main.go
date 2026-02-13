@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	"github.com/txn2/mcp-data-platform/internal/adminui"
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
@@ -274,6 +275,12 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p)
 
+	// Mount admin UI if frontend was built into the binary
+	if adminui.Available() {
+		mux.Handle("/admin/", http.StripPrefix("/admin", adminui.Handler()))
+		log.Println("Admin UI enabled on /admin/")
+	}
+
 	// Mount SSE handler (legacy clients)
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
 	mux.Handle("/sse", wrappedSSE)
@@ -437,11 +444,13 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ConfigStore:       p.ConfigStore(),
 		PersonaRegistry:   p.PersonaRegistry(),
 		ToolkitRegistry:   p.ToolkitRegistry(),
+		MCPServer:         p.MCPServer(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
 	}
 
 	if p.AuditStore() != nil {
 		deps.AuditQuerier = p.AuditStore()
+		deps.AuditMetricsQuerier = p.AuditStore()
 	}
 
 	if p.KnowledgeInsightStore() != nil {

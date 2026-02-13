@@ -40,7 +40,7 @@ settings.local.json
 site/
 
 # Build artifacts
-dist/
+/dist/
 build/
 /mcp-data-platform
 NOTES_*
@@ -54,3 +54,9 @@ codeql-results.sarif
 
 # MCP Apps test host
 ext-apps/
+
+# Admin UI
+admin-ui/node_modules/
+admin-ui/dist/
+internal/adminui/dist/*
+!internal/adminui/dist/.gitkeep

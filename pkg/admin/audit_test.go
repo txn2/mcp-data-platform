@@ -99,6 +99,84 @@ func TestListAuditEvents(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, defaultAuditLimit, body.PerPage)
 	})
+
+	t.Run("passes search param to filter", func(t *testing.T) {
+		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?search=trino", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("passes sort params to filter", func(t *testing.T) {
+		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?sort_by=duration_ms&sort_order=asc", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("ignores invalid sort_order", func(t *testing.T) {
+		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?sort_by=timestamp&sort_order=invalid", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestListAuditEventFilters(t *testing.T) {
+	t.Run("returns distinct users and tools", func(t *testing.T) {
+		aq := &mockAuditQuerier{
+			distinctResult: []string{"alice@acme.com", "bob@acme.com"},
+		}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body auditFiltersResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, body.Users)
+		assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, body.Tools)
+	})
+
+	t.Run("returns empty arrays when no events", func(t *testing.T) {
+		aq := &mockAuditQuerier{distinctResult: nil}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body auditFiltersResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, []string{}, body.Users)
+		assert.Equal(t, []string{}, body.Tools)
+	})
+
+	t.Run("returns 500 on distinct error", func(t *testing.T) {
+		aq := &mockAuditQuerier{distinctErr: fmt.Errorf("db error")}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
 }
 
 func TestGetAuditEvent(t *testing.T) {

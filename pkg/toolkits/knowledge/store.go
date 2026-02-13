@@ -5,9 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
+
+	sq "github.com/Masterminds/squirrel"
 )
+
+// psq is the PostgreSQL statement builder with dollar placeholders.
+var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // InsightStore persists and queries captured insights.
 type InsightStore interface {
@@ -128,29 +132,68 @@ func unmarshalInsightJSON(insight *Insight, entityURNs, relatedCols, suggestedAc
 	return nil
 }
 
+// applyInsightFilter adds filter conditions to a SELECT builder.
+func applyInsightFilter(qb sq.SelectBuilder, filter InsightFilter) sq.SelectBuilder {
+	if filter.Status != "" {
+		qb = qb.Where(sq.Eq{"status": filter.Status})
+	}
+	if filter.Category != "" {
+		qb = qb.Where(sq.Eq{"category": filter.Category})
+	}
+	if filter.EntityURN != "" {
+		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", fmt.Sprintf(`[%q]`, filter.EntityURN)))
+	}
+	if filter.CapturedBy != "" {
+		qb = qb.Where(sq.Eq{"captured_by": filter.CapturedBy})
+	}
+	if filter.Confidence != "" {
+		qb = qb.Where(sq.Eq{"confidence": filter.Confidence})
+	}
+	if filter.Since != nil {
+		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
+	}
+	if filter.Until != nil {
+		qb = qb.Where(sq.LtOrEq{"created_at": *filter.Until})
+	}
+	return qb
+}
+
 // List returns insights matching the filter with pagination.
 func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insight, int, error) {
-	where, args := buildFilterWhere(filter)
+	// Count total matching rows.
+	countQB := applyInsightFilter(psq.Select("COUNT(*)").From("knowledge_insights"), filter)
+	countQuery, countArgs, err := countQB.ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("building count query: %w", err)
+	}
 
-	// Count total matching rows
-	countQuery := "SELECT COUNT(*) FROM knowledge_insights" + where
 	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("counting insights: %w", err)
 	}
 
-	// Fetch paginated results
+	// Fetch paginated results.
 	limit := filter.EffectiveLimit()
-	// #nosec G202 -- concatenation uses parameterized args ($N), not user input
-	selectQuery := `
-		SELECT id, created_at, session_id, captured_by, persona, category,
-		       insight_text, confidence, entity_urns, related_columns,
-		       suggested_actions, status, reviewed_by, reviewed_at,
-		       review_notes, applied_by, applied_at, changeset_ref
-		FROM knowledge_insights` + where +
-		fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d OFFSET %d", limit, filter.Offset)
+	selectQB := applyInsightFilter(psq.Select(
+		"id", "created_at", "session_id", "captured_by", "persona", "category",
+		"insight_text", "confidence", "entity_urns", "related_columns",
+		"suggested_actions", "status", "reviewed_by", "reviewed_at",
+		"review_notes", "applied_by", "applied_at", "changeset_ref",
+	).From("knowledge_insights"), filter).
+		OrderBy("created_at DESC")
+	if limit > 0 {
+		selectQB = selectQB.Limit(uint64(limit))
+	}
+	if filter.Offset > 0 {
+		selectQB = selectQB.Offset(uint64(filter.Offset))
+	}
 
-	rows, err := s.db.QueryContext(ctx, selectQuery, args...)
+	selectQuery, selectArgs, err := selectQB.ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("building select query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying insights: %w", err)
 	}
@@ -158,29 +201,8 @@ func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insig
 
 	var insights []Insight
 	for rows.Next() {
-		var insight Insight
-		var entityURNs, relatedCols, suggestedActions []byte
-		var reviewedAt, appliedAt sql.NullTime
-
-		if err := rows.Scan(
-			&insight.ID, &insight.CreatedAt, &insight.SessionID,
-			&insight.CapturedBy, &insight.Persona, &insight.Category,
-			&insight.InsightText, &insight.Confidence, &entityURNs,
-			&relatedCols, &suggestedActions, &insight.Status,
-			&insight.ReviewedBy, &reviewedAt, &insight.ReviewNotes,
-			&insight.AppliedBy, &appliedAt, &insight.ChangesetRef,
-		); err != nil {
-			return nil, 0, fmt.Errorf("scanning insight row: %w", err)
-		}
-
-		if reviewedAt.Valid {
-			insight.ReviewedAt = &reviewedAt.Time
-		}
-		if appliedAt.Valid {
-			insight.AppliedAt = &appliedAt.Time
-		}
-
-		if err := unmarshalInsightJSON(&insight, entityURNs, relatedCols, suggestedActions); err != nil {
+		insight, err := scanInsightRow(rows)
+		if err != nil {
 			return nil, 0, err
 		}
 		insights = append(insights, insight)
@@ -192,50 +214,34 @@ func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insig
 	return insights, total, nil
 }
 
-// buildFilterWhere builds a WHERE clause and args from an InsightFilter.
-func buildFilterWhere(filter InsightFilter) (where string, args []any) {
-	var conditions []string
-	argN := 1
+// scanInsightRow scans a single row into an Insight, handling null times and JSON columns.
+func scanInsightRow(rows *sql.Rows) (Insight, error) {
+	var insight Insight
+	var entityURNs, relatedCols, suggestedActions []byte
+	var reviewedAt, appliedAt sql.NullTime
 
-	if filter.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argN))
-		args = append(args, filter.Status)
-		argN++
-	}
-	if filter.Category != "" {
-		conditions = append(conditions, fmt.Sprintf("category = $%d", argN))
-		args = append(args, filter.Category)
-		argN++
-	}
-	if filter.EntityURN != "" {
-		conditions = append(conditions, fmt.Sprintf("entity_urns @> $%d::jsonb", argN))
-		args = append(args, fmt.Sprintf(`[%q]`, filter.EntityURN))
-		argN++
-	}
-	if filter.CapturedBy != "" {
-		conditions = append(conditions, fmt.Sprintf("captured_by = $%d", argN))
-		args = append(args, filter.CapturedBy)
-		argN++
-	}
-	if filter.Confidence != "" {
-		conditions = append(conditions, fmt.Sprintf("confidence = $%d", argN))
-		args = append(args, filter.Confidence)
-		argN++
-	}
-	if filter.Since != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argN))
-		args = append(args, *filter.Since)
-		argN++
-	}
-	if filter.Until != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argN))
-		args = append(args, *filter.Until)
+	if err := rows.Scan(
+		&insight.ID, &insight.CreatedAt, &insight.SessionID,
+		&insight.CapturedBy, &insight.Persona, &insight.Category,
+		&insight.InsightText, &insight.Confidence, &entityURNs,
+		&relatedCols, &suggestedActions, &insight.Status,
+		&insight.ReviewedBy, &reviewedAt, &insight.ReviewNotes,
+		&insight.AppliedBy, &appliedAt, &insight.ChangesetRef,
+	); err != nil {
+		return insight, fmt.Errorf("scanning insight row: %w", err)
 	}
 
-	if len(conditions) == 0 {
-		return "", nil
+	if reviewedAt.Valid {
+		insight.ReviewedAt = &reviewedAt.Time
 	}
-	return " WHERE " + strings.Join(conditions, " AND "), args
+	if appliedAt.Valid {
+		insight.AppliedAt = &appliedAt.Time
+	}
+
+	if err := unmarshalInsightJSON(&insight, entityURNs, relatedCols, suggestedActions); err != nil {
+		return insight, err
+	}
+	return insight, nil
 }
 
 // UpdateStatus transitions an insight's status with review metadata.
@@ -264,35 +270,32 @@ func (s *postgresStore) UpdateStatus(ctx context.Context, id, status, reviewedBy
 
 // Update edits an insight's text, category, or confidence.
 func (s *postgresStore) Update(ctx context.Context, id string, updates InsightUpdate) error {
-	var setClauses []string
-	var args []any
-	argN := 1
+	qb := psq.Update("knowledge_insights")
 
+	hasUpdates := false
 	if updates.InsightText != "" {
-		setClauses = append(setClauses, fmt.Sprintf("insight_text = $%d", argN))
-		args = append(args, updates.InsightText)
-		argN++
+		qb = qb.Set("insight_text", updates.InsightText)
+		hasUpdates = true
 	}
 	if updates.Category != "" {
-		setClauses = append(setClauses, fmt.Sprintf("category = $%d", argN))
-		args = append(args, updates.Category)
-		argN++
+		qb = qb.Set("category", updates.Category)
+		hasUpdates = true
 	}
 	if updates.Confidence != "" {
-		setClauses = append(setClauses, fmt.Sprintf("confidence = $%d", argN))
-		args = append(args, updates.Confidence)
-		argN++
+		qb = qb.Set("confidence", updates.Confidence)
+		hasUpdates = true
 	}
 
-	if len(setClauses) == 0 {
+	if !hasUpdates {
 		return fmt.Errorf("no fields to update")
 	}
 
-	query := fmt.Sprintf( // #nosec G201 -- setClauses are hardcoded column names, not user input
-		"UPDATE knowledge_insights SET %s WHERE id = $%d AND status != 'applied'",
-		strings.Join(setClauses, ", "), argN,
-	)
-	args = append(args, id)
+	qb = qb.Where(sq.Eq{"id": id}).Where(sq.NotEq{"status": StatusApplied})
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return fmt.Errorf("building update query: %w", err)
+	}
 
 	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
@@ -312,34 +315,40 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates InsightUp
 
 // Stats returns aggregated statistics matching the filter.
 func (s *postgresStore) Stats(ctx context.Context, filter InsightFilter) (*InsightStats, error) {
-	where, args := buildFilterWhere(filter)
-
 	stats := &InsightStats{
 		ByCategory:   make(map[string]int),
 		ByConfidence: make(map[string]int),
 		ByStatus:     make(map[string]int),
 	}
 
-	// Count by status
-	statusQuery := "SELECT status, COUNT(*) FROM knowledge_insights" + where + " GROUP BY status"
-	if err := s.queryCountMap(ctx, statusQuery, args, stats.ByStatus); err != nil {
+	if err := s.countGroupBy(ctx, filter, "status", stats.ByStatus); err != nil {
 		return nil, fmt.Errorf("counting by status: %w", err)
 	}
 	stats.TotalPending = stats.ByStatus[StatusPending]
 
-	// Count by category
-	catQuery := "SELECT category, COUNT(*) FROM knowledge_insights" + where + " GROUP BY category"
-	if err := s.queryCountMap(ctx, catQuery, args, stats.ByCategory); err != nil {
+	if err := s.countGroupBy(ctx, filter, "category", stats.ByCategory); err != nil {
 		return nil, fmt.Errorf("counting by category: %w", err)
 	}
 
-	// Count by confidence
-	confQuery := "SELECT confidence, COUNT(*) FROM knowledge_insights" + where + " GROUP BY confidence"
-	if err := s.queryCountMap(ctx, confQuery, args, stats.ByConfidence); err != nil {
+	if err := s.countGroupBy(ctx, filter, "confidence", stats.ByConfidence); err != nil {
 		return nil, fmt.Errorf("counting by confidence: %w", err)
 	}
 
 	return stats, nil
+}
+
+// countGroupBy queries a group-by count and populates a map.
+func (s *postgresStore) countGroupBy(ctx context.Context, filter InsightFilter, col string, dest map[string]int) error {
+	qb := applyInsightFilter(
+		psq.Select(col, "COUNT(*)").From("knowledge_insights"), filter,
+	).GroupBy(col)
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return fmt.Errorf("building query: %w", err)
+	}
+
+	return s.queryCountMap(ctx, query, args, dest)
 }
 
 // queryCountMap executes a "SELECT key, COUNT(*)" query and populates a map.

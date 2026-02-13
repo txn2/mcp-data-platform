@@ -1,0 +1,29 @@
+# ACME Corporation Local Dev Environment
+#
+# PostgreSQL-only compose for testing the admin UI against real API endpoints.
+# The Go binary handles all schema migrations on startup.
+#
+# Usage:
+#   make dev-up     # start PostgreSQL, wait for healthy
+#   make dev-down   # stop and remove volumes
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: acme-dev-postgres
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform_secret
+      POSTGRES_DB: mcp_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - acme_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d mcp_platform"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  acme_postgres_data:

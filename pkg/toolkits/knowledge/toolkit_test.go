@@ -943,7 +943,7 @@ func TestSuccessResult(t *testing.T) {
 	require.NotEmpty(t, result.Content)
 
 	tc, ok := result.Content[0].(*mcp.TextContent)
-	require.True(t, ok, "expected *mcp.TextContent") //nolint:revive // test value
+	require.True(t, ok, "expected *mcp.TextContent")
 
 	var output captureInsightOutput
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
@@ -952,14 +952,14 @@ func TestSuccessResult(t *testing.T) {
 }
 
 func TestJsonResult(t *testing.T) {
-	data := map[string]any{"key": "value", "count": float64(42)} //nolint:revive // test value
+	data := map[string]any{"key": "value", "count": float64(42)}
 	result, _, err := jsonResult(data)
 	require.Nil(t, err)
 	require.False(t, result.IsError)
 
 	m := parseJSONResult(t, result)
 	assert.Equal(t, "value", m["key"])
-	assert.Equal(t, float64(42), m["count"]) //nolint:revive // test value
+	assert.Equal(t, float64(42), m["count"])
 }
 
 // ---------------------------------------------------------------------------
@@ -1002,15 +1002,15 @@ func TestHandleApplyKnowledge_ActionValidation(t *testing.T) {
 func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 	store := &fullSpyStore{
 		StatsResult: &InsightStats{
-			TotalPending: 3,                                                      //nolint:revive // test value
-			ByCategory:   map[string]int{"correction": 2, "business_context": 1}, //nolint:revive // test values
-			ByConfidence: map[string]int{"high": 1, "medium": 2},                 //nolint:revive // test values
-			ByStatus:     map[string]int{"pending": 3},                           //nolint:revive // test values
+			TotalPending: 3,
+			ByCategory:   map[string]int{"correction": 2, "business_context": 1},
+			ByConfidence: map[string]int{"high": 1, "medium": 2},
+			ByStatus:     map[string]int{"pending": 3},
 		},
 		Insights: []Insight{
-			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},                //nolint:revive // test values
-			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},                //nolint:revive // test values
-			{ID: "i3", Status: StatusPending, EntityURNs: []string{"urn:li:dataset:other"}, Category: "business_context", CreatedAt: time.Now()}, //nolint:revive // test values
+			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},
+			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},
+			{ID: "i3", Status: StatusPending, EntityURNs: []string{"urn:li:dataset:other"}, Category: "business_context", CreatedAt: time.Now()},
 		},
 	}
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
@@ -1021,7 +1021,7 @@ func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 	require.False(t, result.IsError)
 
 	m := parseJSONResult(t, result)
-	assert.Equal(t, float64(3), m["total_pending"]) //nolint:revive // test value
+	assert.Equal(t, float64(3), m["total_pending"])
 	assert.NotNil(t, m["by_category"])
 	assert.NotNil(t, m["by_confidence"])
 	assert.NotNil(t, m["by_entity"])
@@ -1045,7 +1045,7 @@ func TestHandleBulkReview_ListError(t *testing.T) {
 	store := &fullSpyStore{ListErr: errors.New("list query failed")}
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
 
-	input := applyKnowledgeInput{Action: "bulk_review"} //nolint:revive // test value
+	input := applyKnowledgeInput{Action: "bulk_review"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
 	require.Nil(t, callErr)
 	assert.True(t, result.IsError)
@@ -1114,13 +1114,13 @@ func TestHandleReview_NilWriter(t *testing.T) {
 func TestHandleReview_MetadataError(t *testing.T) {
 	store := &fullSpyStore{
 		Insights: []Insight{
-			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}}, //nolint:revive // test value
+			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}},
 		},
 	}
 	writer := &spyWriter{MetaErr: errors.New("datahub unavailable")}
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
-	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN} //nolint:revive // test value
+	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
 	require.Nil(t, callErr)
 	require.False(t, result.IsError)
@@ -1230,7 +1230,7 @@ func TestHandleSynthesize_OnlyApprovedInsights(t *testing.T) {
 			},
 			{
 				ID: "rejected1", Status: StatusRejected, EntityURNs: []string{testEntityURN},
-				SuggestedActions: []SuggestedAction{{ActionType: "add_tag", Detail: "tag3"}}, //nolint:revive // test value
+				SuggestedActions: []SuggestedAction{{ActionType: "add_tag", Detail: "tag3"}},
 			},
 		},
 	}
@@ -1309,7 +1309,7 @@ func TestHandleSynthesize_InsightIDsFiltering(t *testing.T) {
 func TestHandleSynthesize_RequiresEntityURN(t *testing.T) {
 	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
 
-	input := applyKnowledgeInput{Action: "synthesize"} //nolint:revive // test value
+	input := applyKnowledgeInput{Action: "synthesize"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
 	require.Nil(t, callErr)
 	assert.True(t, result.IsError)
@@ -1424,7 +1424,7 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 		Action:    "apply",
 		EntityURN: testEntityURN,
 		Changes: []ApplyChange{
-			{ChangeType: "update_description", Detail: "New description"}, //nolint:revive // test value
+			{ChangeType: "update_description", Detail: "New description"},
 			{ChangeType: "add_tag", Detail: "important"},
 			{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:revenue"},
 			{ChangeType: "add_documentation", Detail: "https://docs.example.com", Target: "Revenue docs"},
@@ -1438,7 +1438,7 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
 
 	// Verify all 5 write calls were made
-	assert.Len(t, writer.WriteCalls, 5) //nolint:revive // test value
+	assert.Len(t, writer.WriteCalls, 5)
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
 	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
 	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
@@ -1469,7 +1469,7 @@ func TestHandleApply_RecordsChangeset(t *testing.T) {
 	}
 	tk := newApplyToolkit(t, store, csStore, writer)
 
-	ctx := ctxWithUser("admin-1", "sess-1", "admin") //nolint:revive // test values
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
 
 	input := applyKnowledgeInput{
 		Action:     "apply",
@@ -1534,9 +1534,9 @@ func TestHandleApply_NilInsightIDs(t *testing.T) {
 	tk := newApplyToolkit(t, store, csStore, writer)
 
 	input := applyKnowledgeInput{
-		Action:    "apply", //nolint:revive // test value
+		Action:    "apply",
 		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}}, //nolint:revive // test values
+		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
 		// InsightIDs is nil
 	}
 
@@ -1559,7 +1559,7 @@ func TestHandleApply_MarksInsightsAsApplied(t *testing.T) {
 	writer := &spyWriter{}
 	tk := newApplyToolkit(t, store, csStore, writer)
 
-	ctx := ctxWithUser("admin-1", "sess-1", "admin") //nolint:revive // test values
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
 
 	input := applyKnowledgeInput{
 		Action:     "apply",
@@ -1573,7 +1573,7 @@ func TestHandleApply_MarksInsightsAsApplied(t *testing.T) {
 	require.False(t, result.IsError)
 
 	// Verify MarkApplied was called for each insight
-	require.Len(t, store.MarkAppliedCalls, 3) //nolint:revive // test value
+	require.Len(t, store.MarkAppliedCalls, 3)
 	for i, call := range store.MarkAppliedCalls {
 		assert.Equal(t, fmt.Sprintf("ins-%d", i+1), call.ID)
 		assert.Equal(t, "admin-1", call.AppliedBy)
@@ -1597,7 +1597,7 @@ func TestHandleApply_NoPlatformContext(t *testing.T) {
 		Action:     "apply",
 		EntityURN:  testEntityURN,
 		Changes:    []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-		InsightIDs: []string{"ins-1"}, //nolint:revive // test value
+		InsightIDs: []string{"ins-1"},
 	}
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1662,7 +1662,7 @@ func TestHandleApply_ChangesetStoreError(t *testing.T) {
 	assert.True(t, result.IsError)
 
 	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string) //nolint:revive // test value
+	errMsg, _ := m["error"].(string)
 	assert.Contains(t, errMsg, "failed to record changeset")
 }
 
@@ -1802,7 +1802,7 @@ func TestHandleApprove(t *testing.T) {
 	store := &fullSpyStore{
 		Insights: []Insight{
 			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}},
-			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}}, //nolint:revive // test value
+			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}},
 		},
 	}
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
@@ -1860,7 +1860,7 @@ func TestHandleReject(t *testing.T) {
 func TestHandleApproveReject_RequiresInsightIDs(t *testing.T) {
 	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
 
-	for _, action := range []string{"approve", "reject"} { //nolint:revive // test values
+	for _, action := range []string{"approve", "reject"} {
 		t.Run(action, func(t *testing.T) {
 			input := applyKnowledgeInput{
 				Action: action,
@@ -1995,9 +1995,9 @@ func TestHandleApproveReject_PartialSuccess(t *testing.T) {
 
 	m := parseJSONResult(t, result)
 	assert.Equal(t, float64(2), m["updated"])
-	assert.Equal(t, float64(3), m["total"]) //nolint:revive // test value
+	assert.Equal(t, float64(3), m["total"])
 
-	errList, ok := m["errors"].([]any) //nolint:revive // test value
+	errList, ok := m["errors"].([]any)
 	require.True(t, ok)
 	assert.Len(t, errList, 1)
 }
@@ -2088,7 +2088,7 @@ func TestContainsString(t *testing.T) {
 	assert.True(t, containsString([]string{"a", "b", "c"}, "b"))
 	assert.False(t, containsString([]string{"a", "b", "c"}, "d"))
 	assert.False(t, containsString(nil, "a"))
-	assert.False(t, containsString([]string{}, "a")) //nolint:revive // test value
+	assert.False(t, containsString([]string{}, "a"))
 }
 
 func TestFilterByIDs(t *testing.T) {
@@ -2103,7 +2103,7 @@ func TestFilterByIDs(t *testing.T) {
 }
 
 func TestFilterByIDs_NoMatch(t *testing.T) {
-	insights := []Insight{{ID: "a"}, {ID: "b"}} //nolint:revive // test values
+	insights := []Insight{{ID: "a"}, {ID: "b"}}
 	result := filterByIDs(insights, []string{"x", "y"})
 	assert.Empty(t, result)
 }
@@ -2166,11 +2166,11 @@ func TestBuildEntitySummaries(t *testing.T) {
 	insights := []Insight{
 		{ID: "i1", EntityURNs: []string{"urn:a", "urn:b"}, Category: "correction", CreatedAt: now},
 		{ID: "i2", EntityURNs: []string{"urn:a"}, Category: "enhancement", CreatedAt: now.Add(time.Hour)},
-		{ID: "i3", EntityURNs: []string{"urn:c"}, Category: "correction", CreatedAt: now}, //nolint:revive // test values
+		{ID: "i3", EntityURNs: []string{"urn:c"}, Category: "correction", CreatedAt: now},
 	}
 
 	summaries := buildEntitySummaries(insights)
-	assert.Len(t, summaries, 3, "should have summaries for urn:a, urn:b, urn:c") //nolint:revive // test value
+	assert.Len(t, summaries, 3, "should have summaries for urn:a, urn:b, urn:c")
 
 	// Find urn:a summary
 	var urnA *EntityInsightSummary
@@ -2183,7 +2183,7 @@ func TestBuildEntitySummaries(t *testing.T) {
 	require.NotNil(t, urnA, "should find summary for urn:a")
 	assert.Equal(t, 2, urnA.Count)
 	assert.Contains(t, urnA.Categories, "correction")
-	assert.Contains(t, urnA.Categories, "enhancement") //nolint:revive // test value
+	assert.Contains(t, urnA.Categories, "enhancement")
 	assert.NotEmpty(t, urnA.LatestAt)
 }
 
@@ -2211,19 +2211,19 @@ func TestBuildProposedChanges(t *testing.T) {
 		{
 			ID: "i2",
 			SuggestedActions: []SuggestedAction{
-				{ActionType: "add_tag", Target: testEntityURN, Detail: "important"}, //nolint:revive // test value
+				{ActionType: "add_tag", Target: testEntityURN, Detail: "important"},
 			},
 		},
 	}
-	meta := &EntityMetadata{Description: "Old desc"} //nolint:revive // test value
+	meta := &EntityMetadata{Description: "Old desc"}
 
 	proposed := buildProposedChanges(insights, meta)
 	assert.Len(t, proposed, 2)
 
 	// update_description should have current_value populated
 	assert.Equal(t, "update_description", proposed[0].ChangeType)
-	assert.Equal(t, "Old desc", proposed[0].CurrentValue)   //nolint:revive // test value
-	assert.Equal(t, "New desc", proposed[0].SuggestedValue) //nolint:revive // test value
+	assert.Equal(t, "Old desc", proposed[0].CurrentValue)
+	assert.Equal(t, "New desc", proposed[0].SuggestedValue)
 	assert.Equal(t, []string{"i1"}, proposed[0].SourceInsightIDs)
 
 	// add_tag should have empty current_value
@@ -2236,7 +2236,7 @@ func TestBuildProposedChanges_NilMeta(t *testing.T) {
 		{
 			ID: "i1",
 			SuggestedActions: []SuggestedAction{
-				{ActionType: "update_description", Detail: "New desc"}, //nolint:revive // test value
+				{ActionType: "update_description", Detail: "New desc"},
 			},
 		},
 	}
@@ -2272,12 +2272,12 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 
 	err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	assert.Len(t, writer.WriteCalls, 5) //nolint:revive // test value
+	assert.Len(t, writer.WriteCalls, 5)
 
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "new desc", writer.WriteCalls[0].Arg1) //nolint:revive // test value
+	assert.Equal(t, "new desc", writer.WriteCalls[0].Arg1)
 
-	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method) //nolint:revive // test value
+	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
 	assert.Equal(t, "tag1", writer.WriteCalls[1].Arg1)
 
 	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)

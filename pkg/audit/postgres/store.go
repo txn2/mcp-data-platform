@@ -6,8 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
+
+	sq "github.com/Masterminds/squirrel"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
@@ -17,6 +18,18 @@ const (
 	defaultQueryCapacity = 100
 	maxQueryCapacity     = 10000
 )
+
+// psq is the PostgreSQL statement builder with dollar placeholders.
+var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+// auditColumns lists columns returned by audit SELECT queries.
+var auditColumns = []string{
+	"id", "timestamp", "duration_ms", "request_id", "session_id",
+	"user_id", "user_email", "persona", "tool_name", "toolkit_kind",
+	"toolkit_name", "connection", "parameters", "success", "error_message",
+	"response_chars", "request_chars", "content_blocks",
+	"transport", "source", "enrichment_applied", "authorized",
+}
 
 // Store implements audit.Logger using PostgreSQL.
 type Store struct {
@@ -87,127 +100,131 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 	return nil
 }
 
-// queryBuilder helps build parameterized queries.
-type queryBuilder struct {
-	conditions []string
-	args       []any
-	argNum     int
-}
-
-func newQueryBuilder() *queryBuilder {
-	return &queryBuilder{argNum: 1}
-}
-
-func (b *queryBuilder) addCondition(column string, value any) {
-	b.conditions = append(b.conditions, fmt.Sprintf("%s = $%d", column, b.argNum))
-	b.args = append(b.args, value)
-	b.argNum++
-}
-
-func (b *queryBuilder) addTimeCondition(column, op string, value time.Time) {
-	b.conditions = append(b.conditions, fmt.Sprintf("%s %s $%d", column, op, b.argNum))
-	b.args = append(b.args, value)
-	b.argNum++
-}
-
-func (b *queryBuilder) addLimit(limit int) {
-	b.args = append(b.args, limit)
-	b.argNum++
-}
-
-func (b *queryBuilder) addOffset(offset int) {
-	b.args = append(b.args, offset)
-}
-
-func (b *queryBuilder) whereClause() string {
-	if len(b.conditions) == 0 {
-		return ""
+// applyAuditFilter adds filter conditions to a SELECT builder.
+func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBuilder {
+	if filter.ID != "" {
+		qb = qb.Where(sq.Eq{"id": filter.ID})
 	}
-	return " WHERE " + strings.Join(b.conditions, " AND ")
-}
-
-func (b *queryBuilder) limitClause(limit int) string {
-	if limit <= 0 {
-		return ""
+	if filter.StartTime != nil {
+		qb = qb.Where(sq.GtOrEq{"timestamp": *filter.StartTime})
 	}
-	return fmt.Sprintf(" LIMIT $%d", b.argNum)
-}
-
-func (b *queryBuilder) offsetClause(offset int) string {
-	if offset <= 0 {
-		return ""
+	if filter.EndTime != nil {
+		qb = qb.Where(sq.LtOrEq{"timestamp": *filter.EndTime})
 	}
-	return fmt.Sprintf(" OFFSET $%d", b.argNum)
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+	}
+	if filter.SessionID != "" {
+		qb = qb.Where(sq.Eq{"session_id": filter.SessionID})
+	}
+	if filter.ToolName != "" {
+		qb = qb.Where(sq.Eq{"tool_name": filter.ToolName})
+	}
+	if filter.ToolkitKind != "" {
+		qb = qb.Where(sq.Eq{"toolkit_kind": filter.ToolkitKind})
+	}
+	if filter.Success != nil {
+		qb = qb.Where(sq.Eq{"success": *filter.Success})
+	}
+	if filter.Search != "" {
+		like := "%" + filter.Search + "%"
+		qb = qb.Where(sq.Or{
+			sq.ILike{"user_id": like},
+			sq.ILike{"tool_name": like},
+			sq.ILike{"toolkit_kind": like},
+			sq.ILike{"connection": like},
+			sq.ILike{"persona": like},
+			sq.ILike{"error_message": like},
+		})
+	}
+	return qb
 }
 
 // Query retrieves audit events matching the filter.
 func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
-	builder := newQueryBuilder()
-	s.buildFilterConditions(builder, filter)
+	qb := applyAuditFilter(psq.Select(auditColumns...).From("audit_logs"), filter)
 
-	query := s.buildSelectQuery(builder, filter)
-	return s.executeQuery(ctx, query, builder.args, filter.Limit)
-}
+	orderCol := "timestamp"
+	orderDir := "DESC"
+	if filter.SortBy != "" && audit.ValidSortColumns[filter.SortBy] {
+		orderCol = filter.SortBy
+	}
+	if filter.SortOrder == audit.SortAsc {
+		orderDir = "ASC"
+	}
+	qb = qb.OrderBy(orderCol + " " + orderDir)
+	if filter.Limit > 0 {
+		qb = qb.Limit(uint64(filter.Limit))
+	}
+	if filter.Offset > 0 {
+		qb = qb.Offset(uint64(filter.Offset))
+	}
 
-func (*Store) buildFilterConditions(b *queryBuilder, filter audit.QueryFilter) {
-	if filter.ID != "" {
-		b.addCondition("id", filter.ID)
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building audit query: %w", err)
 	}
-	if filter.StartTime != nil {
-		b.addTimeCondition("timestamp", ">=", *filter.StartTime)
-	}
-	if filter.EndTime != nil {
-		b.addTimeCondition("timestamp", "<=", *filter.EndTime)
-	}
-	if filter.UserID != "" {
-		b.addCondition("user_id", filter.UserID)
-	}
-	if filter.SessionID != "" {
-		b.addCondition("session_id", filter.SessionID)
-	}
-	if filter.ToolName != "" {
-		b.addCondition("tool_name", filter.ToolName)
-	}
-	if filter.ToolkitKind != "" {
-		b.addCondition("toolkit_kind", filter.ToolkitKind)
-	}
-	if filter.Success != nil {
-		b.addCondition("success", *filter.Success)
-	}
+
+	return s.executeQuery(ctx, query, args, filter.Limit)
 }
 
 // Count returns the number of audit events matching the filter.
 func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error) {
-	builder := newQueryBuilder()
-	s.buildFilterConditions(builder, filter)
+	qb := applyAuditFilter(psq.Select("COUNT(*)").From("audit_logs"), filter)
 
-	q := "SELECT COUNT(*) FROM audit_logs" + builder.whereClause()
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("building count query: %w", err)
+	}
 
 	var count int
-	if err := s.db.QueryRowContext(ctx, q, builder.args...).Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		return 0, fmt.Errorf("counting audit logs: %w", err)
 	}
 	return count, nil
 }
 
-func (*Store) buildSelectQuery(b *queryBuilder, filter audit.QueryFilter) string {
-	query := `
-		SELECT id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, authorized
-		FROM audit_logs
-	`
-	query += b.whereClause()
-	query += " ORDER BY timestamp DESC"
-
-	if filter.Limit > 0 {
-		query += b.limitClause(filter.Limit)
-		b.addLimit(filter.Limit)
+// Distinct returns sorted unique values for the given column, scoped by optional time range.
+func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error) {
+	allowed := map[string]bool{
+		"user_id":   true,
+		"tool_name": true,
 	}
-	if filter.Offset > 0 {
-		query += b.offsetClause(filter.Offset)
-		b.addOffset(filter.Offset)
+	if !allowed[column] {
+		return nil, fmt.Errorf("distinct not supported for column %q", column)
 	}
 
-	return query
+	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
+	if startTime != nil {
+		qb = qb.Where(sq.GtOrEq{"timestamp": *startTime})
+	}
+	if endTime != nil {
+		qb = qb.Where(sq.LtOrEq{"timestamp": *endTime})
+	}
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building distinct query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct %s: %w", column, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var values []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("scanning distinct %s: %w", column, err)
+		}
+		values = append(values, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating distinct %s: %w", column, err)
+	}
+	return values, nil
 }
 
 func (s *Store) executeQuery(ctx context.Context, query string, args []any, limit int) ([]audit.Event, error) {

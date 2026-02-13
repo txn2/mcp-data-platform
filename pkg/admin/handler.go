@@ -1,5 +1,5 @@
 // Package admin provides REST API endpoints for administrative operations.
-package admin //nolint:revive // max-public-structs: admin API surface requires Handler, Deps, KnowledgeHandler, User, auth types
+package admin
 
 import (
 	"context"
@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -22,6 +24,15 @@ import (
 type AuditQuerier interface {
 	Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error)
 	Count(ctx context.Context, filter audit.QueryFilter) (int, error)
+	Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error)
+}
+
+// AuditMetricsQuerier provides aggregate audit metrics.
+type AuditMetricsQuerier interface {
+	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
+	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
+	Overview(ctx context.Context, startTime, endTime *time.Time) (*audit.Overview, error)
+	Performance(ctx context.Context, startTime, endTime *time.Time) (*audit.PerformanceStats, error)
 }
 
 // PersonaRegistry abstracts persona.Registry for testability.
@@ -44,6 +55,7 @@ type APIKeyManager interface {
 type ToolkitRegistry interface {
 	All() []registry.Toolkit
 	AllTools() []string
+	GetToolkitForTool(toolName string) registry.ToolkitMatch
 }
 
 // ConfigStore abstracts configstore.Store for testability.
@@ -56,14 +68,16 @@ type ConfigStore interface {
 
 // Deps holds dependencies for the admin handler.
 type Deps struct {
-	Config            *platform.Config
-	ConfigStore       ConfigStore
-	PersonaRegistry   PersonaRegistry
-	ToolkitRegistry   ToolkitRegistry
-	AuditQuerier      AuditQuerier
-	Knowledge         *KnowledgeHandler
-	APIKeyManager     APIKeyManager
-	DatabaseAvailable bool
+	Config              *platform.Config
+	ConfigStore         ConfigStore
+	PersonaRegistry     PersonaRegistry
+	ToolkitRegistry     ToolkitRegistry
+	MCPServer           *mcp.Server
+	AuditQuerier        AuditQuerier
+	AuditMetricsQuerier AuditMetricsQuerier
+	Knowledge           *KnowledgeHandler
+	APIKeyManager       APIKeyManager
+	DatabaseAvailable   bool
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -128,6 +142,7 @@ func (h *Handler) registerRoutes() {
 	h.registerKnowledgeRoutes()
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
+	h.registerAuditMetricsRoutes()
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
@@ -154,6 +169,8 @@ func (h *Handler) registerKnowledgeRoutes() {
 func (h *Handler) registerSystemRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/system/info", h.getSystemInfo)
 	h.mux.HandleFunc("GET /api/v1/admin/tools", h.listTools)
+	h.mux.HandleFunc("GET /api/v1/admin/tools/schemas", h.getToolSchemas)
+	h.mux.HandleFunc("POST /api/v1/admin/tools/call", h.callTool)
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
 		httpswagger.URL(docsPrefix+"doc.json"),
@@ -164,6 +181,7 @@ func (h *Handler) registerSystemRoutes() {
 // when audit is enabled in config but no database is available.
 func (h *Handler) registerAuditRoutes() {
 	if h.deps.AuditQuerier != nil {
+		h.mux.HandleFunc("GET /api/v1/admin/audit/events/filters", h.listAuditEventFilters)
 		h.mux.HandleFunc("GET /api/v1/admin/audit/events", h.listAuditEvents)
 		h.mux.HandleFunc("GET /api/v1/admin/audit/events/{id}", h.getAuditEvent)
 		h.mux.HandleFunc("GET /api/v1/admin/audit/stats", h.getAuditStats)

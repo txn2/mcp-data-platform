@@ -11,6 +11,8 @@ LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Versio
 CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
+ADMIN_UI_DIR := ./admin-ui
+ADMIN_UI_EMBED_DIR := ./internal/adminui/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.8.0
@@ -27,7 +29,9 @@ GOLINT := golangci-lint
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast \
-	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean
+	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
+	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
+	dev-up dev-down
 
 ## all: Build and test
 all: build test lint
@@ -86,6 +90,9 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@rm -f coverage.out coverage.html
+	@rm -rf $(ADMIN_UI_DIR)/dist $(ADMIN_UI_DIR)/node_modules
+	@# Reset embed dir but keep .gitkeep
+	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
 	@echo "Clean complete."
 
 ## install: Install the binary
@@ -270,6 +277,40 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
 
 # =============================================================================
+# Admin UI Frontend Targets
+# =============================================================================
+
+## frontend-install: Install admin UI dependencies
+frontend-install:
+	@echo "Installing admin UI dependencies..."
+	cd $(ADMIN_UI_DIR) && npm ci
+	@echo "Admin UI dependencies installed."
+
+## frontend-build: Build admin UI and copy to embed directory
+frontend-build: frontend-install
+	@echo "Building admin UI..."
+	cd $(ADMIN_UI_DIR) && npm run build
+	@echo "Copying dist to embed directory..."
+	@rm -rf $(ADMIN_UI_EMBED_DIR)/*
+	@cp -r $(ADMIN_UI_DIR)/dist/* $(ADMIN_UI_EMBED_DIR)/
+	@echo "Admin UI built and embedded."
+
+## frontend-dev: Run admin UI dev server (hot reload)
+frontend-dev:
+	cd $(ADMIN_UI_DIR) && npm run dev
+
+## frontend-test: Run admin UI tests
+frontend-test:
+	cd $(ADMIN_UI_DIR) && npm run test
+
+## frontend-storybook: Run Storybook for component development
+frontend-storybook:
+	cd $(ADMIN_UI_DIR) && npm run storybook
+
+## build-with-ui: Build Go binary with embedded admin UI
+build-with-ui: frontend-build build
+
+# =============================================================================
 # E2E Testing Targets
 # =============================================================================
 
@@ -334,3 +375,46 @@ e2e-clean: e2e-down
 	@echo "Cleaning E2E artifacts..."
 	@docker volume rm -f mcp-data-platform_postgres_data mcp-data-platform_minio_data 2>/dev/null || true
 	@echo "E2E cleanup complete."
+
+# =============================================================================
+# Local Dev Environment (ACME Corporation)
+# =============================================================================
+
+DEV_COMPOSE := docker compose -f dev/docker-compose.yml
+
+## dev-up: Start ACME dev environment (PostgreSQL)
+dev-up:
+	@echo "Starting ACME dev environment..."
+	$(DEV_COMPOSE) up -d
+	@echo "Waiting for PostgreSQL to be healthy..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if docker exec acme-dev-postgres pg_isready -U platform -d mcp_platform -q 2>/dev/null; then \
+			echo "PostgreSQL is ready."; \
+			break; \
+		fi; \
+		if [ $$i -eq 10 ]; then echo "ERROR: PostgreSQL failed to start"; exit 1; fi; \
+		sleep 1; \
+	done
+	@echo ""
+	@echo "=== ACME Dev Environment Ready ==="
+	@echo ""
+	@echo "Start the Go server:"
+	@echo "  go run ./cmd/mcp-data-platform --config dev/platform.yaml"
+	@echo ""
+	@echo "(Optional) Seed historical data:"
+	@echo "  psql -h localhost -U platform -d mcp_platform -f dev/seed.sql"
+	@echo ""
+	@echo "Start the admin UI:"
+	@echo "  cd admin-ui && npm run dev"
+	@echo ""
+	@echo "Or use MSW mode (no backend needed):"
+	@echo "  cd admin-ui && VITE_MSW=true npm run dev"
+	@echo ""
+	@echo "API Key: acme-dev-key-2024"
+	@echo ""
+
+## dev-down: Stop ACME dev environment and remove volumes
+dev-down:
+	@echo "Stopping ACME dev environment..."
+	$(DEV_COMPOSE) down -v
+	@echo "ACME dev environment stopped."

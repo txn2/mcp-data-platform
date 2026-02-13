@@ -14,6 +14,7 @@ type systemInfoResponse struct {
 	Description  string         `json:"description"`
 	Transport    string         `json:"transport"`
 	ConfigMode   string         `json:"config_mode"`
+	PortalTitle  string         `json:"portal_title"`
 	Features     systemFeatures `json:"features"`
 	ToolkitCount int            `json:"toolkit_count"`
 	PersonaCount int            `json:"persona_count"`
@@ -48,6 +49,7 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		resp.Name = cfg.Server.Name
 		resp.Description = cfg.Server.Description
 		resp.Transport = cfg.Server.Transport
+		resp.PortalTitle = cfg.Admin.PortalTitle
 		resp.Features = systemFeatures{
 			Audit:     h.deps.AuditQuerier != nil,
 			OAuth:     cfg.OAuth.Enabled,

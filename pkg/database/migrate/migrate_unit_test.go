@@ -455,7 +455,7 @@ func TestMigration007_DownContent(t *testing.T) {
 	migrationSQL := string(content)
 
 	assert.Contains(t, migrationSQL, "ALTER TABLE")
-	assert.Contains(t, migrationSQL, "knowledge_insights") //nolint:revive // test assertion
+	assert.Contains(t, migrationSQL, "knowledge_insights")
 
 	droppedColumns := []string{
 		"review_notes",
@@ -474,7 +474,7 @@ func TestMigration008_UpContent(t *testing.T) {
 	migrationSQL := string(content)
 
 	// Must create the knowledge_changesets table.
-	assert.Contains(t, migrationSQL, "CREATE TABLE") //nolint:revive // test assertion
+	assert.Contains(t, migrationSQL, "CREATE TABLE")
 	assert.Contains(t, migrationSQL, "knowledge_changesets")
 
 	expectedColumns := []string{
@@ -529,7 +529,7 @@ func TestMigration008_DownContent(t *testing.T) {
 	}
 
 	// Must drop the knowledge_changesets table.
-	assert.Contains(t, migrationSQL, "DROP TABLE") //nolint:revive // test assertion
+	assert.Contains(t, migrationSQL, "DROP TABLE")
 	assert.Contains(t, migrationSQL, "knowledge_changesets")
 }
 
@@ -663,10 +663,10 @@ func TestMigration004_ColumnConsistency(t *testing.T) {
 	require.Len(t, insertMatch, 2, "store.go should contain INSERT INTO audit_logs(...)")
 	insertCols := insertMatch[1]
 
-	// Extract SELECT column list (between "SELECT" and "FROM audit_logs").
-	selectRe := regexp.MustCompile(`SELECT\s+([\w\s,]+)\s+FROM audit_logs`)
+	// Extract SELECT column list from auditColumns variable (used by squirrel builder).
+	selectRe := regexp.MustCompile(`auditColumns\s*=\s*\[\]string\{([^}]+)\}`)
 	selectMatch := selectRe.FindStringSubmatch(storeStr)
-	require.Len(t, selectMatch, 2, "store.go should contain SELECT ... FROM audit_logs")
+	require.Len(t, selectMatch, 2, "store.go should contain auditColumns = []string{...}")
 	selectCols := selectMatch[1]
 
 	// Verify each column added by migration 004 appears in both INSERT and SELECT.

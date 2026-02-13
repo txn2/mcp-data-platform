@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -60,6 +62,20 @@ func (m *mockToolkitRegistry) AllTools() []string {
 		tools = append(tools, tk.tools...)
 	}
 	return tools
+}
+
+func (m *mockToolkitRegistry) GetToolkitForTool(toolName string) registry.ToolkitMatch {
+	for _, tk := range m.allResult {
+		if slices.Contains(tk.tools, toolName) {
+			return registry.ToolkitMatch{
+				Kind:       tk.kind,
+				Name:       tk.name,
+				Connection: tk.connection,
+				Found:      true,
+			}
+		}
+	}
+	return registry.ToolkitMatch{}
 }
 
 // Verify interface compliance.
@@ -132,10 +148,12 @@ var _ PersonaRegistry = (*mockPersonaRegistry)(nil)
 // --- Mock AuditQuerier ---
 
 type mockAuditQuerier struct {
-	queryResult []audit.Event
-	queryErr    error
-	countResult int
-	countErr    error
+	queryResult    []audit.Event
+	queryErr       error
+	countResult    int
+	countErr       error
+	distinctResult []string
+	distinctErr    error
 }
 
 func (m *mockAuditQuerier) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
@@ -144,6 +162,10 @@ func (m *mockAuditQuerier) Query(_ context.Context, _ audit.QueryFilter) ([]audi
 
 func (m *mockAuditQuerier) Count(_ context.Context, _ audit.QueryFilter) (int, error) {
 	return m.countResult, m.countErr
+}
+
+func (m *mockAuditQuerier) Distinct(_ context.Context, _ string, _, _ *time.Time) ([]string, error) {
+	return m.distinctResult, m.distinctErr
 }
 
 // Verify interface compliance.
