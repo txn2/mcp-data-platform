@@ -107,18 +107,18 @@ FROM
   -- Weighted user selection: data engineers are most active
   LATERAL (
     SELECT email, persona FROM (VALUES
-      ('sarah.chen@acme-corp.com',       'admin',              8),
-      ('marcus.johnson@acme-corp.com',   'data-engineer',     15),
-      ('rachel.thompson@acme-corp.com',  'inventory-analyst', 12),
-      ('david.park@acme-corp.com',       'regional-director',  6),
-      ('jennifer.martinez@acme-corp.com','finance-executive',   5),
-      ('kevin.wilson@acme-corp.com',     'store-manager',       7),
-      ('amanda.lee@acme-corp.com',       'data-engineer',      14),
-      ('carlos.rodriguez@acme-corp.com', 'regional-director',   6),
-      ('emily.watson@acme-corp.com',     'inventory-analyst',  10),
-      ('brian.taylor@acme-corp.com',     'finance-executive',   4),
-      ('lisa.chang@acme-corp.com',       'data-engineer',      11),
-      ('mike.davis@acme-corp.com',       'store-manager',       3)
+      ('sarah.chen@example.com',       'admin',              8),
+      ('marcus.johnson@example.com',   'data-engineer',     15),
+      ('rachel.thompson@example.com',  'inventory-analyst', 12),
+      ('david.park@example.com',       'regional-director',  6),
+      ('jennifer.martinez@example.com','finance-executive',   5),
+      ('kevin.wilson@example.com',     'store-manager',       7),
+      ('amanda.lee@example.com',       'data-engineer',      14),
+      ('carlos.rodriguez@example.com', 'regional-director',   6),
+      ('emily.watson@example.com',     'inventory-analyst',  10),
+      ('brian.taylor@example.com',     'finance-executive',   4),
+      ('lisa.chang@example.com',       'data-engineer',      11),
+      ('mike.davis@example.com',       'store-manager',       3)
     ) AS users(email, persona, weight)
     ORDER BY weight DESC
     OFFSET (n * 7 % 12)
@@ -257,7 +257,7 @@ INSERT INTO knowledge_changesets (
   (SELECT ARRAY[id] FROM knowledge_insights WHERE insight_text LIKE '%fiscal_quarter%' LIMIT 1),
   '[{"change_type": "update_description", "target": "iceberg.analytics.regional_performance", "detail": "Uses ACME fiscal calendar (FY starts Feb 1). Filter by fiscal_quarter for accurate period comparisons."}]'::jsonb,
   'applied',
-  'sarah.chen@acme-corp.com',
+  'sarah.chen@example.com',
   NOW() - interval '3 days',
   NOW() - interval '3 days'
 ),
@@ -266,7 +266,7 @@ INSERT INTO knowledge_changesets (
   (SELECT ARRAY[id] FROM knowledge_insights WHERE insight_text LIKE '%BACKORDER%' LIMIT 1),
   '[{"change_type": "add_tag", "target": "iceberg.inventory.supply_chain_orders", "detail": "exclude_backorders_from_inventory"}]'::jsonb,
   'rolled_back',
-  'sarah.chen@acme-corp.com',
+  'sarah.chen@example.com',
   NOW() - interval '5 days',
   NOW() - interval '6 days'
 );

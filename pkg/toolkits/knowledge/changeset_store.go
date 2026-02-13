@@ -130,6 +130,31 @@ func applyChangesetFilter(qb sq.SelectBuilder, filter ChangesetFilter) sq.Select
 	return qb
 }
 
+// scanChangesetRow scans a single row into a Changeset.
+func scanChangesetRow(rows *sql.Rows) (Changeset, error) {
+	var cs Changeset
+	var prevVal, newVal, srcIDs []byte
+	var rolledBackAt sql.NullTime
+
+	if err := rows.Scan(
+		&cs.ID, &cs.CreatedAt, &cs.TargetURN, &cs.ChangeType,
+		&prevVal, &newVal, &srcIDs,
+		&cs.ApprovedBy, &cs.AppliedBy, &cs.RolledBack,
+		&cs.RolledBackBy, &rolledBackAt,
+	); err != nil {
+		return Changeset{}, fmt.Errorf("scanning changeset row: %w", err)
+	}
+
+	if rolledBackAt.Valid {
+		cs.RolledBackAt = &rolledBackAt.Time
+	}
+
+	if err := unmarshalChangesetJSON(&cs, prevVal, newVal, srcIDs); err != nil {
+		return Changeset{}, err
+	}
+	return cs, nil
+}
+
 // ListChangesets returns changesets matching the filter with pagination.
 func (s *postgresChangesetStore) ListChangesets(ctx context.Context, filter ChangesetFilter) ([]Changeset, int, error) {
 	countQB := applyChangesetFilter(psq.Select("COUNT(*)").From("knowledge_changesets"), filter)
@@ -170,24 +195,8 @@ func (s *postgresChangesetStore) ListChangesets(ctx context.Context, filter Chan
 
 	var changesets []Changeset
 	for rows.Next() {
-		var cs Changeset
-		var prevVal, newVal, srcIDs []byte
-		var rolledBackAt sql.NullTime
-
-		if err := rows.Scan(
-			&cs.ID, &cs.CreatedAt, &cs.TargetURN, &cs.ChangeType,
-			&prevVal, &newVal, &srcIDs,
-			&cs.ApprovedBy, &cs.AppliedBy, &cs.RolledBack,
-			&cs.RolledBackBy, &rolledBackAt,
-		); err != nil {
-			return nil, 0, fmt.Errorf("scanning changeset row: %w", err)
-		}
-
-		if rolledBackAt.Valid {
-			cs.RolledBackAt = &rolledBackAt.Time
-		}
-
-		if err := unmarshalChangesetJSON(&cs, prevVal, newVal, srcIDs); err != nil {
+		cs, err := scanChangesetRow(rows)
+		if err != nil {
 			return nil, 0, err
 		}
 		changesets = append(changesets, cs)

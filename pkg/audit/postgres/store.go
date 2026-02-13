@@ -126,13 +126,33 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 	if filter.Success != nil {
 		qb = qb.Where(sq.Eq{"success": *filter.Success})
 	}
+	if filter.Search != "" {
+		like := "%" + filter.Search + "%"
+		qb = qb.Where(sq.Or{
+			sq.ILike{"user_id": like},
+			sq.ILike{"tool_name": like},
+			sq.ILike{"toolkit_kind": like},
+			sq.ILike{"connection": like},
+			sq.ILike{"persona": like},
+			sq.ILike{"error_message": like},
+		})
+	}
 	return qb
 }
 
 // Query retrieves audit events matching the filter.
 func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
 	qb := applyAuditFilter(psq.Select(auditColumns...).From("audit_logs"), filter)
-	qb = qb.OrderBy("timestamp DESC")
+
+	orderCol := "timestamp"
+	orderDir := "DESC"
+	if filter.SortBy != "" && audit.ValidSortColumns[filter.SortBy] {
+		orderCol = filter.SortBy
+	}
+	if filter.SortOrder == audit.SortAsc {
+		orderDir = "ASC"
+	}
+	qb = qb.OrderBy(orderCol + " " + orderDir)
 	if filter.Limit > 0 {
 		qb = qb.Limit(uint64(filter.Limit))
 	}
@@ -162,6 +182,49 @@ func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error
 		return 0, fmt.Errorf("counting audit logs: %w", err)
 	}
 	return count, nil
+}
+
+// Distinct returns sorted unique values for the given column, scoped by optional time range.
+func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error) {
+	allowed := map[string]bool{
+		"user_id":   true,
+		"tool_name": true,
+	}
+	if !allowed[column] {
+		return nil, fmt.Errorf("distinct not supported for column %q", column)
+	}
+
+	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
+	if startTime != nil {
+		qb = qb.Where(sq.GtOrEq{"timestamp": *startTime})
+	}
+	if endTime != nil {
+		qb = qb.Where(sq.LtOrEq{"timestamp": *endTime})
+	}
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building distinct query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct %s: %w", column, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var values []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("scanning distinct %s: %w", column, err)
+		}
+		values = append(values, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating distinct %s: %w", column, err)
+	}
+	return values, nil
 }
 
 func (s *Store) executeQuery(ctx context.Context, query string, args []any, limit int) ([]audit.Event, error) {

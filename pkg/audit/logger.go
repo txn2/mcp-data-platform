@@ -44,6 +44,29 @@ type Event struct {
 	Authorized        bool           `json:"authorized"`
 }
 
+// SortOrder defines sort direction.
+type SortOrder string
+
+const (
+	// SortAsc sorts ascending.
+	SortAsc SortOrder = "asc"
+
+	// SortDesc sorts descending.
+	SortDesc SortOrder = "desc"
+)
+
+// ValidSortColumns lists columns that can be used for ORDER BY.
+var ValidSortColumns = map[string]bool{
+	"timestamp":          true,
+	"user_id":            true,
+	"tool_name":          true,
+	"toolkit_kind":       true,
+	"connection":         true,
+	"duration_ms":        true,
+	"success":            true,
+	"enrichment_applied": true,
+}
+
 // QueryFilter defines criteria for querying audit events.
 type QueryFilter struct {
 	ID          string
@@ -53,7 +76,10 @@ type QueryFilter struct {
 	SessionID   string
 	ToolName    string
 	ToolkitKind string
+	Search      string
 	Success     *bool
+	SortBy      string
+	SortOrder   SortOrder
 	Limit       int
 	Offset      int
 }

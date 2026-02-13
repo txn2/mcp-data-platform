@@ -530,6 +530,12 @@ func TestApplyAuditFilter(t *testing.T) {
 			wantContains: []string{"success = $1"},
 		},
 		{
+			name:         "search only",
+			filter:       audit.QueryFilter{Search: "trino"},
+			wantArgCount: 6, //nolint:revive // 6 ILIKE columns
+			wantContains: []string{"ILIKE"},
+		},
+		{
 			name: "all filters",
 			filter: audit.QueryFilter{
 				ID:          "evt-1",
@@ -740,6 +746,129 @@ func TestExecuteQuery_CapsCapacity(t *testing.T) {
 	results, err := store.Query(context.Background(), filter)
 	assert.NoError(t, err)
 	assert.Empty(t, results)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestQuery_SortBy(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows(selectColumns)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs ORDER BY duration_ms ASC").WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), audit.QueryFilter{
+		SortBy:    "duration_ms",
+		SortOrder: audit.SortAsc,
+	})
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestQuery_SortByInvalidColumn(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	// Invalid sort column falls back to timestamp, order still applied
+	rows := sqlmock.NewRows(selectColumns)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs ORDER BY timestamp ASC").WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), audit.QueryFilter{
+		SortBy:    "password",
+		SortOrder: audit.SortAsc,
+	})
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinct_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"user_id"}).
+		AddRow("alice@acme.com").
+		AddRow("bob@acme.com")
+	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").WillReturnRows(rows)
+
+	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, values)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinct_WithTimeRange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+	startTime := time.Date(testYear, testMonth, 1, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(testYear, testMonth, 30, 23, 59, 59, 0, time.UTC) //nolint:revive // test fixture date
+
+	rows := sqlmock.NewRows([]string{"tool_name"}).AddRow("trino_query")
+	mock.ExpectQuery("SELECT DISTINCT tool_name FROM audit_logs").
+		WithArgs(startTime, endTime).
+		WillReturnRows(rows)
+
+	values, err := store.Distinct(context.Background(), "tool_name", &startTime, &endTime)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"trino_query"}, values)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinct_InvalidColumn(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	values, err := store.Distinct(context.Background(), "password", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, values)
+	assert.Contains(t, err.Error(), "distinct not supported")
+}
+
+func TestDistinct_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").
+		WillReturnError(errors.New("db down"))
+
+	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, values)
+	assert.Contains(t, err.Error(), "querying distinct user_id")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinct_EmptyResult(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"user_id"})
+	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").WillReturnRows(rows)
+
+	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, values)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

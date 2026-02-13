@@ -444,6 +444,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ConfigStore:       p.ConfigStore(),
 		PersonaRegistry:   p.PersonaRegistry(),
 		ToolkitRegistry:   p.ToolkitRegistry(),
+		MCPServer:         p.MCPServer(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
 	}
 

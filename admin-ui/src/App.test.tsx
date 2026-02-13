@@ -18,10 +18,13 @@ describe("App", () => {
   it("renders app shell when authenticated", () => {
     useAuthStore.getState().setApiKey("test-key");
     render(<App />);
-    expect(screen.getByText("MCP Platform")).toBeInTheDocument();
-    // "Dashboard" appears in both sidebar and header
-    expect(screen.getAllByText("Dashboard")).toHaveLength(2);
+    expect(screen.getByText("Admin Portal")).toBeInTheDocument();
+    // "Home" appears in both sidebar and header
+    expect(screen.getAllByText("Home")).toHaveLength(2);
+    expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.getByText("Audit Log")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge")).toBeInTheDocument();
+    expect(screen.getByText("Personas")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
   });
 });

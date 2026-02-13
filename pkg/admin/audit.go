@@ -15,6 +15,12 @@ type auditEventResponse struct {
 	PerPage int           `json:"per_page"`
 }
 
+// auditFiltersResponse holds unique values for dropdown filters.
+type auditFiltersResponse struct {
+	Users []string `json:"users"`
+	Tools []string `json:"tools"`
+}
+
 // auditStatsResponse holds aggregate audit statistics.
 type auditStatsResponse struct {
 	Total    int `json:"total"`
@@ -36,6 +42,8 @@ const defaultAuditLimit = 50
 // @Param        success     query  boolean false  "Filter by success/failure"
 // @Param        start_time  query  string  false  "Events after this time (RFC 3339)"
 // @Param        end_time    query  string  false  "Events before this time (RFC 3339)"
+// @Param        sort_by     query  string  false  "Sort column (default: timestamp)"
+// @Param        sort_order  query  string  false  "Sort direction: asc, desc (default: desc)"
 // @Param        page        query  integer false  "Page number, 1-based (default: 1)"
 // @Param        per_page    query  integer false  "Results per page (default: 50)"
 // @Success      200  {object}  auditEventResponse
@@ -49,8 +57,14 @@ func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		UserID:    q.Get("user_id"),
 		ToolName:  q.Get("tool_name"),
 		SessionID: q.Get("session_id"),
+		Search:    q.Get("search"),
+		SortBy:    q.Get("sort_by"),
 		StartTime: parseTimeParam(q, "start_time"),
 		EndTime:   parseTimeParam(q, "end_time"),
+	}
+
+	if order := audit.SortOrder(q.Get("sort_order")); order == audit.SortAsc || order == audit.SortDesc {
+		filter.SortOrder = order
 	}
 
 	if v := q.Get("success"); v != "" {
@@ -92,6 +106,49 @@ func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		Total:   total,
 		Page:    page,
 		PerPage: effectiveLimit,
+	})
+}
+
+// listAuditEventFilters handles GET /api/v1/admin/audit/events/filters.
+//
+// @Summary      Get audit event filter values
+// @Description  Returns unique user IDs and tool names seen in the audit log, sorted alphabetically.
+// @Tags         Audit
+// @Produce      json
+// @Param        start_time  query  string  false  "Events after this time (RFC 3339)"
+// @Param        end_time    query  string  false  "Events before this time (RFC 3339)"
+// @Success      200  {object}  auditFiltersResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /audit/events/filters [get]
+func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	startTime := parseTimeParam(q, "start_time")
+	endTime := parseTimeParam(q, "end_time")
+
+	users, err := h.deps.AuditQuerier.Distinct(r.Context(), "user_id", startTime, endTime)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query distinct users")
+		return
+	}
+
+	tools, err := h.deps.AuditQuerier.Distinct(r.Context(), "tool_name", startTime, endTime)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query distinct tools")
+		return
+	}
+
+	if users == nil {
+		users = []string{}
+	}
+	if tools == nil {
+		tools = []string{}
+	}
+
+	writeJSON(w, http.StatusOK, auditFiltersResponse{
+		Users: users,
+		Tools: tools,
 	})
 }
 

@@ -73,9 +73,10 @@ type Config struct {
 
 // AdminConfig configures the admin REST API.
 type AdminConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	Persona    string `yaml:"persona"`     // required admin persona (default: "admin")
-	PathPrefix string `yaml:"path_prefix"` // URL prefix (default: "/api/v1/admin")
+	Enabled     bool   `yaml:"enabled"`
+	Persona     string `yaml:"persona"`      // required admin persona (default: "admin")
+	PathPrefix  string `yaml:"path_prefix"`  // URL prefix (default: "/api/v1/admin")
+	PortalTitle string `yaml:"portal_title"` // sidebar title (default: "Admin Portal")
 }
 
 // KnowledgeConfig configures the knowledge capture feature.
@@ -511,6 +512,9 @@ func applyAdminDefaults(cfg *Config) {
 	}
 	if cfg.Admin.PathPrefix == "" {
 		cfg.Admin.PathPrefix = "/api/v1/admin"
+	}
+	if cfg.Admin.PortalTitle == "" {
+		cfg.Admin.PortalTitle = "Admin Portal"
 	}
 }
 

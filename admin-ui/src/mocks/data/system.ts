@@ -10,6 +10,7 @@ export const mockSystemInfo: SystemInfo = {
   description: "ACME Corporation Retail Data Platform",
   transport: "http",
   config_mode: "database",
+  portal_title: "Admin Portal",
   features: {
     audit: true,
     oauth: true,

@@ -60,18 +60,18 @@ make dev-down
 
 | User | Role | Persona |
 |------|------|---------|
-| sarah.chen@acme-corp.com | VP Data Analytics | admin |
-| marcus.johnson@acme-corp.com | Senior Data Engineer | data-engineer |
-| rachel.thompson@acme-corp.com | Inventory Analyst | inventory-analyst |
-| david.park@acme-corp.com | Regional Director (West) | regional-director |
-| jennifer.martinez@acme-corp.com | Finance Executive | finance-executive |
-| kevin.wilson@acme-corp.com | Store Operations Mgr | store-manager |
-| amanda.lee@acme-corp.com | Data Engineer | data-engineer |
-| carlos.rodriguez@acme-corp.com | Regional Director (SE) | regional-director |
-| emily.watson@acme-corp.com | Sales Analyst | inventory-analyst |
-| brian.taylor@acme-corp.com | CFO | finance-executive |
-| lisa.chang@acme-corp.com | ML Engineer | data-engineer |
-| mike.davis@acme-corp.com | Flagship Store Mgr | store-manager |
+| sarah.chen@example.com | VP Data Analytics | admin |
+| marcus.johnson@example.com | Senior Data Engineer | data-engineer |
+| rachel.thompson@example.com | Inventory Analyst | inventory-analyst |
+| david.park@example.com | Regional Director (West) | regional-director |
+| jennifer.martinez@example.com | Finance Executive | finance-executive |
+| kevin.wilson@example.com | Store Operations Mgr | store-manager |
+| amanda.lee@example.com | Data Engineer | data-engineer |
+| carlos.rodriguez@example.com | Regional Director (SE) | regional-director |
+| emily.watson@example.com | Sales Analyst | inventory-analyst |
+| brian.taylor@example.com | CFO | finance-executive |
+| lisa.chang@example.com | ML Engineer | data-engineer |
+| mike.davis@example.com | Flagship Store Mgr | store-manager |
 
 ### Connections
 

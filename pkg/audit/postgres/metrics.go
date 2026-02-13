@@ -79,6 +79,17 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 	return buckets, nil
 }
 
+// clampBreakdownLimit applies default and max bounds to a breakdown limit.
+func clampBreakdownLimit(limit int) int {
+	if limit <= 0 {
+		return defaultBreakdownLimit
+	}
+	if limit > maxBreakdownLimit {
+		return maxBreakdownLimit
+	}
+	return limit
+}
+
 // Breakdown returns audit event counts grouped by a dimension.
 func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
 	if !audit.ValidBreakdownDimensions[filter.GroupBy] {
@@ -86,13 +97,7 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 	}
 
 	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = defaultBreakdownLimit
-	}
-	if limit > maxBreakdownLimit {
-		limit = maxBreakdownLimit
-	}
+	limit := clampBreakdownLimit(filter.Limit)
 
 	// col is validated against ValidBreakdownDimensions — safe for column reference.
 	col := string(filter.GroupBy)
@@ -106,10 +111,8 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 		Where(sq.GtOrEq{"timestamp": start}).
 		Where(sq.LtOrEq{"timestamp": end}).
 		GroupBy(col).
-		OrderBy("count DESC")
-	if limit > 0 {
-		qb = qb.Limit(uint64(limit))
-	}
+		OrderBy("count DESC").
+		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 
 	query, args, err := qb.ToSql()
 	if err != nil {

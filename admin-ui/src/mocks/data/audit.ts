@@ -261,14 +261,12 @@ function toolDuration(tool: ToolDef): number {
 }
 
 // ---------------------------------------------------------------------------
-// Generate 200 audit events
+// Generate audit events spread across the last 7 days
 // ---------------------------------------------------------------------------
 
 function generateEvents(count: number): AuditEvent[] {
   const events: AuditEvent[] = [];
   const now = new Date();
-  // Use today as the base date for all events (within 24h window)
-  const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   for (let i = 0; i < count; i++) {
     const user = weightedUser();
@@ -276,6 +274,11 @@ function generateEvents(count: number): AuditEvent[] {
     // 3.7% error rate → 96.3% success rate
     const success = rand() > 0.037;
     const duration = toolDuration(tool);
+
+    // Spread across 7 days with quadratic bias toward recent days.
+    // rand()*rand() clusters near 0, so most events land on today.
+    const daysAgo = Math.floor(rand() * rand() * 7);
+    const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
     const timestamp = businessHourTimestamp(baseDate);
 
     events.push({
@@ -309,7 +312,7 @@ function generateEvents(count: number): AuditEvent[] {
   );
 }
 
-export const mockAuditEvents = generateEvents(200);
+export const mockAuditEvents = generateEvents(500);
 
 // ---------------------------------------------------------------------------
 // Timeseries — 24 hourly buckets with business-hours bell curve

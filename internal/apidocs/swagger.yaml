@@ -13,6 +13,17 @@ definitions:
       total:
         type: integer
     type: object
+  admin.auditFiltersResponse:
+    properties:
+      tools:
+        items:
+          type: string
+        type: array
+      users:
+        items:
+          type: string
+        type: array
+    type: object
   admin.auditStatsResponse:
     properties:
       failures:
@@ -255,11 +266,41 @@ definitions:
         type: string
       persona_count:
         type: integer
+      portal_title:
+        type: string
       toolkit_count:
         type: integer
       transport:
         type: string
       version:
+        type: string
+    type: object
+  admin.toolCallRequest:
+    properties:
+      connection:
+        type: string
+      parameters:
+        additionalProperties: {}
+        type: object
+      tool_name:
+        type: string
+    type: object
+  admin.toolCallResponse:
+    properties:
+      content:
+        items:
+          $ref: '#/definitions/admin.toolContentBlock'
+        type: array
+      duration_ms:
+        type: integer
+      is_error:
+        type: boolean
+    type: object
+  admin.toolContentBlock:
+    properties:
+      text:
+        type: string
+      type:
         type: string
     type: object
   admin.toolInfo:
@@ -281,6 +322,23 @@ definitions:
         type: array
       total:
         type: integer
+    type: object
+  admin.toolSchema:
+    properties:
+      description:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      parameters: {}
+    type: object
+  admin.toolSchemaResponse:
+    properties:
+      schemas:
+        additionalProperties:
+          $ref: '#/definitions/admin.toolSchema'
+        type: object
     type: object
   audit.BreakdownEntry:
     properties:
@@ -576,6 +634,14 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: 'Sort column (default: timestamp)'
+        in: query
+        name: sort_by
+        type: string
+      - description: 'Sort direction: asc, desc (default: desc)'
+        in: query
+        name: sort_order
+        type: string
       - description: 'Page number, 1-based (default: 1)'
         in: query
         name: page
@@ -629,6 +695,36 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Get audit event
+      tags:
+      - Audit
+  /audit/events/filters:
+    get:
+      description: Returns unique user IDs and tool names seen in the audit log, sorted
+        alphabetically.
+      parameters:
+      - description: Events after this time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: Events before this time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.auditFiltersResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get audit event filter values
       tags:
       - Audit
   /audit/metrics/breakdown:
@@ -1546,6 +1642,52 @@ paths:
       summary: List tools
       tags:
       - System
+  /tools/call:
+    post:
+      consumes:
+      - application/json
+      description: Executes a tool via the MCP server and returns the result.
+      parameters:
+      - description: Tool call request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.toolCallRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.toolCallResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Call a tool
+      tags:
+      - Tools
+  /tools/schemas:
+    get:
+      description: Returns JSON schemas for all registered tools including parameter
+        definitions.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.toolSchemaResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get tool schemas
+      tags:
+      - Tools
 securityDefinitions:
   ApiKeyAuth:
     in: header
