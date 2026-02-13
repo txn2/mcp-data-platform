@@ -74,6 +74,7 @@ type Config struct {
 // AdminConfig configures the admin REST API.
 type AdminConfig struct {
 	Enabled     bool   `yaml:"enabled"`
+	Portal      bool   `yaml:"portal"`       // enable admin UI portal (default: false)
 	Persona     string `yaml:"persona"`      // required admin persona (default: "admin")
 	PathPrefix  string `yaml:"path_prefix"`  // URL prefix (default: "/api/v1/admin")
 	PortalTitle string `yaml:"portal_title"` // sidebar title (default: "Admin Portal")

@@ -259,6 +259,7 @@ tuning:
 # Admin REST API
 # admin:
 #   enabled: true
+#   portal: true                # enable admin UI portal (default: false)
 #   persona: admin              # persona required for admin access (default: "admin")
 #   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
 

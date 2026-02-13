@@ -732,6 +732,83 @@ func TestMountAdminAPI(t *testing.T) {
 	})
 }
 
+func TestAdminPortalGate(t *testing.T) {
+	t.Run("Portal defaults to false", func(t *testing.T) {
+		cfg := platform.AdminConfig{Enabled: true}
+		if cfg.Portal {
+			t.Error("Portal should default to false")
+		}
+	})
+
+	t.Run("not mounted when Portal is false", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			Admin:  platform.AdminConfig{Enabled: true, Portal: false},
+		})
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountAdminPortal(mux, p, true)
+
+		req := httptest.NewRequest(http.MethodGet, "/admin/", http.NoBody)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("/admin/ status = %d, want 404 when Portal is false", w.Code)
+		}
+	})
+
+	t.Run("not mounted when assets unavailable", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			Admin:  platform.AdminConfig{Enabled: true, Portal: true},
+		})
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountAdminPortal(mux, p, false)
+
+		req := httptest.NewRequest(http.MethodGet, "/admin/", http.NoBody)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("/admin/ status = %d, want 404 when assets unavailable", w.Code)
+		}
+	})
+
+	t.Run("mounted when Portal is true and assets available", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			Admin:  platform.AdminConfig{Enabled: true, Portal: true},
+		})
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountAdminPortal(mux, p, true)
+
+		// Verify handler was registered: duplicate registration panics.
+		panicked := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicked = true
+				}
+			}()
+			mountAdminPortal(mux, p, true)
+		}()
+		if !panicked {
+			t.Error("expected panic on duplicate /admin/ registration; handler was not mounted")
+		}
+	})
+
+	t.Run("safe when platform is nil", func(_ *testing.T) {
+		mux := http.NewServeMux()
+		mountAdminPortal(mux, nil, true) // should not panic
+	})
+}
+
 func TestBuildAdminHandler(t *testing.T) {
 	cfg := &platform.Config{
 		Server: platform.ServerConfig{
