@@ -12,7 +12,7 @@ before:
   hooks:
     - go mod download
     - go mod verify
-    - bash -c "if [ -f admin-ui/package.json ]; then cd admin-ui && npm ci && npm run build && rm -rf ../internal/adminui/dist/* && cp -r dist/* ../internal/adminui/dist/; fi"
+    - bash -c "if [ -f admin-ui/package.json ]; then cd admin-ui && npm ci && npm run build && rm -rf ../internal/adminui/dist/* && cp -r dist/* ../internal/adminui/dist/ && rm -f ../internal/adminui/dist/mockServiceWorker.js; fi"
 
 builds:
   - id: mcp-data-platform

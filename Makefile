@@ -28,7 +28,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
-	semgrep codeql sast \
+	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev-up dev-down
@@ -252,8 +252,13 @@ tools-check:
 	fi
 	@echo "All required tools found."
 
+## embed-clean: Reset admin UI embed dir to .gitkeep only (matches CI clean checkout)
+embed-clean:
+	@echo "Cleaning admin UI embed directory..."
+	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
+
 ## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
-verify: tools-check fmt swagger-check test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
+verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 
@@ -293,6 +298,7 @@ frontend-build: frontend-install
 	@echo "Copying dist to embed directory..."
 	@rm -rf $(ADMIN_UI_EMBED_DIR)/*
 	@cp -r $(ADMIN_UI_DIR)/dist/* $(ADMIN_UI_EMBED_DIR)/
+	@rm -f $(ADMIN_UI_EMBED_DIR)/mockServiceWorker.js
 	@echo "Admin UI built and embedded."
 
 ## frontend-dev: Run admin UI dev server (hot reload)

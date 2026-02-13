@@ -275,11 +275,8 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p)
 
-	// Mount admin UI if frontend was built into the binary
-	if adminui.Available() {
-		mux.Handle("/admin/", http.StripPrefix("/admin", adminui.Handler()))
-		log.Println("Admin UI enabled on /admin/")
-	}
+	// Mount admin UI if explicitly enabled and frontend was built into the binary
+	mountAdminPortal(mux, p, adminui.Available())
 
 	// Mount SSE handler (legacy clients)
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
@@ -429,6 +426,16 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
 	prefix := p.Config().Admin.PathPrefix
 	mux.Handle(prefix+"/", adminHandler)
 	log.Println("Admin API enabled on", prefix)
+}
+
+// mountAdminPortal registers the admin SPA frontend on the mux when the portal
+// config gate is enabled and assets are available.
+func mountAdminPortal(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
+	if p == nil || !p.Config().Admin.Portal || !assetsAvailable {
+		return
+	}
+	mux.Handle("/admin/", http.StripPrefix("/admin", adminui.Handler()))
+	log.Println("Admin UI enabled on /admin/")
 }
 
 // buildAdminHandler constructs the admin REST API handler from the platform.
