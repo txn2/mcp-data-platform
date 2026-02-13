@@ -1046,3 +1046,60 @@ database:
 		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
 	}
 }
+
+func TestLoadConfig_ToolsConfig(t *testing.T) {
+	t.Run("allow and deny", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+  deny:
+    - "*_delete_*"
+`)
+		if len(cfg.Tools.Allow) != 2 {
+			t.Fatalf("Tools.Allow length = %d, want 2", len(cfg.Tools.Allow))
+		}
+		if cfg.Tools.Allow[0] != "trino_*" {
+			t.Errorf("Tools.Allow[0] = %q, want %q", cfg.Tools.Allow[0], "trino_*")
+		}
+		if cfg.Tools.Allow[1] != "datahub_*" {
+			t.Errorf("Tools.Allow[1] = %q, want %q", cfg.Tools.Allow[1], "datahub_*")
+		}
+		if len(cfg.Tools.Deny) != 1 {
+			t.Fatalf("Tools.Deny length = %d, want 1", len(cfg.Tools.Deny))
+		}
+		if cfg.Tools.Deny[0] != "*_delete_*" {
+			t.Errorf("Tools.Deny[0] = %q, want %q", cfg.Tools.Deny[0], "*_delete_*")
+		}
+	})
+
+	t.Run("empty tools section", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+tools: {}
+`)
+		if len(cfg.Tools.Allow) != 0 {
+			t.Errorf("Tools.Allow length = %d, want 0", len(cfg.Tools.Allow))
+		}
+		if len(cfg.Tools.Deny) != 0 {
+			t.Errorf("Tools.Deny length = %d, want 0", len(cfg.Tools.Deny))
+		}
+	})
+
+	t.Run("no tools section", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if len(cfg.Tools.Allow) != 0 {
+			t.Errorf("Tools.Allow length = %d, want 0", len(cfg.Tools.Allow))
+		}
+		if len(cfg.Tools.Deny) != 0 {
+			t.Errorf("Tools.Deny length = %d, want 0", len(cfg.Tools.Deny))
+		}
+	})
+}

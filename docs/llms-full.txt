@@ -257,13 +257,36 @@ Setting `dsn` enables audit logging, knowledge capture, session externalization,
 
 **`database` mode**: Configuration persisted to PostgreSQL. Requires `database.dsn`. Supports runtime mutations via the admin API. Bootstrap fields (`server`, `database`, `auth`, `admin`, `config_store`, `apiVersion`) always load from YAML.
 
+## Tool Visibility Configuration
+
+Reduce LLM token usage by hiding tools from `tools/list` responses. This is a visibility optimization, not a security boundary — persona-level tool filtering continues to gate `tools/call`.
+
+```yaml
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+  deny:
+    - "*_delete_*"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
+| `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+
+No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
+
 ## Admin API Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `admin.enabled` | bool | `false` | Enable admin REST API |
+| `admin.portal` | bool | `false` | Enable the admin web portal UI |
 | `admin.persona` | string | `admin` | Persona required for admin access |
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
+When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix. It provides audit log exploration, tool execution testing, and system monitoring.
 
 ## Audit Configuration
 

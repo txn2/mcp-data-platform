@@ -215,6 +215,39 @@ config_store:
 
 See [Operating Modes](operating-modes.md) for the full comparison of deployment configurations.
 
+## Tool Visibility Configuration
+
+The `tools` block controls which tools appear in `tools/list` responses. This is a **visibility filter** for reducing LLM token usage — it hides tools from discovery but does not affect authorization. Persona-level tool filtering (see [Tool Filtering](../personas/tool-filtering.md)) remains the security boundary for `tools/call`.
+
+```yaml
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+  deny:
+    - "*_delete_*"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
+| `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+
+**Semantics:**
+
+- No patterns configured: all tools visible (default)
+- Allow only: only matching tools appear
+- Deny only: all tools appear except denied
+- Both: allow patterns are evaluated first, then deny removes from that set
+
+Patterns use `filepath.Match` syntax — `*` matches any sequence of non-separator characters. For example, `trino_*` matches `trino_query` and `trino_describe_table`.
+
+!!! tip "When to use this"
+    Deployments that only use a subset of toolkits (e.g., only Trino) can hide unused tools to save tokens. A full tool list is 25-32 tools; filtering to `trino_*` reduces it to 7.
+
+!!! warning "Not a security boundary"
+    Tool visibility filtering only affects `tools/list` responses. A user who knows a tool name can still call it via `tools/call` if their persona allows it. Use persona tool filtering for access control.
+
 ## Admin API Configuration
 
 The `admin` block enables and configures the REST API for system health, configuration management, persona CRUD, auth key management, and audit queries.
@@ -222,6 +255,7 @@ The `admin` block enables and configures the REST API for system health, configu
 ```yaml
 admin:
   enabled: true
+  portal: true
   persona: admin
   path_prefix: /api/v1/admin
 ```
@@ -229,13 +263,14 @@ admin:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable admin REST API |
+| `portal` | bool | `false` | Enable the admin web portal UI |
 | `persona` | string | `admin` | Persona required for admin access |
 | `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
 
 !!! note "HTTP transport required"
     The admin API is served over HTTP. It is not available when running in `stdio` transport mode.
 
-See [Admin API](admin-api.md) for the full endpoint reference.
+The admin portal provides a web-based dashboard for audit log exploration, tool execution testing, and system monitoring. When enabled, it is served at the admin path prefix (e.g., `/api/v1/admin/`). See [Admin API](admin-api.md) for the full endpoint reference.
 
 ## Audit Configuration
 
@@ -552,7 +587,17 @@ config_store:
 
 admin:
   enabled: true
+  portal: true
   persona: admin
+
+# Hide unused tools from tools/list to save LLM tokens
+tools:
+  allow:
+    - "trino_*"
+    - "datahub_*"
+    - "capture_insight"
+  deny:
+    - "*_delete_*"
 
 audit:
   enabled: true

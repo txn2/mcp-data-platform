@@ -6,6 +6,9 @@ description: MCP tools from DataHub, Trino, S3, and Knowledge toolkits. Search m
 
 mcp-data-platform provides tools from four integrated toolkits. Each tool can be invoked by name through any MCP client.
 
+!!! tip "Reducing token usage with tool visibility"
+    The full tool list is 25-32 tools. Deployments that only use a subset can configure `tools.allow` and `tools.deny` at the top level of `platform.yaml` to hide unused tools from `tools/list` responses. This saves LLM context tokens without affecting authorization. See [Configuration](configuration.md#tool-visibility-configuration) for details.
+
 ## Tools Summary
 
 | Toolkit | Tool | Description |

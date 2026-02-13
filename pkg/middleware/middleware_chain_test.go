@@ -1770,5 +1770,150 @@ func TestMiddlewareChain_SessionDedup_SSE(t *testing.T) {
 	}
 }
 
+// TestMiddlewareChain_ToolVisibility verifies that MCPToolVisibilityMiddleware
+// filters tools/list responses when wired through a real mcp.Server using
+// AddReceivingMiddleware. This integration test proves end-to-end filtering
+// through the real MCP server, not just the filter function in isolation.
+func TestMiddlewareChain_ToolVisibility(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-visibility",
+		Version: "v0.0.1",
+	}, nil)
+
+	// Register 4 tools across 3 toolkits
+	for _, name := range []string{chainTestTrinoQuery, chainTestDescribeTable, "datahub_search", "s3_list_objects"} {
+		server.AddTool(&mcp.Tool{
+			Name:        name,
+			Description: "Test tool " + name,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		})
+	}
+
+	// Add visibility middleware: allow only trino_* tools
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware([]string{"trino_*"}, nil))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// List tools — should only see trino_* tools
+	listResult, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("listing tools: %v", err)
+	}
+
+	names := make([]string, 0, len(listResult.Tools))
+	for _, tool := range listResult.Tools {
+		names = append(names, tool.Name)
+	}
+
+	if len(names) != 2 {
+		t.Fatalf("expected 2 tools, got %d: %v", len(names), names)
+	}
+
+	for _, name := range names {
+		if name != chainTestTrinoQuery && name != chainTestDescribeTable {
+			t.Errorf("unexpected tool %q in filtered list", name)
+		}
+	}
+}
+
+// TestMiddlewareChain_ToolVisibility_DenyOnly verifies deny-only pattern filtering.
+func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-visibility-deny",
+		Version: "v0.0.1",
+	}, nil)
+
+	for _, name := range []string{chainTestTrinoQuery, "datahub_search", "s3_delete_object", "s3_list_objects"} {
+		server.AddTool(&mcp.Tool{
+			Name:        name,
+			Description: "Test tool " + name,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		})
+	}
+
+	// Deny s3_delete_* only
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(nil, []string{"s3_delete_*"}))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	listResult, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("listing tools: %v", err)
+	}
+
+	if len(listResult.Tools) != 3 {
+		names := make([]string, 0, len(listResult.Tools))
+		for _, tool := range listResult.Tools {
+			names = append(names, tool.Name)
+		}
+		t.Fatalf("expected 3 tools, got %d: %v", len(listResult.Tools), names)
+	}
+
+	for _, tool := range listResult.Tools {
+		if tool.Name == "s3_delete_object" {
+			t.Error("s3_delete_object should have been filtered out")
+		}
+	}
+}
+
+// TestMiddlewareChain_ToolVisibility_NoPatterns verifies that when no patterns
+// are configured, all tools remain visible.
+func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-visibility-none",
+		Version: "v0.0.1",
+	}, nil)
+
+	toolNames := []string{chainTestTrinoQuery, "datahub_search", "s3_list_objects"}
+	for _, name := range toolNames {
+		server.AddTool(&mcp.Tool{
+			Name:        name,
+			Description: "Test tool " + name,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		})
+	}
+
+	// No patterns — middleware still registered but should be no-op
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(nil, nil))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	listResult, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("listing tools: %v", err)
+	}
+
+	if len(listResult.Tools) != 3 {
+		t.Errorf("expected 3 tools, got %d", len(listResult.Tools))
+	}
+}
+
 // Suppress unused import warnings for storage (used in EnrichmentConfig).
 var _ storage.Provider = nil

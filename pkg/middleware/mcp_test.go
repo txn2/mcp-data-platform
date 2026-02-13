@@ -390,8 +390,8 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 		if pc == nil {
 			t.Fatal(mcpTestPCExpected)
 		}
-		if pc.ToolName != "trino_query" {
-			t.Errorf("expected ToolName 'trino_query', got %q", pc.ToolName)
+		if pc.ToolName != testAuditToolName {
+			t.Errorf("expected ToolName %q, got %q", testAuditToolName, pc.ToolName)
 		}
 		if pc.ToolkitKind != "trino" {
 			t.Errorf("expected ToolkitKind 'trino', got %q", pc.ToolkitKind)
@@ -413,7 +413,7 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 	}
 
 	handler := middleware(next)
-	req := newMCPTestRequest("trino_query")
+	req := newMCPTestRequest(testAuditToolName)
 
 	result, err := handler(context.Background(), mcpTestMethod, req)
 	if err != nil {

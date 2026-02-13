@@ -11,9 +11,9 @@
 - [Home](index.md): Introduction, quick start, and key features
 - [Server Overview](server/overview.md): What the platform does, architecture, request flow
 - [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
-- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), config store options (file vs database mode), database, admin API, audit, and session configuration
+- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), config store options (file vs database mode), tool visibility filtering (allow/deny patterns for tools/list token reduction), admin API and portal, database, audit, and session configuration
 - [Operating Modes](server/operating-modes.md): Three deployment modes — standalone (no database), full-config file + database, bootstrap + database config. Feature availability by mode, example configurations, decision guide
-- [Admin API](server/admin-api.md): REST endpoints for system info, config management, personas, auth keys, audit, knowledge. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`
+- [Admin API](server/admin-api.md): REST endpoints for system info, config management, personas, auth keys, audit, knowledge. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`. Admin portal web dashboard (`admin.portal: true`) for audit exploration, tool testing, and system monitoring
 - [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
 - [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference, parameter sanitization, retention, query examples, troubleshooting
@@ -40,7 +40,7 @@
 ## Personas
 
 - [Overview](personas/overview.md): Role-based tool access control
-- [Tool Filtering](personas/tool-filtering.md): Allow/deny patterns with wildcards
+- [Tool Filtering](personas/tool-filtering.md): Allow/deny patterns with wildcards. Distinction between persona-level filtering (security boundary) and global tool visibility (token optimization)
 - [Role Mapping](personas/role-mapping.md): Map OIDC roles to personas
 
 ## Go Library
@@ -72,9 +72,9 @@
 - [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
 - [Configuration](reference/configuration.md): Full YAML schema with all options
 - [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
-- [Middleware](reference/middleware.md): Request processing chain
+- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware
 
 ## Support
 
 - [Troubleshooting](support/troubleshooting.md): Common issues, error codes, debugging guide
-- [Changelog](support/changelog.md): Version history
+- [Changelog](support/changelog.md): Version history — tool visibility filtering, admin portal, admin REST API, knowledge capture/apply, config versioning, session externalization, session dedup
