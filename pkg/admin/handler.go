@@ -85,6 +85,9 @@ type Deps struct {
 // docsPrefix is the path prefix for the public Swagger UI.
 const docsPrefix = "/api/v1/admin/docs/"
 
+// publicPrefix is the path prefix for unauthenticated public endpoints.
+const publicPrefix = "/api/v1/admin/public/"
+
 // Handler provides admin REST API endpoints.
 type Handler struct {
 	mux        *http.ServeMux
@@ -128,7 +131,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, docsPrefix) {
+	if strings.HasPrefix(r.URL.Path, docsPrefix) || strings.HasPrefix(r.URL.Path, publicPrefix) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
@@ -174,6 +177,7 @@ func (h *Handler) registerSystemRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/tools/schemas", h.getToolSchemas)
 	h.mux.HandleFunc("POST /api/v1/admin/tools/call", h.callTool)
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
+	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", h.getPublicBranding)
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
 		httpswagger.URL(docsPrefix+"doc.json"),
 	))

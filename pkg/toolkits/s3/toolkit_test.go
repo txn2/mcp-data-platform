@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	s3tools "github.com/txn2/mcp-s3/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -327,10 +328,42 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	}
 }
 
-func TestToolkit_RegisterTools(_ *testing.T) {
-	tk := newTestS3Toolkit()
-	tk.RegisterTools(nil) // Should not panic
+func TestToolkit_RegisterTools(t *testing.T) {
+	t.Run("nil s3Toolkit does not panic", func(_ *testing.T) {
+		tk := &Toolkit{name: "test"}
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+		tk.RegisterTools(server) // Should not panic
+	})
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
-	tk.RegisterTools(server) // Should not panic
+	t.Run("non-readonly registers all tools", func(t *testing.T) {
+		tk := newTestS3Toolkit()
+		tk.s3Toolkit = s3tools.NewToolkit(nil)
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+		tk.RegisterTools(server)
+
+		// Write tools should be present
+		for _, wt := range s3tools.WriteTools() {
+			if !slices.Contains(tk.Tools(), string(wt)) {
+				t.Errorf("expected write tool %s in non-readonly mode", wt)
+			}
+		}
+	})
+
+	t.Run("readonly registers only read tools", func(t *testing.T) {
+		tk := &Toolkit{
+			name:      "test-readonly",
+			config:    Config{ReadOnly: true},
+			s3Toolkit: s3tools.NewToolkit(nil, s3tools.WithReadOnly(true)),
+		}
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+		tk.RegisterTools(server)
+
+		// Verify Tools() does not include write tools (already tested)
+		tools := tk.Tools()
+		for _, wt := range s3tools.WriteTools() {
+			if slices.Contains(tools, string(wt)) {
+				t.Errorf("found write tool %s in readonly mode", wt)
+			}
+		}
+	})
 }

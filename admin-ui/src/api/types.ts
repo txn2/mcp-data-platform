@@ -37,6 +37,7 @@ export interface ConnectionInfo {
   name: string;
   connection: string;
   tools: string[];
+  hidden_tools: string[];
 }
 
 export interface ConnectionListResponse {

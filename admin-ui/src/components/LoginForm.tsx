@@ -1,11 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuthStore } from "@/stores/auth";
+
+const DEFAULT_PLATFORM_NAME = "MCP Data Platform";
 
 export function LoginForm() {
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [platformName, setPlatformName] = useState(DEFAULT_PLATFORM_NAME);
   const setApiKey = useAuthStore((s) => s.setApiKey);
+
+  useEffect(() => {
+    fetch("/api/v1/admin/public/branding")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { name?: string; portal_title?: string } | null) => {
+        const name = data?.portal_title || data?.name;
+        if (name) setPlatformName(name);
+      })
+      .catch(() => {
+        // Silently fall back to default name
+      });
+  }, []);
 
   async function handleLogin() {
     const trimmed = key.trim();
@@ -37,7 +52,7 @@ export function LoginForm() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40">
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
-        <h1 className="mb-1 text-xl font-semibold">MCP Data Platform</h1>
+        <h1 className="mb-1 text-xl font-semibold">{platformName}</h1>
         <p className="mb-4 text-sm text-muted-foreground">
           Enter your API key to access the admin dashboard.
         </p>

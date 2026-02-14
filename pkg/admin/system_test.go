@@ -105,6 +105,65 @@ func TestGetSystemInfo(t *testing.T) {
 	})
 }
 
+func TestGetPublicBranding(t *testing.T) {
+	t.Run("returns platform name from config", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Server.Name = "acme-platform"
+		cfg.Admin.PortalTitle = "ACME Admin"
+
+		h := NewHandler(Deps{Config: cfg}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body publicBrandingResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, "acme-platform", body.Name)
+		assert.Equal(t, "ACME Admin", body.PortalTitle)
+	})
+
+	t.Run("returns empty when no config", func(t *testing.T) {
+		h := NewHandler(Deps{}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body publicBrandingResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Empty(t, body.Name)
+		assert.Empty(t, body.PortalTitle)
+	})
+
+	t.Run("bypasses auth middleware", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Server.Name = "test-platform"
+
+		authCalled := false
+		authMiddle := func(_ http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				authCalled = true
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			})
+		}
+
+		h := NewHandler(Deps{Config: cfg}, authMiddle)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.False(t, authCalled, "auth middleware should not be called for public endpoints")
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body publicBrandingResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, "test-platform", body.Name)
+	})
+}
+
 func TestSwaggerEndpoint(t *testing.T) {
 	h := NewHandler(Deps{Config: testConfig()}, nil)
 
@@ -217,9 +276,51 @@ func TestListConnections(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var body map[string]any
+		var body connectionListResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, float64(2), body["total"])
+		assert.Equal(t, 2, body.Total)
+		// With no visibility config, hidden_tools should be empty.
+		for _, c := range body.Connections {
+			assert.Empty(t, c.HiddenTools, "hidden_tools should be empty with no visibility config for %s", c.Name)
+		}
+	})
+
+	t.Run("returns hidden_tools based on visibility config", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tools.Allow = []string{"trino_*"}
+
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query", "trino_describe_table"}},
+				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search", "datahub_get_entity"}},
+			},
+		}
+		h := NewHandler(Deps{Config: cfg, ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body connectionListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, 2, body.Total)
+
+		// Find connections by name (sorted alphabetically).
+		var trinoConn, datahubConn connectionInfo
+		for _, c := range body.Connections {
+			switch c.Kind {
+			case "trino":
+				trinoConn = c
+			case "datahub":
+				datahubConn = c
+			}
+		}
+
+		// Trino tools match allow pattern — nothing hidden.
+		assert.Empty(t, trinoConn.HiddenTools)
+		// DataHub tools do NOT match "trino_*" — all hidden.
+		assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_entity"}, datahubConn.HiddenTools)
 	})
 
 	t.Run("returns empty list when no registry", func(t *testing.T) {

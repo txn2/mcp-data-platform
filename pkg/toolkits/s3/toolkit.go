@@ -134,8 +134,14 @@ func (t *Toolkit) Connection() string {
 }
 
 // RegisterTools registers S3 tools with the MCP server.
+// When ReadOnly is true, only read tools are registered on the server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	if t.s3Toolkit != nil {
+	if t.s3Toolkit == nil {
+		return
+	}
+	if t.config.ReadOnly {
+		t.s3Toolkit.Register(s, s3tools.ReadTools()...)
+	} else {
 		t.s3Toolkit.RegisterAll(s)
 	}
 }

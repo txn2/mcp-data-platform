@@ -119,9 +119,9 @@ func TestIsToolVisible(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isToolVisible(tt.tool, tt.allow, tt.deny)
+			got := IsToolVisible(tt.tool, tt.allow, tt.deny)
 			if got != tt.visible {
-				t.Errorf("isToolVisible(%q, %v, %v) = %v, want %v",
+				t.Errorf("IsToolVisible(%q, %v, %v) = %v, want %v",
 					tt.tool, tt.allow, tt.deny, got, tt.visible)
 			}
 		})

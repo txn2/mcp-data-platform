@@ -11,6 +11,7 @@ import type {
 } from "@/api/types";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
+import { Eye, EyeOff } from "lucide-react";
 
 type Tab = "overview" | "explore" | "help";
 
@@ -61,6 +62,11 @@ function OverviewTab() {
   const tools = toolsData?.tools ?? [];
   const connections = connectionsData?.connections ?? [];
 
+  const hiddenToolSet = useMemo(
+    () => new Set(connections.flatMap((c) => c.hidden_tools ?? [])),
+    [connections],
+  );
+
   return (
     <div className="space-y-6">
       {/* Connections grid */}
@@ -109,16 +115,28 @@ function OverviewTab() {
               </tr>
             </thead>
             <tbody>
-              {tools.map((tool, idx) => (
-                <tr key={`${tool.name}-${tool.connection}-${idx}`} className="border-b">
-                  <td className="px-3 py-2 font-mono text-xs">{tool.name}</td>
-                  <td className="px-3 py-2">
-                    <StatusBadge variant="neutral">{tool.kind}</StatusBadge>
-                  </td>
-                  <td className="px-3 py-2 text-xs">{tool.connection}</td>
-                  <td className="px-3 py-2 text-xs">{tool.toolkit}</td>
-                </tr>
-              ))}
+              {tools.map((tool, idx) => {
+                const isHidden = hiddenToolSet.has(tool.name);
+                return (
+                  <tr key={`${tool.name}-${tool.connection}-${idx}`} className="border-b">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <span className="flex items-center gap-1.5">
+                        {isHidden ? (
+                          <EyeOff className="h-3 w-3 shrink-0 opacity-40" />
+                        ) : (
+                          <Eye className="h-3 w-3 shrink-0 opacity-40" />
+                        )}
+                        <span className={isHidden ? "opacity-50" : ""}>{tool.name}</span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge variant="neutral">{tool.kind}</StatusBadge>
+                    </td>
+                    <td className="px-3 py-2 text-xs">{tool.connection}</td>
+                    <td className="px-3 py-2 text-xs">{tool.toolkit}</td>
+                  </tr>
+                );
+              })}
               {tools.length === 0 && (
                 <tr>
                   <td
@@ -190,6 +208,12 @@ function ExploreTab() {
       .filter((t) => !connTools.has(t) && t.toLowerCase().includes(lowerSearch))
       .sort();
   }, [connections, schemas, search]);
+
+  // Set of tool names hidden by global visibility filter
+  const hiddenToolSet = useMemo(
+    () => new Set(connections.flatMap((c) => c.hidden_tools ?? [])),
+    [connections],
+  );
 
   const selectTool = useCallback(
     (toolName: string, connection: ConnectionInfo | null) => {
@@ -313,20 +337,28 @@ function ExploreTab() {
                     {conn.name}
                   </span>
                 </div>
-                {conn.tools.map((toolName) => (
-                  <button
-                    key={`${conn.connection}-${toolName}`}
-                    onClick={() => selectTool(toolName, conn)}
-                    className={`flex w-full rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
-                      selectedTool === toolName &&
-                      selectedConnection === conn.connection
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {toolName}
-                  </button>
-                ))}
+                {conn.tools.map((toolName) => {
+                  const isHidden = hiddenToolSet.has(toolName);
+                  return (
+                    <button
+                      key={`${conn.connection}-${toolName}`}
+                      onClick={() => selectTool(toolName, conn)}
+                      className={`flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+                        selectedTool === toolName &&
+                        selectedConnection === conn.connection
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {isHidden ? (
+                        <EyeOff className="h-3 w-3 shrink-0 opacity-40" />
+                      ) : (
+                        <Eye className="h-3 w-3 shrink-0 opacity-40" />
+                      )}
+                      <span className={isHidden ? "opacity-50" : ""}>{toolName}</span>
+                    </button>
+                  );
+                })}
               </div>
             ))}
             {platformTools.length > 0 && (
@@ -341,12 +373,13 @@ function ExploreTab() {
                   <button
                     key={`platform-${toolName}`}
                     onClick={() => selectTool(toolName, null)}
-                    className={`flex w-full rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+                    className={`flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
                       selectedTool === toolName && selectedConnection === ""
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
+                    <Eye className="h-3 w-3 shrink-0 opacity-40" />
                     {toolName}
                   </button>
                 ))}

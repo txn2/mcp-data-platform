@@ -39,7 +39,7 @@ func filterToolVisibility(allow, deny []string, method string, result mcp.Result
 
 	filtered := make([]*mcp.Tool, 0, len(listResult.Tools))
 	for _, tool := range listResult.Tools {
-		if isToolVisible(tool.Name, allow, deny) {
+		if IsToolVisible(tool.Name, allow, deny) {
 			filtered = append(filtered, tool)
 		}
 	}
@@ -48,14 +48,14 @@ func filterToolVisibility(allow, deny []string, method string, result mcp.Result
 	return listResult, nil
 }
 
-// isToolVisible determines whether a tool should appear in tools/list based on
+// IsToolVisible determines whether a tool should appear in tools/list based on
 // allow/deny glob patterns. Semantics:
 //   - No patterns configured: all tools visible
 //   - Allow only: only matching tools pass
 //   - Deny only: all pass except denied
 //   - Both: allow first, then deny removes from that set
 //   - Invalid glob patterns are treated as non-matching (silent skip)
-func isToolVisible(name string, allow, deny []string) bool {
+func IsToolVisible(name string, allow, deny []string) bool {
 	if len(allow) == 0 && len(deny) == 0 {
 		return true
 	}

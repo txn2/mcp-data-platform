@@ -192,6 +192,14 @@ function computeInsightStats(insights: Insight[]): InsightStats {
 // ---------------------------------------------------------------------------
 
 export const handlers = [
+  // Public (unauthenticated)
+  http.get(`${BASE}/public/branding`, () =>
+    HttpResponse.json({
+      name: mockSystemInfo.name,
+      portal_title: mockSystemInfo.portal_title,
+    }),
+  ),
+
   // System
   http.get(`${BASE}/system/info`, () => HttpResponse.json(mockSystemInfo)),
 
