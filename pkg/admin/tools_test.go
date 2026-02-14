@@ -239,3 +239,79 @@ func TestCallTool(t *testing.T) {
 		assert.False(t, resp.IsError)
 	})
 }
+
+func TestExtractContentBlocks(t *testing.T) {
+	t.Run("extracts text content", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.TextContent{Text: "hello"},
+			&mcp.TextContent{Text: "world"},
+		}
+		blocks := extractContentBlocks(content)
+		require.Len(t, blocks, 2)
+		assert.Equal(t, "text", blocks[0].Type)
+		assert.Equal(t, "hello", blocks[0].Text)
+		assert.Equal(t, "world", blocks[1].Text)
+	})
+
+	t.Run("extracts embedded resource with text", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.EmbeddedResource{
+				Resource: &mcp.ResourceContents{
+					URI:  "file:///test.txt",
+					Text: "resource content",
+				},
+			},
+		}
+		blocks := extractContentBlocks(content)
+		require.Len(t, blocks, 1)
+		assert.Equal(t, "text", blocks[0].Type)
+		assert.Equal(t, "resource content", blocks[0].Text)
+	})
+
+	t.Run("skips embedded resource with nil resource", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.EmbeddedResource{Resource: nil},
+		}
+		blocks := extractContentBlocks(content)
+		assert.Empty(t, blocks)
+	})
+
+	t.Run("skips embedded resource with empty text", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.EmbeddedResource{
+				Resource: &mcp.ResourceContents{URI: "file:///bin", Blob: []byte{0x00}},
+			},
+		}
+		blocks := extractContentBlocks(content)
+		assert.Empty(t, blocks)
+	})
+
+	t.Run("returns empty slice for nil input", func(t *testing.T) {
+		blocks := extractContentBlocks(nil)
+		assert.Empty(t, blocks)
+		assert.NotNil(t, blocks)
+	})
+
+	t.Run("skips unknown content types", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.ImageContent{Data: []byte("base64data"), MIMEType: "image/png"},
+		}
+		blocks := extractContentBlocks(content)
+		assert.Empty(t, blocks)
+	})
+
+	t.Run("mixes text and embedded resource", func(t *testing.T) {
+		content := []mcp.Content{
+			&mcp.TextContent{Text: "first"},
+			&mcp.EmbeddedResource{
+				Resource: &mcp.ResourceContents{URI: "file:///x", Text: "second"},
+			},
+			&mcp.TextContent{Text: "third"},
+		}
+		blocks := extractContentBlocks(content)
+		require.Len(t, blocks, 3)
+		assert.Equal(t, "first", blocks[0].Text)
+		assert.Equal(t, "second", blocks[1].Text)
+		assert.Equal(t, "third", blocks[2].Text)
+	})
+}

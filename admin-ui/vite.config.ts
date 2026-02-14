@@ -26,20 +26,27 @@ function mswRootWorker(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), mswRootWorker()],
-  base: "/admin/",
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  server: {
-    proxy: {
-      "/api": {
-        target: "http://localhost:8080",
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  // Use VITE_API_TARGET to proxy API calls to a remote server:
+  //   VITE_API_TARGET=https://mcp.pmgsc-data.org npm run dev
+  const apiTarget = process.env.VITE_API_TARGET || "http://localhost:8080";
+
+  return {
+    plugins: [react(), tailwindcss(), ...(mode === "development" ? [mswRootWorker()] : [])],
+    base: "/admin/",
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
       },
     },
-  },
+    server: {
+      proxy: {
+        "/api": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: true,
+        },
+      },
+    },
+  };
 });

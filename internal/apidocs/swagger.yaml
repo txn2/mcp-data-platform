@@ -19,6 +19,10 @@ definitions:
         items:
           type: string
         type: array
+      user_labels:
+        additionalProperties:
+          type: string
+        type: object
       users:
         items:
           type: string
@@ -1628,7 +1632,8 @@ paths:
       - System
   /tools:
     get:
-      description: Returns all registered tools across all toolkits.
+      description: Returns all registered tools across all toolkits and platform-level
+        tools.
       produces:
       - application/json
       responses:

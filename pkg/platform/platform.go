@@ -1203,6 +1203,19 @@ func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
 	return p.knowledgeDataHubWriter
 }
 
+// ToolInfo describes a tool registered directly on the platform (not via a toolkit).
+type ToolInfo struct {
+	Name string
+	Kind string
+}
+
+// PlatformTools returns tools registered directly on the platform outside of any toolkit.
+func (*Platform) PlatformTools() []ToolInfo {
+	return []ToolInfo{
+		{Name: "platform_info", Kind: "platform"},
+	}
+}
+
 // datahubConfig holds extracted DataHub configuration.
 type datahubConfig struct {
 	URL     string

@@ -9,6 +9,7 @@ import {
 import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { Insight, Changeset } from "@/api/types";
+import { formatUser } from "@/lib/formatUser";
 import {
   PieChart,
   Pie,
@@ -608,7 +609,7 @@ function InsightsTab() {
                 <td className="px-3 py-2 text-xs">
                   {new Date(insight.created_at).toLocaleString()}
                 </td>
-                <td className="px-3 py-2 text-xs">{insight.captured_by}</td>
+                <td className="px-3 py-2 text-xs" title={insight.captured_by}>{formatUser(insight.captured_by)}</td>
                 <td className="px-3 py-2 text-xs">
                   {formatCategory(insight.category)}
                 </td>
@@ -738,7 +739,7 @@ function InsightDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Captured By</p>
-              <p>{insight.captured_by}</p>
+              <p title={insight.captured_by}>{formatUser(insight.captured_by)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Persona</p>
@@ -869,7 +870,7 @@ function InsightDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Reviewed By</p>
-                <p>{insight.reviewed_by}</p>
+                <p title={insight.reviewed_by}>{formatUser(insight.reviewed_by!)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Reviewed At</p>
@@ -892,7 +893,7 @@ function InsightDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Applied By</p>
-                <p>{insight.applied_by}</p>
+                <p title={insight.applied_by}>{formatUser(insight.applied_by!)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Applied At</p>
@@ -1041,7 +1042,7 @@ function ChangesetsTab() {
                 <td className="px-3 py-2 text-xs">
                   {formatCategory(changeset.change_type)}
                 </td>
-                <td className="px-3 py-2 text-xs">{changeset.applied_by}</td>
+                <td className="px-3 py-2 text-xs" title={changeset.applied_by}>{formatUser(changeset.applied_by)}</td>
                 <td className="px-3 py-2 text-center">
                   <StatusBadge
                     variant={changeset.rolled_back ? "error" : "success"}
@@ -1165,11 +1166,11 @@ function ChangesetDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Approved By</p>
-              <p>{changeset.approved_by}</p>
+              <p title={changeset.approved_by}>{formatUser(changeset.approved_by)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Applied By</p>
-              <p>{changeset.applied_by}</p>
+              <p title={changeset.applied_by}>{formatUser(changeset.applied_by)}</p>
             </div>
           </div>
 
@@ -1212,7 +1213,7 @@ function ChangesetDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Rolled Back By</p>
-                <p>{changeset.rolled_back_by}</p>
+                <p title={changeset.rolled_back_by}>{formatUser(changeset.rolled_back_by ?? "")}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Rolled Back At</p>

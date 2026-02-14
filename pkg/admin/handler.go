@@ -25,6 +25,7 @@ type AuditQuerier interface {
 	Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error)
 	Count(ctx context.Context, filter audit.QueryFilter) (int, error)
 	Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error)
+	DistinctPairs(ctx context.Context, col1, col2 string, startTime, endTime *time.Time) (map[string]string, error)
 }
 
 // AuditMetricsQuerier provides aggregate audit metrics.
@@ -78,6 +79,7 @@ type Deps struct {
 	Knowledge           *KnowledgeHandler
 	APIKeyManager       APIKeyManager
 	DatabaseAvailable   bool
+	PlatformTools       []platform.ToolInfo
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.

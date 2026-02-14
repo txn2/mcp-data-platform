@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 func TestGetSystemInfo(t *testing.T) {
@@ -138,6 +139,37 @@ func TestListTools(t *testing.T) {
 		assert.Len(t, tools, 3)
 	})
 
+	t.Run("includes platform tools", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+			},
+		}
+		h := NewHandler(Deps{
+			ToolkitRegistry: reg,
+			PlatformTools: []platform.ToolInfo{
+				{Name: "platform_info", Kind: "platform"},
+			},
+		}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body toolListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, 2, body.Total)
+		require.Len(t, body.Tools, 2)
+
+		// Tools are sorted alphabetically — platform_info before trino_query.
+		assert.Equal(t, "platform_info", body.Tools[0].Name)
+		assert.Equal(t, "platform", body.Tools[0].Kind)
+		assert.Empty(t, body.Tools[0].Toolkit)
+		assert.Equal(t, "trino_query", body.Tools[1].Name)
+		assert.Equal(t, "trino", body.Tools[1].Kind)
+	})
+
 	t.Run("returns empty list when no registry", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
@@ -149,6 +181,24 @@ func TestListTools(t *testing.T) {
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, float64(0), body["total"])
+	})
+
+	t.Run("returns only platform tools when no registry", func(t *testing.T) {
+		h := NewHandler(Deps{
+			PlatformTools: []platform.ToolInfo{
+				{Name: "platform_info", Kind: "platform"},
+			},
+		}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body toolListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, 1, body.Total)
+		assert.Equal(t, "platform_info", body.Tools[0].Name)
 	})
 }
 

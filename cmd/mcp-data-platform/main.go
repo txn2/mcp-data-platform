@@ -453,6 +453,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		MCPServer:         p.MCPServer(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
+		PlatformTools:     p.PlatformTools(),
 	}
 
 	if p.AuditStore() != nil {
