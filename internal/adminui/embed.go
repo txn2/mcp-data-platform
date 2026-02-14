@@ -35,30 +35,42 @@ func Handler() http.Handler {
 		// Should never happen with a valid embed directive.
 		return http.NotFoundHandler()
 	}
-	fileServer := http.FileServer(http.FS(sub))
+	return newSPAHandler(sub)
+}
+
+// newSPAHandler builds an SPA handler from the given filesystem. Exported via
+// Handler() for production use; called directly in tests with a synthetic FS.
+func newSPAHandler(root fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(root))
+
+	// Pre-read index.html so the SPA fallback can serve it directly.
+	// Routing through http.FileServer with path="/index.html" causes a
+	// 301 redirect loop: FileServer treats index.html as a directory
+	// index and redirects to "./" which resolves back to the same URL.
+	indexHTML, _ := fs.ReadFile(root, "index.html")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Clean the path: strip leading slash for fs lookup
 		path := strings.TrimPrefix(r.URL.Path, "/")
 
-		// If the path points to an actual file, serve it directly
-		if path != "" {
-			if f, err := sub.Open(path); err == nil {
+		// If the path points to an actual file (other than index.html),
+		// serve it via FileServer for proper Content-Type and caching.
+		// index.html is excluded because FileServer redirects it to "./"
+		// which causes a redirect loop when mounted under a prefix.
+		if path != "" && path != "index.html" {
+			if f, err := root.Open(path); err == nil {
 				_ = f.Close()
 				fileServer.ServeHTTP(w, r)
 				return
 			}
 		}
 
-		// SPA fallback: serve index.html for unmatched routes
-		// If index.html doesn't exist (empty dist), return 404
-		f, err := sub.Open("index.html")
-		if err != nil {
+		// SPA fallback: serve index.html directly for unmatched routes.
+		if indexHTML == nil {
 			http.NotFound(w, r)
 			return
 		}
-		_ = f.Close()
-		r.URL.Path = "/index.html"
-		fileServer.ServeHTTP(w, r)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(indexHTML)
 	})
 }
