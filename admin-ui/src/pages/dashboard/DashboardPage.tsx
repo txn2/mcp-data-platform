@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
 import {
   useSystemInfo,
@@ -11,10 +11,13 @@ import {
   useInsightStats,
   useInsights,
 } from "@/api/hooks";
+import type { AuditEvent, Resolution } from "@/api/types";
 import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { TimeseriesChart } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
+import { EventDrawer } from "@/components/EventDrawer";
+import { formatDuration } from "@/lib/formatDuration";
 
 const presets: { value: TimeRangePreset; label: string }[] = [
   { value: "1h", label: "1h" },
@@ -22,6 +25,15 @@ const presets: { value: TimeRangePreset; label: string }[] = [
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" },
 ];
+
+function getResolution(preset: TimeRangePreset): Resolution {
+  switch (preset) {
+    case "1h": return "minute";
+    case "6h": return "minute";
+    case "24h": return "hour";
+    case "7d": return "day";
+  }
+}
 
 export function DashboardPage() {
   const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
@@ -32,9 +44,11 @@ export function DashboardPage() {
     [preset],
   );
 
+  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+
   const systemInfo = useSystemInfo();
   const overview = useAuditOverview({ startTime, endTime });
-  const timeseries = useAuditTimeseries({ resolution: "hour", startTime, endTime });
+  const timeseries = useAuditTimeseries({ resolution: getResolution(preset), startTime, endTime });
   const toolBreakdown = useAuditBreakdown({ groupBy: "tool_name", limit: 8, startTime, endTime });
   const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, startTime, endTime });
   const recentErrors = useAuditEvents({ perPage: 5, success: false });
@@ -106,7 +120,7 @@ export function DashboardPage() {
         />
         <StatCard
           label="Avg Duration"
-          value={o ? `${o.avg_duration_ms.toFixed(0)}ms` : "-"}
+          value={o ? formatDuration(o.avg_duration_ms) : "-"}
         />
         <StatCard
           label="Unique Users"
@@ -161,23 +175,23 @@ export function DashboardPage() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <p className="text-xs text-muted-foreground">P50</p>
-                <p className="text-lg font-semibold">{performance.data.p50_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p50_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">P95</p>
-                <p className="text-lg font-semibold">{performance.data.p95_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p95_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">P99</p>
-                <p className="text-lg font-semibold">{performance.data.p99_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p99_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg</p>
-                <p className="text-lg font-semibold">{performance.data.avg_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.avg_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Max</p>
-                <p className="text-lg font-semibold">{performance.data.max_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.max_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg Resp</p>
@@ -195,7 +209,11 @@ export function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {recentErrors.data?.data.map((e) => (
-                <div key={e.id} className="flex items-start gap-2 text-xs">
+                <div
+                  key={e.id}
+                  onClick={() => setSelectedEvent(e)}
+                  className="flex cursor-pointer items-start gap-2 rounded p-1 text-xs transition-colors hover:bg-muted/50"
+                >
                   <StatusBadge variant="error">Error</StatusBadge>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{e.tool_name}</p>
@@ -313,6 +331,14 @@ export function DashboardPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Event Detail Drawer */}
+      {selectedEvent && (
+        <EventDrawer
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+        />
       )}
     </div>
   );

@@ -11,9 +11,12 @@ import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { TimeseriesChart } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
+import { EventDrawer } from "@/components/EventDrawer";
 import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
-import type { AuditEvent, AuditSortColumn, SortOrder } from "@/api/types";
+import type { AuditEvent, AuditSortColumn, SortOrder, Resolution } from "@/api/types";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { formatDuration } from "@/lib/formatDuration";
+import { formatUser } from "@/lib/formatUser";
 
 const PER_PAGE = 20;
 
@@ -67,6 +70,15 @@ const presets: { value: TimeRangePreset; label: string }[] = [
   { value: "7d", label: "7d" },
 ];
 
+function getResolution(preset: TimeRangePreset): Resolution {
+  switch (preset) {
+    case "1h": return "minute";
+    case "6h": return "minute";
+    case "24h": return "hour";
+    case "7d": return "day";
+  }
+}
+
 function OverviewTab() {
   const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
@@ -76,7 +88,7 @@ function OverviewTab() {
   );
 
   const overview = useAuditOverview({ startTime, endTime });
-  const timeseries = useAuditTimeseries({ resolution: "hour", startTime, endTime });
+  const timeseries = useAuditTimeseries({ resolution: getResolution(preset), startTime, endTime });
   const toolBreakdown = useAuditBreakdown({ groupBy: "tool_name", limit: 8, startTime, endTime });
   const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, startTime, endTime });
   const recentErrors = useAuditEvents({ perPage: 5, success: false });
@@ -115,7 +127,7 @@ function OverviewTab() {
         />
         <StatCard
           label="Avg Duration"
-          value={o ? `${o.avg_duration_ms.toFixed(0)}ms` : "-"}
+          value={o ? formatDuration(o.avg_duration_ms) : "-"}
         />
         <StatCard
           label="Unique Users"
@@ -167,23 +179,23 @@ function OverviewTab() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <p className="text-xs text-muted-foreground">P50</p>
-                <p className="text-lg font-semibold">{performance.data.p50_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p50_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">P95</p>
-                <p className="text-lg font-semibold">{performance.data.p95_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p95_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">P99</p>
-                <p className="text-lg font-semibold">{performance.data.p99_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.p99_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg</p>
-                <p className="text-lg font-semibold">{performance.data.avg_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.avg_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Max</p>
-                <p className="text-lg font-semibold">{performance.data.max_ms.toFixed(0)}ms</p>
+                <p className="text-lg font-semibold">{formatDuration(performance.data.max_ms)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg Resp</p>
@@ -364,7 +376,7 @@ function EventsTab() {
           <option value="">All Users</option>
           {filters?.users.map((u) => (
             <option key={u} value={u}>
-              {u}
+              {filters.user_labels?.[u] || formatUser(u)}
             </option>
           ))}
         </select>
@@ -461,11 +473,13 @@ function EventsTab() {
                 <td className="px-3 py-2 text-xs">
                   {new Date(event.timestamp).toLocaleString()}
                 </td>
-                <td className="px-3 py-2">{event.user_id}</td>
+                <td className="px-3 py-2" title={event.user_id}>
+                  {formatUser(event.user_id, event.user_email)}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{event.tool_name}</td>
                 <td className="px-3 py-2">{event.toolkit_kind}</td>
                 <td className="px-3 py-2 text-xs">{event.connection}</td>
-                <td className="px-3 py-2 text-right">{event.duration_ms}ms</td>
+                <td className="px-3 py-2 text-right">{formatDuration(event.duration_ms)}</td>
                 <td className="px-3 py-2 text-center">
                   <StatusBadge variant={event.success ? "success" : "error"}>
                     {event.success ? "OK" : "ERR"}
@@ -525,139 +539,6 @@ function EventsTab() {
         />
       )}
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Event Detail Drawer
-// ---------------------------------------------------------------------------
-
-function EventDrawer({
-  event,
-  onClose,
-}: {
-  event: AuditEvent;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
-      <div className="relative w-full max-w-lg overflow-auto bg-card p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Event Detail</h2>
-          <button
-            onClick={onClose}
-            className="rounded-md px-2 py-1 text-sm hover:bg-muted"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">Event ID</p>
-              <p className="font-mono text-xs">{event.id}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Timestamp</p>
-              <p>{new Date(event.timestamp).toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">User</p>
-              <p>{event.user_id}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Persona</p>
-              <p>{event.persona || "-"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Tool</p>
-              <p className="font-mono text-xs">{event.tool_name}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Toolkit</p>
-              <p>
-                {event.toolkit_kind} / {event.toolkit_name}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Connection</p>
-              <p>{event.connection}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Duration</p>
-              <p>{event.duration_ms}ms</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Status</p>
-              <StatusBadge
-                variant={event.success ? "success" : "error"}
-              >
-                {event.success ? "Success" : "Error"}
-              </StatusBadge>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Enriched</p>
-              <StatusBadge
-                variant={
-                  event.enrichment_applied ? "success" : "neutral"
-                }
-              >
-                {event.enrichment_applied ? "Yes" : "No"}
-              </StatusBadge>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Transport</p>
-              <p>{event.transport}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Session</p>
-              <p className="font-mono text-xs">{event.session_id}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">Request Chars</p>
-              <p>{event.request_chars.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Response Chars</p>
-              <p>{event.response_chars.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Content Blocks</p>
-              <p>{event.content_blocks}</p>
-            </div>
-          </div>
-
-          {event.error_message && (
-            <div>
-              <p className="text-xs text-muted-foreground">Error Message</p>
-              <p className="mt-1 rounded bg-red-50 p-2 text-sm text-red-800">
-                {event.error_message}
-              </p>
-            </div>
-          )}
-
-          {event.parameters &&
-            Object.keys(event.parameters).length > 0 && (
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">
-                  Parameters
-                </p>
-                <pre className="overflow-auto rounded bg-muted p-3 text-xs">
-                  {JSON.stringify(event.parameters, null, 2)}
-                </pre>
-              </div>
-            )}
-        </div>
-      </div>
-    </div>
   );
 }
 

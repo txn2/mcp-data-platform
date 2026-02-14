@@ -1663,7 +1663,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all registered tools across all toolkits.",
+                "description": "Returns all registered tools across all toolkits and platform-level tools.",
                 "produces": [
                     "application/json"
                 ],
@@ -1785,6 +1785,12 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
+                        "type": "string"
+                    }
+                },
+                "user_labels": {
+                    "type": "object",
+                    "additionalProperties": {
                         "type": "string"
                     }
                 },

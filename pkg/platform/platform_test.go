@@ -3001,3 +3001,19 @@ func TestNew_WithToolVisibilityFilter(t *testing.T) {
 		t.Fatal(testMCPServerNilMsg)
 	}
 }
+
+func TestPlatformTools(t *testing.T) {
+	p := newTestPlatform(t)
+	defer func() { _ = p.Close() }()
+
+	tools := p.PlatformTools()
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 platform tool, got %d", len(tools))
+	}
+	if tools[0].Name != "platform_info" {
+		t.Errorf("expected tool name platform_info, got %s", tools[0].Name)
+	}
+	if tools[0].Kind != "platform" {
+		t.Errorf("expected tool kind platform, got %s", tools[0].Kind)
+	}
+}

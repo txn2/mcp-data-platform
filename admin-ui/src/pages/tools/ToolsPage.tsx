@@ -10,6 +10,7 @@ import type {
   ConnectionInfo,
 } from "@/api/types";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { formatDuration } from "@/lib/formatDuration";
 
 type Tab = "overview" | "explore" | "help";
 
@@ -181,10 +182,19 @@ function ExploreTab() {
       .filter((c) => c.tools.length > 0);
   }, [connections, search]);
 
+  // Tools that have schemas but aren't in any connection (e.g. platform_info)
+  const platformTools = useMemo(() => {
+    const connTools = new Set(connections.flatMap((c) => c.tools));
+    const lowerSearch = search.toLowerCase();
+    return Object.keys(schemas)
+      .filter((t) => !connTools.has(t) && t.toLowerCase().includes(lowerSearch))
+      .sort();
+  }, [connections, schemas, search]);
+
   const selectTool = useCallback(
-    (toolName: string, connection: ConnectionInfo) => {
+    (toolName: string, connection: ConnectionInfo | null) => {
       setSelectedTool(toolName);
-      setSelectedConnection(connection.connection);
+      setSelectedConnection(connection?.connection ?? "");
       setLatestResult(null);
       setShowRaw(false);
     },
@@ -194,13 +204,13 @@ function ExploreTab() {
   const handleExecute = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (!selectedTool || !selectedConnection || !schema) return;
+      if (!selectedTool || !schema) return;
 
       const formData = new FormData(e.currentTarget);
       const params: Record<string, unknown> = {};
-      for (const [key, propSchema] of Object.entries(
-        schema.parameters.properties,
-      )) {
+      const properties = schema.parameters.properties ?? {};
+      const required = schema.parameters.required ?? [];
+      for (const [key, propSchema] of Object.entries(properties)) {
         const val = formData.get(key);
         if (val === null || val === "") continue;
         if (propSchema.type === "integer") {
@@ -213,7 +223,7 @@ function ExploreTab() {
       }
 
       // Check required
-      for (const req of schema.parameters.required) {
+      for (const req of required) {
         if (params[req] === undefined || params[req] === "") return;
       }
 
@@ -319,7 +329,30 @@ function ExploreTab() {
                 ))}
               </div>
             ))}
-            {filteredConnections.length === 0 && (
+            {platformTools.length > 0 && (
+              <div className="mb-3">
+                <div className="mb-1 flex items-center gap-2 px-2">
+                  <StatusBadge variant="neutral">platform</StatusBadge>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    built-in
+                  </span>
+                </div>
+                {platformTools.map((toolName) => (
+                  <button
+                    key={`platform-${toolName}`}
+                    onClick={() => selectTool(toolName, null)}
+                    className={`flex w-full rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+                      selectedTool === toolName && selectedConnection === ""
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {toolName}
+                  </button>
+                ))}
+              </div>
+            )}
+            {filteredConnections.length === 0 && platformTools.length === 0 && (
               <p className="px-2 py-4 text-center text-xs text-muted-foreground">
                 No tools match
               </p>
@@ -342,10 +375,29 @@ function ExploreTab() {
                 onSubmit={handleExecute}
                 className="space-y-3 rounded-lg border bg-card p-4"
               >
-                {Object.entries(schema.parameters.properties).map(
+                {Object.entries(schema.parameters.properties ?? {}).map(
                   ([key, prop]) => {
                     const isRequired =
-                      schema.parameters.required.includes(key);
+                      (schema.parameters.required ?? []).includes(key);
+                    if (key === "connection") {
+                      return (
+                        <div key={key}>
+                          <label className="mb-1 block text-xs font-medium">
+                            {key}
+                          </label>
+                          <p className="mb-1 text-[11px] text-muted-foreground">
+                            {prop.description}
+                          </p>
+                          <select
+                            disabled
+                            value={selectedConnection}
+                            className="rounded-md border bg-muted px-3 py-1.5 text-sm text-muted-foreground outline-none"
+                          >
+                            <option value={selectedConnection}>{selectedConnection}</option>
+                          </select>
+                        </div>
+                      );
+                    }
                     return (
                       <div key={key}>
                         <label className="mb-1 block text-xs font-medium">
@@ -454,7 +506,7 @@ function ExploreTab() {
                           {entry.is_loading
                             ? "..."
                             : entry.response
-                              ? `${entry.response.duration_ms}ms`
+                              ? formatDuration(entry.response.duration_ms)
                               : "-"}
                         </td>
                         <td className="px-3 py-2 text-center">
@@ -622,6 +674,7 @@ function ResultPanel({
   onToggleRaw: () => void;
 }) {
   // Separate primary result (first block) from enrichment blocks
+  const hasContent = result.content.length > 0;
   const primary = result.content[0]?.text ?? "";
   const enrichmentBlocks = result.content.slice(1);
   const rawText = result.content.map((c) => c.text).join("\n\n");
@@ -635,7 +688,7 @@ function ResultPanel({
         <StatusBadge variant={result.is_error ? "error" : "success"}>
           {result.is_error ? "Error" : "Success"}
         </StatusBadge>
-        <StatusBadge variant="neutral">{result.duration_ms}ms</StatusBadge>
+        <StatusBadge variant="neutral">{formatDuration(result.duration_ms)}</StatusBadge>
         {enrichmentBlocks.length > 0 && (
           <StatusBadge variant="success">Enriched</StatusBadge>
         )}
@@ -648,7 +701,13 @@ function ResultPanel({
       </div>
 
       {/* Content */}
-      {showRaw ? (
+      {!hasContent ? (
+        <p className="text-sm text-muted-foreground">
+          {result.is_error
+            ? "Tool call failed. Check server logs for details."
+            : "Tool returned no content."}
+        </p>
+      ) : showRaw ? (
         <pre className="max-h-[500px] overflow-auto rounded bg-muted p-3 font-mono text-xs">
           {rawText}
         </pre>
@@ -685,6 +744,12 @@ function ResultPanel({
 // ---------------------------------------------------------------------------
 
 function FormattedBlock({ text, kind }: { text: string; kind: string }) {
+  if (!text) {
+    return (
+      <p className="text-sm italic text-muted-foreground">(empty response)</p>
+    );
+  }
+
   if (kind === "trino" && text.includes("|")) {
     return <MarkdownTableView text={text} />;
   }

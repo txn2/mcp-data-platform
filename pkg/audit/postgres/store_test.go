@@ -872,6 +872,93 @@ func TestDistinct_EmptyResult(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestDistinctPairs_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"user_id", "user_email"}).
+		AddRow("uid-1", "alice@acme.com").
+		AddRow("uid-2", "bob@acme.com")
+	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+		WillReturnRows(rows)
+
+	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"uid-1": "alice@acme.com", "uid-2": "bob@acme.com"}, result)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinctPairs_WithTimeRange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+	startTime := time.Date(testYear, testMonth, 1, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(testYear, testMonth, 30, 23, 59, 59, 0, time.UTC) //nolint:revive // test fixture date
+
+	rows := sqlmock.NewRows([]string{"user_id", "user_email"}).
+		AddRow("uid-1", "alice@acme.com")
+	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+		WithArgs("", startTime, endTime).
+		WillReturnRows(rows)
+
+	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", &startTime, &endTime)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"uid-1": "alice@acme.com"}, result)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinctPairs_InvalidColumn(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	result, err := store.DistinctPairs(context.Background(), "password", "user_email", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "distinct pairs not supported")
+}
+
+func TestDistinctPairs_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+		WillReturnError(errors.New("db down"))
+
+	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "querying distinct pairs")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinctPairs_EmptyResult(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"user_id", "user_email"})
+	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+		WillReturnRows(rows)
+
+	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)
+	assert.NoError(t, err)
+	assert.Empty(t, result)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestInterfaceCompliance(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)

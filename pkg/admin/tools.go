@@ -142,8 +142,13 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	blocks := extractContentBlocks(result.Content)
+	if len(blocks) == 0 && result.IsError {
+		blocks = []toolContentBlock{{Type: "text", Text: "Tool call returned an error with no details."}}
+	}
+
 	writeJSON(w, http.StatusOK, toolCallResponse{
-		Content:    extractContentBlocks(result.Content),
+		Content:    blocks,
 		IsError:    result.IsError,
 		DurationMs: durationMs,
 	})
@@ -184,8 +189,13 @@ func (r *toolCallRequest) arguments() map[string]any {
 func extractContentBlocks(mcpContent []mcp.Content) []toolContentBlock {
 	content := make([]toolContentBlock, 0, len(mcpContent))
 	for _, c := range mcpContent {
-		if tc, ok := c.(*mcp.TextContent); ok {
+		switch tc := c.(type) {
+		case *mcp.TextContent:
 			content = append(content, toolContentBlock{Type: "text", Text: tc.Text})
+		case *mcp.EmbeddedResource:
+			if tc.Resource != nil && tc.Resource.Text != "" {
+				content = append(content, toolContentBlock{Type: "text", Text: tc.Resource.Text})
+			}
 		}
 	}
 	if len(content) == 0 {

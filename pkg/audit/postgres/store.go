@@ -227,6 +227,49 @@ func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime 
 	return values, nil
 }
 
+// DistinctPairs returns a mapping of col1 values to col2 values. When col2 is
+// empty for a row, the row is skipped. This is used to map e.g. user_id to
+// user_email for display labels.
+func (s *Store) DistinctPairs(ctx context.Context, col1, col2 string, startTime, endTime *time.Time) (map[string]string, error) {
+	allowed := map[string]bool{"user_id": true, "user_email": true}
+	if !allowed[col1] || !allowed[col2] {
+		return nil, fmt.Errorf("distinct pairs not supported for columns %q, %q", col1, col2)
+	}
+
+	qb := psq.Select("DISTINCT " + col1 + ", " + col2).From("audit_logs").
+		Where(sq.NotEq{col2: ""}).OrderBy(col1)
+	if startTime != nil {
+		qb = qb.Where(sq.GtOrEq{"timestamp": *startTime})
+	}
+	if endTime != nil {
+		qb = qb.Where(sq.LtOrEq{"timestamp": *endTime})
+	}
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building distinct pairs query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct pairs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var v1, v2 string
+		if err := rows.Scan(&v1, &v2); err != nil {
+			return nil, fmt.Errorf("scanning distinct pair: %w", err)
+		}
+		result[v1] = v2
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating distinct pairs: %w", err)
+	}
+	return result, nil
+}
+
 func (s *Store) executeQuery(ctx context.Context, query string, args []any, limit int) ([]audit.Event, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

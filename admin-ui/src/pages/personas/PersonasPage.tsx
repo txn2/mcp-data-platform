@@ -176,6 +176,13 @@ function PersonaCard({
         </span>
       </div>
 
+      {/* Description */}
+      {persona.description && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {persona.description}
+        </p>
+      )}
+
       {/* Roles */}
       <div className="mb-3 flex flex-wrap gap-1">
         {persona.roles.map((r) => (

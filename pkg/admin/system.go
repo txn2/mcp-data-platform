@@ -87,7 +87,7 @@ type toolListResponse struct {
 // listTools handles GET /api/v1/admin/tools.
 //
 // @Summary      List tools
-// @Description  Returns all registered tools across all toolkits.
+// @Description  Returns all registered tools across all toolkits and platform-level tools.
 // @Tags         System
 // @Produce      json
 // @Success      200  {object}  toolListResponse
@@ -107,6 +107,12 @@ func (h *Handler) listTools(w http.ResponseWriter, _ *http.Request) {
 				})
 			}
 		}
+	}
+	for _, pt := range h.deps.PlatformTools {
+		tools = append(tools, toolInfo{
+			Name: pt.Name,
+			Kind: pt.Kind,
+		})
 	}
 	if tools == nil {
 		tools = []toolInfo{}

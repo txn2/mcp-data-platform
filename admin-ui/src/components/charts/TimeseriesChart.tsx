@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import type { TimeseriesBucket } from "@/api/types";
 import { ChartSkeleton } from "./ChartSkeleton";
+import { formatDuration } from "@/lib/formatDuration";
 
 interface TimeseriesChartProps {
   data: TimeseriesBucket[] | undefined;
@@ -44,6 +45,10 @@ export function TimeseriesChart({
         />
         <Tooltip
           labelFormatter={(v) => new Date(v as string).toLocaleString()}
+          formatter={(value: number, name: string) => {
+            if (name === "avg_duration_ms") return [formatDuration(value), "Avg Duration"];
+            return [value, name];
+          }}
           contentStyle={{
             backgroundColor: "hsl(var(--card))",
             border: "1px solid hsl(var(--border))",

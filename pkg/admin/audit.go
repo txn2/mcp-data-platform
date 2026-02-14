@@ -17,8 +17,9 @@ type auditEventResponse struct {
 
 // auditFiltersResponse holds unique values for dropdown filters.
 type auditFiltersResponse struct {
-	Users []string `json:"users"`
-	Tools []string `json:"tools"`
+	Users      []string          `json:"users"`
+	Tools      []string          `json:"tools"`
+	UserLabels map[string]string `json:"user_labels,omitempty"`
 }
 
 // auditStatsResponse holds aggregate audit statistics.
@@ -28,7 +29,10 @@ type auditStatsResponse struct {
 	Failures int `json:"failures"`
 }
 
-const defaultAuditLimit = 50
+const (
+	defaultAuditLimit = 50
+	colUserID         = "user_id"
+)
 
 // listAuditEvents handles GET /api/v1/admin/audit/events.
 //
@@ -54,7 +58,7 @@ const defaultAuditLimit = 50
 func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := audit.QueryFilter{
-		UserID:    q.Get("user_id"),
+		UserID:    q.Get(colUserID),
 		ToolName:  q.Get("tool_name"),
 		SessionID: q.Get("session_id"),
 		Search:    q.Get("search"),
@@ -127,7 +131,7 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 	startTime := parseTimeParam(q, "start_time")
 	endTime := parseTimeParam(q, "end_time")
 
-	users, err := h.deps.AuditQuerier.Distinct(r.Context(), "user_id", startTime, endTime)
+	users, err := h.deps.AuditQuerier.Distinct(r.Context(), colUserID, startTime, endTime)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query distinct users")
 		return
@@ -146,9 +150,17 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 		tools = []string{}
 	}
 
+	// Fetch user_id → user_email mapping for display labels.
+	userLabels, err := h.deps.AuditQuerier.DistinctPairs(r.Context(), colUserID, "user_email", startTime, endTime)
+	if err != nil {
+		// Non-fatal: labels are optional.
+		userLabels = nil
+	}
+
 	writeJSON(w, http.StatusOK, auditFiltersResponse{
-		Users: users,
-		Tools: tools,
+		Users:      users,
+		Tools:      tools,
+		UserLabels: userLabels,
 	})
 }
 
@@ -198,7 +210,7 @@ func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getAuditStats(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	baseFilter := audit.QueryFilter{
-		UserID:    q.Get("user_id"),
+		UserID:    q.Get(colUserID),
 		ToolName:  q.Get("tool_name"),
 		StartTime: parseTimeParam(q, "start_time"),
 		EndTime:   parseTimeParam(q, "end_time"),

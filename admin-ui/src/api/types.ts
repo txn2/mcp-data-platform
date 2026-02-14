@@ -130,6 +130,7 @@ export interface AuditStatsResponse {
 export interface AuditFiltersResponse {
   users: string[];
   tools: string[];
+  user_labels?: Record<string, string>;
 }
 
 export type AuditSortColumn =

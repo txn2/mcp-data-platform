@@ -148,12 +148,14 @@ var _ PersonaRegistry = (*mockPersonaRegistry)(nil)
 // --- Mock AuditQuerier ---
 
 type mockAuditQuerier struct {
-	queryResult    []audit.Event
-	queryErr       error
-	countResult    int
-	countErr       error
-	distinctResult []string
-	distinctErr    error
+	queryResult         []audit.Event
+	queryErr            error
+	countResult         int
+	countErr            error
+	distinctResult      []string
+	distinctErr         error
+	distinctPairsResult map[string]string
+	distinctPairsErr    error
 }
 
 func (m *mockAuditQuerier) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
@@ -166,6 +168,10 @@ func (m *mockAuditQuerier) Count(_ context.Context, _ audit.QueryFilter) (int, e
 
 func (m *mockAuditQuerier) Distinct(_ context.Context, _ string, _, _ *time.Time) ([]string, error) {
 	return m.distinctResult, m.distinctErr
+}
+
+func (m *mockAuditQuerier) DistinctPairs(_ context.Context, _, _ string, _, _ *time.Time) (map[string]string, error) {
+	return m.distinctPairsResult, m.distinctPairsErr
 }
 
 // Verify interface compliance.
