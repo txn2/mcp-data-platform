@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 // systemInfoResponse is returned by GET /system/info.
@@ -70,6 +71,23 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// publicBrandingResponse is returned by the unauthenticated branding endpoint.
+type publicBrandingResponse struct {
+	Name        string `json:"name"`
+	PortalTitle string `json:"portal_title"`
+}
+
+// getPublicBranding handles GET /api/v1/admin/public/branding.
+// This endpoint is unauthenticated and returns only non-sensitive display info.
+func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
+	resp := publicBrandingResponse{}
+	if h.deps.Config != nil {
+		resp.Name = h.deps.Config.Server.Name
+		resp.PortalTitle = h.deps.Config.Admin.PortalTitle
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // toolInfo describes a single tool and its owning toolkit.
 type toolInfo struct {
 	Name       string `json:"name"`
@@ -123,10 +141,11 @@ func (h *Handler) listTools(w http.ResponseWriter, _ *http.Request) {
 
 // connectionInfo describes a toolkit connection.
 type connectionInfo struct {
-	Kind       string   `json:"kind"`
-	Name       string   `json:"name"`
-	Connection string   `json:"connection"`
-	Tools      []string `json:"tools"`
+	Kind        string   `json:"kind"`
+	Name        string   `json:"name"`
+	Connection  string   `json:"connection"`
+	Tools       []string `json:"tools"`
+	HiddenTools []string `json:"hidden_tools"`
 }
 
 // connectionListResponse wraps a list of connections.
@@ -146,14 +165,23 @@ type connectionListResponse struct {
 // @Security     BearerAuth
 // @Router       /connections [get]
 func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
+	var allow, deny []string
+	if h.deps.Config != nil {
+		allow = h.deps.Config.Tools.Allow
+		deny = h.deps.Config.Tools.Deny
+	}
+
 	var conns []connectionInfo
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
+			tools := tk.Tools()
+			hidden := hiddenTools(tools, allow, deny)
 			conns = append(conns, connectionInfo{
-				Kind:       tk.Kind(),
-				Name:       tk.Name(),
-				Connection: tk.Connection(),
-				Tools:      tk.Tools(),
+				Kind:        tk.Kind(),
+				Name:        tk.Name(),
+				Connection:  tk.Connection(),
+				Tools:       tools,
+				HiddenTools: hidden,
 			})
 		}
 	}
@@ -162,4 +190,19 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	}
 	sort.Slice(conns, func(i, j int) bool { return conns[i].Name < conns[j].Name })
 	writeJSON(w, http.StatusOK, connectionListResponse{Connections: conns, Total: len(conns)})
+}
+
+// hiddenTools returns the subset of tools that are hidden by the global
+// visibility filter (tools.allow / tools.deny config).
+func hiddenTools(tools, allow, deny []string) []string {
+	var hidden []string
+	for _, name := range tools {
+		if !middleware.IsToolVisible(name, allow, deny) {
+			hidden = append(hidden, name)
+		}
+	}
+	if hidden == nil {
+		hidden = []string{}
+	}
+	return hidden
 }

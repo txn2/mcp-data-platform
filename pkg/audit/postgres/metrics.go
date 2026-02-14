@@ -102,15 +102,21 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 	// col is validated against ValidBreakdownDimensions — safe for column reference.
 	col := string(filter.GroupBy)
 
+	// For user_id, display email when available so humans see names, not UUIDs.
+	dimensionExpr := fmt.Sprintf("COALESCE(%s, '') AS dimension", col)
+	if filter.GroupBy == audit.BreakdownByUserID {
+		dimensionExpr = "COALESCE(NULLIF(user_email, ''), user_id, '') AS dimension"
+	}
+
 	qb := psq.Select(
-		fmt.Sprintf("COALESCE(%s, '') AS dimension", col),
+		dimensionExpr,
 		"COUNT(*) AS count",
 		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 	).From("audit_logs").
 		Where(sq.GtOrEq{"timestamp": start}).
 		Where(sq.LtOrEq{"timestamp": end}).
-		GroupBy(col).
+		GroupBy("dimension").
 		OrderBy("count DESC").
 		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 

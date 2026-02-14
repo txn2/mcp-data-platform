@@ -108,6 +108,10 @@ definitions:
     properties:
       connection:
         type: string
+      hidden_tools:
+        items:
+          type: string
+        type: array
       kind:
         type: string
       name:

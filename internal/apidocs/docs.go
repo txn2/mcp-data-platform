@@ -1926,6 +1926,12 @@ const docTemplate = `{
                 "connection": {
                     "type": "string"
                 },
+                "hidden_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "kind": {
                     "type": "string"
                 },

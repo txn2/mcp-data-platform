@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   BarChart as RechartsBarChart,
   Bar,
@@ -17,11 +18,17 @@ interface BarChartProps {
   color?: string;
 }
 
-function truncateLabel(label: string, max = 16): string {
-  if (label.length <= max) return label;
-  // UUID pattern: truncate to first 8 chars
-  if (/^[0-9a-f]{8}-/.test(label)) return label.slice(0, 8) + "\u2026";
-  return label.slice(0, max - 1) + "\u2026";
+/** Shorten an email to just the local part (before @). */
+function shortenEmail(label: string): string {
+  const at = label.indexOf("@");
+  if (at > 0) return label.slice(0, at);
+  return label;
+}
+
+/** Estimate pixel width for a label at text-xs (12px) in a proportional font. */
+function estimateLabelWidth(label: string): number {
+  // ~6.5px per character at 12px sans-serif, plus 16px padding for tick/gap.
+  return label.length * 6.5 + 16;
 }
 
 export function BreakdownBarChart({
@@ -30,11 +37,29 @@ export function BreakdownBarChart({
   height = 250,
   color = "hsl(var(--primary))",
 }: BarChartProps) {
-  if (isLoading || !data) return <ChartSkeleton height={height} />;
+  // Pre-process: shorten emails to local part for display.
+  const chartData = useMemo(
+    () =>
+      data?.map((d) => ({
+        ...d,
+        label: shortenEmail(d.dimension),
+      })),
+    [data],
+  );
+
+  // Compute YAxis width from the longest label — no truncation needed.
+  const yAxisWidth = useMemo(() => {
+    if (!chartData || chartData.length === 0) return 80;
+    const maxLen = Math.max(...chartData.map((d) => estimateLabelWidth(d.label)));
+    // Clamp between 80 and 260 to keep bars visible.
+    return Math.min(260, Math.max(80, maxLen));
+  }, [chartData]);
+
+  if (isLoading || !chartData) return <ChartSkeleton height={height} />;
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <RechartsBarChart data={data} layout="vertical" margin={{ left: 80 }}>
+      <RechartsBarChart data={chartData} layout="vertical" margin={{ left: 0, right: 12 }}>
         <XAxis
           type="number"
           className="text-xs"
@@ -42,11 +67,10 @@ export function BreakdownBarChart({
         />
         <YAxis
           type="category"
-          dataKey="dimension"
+          dataKey="label"
           className="text-xs"
           tick={{ fill: "hsl(var(--muted-foreground))" }}
-          width={80}
-          tickFormatter={truncateLabel}
+          width={yAxisWidth}
         />
         <Tooltip
           contentStyle={{
@@ -54,6 +78,11 @@ export function BreakdownBarChart({
             border: "1px solid hsl(var(--border))",
             borderRadius: "0.375rem",
             fontSize: "0.75rem",
+          }}
+          labelFormatter={(label: string) => {
+            // Show the full original dimension in the tooltip.
+            const entry = chartData.find((d) => d.label === label);
+            return entry?.dimension ?? label;
           }}
           formatter={(value: number, name: string) => {
             if (name === "avg_duration_ms") return [formatDuration(value), "Avg Duration"];
