@@ -745,7 +745,9 @@ func (p *Platform) finalizeSetup() {
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
 		Version: p.config.Server.Version,
-	}, nil)
+	}, &mcp.ServerOptions{
+		SchemaCache: mcp.NewSchemaCache(),
+	})
 
 	// Add MCP protocol-level middleware.
 	//

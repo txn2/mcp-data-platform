@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -30,14 +31,12 @@ type UserInfo struct {
 	AuthType string // "oidc", "apikey", etc.
 }
 
-// NewToolResultError creates an error result.
+// NewToolResultError creates an error result using the SDK's SetError method.
+// The underlying error is retrievable via CallToolResult.GetError().
 func NewToolResultError(errMsg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: errMsg},
-		},
-	}
+	result := &mcp.CallToolResult{}
+	result.SetError(errors.New(errMsg))
+	return result
 }
 
 // NewToolResultText creates a text result.

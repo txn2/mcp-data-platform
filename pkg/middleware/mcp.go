@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -224,14 +225,12 @@ func extractToolName(req mcp.Request) (string, error) {
 	return callParams.Name, nil
 }
 
-// createErrorResult creates an MCP result for an authorization error.
+// createErrorResult creates an MCP error result using the SDK's SetError method.
+// The underlying error is retrievable via CallToolResult.GetError().
 func createErrorResult(errMsg string) mcp.Result {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: errMsg},
-		},
-	}
+	result := &mcp.CallToolResult{}
+	result.SetError(errors.New(errMsg))
+	return result
 }
 
 // extractBearerOrAPIKey extracts an auth token from HTTP headers.
