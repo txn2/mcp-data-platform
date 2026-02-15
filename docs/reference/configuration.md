@@ -244,6 +244,9 @@ toolkits:
       max_limit: 10000
       read_only: false
       connection_name: "Production"
+      descriptions:
+        trino_query: "Execute SQL with automatic semantic enrichment from DataHub"
+        trino_describe_table: "Get table schema with DataHub context — the richest single-call way to understand a table"
 ```
 
 | Option | Type | Default | Description |
@@ -261,6 +264,7 @@ toolkits:
 | `max_limit` | int | `10000` | Maximum row limit |
 | `read_only` | bool | `false` | Restrict to read-only queries |
 | `connection_name` | string | instance name | Display name |
+| `descriptions` | map | `{}` | Override tool descriptions (key: tool name, value: description text) |
 
 ### DataHub
 
@@ -276,6 +280,9 @@ toolkits:
       max_lineage_depth: 5
       connection_name: "Primary Catalog"
       debug: false
+      descriptions:
+        datahub_search: "Search the data catalog for datasets and dashboards"
+        datahub_get_entity: "Get full metadata for a catalog entity by URN"
 ```
 
 | Option | Type | Default | Description |
@@ -288,6 +295,7 @@ toolkits:
 | `max_lineage_depth` | int | `5` | Maximum lineage depth |
 | `connection_name` | string | instance name | Display name |
 | `debug` | bool | `false` | Enable debug logging for GraphQL operations |
+| `descriptions` | map | `{}` | Override tool descriptions (key: tool name, value: description text) |
 
 ### S3
 

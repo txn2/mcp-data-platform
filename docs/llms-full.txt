@@ -326,6 +326,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `default_limit` | int | 1000 | Default row limit |
 | `max_limit` | int | 10000 | Maximum row limit |
 | `read_only` | bool | false | Restrict to read-only queries |
+| `descriptions` | map | {} | Override tool descriptions (key: tool name, value: description text) |
 
 ### DataHub
 
@@ -336,6 +337,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `timeout` | duration | 30s | API request timeout |
 | `default_limit` | int | 10 | Default search limit |
 | `max_limit` | int | 100 | Maximum search limit |
+| `descriptions` | map | {} | Override tool descriptions (key: tool name, value: description text) |
 
 ### S3
 
