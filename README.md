@@ -118,6 +118,22 @@ Add custom authentication, rate limiting, or logging. Swap providers to integrat
 
 ---
 
+## Admin Portal
+
+A built-in web dashboard for monitoring, auditing, and exploring the platform. Enable with `admin.portal: true`.
+
+![Admin Dashboard](docs/images/screenshots/admin-dashboard.png)
+
+**Dashboard** — Real-time activity timelines, top tools/users, performance percentiles, error monitoring, knowledge insight summary, and connection health.
+
+![Tools Explore](docs/images/screenshots/admin-tools-explore.png)
+
+**Tools Explore** — Interactive tool execution with auto-generated parameter forms, rendered results, and full semantic enrichment context (owners, tags, glossary terms, column metadata, lineage).
+
+See the [Admin Portal documentation](https://txn2.github.io/mcp-data-platform/server/admin-portal/) for the complete visual guide.
+
+---
+
 ## Use Cases
 
 ### Enterprise Data Governance

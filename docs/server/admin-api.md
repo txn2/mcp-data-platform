@@ -50,11 +50,16 @@ admin:
 
 When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix (e.g., `http://localhost:8080/api/v1/admin/`). The portal provides:
 
-- **Audit Dashboard**: Browse and filter audit log events with time-series visualization
-- **Tool Execution**: Test tool calls directly from the browser
-- **System Monitoring**: View platform status, connected toolkits, and registered tools
+- **Dashboard**: Real-time platform health with activity timelines, top tools/users, performance percentiles, and error monitoring
+- **Tools**: Connection overview, tool inventory with descriptions, and interactive tool execution with semantic enrichment display
+- **Audit Log**: Searchable event log with detail drawer showing full request metadata and parameters
+- **Knowledge**: Insight statistics, governance workflow with approve/reject actions, and changeset tracking
+
+![Admin Portal Dashboard](../images/screenshots/admin-dashboard.png)
 
 The portal requires authentication — access it with the same credentials used for admin API requests. In production builds, the service worker (`mockServiceWorker.js`) is stripped automatically.
+
+See the [Admin Portal guide](admin-portal.md) for a complete visual walkthrough.
 
 ## Error Format
 
