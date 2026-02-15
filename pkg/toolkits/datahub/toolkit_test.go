@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	dhtools "github.com/txn2/mcp-datahub/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -325,6 +326,41 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	if err := tk.Close(); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
+}
+
+func TestToDataHubToolNames(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := toDataHubToolNames(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("valid conversion", func(t *testing.T) {
+		input := map[string]string{
+			"datahub_search":     "Custom search",
+			"datahub_get_entity": "Custom entity",
+		}
+		result := toDataHubToolNames(input)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		for k, v := range input {
+			if got := result[dhtools.ToolName(k)]; got != v {
+				t.Errorf("result[%q] = %q, want %q", k, got, v)
+			}
+		}
+	})
+
+	t.Run("empty map", func(t *testing.T) {
+		result := toDataHubToolNames(map[string]string{})
+		if result == nil {
+			t.Error("expected non-nil empty map")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries, got %d", len(result))
+		}
+	})
 }
 
 func TestToolkit_RegisterTools(_ *testing.T) {

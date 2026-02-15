@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -350,6 +351,42 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	if err := tk.Close(); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
+}
+
+func TestToTrinoToolNames(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := toTrinoToolNames(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("valid conversion", func(t *testing.T) {
+		input := map[string]string{
+			"trino_query":          "Custom query",
+			"trino_describe_table": "Custom describe",
+		}
+		result := toTrinoToolNames(input)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		for k, v := range input {
+			// trinotools.ToolName is just a string type alias
+			if got := result[trinotools.ToolName(k)]; got != v {
+				t.Errorf("result[%q] = %q, want %q", k, got, v)
+			}
+		}
+	})
+
+	t.Run("empty map", func(t *testing.T) {
+		result := toTrinoToolNames(map[string]string{})
+		if result == nil {
+			t.Error("expected non-nil empty map")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries, got %d", len(result))
+		}
+	})
 }
 
 func TestToolkit_RegisterTools(_ *testing.T) {

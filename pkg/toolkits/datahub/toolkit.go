@@ -29,14 +29,15 @@ const (
 
 // Config holds DataHub toolkit configuration.
 type Config struct {
-	URL             string        `yaml:"url"`
-	Token           string        `yaml:"token"`
-	Timeout         time.Duration `yaml:"timeout"`
-	DefaultLimit    int           `yaml:"default_limit"`
-	MaxLimit        int           `yaml:"max_limit"`
-	MaxLineageDepth int           `yaml:"max_lineage_depth"`
-	ConnectionName  string        `yaml:"connection_name"`
-	Debug           bool          `yaml:"debug"` // Enable debug logging
+	URL             string            `yaml:"url"`
+	Token           string            `yaml:"token"`
+	Timeout         time.Duration     `yaml:"timeout"`
+	DefaultLimit    int               `yaml:"default_limit"`
+	MaxLimit        int               `yaml:"max_limit"`
+	MaxLineageDepth int               `yaml:"max_lineage_depth"`
+	ConnectionName  string            `yaml:"connection_name"`
+	Debug           bool              `yaml:"debug"` // Enable debug logging
+	Descriptions    map[string]string `yaml:"descriptions"`
 }
 
 // Toolkit wraps mcp-datahub toolkit for the platform.
@@ -119,14 +120,30 @@ func createClient(cfg Config) (*dhclient.Client, error) {
 	return client, nil
 }
 
+// toDataHubToolNames converts a generic string map to typed ToolName keys.
+func toDataHubToolNames(m map[string]string) map[dhtools.ToolName]string {
+	if m == nil {
+		return nil
+	}
+	result := make(map[dhtools.ToolName]string, len(m))
+	for k, v := range m {
+		result[dhtools.ToolName(k)] = v
+	}
+	return result
+}
+
 // createToolkit creates the mcp-datahub toolkit.
 func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
+	var opts []dhtools.ToolkitOption
+	if len(cfg.Descriptions) > 0 {
+		opts = append(opts, dhtools.WithDescriptions(toDataHubToolNames(cfg.Descriptions)))
+	}
 	return dhtools.NewToolkit(client, dhtools.Config{
 		DefaultLimit:    cfg.DefaultLimit,
 		MaxLimit:        cfg.MaxLimit,
 		MaxLineageDepth: cfg.MaxLineageDepth,
 		Debug:           cfg.Debug,
-	})
+	}, opts...)
 }
 
 // Kind returns the toolkit kind.

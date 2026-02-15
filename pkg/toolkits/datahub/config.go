@@ -42,6 +42,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	// Optional bool fields
 	c.Debug = getBool(cfg, "debug", false)
 
+	// Optional description overrides
+	c.Descriptions = getStringMap(cfg, "descriptions")
+
 	return c, nil
 }
 
@@ -62,6 +65,21 @@ func getInt(cfg map[string]any, key string, defaultVal int) int {
 		return int(v)
 	}
 	return defaultVal
+}
+
+// getStringMap extracts a map[string]string value from a config map.
+func getStringMap(cfg map[string]any, key string) map[string]string { //nolint:unparam // consistent with getString/getInt helpers
+	raw, ok := cfg[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
+	return result
 }
 
 // getDuration extracts a duration value from a config map.

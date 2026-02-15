@@ -224,6 +224,93 @@ func TestGetBoolDefault(t *testing.T) {
 	}
 }
 
+func TestGetStringMap(t *testing.T) {
+	t.Run("valid map", func(t *testing.T) {
+		cfg := map[string]any{
+			"descriptions": map[string]any{
+				"trino_query":          "Run a SQL query",
+				"trino_describe_table": "Get table details",
+			},
+		}
+		result := getStringMap(cfg, "descriptions")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		if result["trino_query"] != "Run a SQL query" {
+			t.Errorf("trino_query = %q", result["trino_query"])
+		}
+		if result["trino_describe_table"] != "Get table details" {
+			t.Errorf("trino_describe_table = %q", result["trino_describe_table"])
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		cfg := map[string]any{}
+		result := getStringMap(cfg, "descriptions")
+		if result != nil {
+			t.Errorf("expected nil for missing key, got %v", result)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		cfg := map[string]any{"descriptions": "not a map"}
+		result := getStringMap(cfg, "descriptions")
+		if result != nil {
+			t.Errorf("expected nil for wrong type, got %v", result)
+		}
+	})
+
+	t.Run("skips non-string values", func(t *testing.T) {
+		cfg := map[string]any{
+			"descriptions": map[string]any{
+				"valid":   "a string",
+				"invalid": trinoCfgTestNumVal,
+			},
+		}
+		result := getStringMap(cfg, "descriptions")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry (non-string skipped), got %d", len(result))
+		}
+		if result["valid"] != "a string" {
+			t.Errorf("valid = %q", result["valid"])
+		}
+	})
+}
+
+func TestParseConfig_WithDescriptions(t *testing.T) {
+	cfg := map[string]any{
+		"host": "trino.example.com",
+		"descriptions": map[string]any{
+			"trino_query": "Custom query description",
+		},
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if len(result.Descriptions) != 1 {
+		t.Fatalf("expected 1 description, got %d", len(result.Descriptions))
+	}
+	if result.Descriptions["trino_query"] != "Custom query description" {
+		t.Errorf("trino_query description = %q", result.Descriptions["trino_query"])
+	}
+}
+
+func TestParseConfig_NoDescriptions(t *testing.T) {
+	cfg := map[string]any{
+		"host": "trino.example.com",
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if result.Descriptions != nil {
+		t.Errorf("expected nil descriptions, got %v", result.Descriptions)
+	}
+}
+
 func TestGetDuration(t *testing.T) {
 	cfg := map[string]any{
 		trinoCfgTestString:  "5m",
