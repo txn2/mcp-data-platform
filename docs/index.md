@@ -62,6 +62,14 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     [:octicons-arrow-right-24: Knowledge capture](knowledge/overview.md)
 
+-   :material-monitor-dashboard: **Admin Portal**
+
+    ---
+
+    Built-in web dashboard for real-time monitoring, audit exploration, interactive tool testing with semantic enrichment, and knowledge governance workflows.
+
+    [:octicons-arrow-right-24: Admin Portal](server/admin-portal.md)
+
 -   :material-api: **REST Admin API**
 
     ---
@@ -70,7 +78,7 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     [:octicons-arrow-right-24: Admin API](server/admin-api.md)
 
--   :material-monitor-dashboard: **MCP Apps**
+-   :material-palette-swatch: **MCP Apps**
 
     ---
 
