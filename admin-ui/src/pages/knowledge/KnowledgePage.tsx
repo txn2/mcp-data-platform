@@ -699,7 +699,7 @@ function InsightDrawer({
   insight: Insight;
   onClose: () => void;
 }) {
-  const [reviewNotes, setReviewNotes] = useState("");
+  const [reviewNotes, setReviewNotes] = useState(insight.review_notes ?? "");
   const updateStatus = useUpdateInsightStatus();
 
   const handleAction = useCallback(
@@ -880,12 +880,6 @@ function InsightDrawer({
                     : "-"}
                 </p>
               </div>
-              {insight.review_notes && (
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground">Review Notes</p>
-                  <p className="text-sm">{insight.review_notes}</p>
-                </div>
-              )}
             </div>
           )}
 
@@ -912,39 +906,37 @@ function InsightDrawer({
             </div>
           )}
 
-          {/* Action buttons (only for pending insights) */}
-          {insight.status === "pending" && (
-            <div className="space-y-3 border-t pt-3">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Review Notes
-                </label>
-                <textarea
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                  placeholder="Optional review notes..."
-                  rows={3}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleAction("approved")}
-                  disabled={updateStatus.isPending}
-                  className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => handleAction("rejected")}
-                  disabled={updateStatus.isPending}
-                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  Reject
-                </button>
-              </div>
+          {/* Action buttons */}
+          <div className="space-y-3 border-t pt-3">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">
+                Review Notes
+              </label>
+              <textarea
+                value={reviewNotes}
+                onChange={(e) => setReviewNotes(e.target.value)}
+                placeholder="Optional review notes..."
+                rows={3}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+              />
             </div>
-          )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleAction("approved")}
+                disabled={updateStatus.isPending}
+                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => handleAction("rejected")}
+                disabled={updateStatus.isPending}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
 import {
   useSystemInfo,
@@ -11,12 +11,12 @@ import {
   useInsightStats,
   useInsights,
 } from "@/api/hooks";
-import type { AuditEvent, Resolution } from "@/api/types";
+import type { Resolution } from "@/api/types";
 import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { TimeseriesChart } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
-import { EventDrawer } from "@/components/EventDrawer";
+import { RecentErrorsList } from "@/components/RecentErrorsList";
 import { formatDuration } from "@/lib/formatDuration";
 
 const presets: { value: TimeRangePreset; label: string }[] = [
@@ -43,8 +43,6 @@ export function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [preset],
   );
-
-  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
 
   const systemInfo = useSystemInfo();
   const overview = useAuditOverview({ startTime, endTime });
@@ -204,30 +202,7 @@ export function DashboardPage() {
         {/* Recent Errors */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Recent Errors</h2>
-          {recentErrors.data?.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent errors</p>
-          ) : (
-            <div className="space-y-2">
-              {recentErrors.data?.data.map((e) => (
-                <div
-                  key={e.id}
-                  onClick={() => setSelectedEvent(e)}
-                  className="flex cursor-pointer items-start gap-2 rounded p-1 text-xs transition-colors hover:bg-muted/50"
-                >
-                  <StatusBadge variant="error">Error</StatusBadge>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{e.tool_name}</p>
-                    <p className="truncate text-muted-foreground">
-                      {e.error_message || "Unknown error"}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-muted-foreground">
-                    {new Date(e.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <RecentErrorsList events={recentErrors.data?.data} />
         </div>
       </div>
 
@@ -333,13 +308,6 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Event Detail Drawer */}
-      {selectedEvent && (
-        <EventDrawer
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-        />
-      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/cards/StatusBadge";
 import { TimeseriesChart } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
 import { EventDrawer } from "@/components/EventDrawer";
+import { RecentErrorsList } from "@/components/RecentErrorsList";
 import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
 import type { AuditEvent, AuditSortColumn, SortOrder, Resolution } from "@/api/types";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
@@ -208,26 +209,7 @@ function OverviewTab() {
         {/* Recent Errors */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Recent Errors</h2>
-          {recentErrors.data?.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent errors</p>
-          ) : (
-            <div className="space-y-2">
-              {recentErrors.data?.data.map((e) => (
-                <div key={e.id} className="flex items-start gap-2 text-xs">
-                  <StatusBadge variant="error">Error</StatusBadge>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{e.tool_name}</p>
-                    <p className="truncate text-muted-foreground">
-                      {e.error_message || "Unknown error"}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-muted-foreground">
-                    {new Date(e.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <RecentErrorsList events={recentErrors.data?.data} />
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import {
   useToolSchemas,
   useCallTool,
 } from "@/api/hooks";
+import type { ToolSchema } from "@/api/types";
 import type {
   ToolCallResponse,
   ConnectionInfo,
@@ -58,9 +59,11 @@ export function ToolsPage({ initialTab }: { initialTab?: string }) {
 function OverviewTab() {
   const { data: toolsData } = useTools();
   const { data: connectionsData } = useConnections();
+  const { data: schemasData } = useToolSchemas();
 
   const tools = toolsData?.tools ?? [];
   const connections = connectionsData?.connections ?? [];
+  const schemas: Record<string, ToolSchema> = schemasData?.schemas ?? {};
 
   const hiddenToolSet = useMemo(
     () => new Set(connections.flatMap((c) => c.hidden_tools ?? [])),
@@ -117,10 +120,11 @@ function OverviewTab() {
             <tbody>
               {tools.map((tool, idx) => {
                 const isHidden = hiddenToolSet.has(tool.name);
+                const desc = schemas[tool.name]?.description;
                 return (
                   <tr key={`${tool.name}-${tool.connection}-${idx}`} className="border-b">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      <span className="flex items-center gap-1.5">
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-1.5 font-mono text-xs">
                         {isHidden ? (
                           <EyeOff className="h-3 w-3 shrink-0 opacity-40" />
                         ) : (
@@ -128,6 +132,11 @@ function OverviewTab() {
                         )}
                         <span className={isHidden ? "opacity-50" : ""}>{tool.name}</span>
                       </span>
+                      {desc && (
+                        <p className="mt-0.5 pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                          {desc}
+                        </p>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <StatusBadge variant="neutral">{tool.kind}</StatusBadge>
@@ -265,10 +274,15 @@ function ExploreTab() {
       setHistory((prev) => [entry, ...prev]);
       setLatestResult(null);
 
+      // Only send connection when the tool's schema accepts it — tools like
+      // datahub_list_connections have an empty input schema and reject unexpected
+      // properties.
+      const sendConnection = "connection" in properties ? selectedConnection : "";
+
       callTool.mutate(
         {
           tool_name: selectedTool,
-          connection: selectedConnection,
+          connection: sendConnection,
           parameters: params,
         },
         {
