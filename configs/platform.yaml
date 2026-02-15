@@ -150,6 +150,9 @@ toolkits:
       default_limit: 1000
       max_limit: 10000
       read_only: true
+      # descriptions:
+      #   trino_query: "Execute a SQL query against the data warehouse"
+      #   trino_describe_table: "Get table schema with column types and sample data"
 
   datahub:
     enabled: false
@@ -162,6 +165,9 @@ toolkits:
     config:
       search_limit: 50
       lineage_max_depth: 5
+      # descriptions:
+      #   datahub_search: "Search the data catalog for datasets and dashboards"
+      #   datahub_get_entity: "Get full metadata for a catalog entity by URN"
 
   s3:
     enabled: false

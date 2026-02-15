@@ -32,19 +32,20 @@ const (
 
 // Config holds Trino toolkit configuration.
 type Config struct {
-	Host           string        `yaml:"host"`
-	Port           int           `yaml:"port"`
-	User           string        `yaml:"user"`
-	Password       string        `yaml:"password"`
-	Catalog        string        `yaml:"catalog"`
-	Schema         string        `yaml:"schema"`
-	SSL            bool          `yaml:"ssl"`
-	SSLVerify      bool          `yaml:"ssl_verify"`
-	Timeout        time.Duration `yaml:"timeout"`
-	DefaultLimit   int           `yaml:"default_limit"`
-	MaxLimit       int           `yaml:"max_limit"`
-	ReadOnly       bool          `yaml:"read_only"`
-	ConnectionName string        `yaml:"connection_name"`
+	Host           string            `yaml:"host"`
+	Port           int               `yaml:"port"`
+	User           string            `yaml:"user"`
+	Password       string            `yaml:"password"`
+	Catalog        string            `yaml:"catalog"`
+	Schema         string            `yaml:"schema"`
+	SSL            bool              `yaml:"ssl"`
+	SSLVerify      bool              `yaml:"ssl_verify"`
+	Timeout        time.Duration     `yaml:"timeout"`
+	DefaultLimit   int               `yaml:"default_limit"`
+	MaxLimit       int               `yaml:"max_limit"`
+	ReadOnly       bool              `yaml:"read_only"`
+	ConnectionName string            `yaml:"connection_name"`
+	Descriptions   map[string]string `yaml:"descriptions"`
 }
 
 // Toolkit wraps mcp-trino toolkit for the platform.
@@ -142,6 +143,18 @@ func createClient(cfg Config) (*trinoclient.Client, error) {
 	return client, nil
 }
 
+// toTrinoToolNames converts a generic string map to typed ToolName keys.
+func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
+	if m == nil {
+		return nil
+	}
+	result := make(map[trinotools.ToolName]string, len(m))
+	for k, v := range m {
+		result[trinotools.ToolName(k)] = v
+	}
+	return result
+}
+
 // createToolkit creates the mcp-trino toolkit with appropriate options.
 func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 	var opts []trinotools.ToolkitOption
@@ -149,6 +162,11 @@ func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 	// Add read-only interceptor if configured
 	if cfg.ReadOnly {
 		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
+	}
+
+	// Add description overrides if configured
+	if len(cfg.Descriptions) > 0 {
+		opts = append(opts, trinotools.WithDescriptions(toTrinoToolNames(cfg.Descriptions)))
 	}
 
 	return trinotools.NewToolkit(client, trinotools.Config{
