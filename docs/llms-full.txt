@@ -1318,6 +1318,60 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 
 ---
 
+# Admin Portal
+
+The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `admin.portal: true` in configuration.
+
+## Dashboard
+
+Real-time platform health overview with configurable time ranges (1h, 6h, 24h, 7d):
+
+- System info bar: platform name, version, transport, config mode, enabled features
+- Summary cards: total calls, success rate, avg duration, unique users/tools, enrichment rate, errors
+- Activity timeline: tool call volume over time with error overlay
+- Top Tools / Top Users: horizontal bar charts of most active tools and users
+- Performance: response time percentiles (P50, P95, P99) and response sizes
+- Recent Errors: clickable error list with detail drawer
+- Knowledge Insights: summary statistics and category breakdown
+- Connections: all configured toolkit connections with tool counts
+
+## Tools
+
+### Overview Tab
+Connection grid showing toolkit type, name, and tools. Tool Inventory table with tool name, description, visibility status, kind, connection, and toolkit assignment.
+
+### Explore Tab
+Interactive tool execution environment:
+- Tool browser grouped by connection with search filtering
+- Dynamic parameter form generated from JSON schema
+- Result display with rendered markdown tables and Raw JSON toggle
+- Semantic context: cross-injection enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
+- Execution history with duration, status, and replay
+
+## Audit Log
+
+Searchable, filterable event log with detail drawer showing full request metadata:
+- Identity: user email, persona, session ID
+- Execution: tool name, toolkit, connection, duration
+- Status: success/failure, enrichment status
+- Transport: HTTP/stdio, request/response sizes
+- Parameters: full request parameters as JSON
+
+## Knowledge
+
+### Overview Tab
+Insight statistics, status/confidence distribution charts, category breakdown, top entities by insight count, recent pending insights, and recent changesets.
+
+### Insights Tab
+Insight list with filtering by status, category, and confidence. Detail drawer with full metadata, suggested actions, related columns, editable review notes, and approve/reject actions available regardless of insight status.
+
+## Local Development
+
+Run with mock data (no backend): `cd admin-ui && VITE_MSW=true npm run dev`
+Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd admin-ui && npm run dev`
+
+---
+
 # MCP Apps
 
 MCP Apps provide interactive UI components that enhance tool results. Instead of raw JSON, users see sortable tables, charts, and filters. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
