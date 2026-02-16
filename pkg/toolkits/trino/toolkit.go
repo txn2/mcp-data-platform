@@ -32,20 +32,21 @@ const (
 
 // Config holds Trino toolkit configuration.
 type Config struct {
-	Host           string            `yaml:"host"`
-	Port           int               `yaml:"port"`
-	User           string            `yaml:"user"`
-	Password       string            `yaml:"password"`
-	Catalog        string            `yaml:"catalog"`
-	Schema         string            `yaml:"schema"`
-	SSL            bool              `yaml:"ssl"`
-	SSLVerify      bool              `yaml:"ssl_verify"`
-	Timeout        time.Duration     `yaml:"timeout"`
-	DefaultLimit   int               `yaml:"default_limit"`
-	MaxLimit       int               `yaml:"max_limit"`
-	ReadOnly       bool              `yaml:"read_only"`
-	ConnectionName string            `yaml:"connection_name"`
-	Descriptions   map[string]string `yaml:"descriptions"`
+	Host           string                      `yaml:"host"`
+	Port           int                         `yaml:"port"`
+	User           string                      `yaml:"user"`
+	Password       string                      `yaml:"password"`
+	Catalog        string                      `yaml:"catalog"`
+	Schema         string                      `yaml:"schema"`
+	SSL            bool                        `yaml:"ssl"`
+	SSLVerify      bool                        `yaml:"ssl_verify"`
+	Timeout        time.Duration               `yaml:"timeout"`
+	DefaultLimit   int                         `yaml:"default_limit"`
+	MaxLimit       int                         `yaml:"max_limit"`
+	ReadOnly       bool                        `yaml:"read_only"`
+	ConnectionName string                      `yaml:"connection_name"`
+	Descriptions   map[string]string           `yaml:"descriptions"`
+	Annotations    map[string]AnnotationConfig `yaml:"annotations"`
 }
 
 // Toolkit wraps mcp-trino toolkit for the platform.
@@ -169,10 +170,45 @@ func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 		opts = append(opts, trinotools.WithDescriptions(toTrinoToolNames(cfg.Descriptions)))
 	}
 
+	// Add annotation overrides if configured
+	if len(cfg.Annotations) > 0 {
+		opts = append(opts, trinotools.WithAnnotations(toTrinoAnnotations(cfg.Annotations)))
+	}
+
 	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
 	}, opts...)
+}
+
+// toTrinoAnnotations converts config annotation overrides to mcp-trino ToolAnnotations.
+func toTrinoAnnotations(m map[string]AnnotationConfig) map[trinotools.ToolName]*mcp.ToolAnnotations {
+	if m == nil {
+		return nil
+	}
+	result := make(map[trinotools.ToolName]*mcp.ToolAnnotations, len(m))
+	for k, v := range m {
+		result[trinotools.ToolName(k)] = annotationConfigToMCP(v)
+	}
+	return result
+}
+
+// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
+func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
+	ann := &mcp.ToolAnnotations{}
+	if cfg.ReadOnlyHint != nil {
+		ann.ReadOnlyHint = *cfg.ReadOnlyHint
+	}
+	if cfg.DestructiveHint != nil {
+		ann.DestructiveHint = cfg.DestructiveHint
+	}
+	if cfg.IdempotentHint != nil {
+		ann.IdempotentHint = *cfg.IdempotentHint
+	}
+	if cfg.OpenWorldHint != nil {
+		ann.OpenWorldHint = cfg.OpenWorldHint
+	}
+	return ann
 }
 
 // Kind returns the toolkit kind.

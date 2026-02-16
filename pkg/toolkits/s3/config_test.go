@@ -169,6 +169,177 @@ func TestParseConfig_InvalidTimeoutDefault(t *testing.T) {
 	}
 }
 
+func TestParseConfig_WithDescriptions(t *testing.T) {
+	cfg := map[string]any{
+		"descriptions": map[string]any{
+			"s3_list_buckets": "List all buckets",
+			"s3_get_object":   "Get an object",
+		},
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
+	}
+	if len(result.Descriptions) != 2 {
+		t.Fatalf("expected 2 descriptions, got %d", len(result.Descriptions))
+	}
+	if result.Descriptions["s3_list_buckets"] != "List all buckets" {
+		t.Errorf("s3_list_buckets = %q", result.Descriptions["s3_list_buckets"])
+	}
+}
+
+func TestParseConfig_NoDescriptions(t *testing.T) {
+	result, err := ParseConfig(map[string]any{})
+	if err != nil {
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
+	}
+	if result.Descriptions != nil {
+		t.Errorf("expected nil descriptions, got %v", result.Descriptions)
+	}
+}
+
+func TestParseConfig_WithAnnotations(t *testing.T) {
+	cfg := map[string]any{
+		"annotations": map[string]any{
+			"s3_list_buckets": map[string]any{
+				"read_only_hint":  true,
+				"idempotent_hint": true,
+			},
+			"s3_delete_object": map[string]any{
+				"destructive_hint": true,
+			},
+		},
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
+	}
+	if len(result.Annotations) != 2 {
+		t.Fatalf("expected 2 annotations, got %d", len(result.Annotations))
+	}
+	lb := result.Annotations["s3_list_buckets"]
+	if lb.ReadOnlyHint == nil || !*lb.ReadOnlyHint {
+		t.Error("expected s3_list_buckets ReadOnlyHint=true")
+	}
+	if lb.IdempotentHint == nil || !*lb.IdempotentHint {
+		t.Error("expected s3_list_buckets IdempotentHint=true")
+	}
+	del := result.Annotations["s3_delete_object"]
+	if del.DestructiveHint == nil || !*del.DestructiveHint {
+		t.Error("expected s3_delete_object DestructiveHint=true")
+	}
+}
+
+func TestParseConfig_NoAnnotations(t *testing.T) {
+	result, err := ParseConfig(map[string]any{})
+	if err != nil {
+		t.Fatalf(s3CfgTestUnexpectedErr, err)
+	}
+	if result.Annotations != nil {
+		t.Errorf("expected nil annotations, got %v", result.Annotations)
+	}
+}
+
+func TestS3GetAnnotationsMap(t *testing.T) {
+	t.Run("valid map", func(t *testing.T) {
+		cfg := map[string]any{
+			"annotations": map[string]any{
+				"s3_list_buckets": map[string]any{
+					"read_only_hint":   true,
+					"destructive_hint": false,
+					"idempotent_hint":  true,
+					"open_world_hint":  false,
+				},
+			},
+		}
+		result := getAnnotationsMap(cfg, "annotations")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		ann := result["s3_list_buckets"]
+		if ann.ReadOnlyHint == nil || !*ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		result := getAnnotationsMap(map[string]any{}, "annotations")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		result := getAnnotationsMap(map[string]any{"annotations": "not a map"}, "annotations")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("skips non-map entries", func(t *testing.T) {
+		cfg := map[string]any{
+			"annotations": map[string]any{
+				"valid":   map[string]any{"read_only_hint": true},
+				"invalid": "not a map",
+			},
+		}
+		result := getAnnotationsMap(cfg, "annotations")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+	})
+}
+
+func TestS3GetStringMap(t *testing.T) {
+	t.Run("valid map", func(t *testing.T) {
+		cfg := map[string]any{
+			"descriptions": map[string]any{
+				"s3_list_buckets": "List buckets",
+				"s3_get_object":   "Get object",
+			},
+		}
+		result := getStringMap(cfg, "descriptions")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		if result["s3_list_buckets"] != "List buckets" {
+			t.Errorf("s3_list_buckets = %q", result["s3_list_buckets"])
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		result := getStringMap(map[string]any{}, "descriptions")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		result := getStringMap(map[string]any{"descriptions": "not a map"}, "descriptions")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("skips non-string values", func(t *testing.T) {
+		cfg := map[string]any{
+			"descriptions": map[string]any{
+				"valid":   "a string",
+				"invalid": s3CfgTestNumVal,
+			},
+		}
+		result := getStringMap(cfg, "descriptions")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+	})
+}
+
 func TestS3GetString(t *testing.T) {
 	cfg := map[string]any{
 		s3CfgTestExisting: s3CfgTestValue,

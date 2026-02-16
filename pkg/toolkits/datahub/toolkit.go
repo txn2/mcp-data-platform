@@ -29,15 +29,16 @@ const (
 
 // Config holds DataHub toolkit configuration.
 type Config struct {
-	URL             string            `yaml:"url"`
-	Token           string            `yaml:"token"`
-	Timeout         time.Duration     `yaml:"timeout"`
-	DefaultLimit    int               `yaml:"default_limit"`
-	MaxLimit        int               `yaml:"max_limit"`
-	MaxLineageDepth int               `yaml:"max_lineage_depth"`
-	ConnectionName  string            `yaml:"connection_name"`
-	Debug           bool              `yaml:"debug"` // Enable debug logging
-	Descriptions    map[string]string `yaml:"descriptions"`
+	URL             string                      `yaml:"url"`
+	Token           string                      `yaml:"token"`
+	Timeout         time.Duration               `yaml:"timeout"`
+	DefaultLimit    int                         `yaml:"default_limit"`
+	MaxLimit        int                         `yaml:"max_limit"`
+	MaxLineageDepth int                         `yaml:"max_lineage_depth"`
+	ConnectionName  string                      `yaml:"connection_name"`
+	Debug           bool                        `yaml:"debug"` // Enable debug logging
+	Descriptions    map[string]string           `yaml:"descriptions"`
+	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
 
 // Toolkit wraps mcp-datahub toolkit for the platform.
@@ -138,12 +139,45 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 	if len(cfg.Descriptions) > 0 {
 		opts = append(opts, dhtools.WithDescriptions(toDataHubToolNames(cfg.Descriptions)))
 	}
+	if len(cfg.Annotations) > 0 {
+		opts = append(opts, dhtools.WithAnnotations(toDataHubAnnotations(cfg.Annotations)))
+	}
 	return dhtools.NewToolkit(client, dhtools.Config{
 		DefaultLimit:    cfg.DefaultLimit,
 		MaxLimit:        cfg.MaxLimit,
 		MaxLineageDepth: cfg.MaxLineageDepth,
 		Debug:           cfg.Debug,
 	}, opts...)
+}
+
+// toDataHubAnnotations converts config annotation overrides to mcp-datahub ToolAnnotations.
+func toDataHubAnnotations(m map[string]AnnotationConfig) map[dhtools.ToolName]*mcp.ToolAnnotations {
+	if m == nil {
+		return nil
+	}
+	result := make(map[dhtools.ToolName]*mcp.ToolAnnotations, len(m))
+	for k, v := range m {
+		result[dhtools.ToolName(k)] = annotationConfigToMCP(v)
+	}
+	return result
+}
+
+// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
+func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
+	ann := &mcp.ToolAnnotations{}
+	if cfg.ReadOnlyHint != nil {
+		ann.ReadOnlyHint = *cfg.ReadOnlyHint
+	}
+	if cfg.DestructiveHint != nil {
+		ann.DestructiveHint = cfg.DestructiveHint
+	}
+	if cfg.IdempotentHint != nil {
+		ann.IdempotentHint = *cfg.IdempotentHint
+	}
+	if cfg.OpenWorldHint != nil {
+		ann.OpenWorldHint = cfg.OpenWorldHint
+	}
+	return ann
 }
 
 // Kind returns the toolkit kind.

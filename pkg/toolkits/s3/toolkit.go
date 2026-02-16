@@ -16,20 +16,22 @@ import (
 
 // Config holds S3 toolkit configuration.
 type Config struct {
-	Region          string        `yaml:"region"`
-	Endpoint        string        `yaml:"endpoint"`
-	AccessKeyID     string        `yaml:"access_key_id"`
-	SecretAccessKey string        `yaml:"secret_access_key"`
-	SessionToken    string        `yaml:"session_token"`
-	Profile         string        `yaml:"profile"`
-	UsePathStyle    bool          `yaml:"use_path_style"`
-	Timeout         time.Duration `yaml:"timeout"`
-	DisableSSL      bool          `yaml:"disable_ssl"`
-	ReadOnly        bool          `yaml:"read_only"`
-	MaxGetSize      int64         `yaml:"max_get_size"`
-	MaxPutSize      int64         `yaml:"max_put_size"`
-	ConnectionName  string        `yaml:"connection_name"`
-	BucketPrefix    string        `yaml:"bucket_prefix"`
+	Region          string                      `yaml:"region"`
+	Endpoint        string                      `yaml:"endpoint"`
+	AccessKeyID     string                      `yaml:"access_key_id"`
+	SecretAccessKey string                      `yaml:"secret_access_key"`
+	SessionToken    string                      `yaml:"session_token"`
+	Profile         string                      `yaml:"profile"`
+	UsePathStyle    bool                        `yaml:"use_path_style"`
+	Timeout         time.Duration               `yaml:"timeout"`
+	DisableSSL      bool                        `yaml:"disable_ssl"`
+	ReadOnly        bool                        `yaml:"read_only"`
+	MaxGetSize      int64                       `yaml:"max_get_size"`
+	MaxPutSize      int64                       `yaml:"max_put_size"`
+	ConnectionName  string                      `yaml:"connection_name"`
+	BucketPrefix    string                      `yaml:"bucket_prefix"`
+	Descriptions    map[string]string           `yaml:"descriptions"`
+	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
 
 // Toolkit wraps mcp-s3 toolkit for the platform.
@@ -115,7 +117,55 @@ func createToolkit(client *s3client.Client, cfg Config) *s3tools.Toolkit {
 	if cfg.MaxPutSize > 0 {
 		opts = append(opts, s3tools.WithMaxPutSize(cfg.MaxPutSize))
 	}
+	if len(cfg.Descriptions) > 0 {
+		opts = append(opts, s3tools.WithDescriptions(toS3ToolNames(cfg.Descriptions)))
+	}
+	if len(cfg.Annotations) > 0 {
+		opts = append(opts, s3tools.WithAnnotations(toS3Annotations(cfg.Annotations)))
+	}
 	return s3tools.NewToolkit(client, opts...)
+}
+
+// toS3ToolNames converts a generic string map to typed ToolName keys.
+func toS3ToolNames(m map[string]string) map[s3tools.ToolName]string {
+	if m == nil {
+		return nil
+	}
+	result := make(map[s3tools.ToolName]string, len(m))
+	for k, v := range m {
+		result[s3tools.ToolName(k)] = v
+	}
+	return result
+}
+
+// toS3Annotations converts config annotation overrides to mcp-s3 ToolAnnotations.
+func toS3Annotations(m map[string]AnnotationConfig) map[s3tools.ToolName]*mcp.ToolAnnotations {
+	if m == nil {
+		return nil
+	}
+	result := make(map[s3tools.ToolName]*mcp.ToolAnnotations, len(m))
+	for k, v := range m {
+		result[s3tools.ToolName(k)] = annotationConfigToMCP(v)
+	}
+	return result
+}
+
+// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
+func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
+	ann := &mcp.ToolAnnotations{}
+	if cfg.ReadOnlyHint != nil {
+		ann.ReadOnlyHint = *cfg.ReadOnlyHint
+	}
+	if cfg.DestructiveHint != nil {
+		ann.DestructiveHint = cfg.DestructiveHint
+	}
+	if cfg.IdempotentHint != nil {
+		ann.IdempotentHint = *cfg.IdempotentHint
+	}
+	if cfg.OpenWorldHint != nil {
+		ann.OpenWorldHint = cfg.OpenWorldHint
+	}
+	return ann
 }
 
 // Kind returns the toolkit kind.
