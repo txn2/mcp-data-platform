@@ -52,7 +52,52 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	// Optional annotation overrides
 	c.Annotations = getAnnotationsMap(cfg, "annotations")
 
+	// Platform-injected flags
+	c.ProgressEnabled = getBool(cfg, "progress_enabled")
+	c.Elicitation = getElicitationConfig(cfg)
+
 	return c, nil
+}
+
+// getElicitationConfig extracts elicitation configuration from a config map.
+func getElicitationConfig(cfg map[string]any) ElicitationConfig {
+	raw, ok := cfg["elicitation"].(map[string]any)
+	if !ok {
+		return ElicitationConfig{}
+	}
+
+	ec := ElicitationConfig{
+		Enabled: getBool(raw, "enabled"),
+	}
+
+	if costRaw, ok := raw["cost_estimation"].(map[string]any); ok {
+		ec.CostEstimation = CostEstimationConfig{
+			Enabled:      getBool(costRaw, "enabled"),
+			RowThreshold: getInt64(costRaw, "row_threshold", 0),
+		}
+	}
+
+	if piiRaw, ok := raw["pii_consent"].(map[string]any); ok {
+		ec.PIIConsent = PIIConsentConfig{
+			Enabled: getBool(piiRaw, "enabled"),
+		}
+	}
+
+	return ec
+}
+
+// getInt64 extracts an int64 value from a config map with a default.
+func getInt64(cfg map[string]any, key string, defaultVal int64) int64 {
+	if v, ok := cfg[key].(int64); ok {
+		return v
+	}
+	if v, ok := cfg[key].(int); ok {
+		return int64(v)
+	}
+	if v, ok := cfg[key].(float64); ok {
+		return int64(v)
+	}
+	return defaultVal
 }
 
 // AnnotationConfig holds tool annotation overrides from configuration.

@@ -78,14 +78,19 @@ type auditCallInfo struct {
 
 // buildMCPAuditEvent builds an audit event from the MCP request and response.
 func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
-	// Determine success
+	// Determine success and error category
 	success := info.Err == nil
 	errorMsg := ""
+	errorCategory := ""
 	if info.Err != nil {
 		errorMsg = info.Err.Error()
+		errorCategory = ErrorCategory(info.Err)
 	} else if callResult, ok := info.Result.(*mcp.CallToolResult); ok && callResult != nil && callResult.IsError {
 		success = false
 		errorMsg = extractMCPErrorMessage(callResult)
+		if getErr := callResult.GetError(); getErr != nil {
+			errorCategory = ErrorCategory(getErr)
+		}
 	}
 
 	// Extract parameters from request
@@ -108,6 +113,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 		Parameters:        params,
 		Success:           success,
 		ErrorMessage:      errorMsg,
+		ErrorCategory:     errorCategory,
 		DurationMS:        info.Duration.Milliseconds(),
 		ResponseChars:     chars,
 		RequestChars:      reqChars,

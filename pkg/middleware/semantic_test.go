@@ -2376,3 +2376,122 @@ func TestAppendMetadataReference(t *testing.T) {
 		t.Error("expected note in reference")
 	}
 }
+
+func TestParseDataHubURNComponents(t *testing.T) {
+	tests := []struct {
+		name                               string
+		urn                                string
+		wantCatalog, wantSchema, wantTable string
+	}{
+		{
+			name:        "standard trino URN",
+			urn:         "urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.orders,PROD)",
+			wantCatalog: "rdbms",
+			wantSchema:  "public",
+			wantTable:   "orders",
+		},
+		{
+			name:        "postgres platform",
+			urn:         "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.sales.invoices,PROD)",
+			wantCatalog: "warehouse",
+			wantSchema:  "sales",
+			wantTable:   "invoices",
+		},
+		{
+			name:        "not a dataset URN",
+			urn:         "urn:li:glossaryTerm:revenue",
+			wantCatalog: "",
+			wantSchema:  "",
+			wantTable:   "",
+		},
+		{
+			name:        "empty string",
+			urn:         "",
+			wantCatalog: "",
+			wantSchema:  "",
+			wantTable:   "",
+		},
+		{
+			name:        "missing table part",
+			urn:         "urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public,PROD)",
+			wantCatalog: "",
+			wantSchema:  "",
+			wantTable:   "",
+		},
+		{
+			name:        "no commas",
+			urn:         "urn:li:dataset:(urn:li:dataPlatform:trino)",
+			wantCatalog: "",
+			wantSchema:  "",
+			wantTable:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			catalog, schema, table := parseDataHubURNComponents(tt.urn)
+			if catalog != tt.wantCatalog {
+				t.Errorf("catalog = %q, want %q", catalog, tt.wantCatalog)
+			}
+			if schema != tt.wantSchema {
+				t.Errorf("schema = %q, want %q", schema, tt.wantSchema)
+			}
+			if table != tt.wantTable {
+				t.Errorf("table = %q, want %q", table, tt.wantTable)
+			}
+		})
+	}
+}
+
+func TestAppendResourceLinks(t *testing.T) {
+	t.Run("adds schema and availability links", func(t *testing.T) {
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "original"}},
+		}
+		urns := []string{"urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.orders,PROD)"}
+
+		got := appendResourceLinks(result, urns)
+
+		// 1 original + 2 resource links (schema + availability)
+		if len(got.Content) != 3 {
+			t.Fatalf("content count = %d, want 3", len(got.Content))
+		}
+
+		schemaLink, ok := got.Content[1].(*mcp.ResourceLink)
+		if !ok {
+			t.Fatal("content[1] is not a ResourceLink")
+		}
+		if schemaLink.URI != "schema://rdbms.public/orders" {
+			t.Errorf("schema URI = %q, want %q", schemaLink.URI, "schema://rdbms.public/orders")
+		}
+
+		availLink, ok := got.Content[2].(*mcp.ResourceLink)
+		if !ok {
+			t.Fatal("content[2] is not a ResourceLink")
+		}
+		if availLink.URI != "availability://rdbms.public/orders" {
+			t.Errorf("availability URI = %q, want %q", availLink.URI, "availability://rdbms.public/orders")
+		}
+	})
+
+	t.Run("empty URNs returns unchanged result", func(t *testing.T) {
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "original"}},
+		}
+		got := appendResourceLinks(result, nil)
+		if len(got.Content) != 1 {
+			t.Errorf("content count = %d, want 1", len(got.Content))
+		}
+	})
+
+	t.Run("invalid URN is skipped", func(t *testing.T) {
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "original"}},
+		}
+		urns := []string{"urn:li:glossaryTerm:revenue"}
+		got := appendResourceLinks(result, urns)
+		if len(got.Content) != 1 {
+			t.Errorf("content count = %d, want 1", len(got.Content))
+		}
+	})
+}

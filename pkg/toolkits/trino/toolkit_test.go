@@ -343,6 +343,22 @@ func TestToolkit_ConfigAndProviders(t *testing.T) {
 	}
 }
 
+func TestToolkit_SetSemanticProviderWithElicitation(t *testing.T) {
+	em := &ElicitationMiddleware{}
+	tk := newTestTrinoToolkit()
+	tk.elicitation = em
+
+	sp := semantic.NewNoopProvider()
+	tk.SetSemanticProvider(sp)
+
+	if tk.semanticProvider != sp {
+		t.Error("semanticProvider not set on toolkit")
+	}
+	if em.getSemanticProvider() != sp {
+		t.Error("semanticProvider not propagated to elicitation middleware")
+	}
+}
+
 func TestToolkit_ClientAndClose(t *testing.T) {
 	tk := newTestTrinoToolkit()
 	if tk.Client() != nil {
@@ -474,4 +490,117 @@ func TestToolkit_RegisterTools(_ *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
 	tk.RegisterTools(server) // Should not panic
+}
+
+func TestNew_Success(t *testing.T) {
+	cfg := Config{
+		Host: "localhost",
+		User: "testuser",
+		Port: trinoTestPort8080,
+	}
+	tk, err := New("test-instance", cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tk == nil {
+		t.Fatal("expected non-nil toolkit")
+	}
+	if tk.Name() != "test-instance" {
+		t.Errorf("Name() = %q, want 'test-instance'", tk.Name())
+	}
+	if tk.Client() == nil {
+		t.Error("expected non-nil client")
+	}
+	if tk.elicitation != nil {
+		t.Error("expected nil elicitation when not configured")
+	}
+}
+
+func TestNew_WithElicitation(t *testing.T) {
+	cfg := Config{
+		Host: "localhost",
+		User: "testuser",
+		Port: trinoTestPort8080,
+		Elicitation: ElicitationConfig{
+			Enabled: true,
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000000,
+			},
+			PIIConsent: PIIConsentConfig{Enabled: true},
+		},
+	}
+	tk, err := New("elicit-test", cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tk.elicitation == nil {
+		t.Fatal("expected non-nil elicitation middleware")
+	}
+	if !tk.elicitation.config.CostEstimation.Enabled {
+		t.Error("cost estimation should be enabled")
+	}
+	if tk.elicitation.config.CostEstimation.RowThreshold != 1000000 {
+		t.Errorf("row threshold = %d, want 1000000", tk.elicitation.config.CostEstimation.RowThreshold)
+	}
+}
+
+func TestCreateToolkit_WithElicitation(t *testing.T) {
+	// Create a client via the normal path
+	client, err := createClient(Config{
+		Host: "localhost",
+		User: "testuser",
+		Port: trinoTestPort8080,
+	})
+	if err != nil {
+		t.Fatalf("createClient error: %v", err)
+	}
+
+	em := &ElicitationMiddleware{
+		client: client,
+		config: ElicitationConfig{Enabled: true},
+	}
+
+	cfg := Config{
+		Host:         "localhost",
+		User:         "testuser",
+		Port:         trinoTestPort8080,
+		DefaultLimit: trinoTestDefLimit,
+		MaxLimit:     trinoTestDefMaxLimit,
+	}
+
+	tk := createToolkit(client, cfg, em)
+	if tk == nil {
+		t.Fatal("expected non-nil toolkit")
+	}
+}
+
+func TestCreateToolkit_WithProgressAndElicitation(t *testing.T) {
+	client, err := createClient(Config{
+		Host: "localhost",
+		User: "testuser",
+		Port: trinoTestPort8080,
+	})
+	if err != nil {
+		t.Fatalf("createClient error: %v", err)
+	}
+
+	em := &ElicitationMiddleware{
+		client: client,
+		config: ElicitationConfig{Enabled: true},
+	}
+
+	cfg := Config{
+		Host:            "localhost",
+		User:            "testuser",
+		Port:            trinoTestPort8080,
+		DefaultLimit:    trinoTestDefLimit,
+		MaxLimit:        trinoTestDefMaxLimit,
+		ProgressEnabled: true,
+	}
+
+	tk := createToolkit(client, cfg, em)
+	if tk == nil {
+		t.Fatal("expected non-nil toolkit")
+	}
 }

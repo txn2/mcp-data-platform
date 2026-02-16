@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,6 +21,25 @@ const (
 	// methodToolsCall is the MCP method name for tool invocations.
 	methodToolsCall = "tools/call"
 )
+
+// Error categories for structured error handling and audit queries.
+const (
+	ErrCategoryAuth     = "authentication_failed"
+	ErrCategoryAuthz    = "authorization_denied"
+	ErrCategoryDeclined = "user_declined"
+)
+
+// PlatformError is a categorized error for structured audit and client handling.
+type PlatformError struct {
+	Category string
+	Message  string
+}
+
+// Error implements the error interface.
+func (e *PlatformError) Error() string { return e.Message }
+
+// ErrorCategory implements CategorizedError.
+func (e *PlatformError) ErrorCategory() string { return e.Category }
 
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
 // tools/call requests and enforces authentication and authorization.
@@ -46,7 +66,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Extract tool name from request params
 			toolName, err := extractToolName(req)
 			if err != nil {
-				return createErrorResult(fmt.Sprintf("invalid request: %v", err)), nil
+				return nil, newInvalidParamsError(fmt.Sprintf("invalid request: %v", err))
 			}
 
 			// Create platform context
@@ -141,7 +161,7 @@ func authenticateAndAuthorize(
 			"request_id", params.pc.RequestID,
 			"error", err.Error(),
 		)
-		return createErrorResult("authentication failed: " + err.Error()), nil
+		return createCategorizedErrorResult(ErrCategoryAuth, "authentication failed: "+err.Error()), nil
 	}
 
 	if userInfo != nil {
@@ -165,7 +185,7 @@ func authenticateAndAuthorize(
 			"reason", reason,
 			"request_id", params.pc.RequestID,
 		)
-		return createErrorResult("not authorized: " + reason), nil
+		return createCategorizedErrorResult(ErrCategoryAuthz, "not authorized: "+reason), nil
 	}
 
 	authType := ""
@@ -234,12 +254,36 @@ func extractToolName(req mcp.Request) (string, error) {
 	return callParams.Name, nil
 }
 
-// createErrorResult creates an MCP error result using the SDK's SetError method.
-// The underlying error is retrievable via CallToolResult.GetError().
-func createErrorResult(errMsg string) mcp.Result {
+// newInvalidParamsError creates a JSON-RPC error with CodeInvalidParams.
+// Used for malformed requests (e.g., missing tool name or wrong params type)
+// which are genuine protocol-level errors rather than tool-level failures.
+func newInvalidParamsError(msg string) *jsonrpc.Error {
+	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: msg}
+}
+
+// createCategorizedErrorResult creates an MCP error result with a category
+// for structured audit queries. The category is embedded in the error and
+// extractable via ErrorCategory().
+func createCategorizedErrorResult(category, errMsg string) mcp.Result {
 	result := &mcp.CallToolResult{}
-	result.SetError(errors.New(errMsg))
+	result.SetError(&PlatformError{Category: category, Message: errMsg})
 	return result
+}
+
+// CategorizedError is implemented by errors that carry a category for audit.
+type CategorizedError interface {
+	error
+	ErrorCategory() string
+}
+
+// ErrorCategory extracts the error category from a categorized error.
+// Returns an empty string if the error is not categorized.
+func ErrorCategory(err error) string {
+	var ce CategorizedError
+	if errors.As(err, &ce) {
+		return ce.ErrorCategory()
+	}
+	return ""
 }
 
 // extractBearerOrAPIKey extracts an auth token from HTTP headers.

@@ -555,6 +555,112 @@ mcpapps:
 
 See [MCP Apps Configuration](../mcpapps/configuration.md) for complete options.
 
+## Resource Templates Configuration
+
+Resource templates expose platform data as browseable, parameterized MCP resources using RFC 6570 URI templates.
+
+```yaml
+resources:
+  enabled: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable resource templates |
+
+When enabled, the platform registers these resource templates:
+
+- `schema://{catalog}.{schema}/{table}` — Table schema with column types and descriptions
+- `glossary://{term}` — Glossary term definitions
+- `availability://{catalog}.{schema}/{table}` — Query availability and row counts
+
+Clients that support resource browsing (e.g., Claude Desktop) will show these as navigable resources alongside tools.
+
+## Progress Notifications Configuration
+
+Progress notifications send granular updates to MCP clients during long-running Trino queries. The client must include `_meta.progressToken` in the request to receive updates.
+
+```yaml
+progress:
+  enabled: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable progress notifications |
+
+When enabled, Trino query execution sends progress updates including rows scanned, bytes processed, and query stage information. Clients that don't send a `progressToken` receive no notifications (zero overhead).
+
+## Client Logging Configuration
+
+Client logging sends server-to-client log messages via the MCP `logging/setLevel` protocol. Messages include enrichment decisions, timing data, and platform diagnostics.
+
+```yaml
+client_logging:
+  enabled: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable client logging |
+
+Zero overhead if the client hasn't subscribed via `logging/setLevel`. When active, log messages report semantic cache hits/misses, enrichment timing, and cross-injection decisions.
+
+## Elicitation Configuration
+
+Elicitation requests user confirmation before potentially expensive or sensitive operations. Requires client-side elicitation support (e.g., Claude Desktop). Gracefully degrades to a no-op if the client doesn't support elicitation.
+
+```yaml
+elicitation:
+  enabled: true
+  cost_estimation:
+    enabled: true
+    row_threshold: 1000000
+  pii_consent:
+    enabled: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable elicitation |
+| `cost_estimation.enabled` | bool | `false` | Prompt before expensive queries |
+| `cost_estimation.row_threshold` | int | `1000000` | Row count threshold from `EXPLAIN` IO estimates |
+| `pii_consent.enabled` | bool | `false` | Prompt when query accesses PII-tagged columns |
+
+!!! note "Client support required"
+    Elicitation uses the MCP `elicitation/create` capability. Clients that don't support elicitation will not receive prompts — queries proceed without confirmation.
+
+## Icons Configuration
+
+Icons add visual metadata to tools, resources, and prompts in MCP list responses. Upstream toolkits (Trino, DataHub, S3) provide default icons; this configuration overrides or extends them.
+
+```yaml
+icons:
+  enabled: true
+  tools:
+    trino_query:
+      src: "https://example.com/custom-trino.svg"
+      mime_type: "image/svg+xml"
+  resources:
+    "schema://{catalog}.{schema}/{table}":
+      src: "https://example.com/schema.svg"
+  prompts:
+    knowledge_capture:
+      src: "https://example.com/knowledge.svg"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable icon injection middleware |
+| `tools` | map | - | Icon overrides keyed by tool name |
+| `resources` | map | - | Icon overrides keyed by resource URI |
+| `prompts` | map | - | Icon overrides keyed by prompt name |
+| `*.src` | string | - | Icon source URL |
+| `*.mime_type` | string | - | Icon MIME type (e.g., `image/svg+xml`) |
+
+!!! tip "Default icons"
+    Each upstream toolkit provides a default icon for all its tools. You only need this configuration if you want to customize or override those defaults.
+
 ## Environment Variables
 
 Common environment variables:
@@ -663,6 +769,21 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
 
+resources:
+  enabled: true
+
+progress:
+  enabled: true
+
+client_logging:
+  enabled: true
+
+elicitation:
+  enabled: true
+  cost_estimation:
+    enabled: true
+    row_threshold: 1000000
+
 personas:
   definitions:
     analyst:
@@ -688,3 +809,4 @@ personas:
 - [Authentication](../auth/overview.md) - Add authentication
 - [Personas](../personas/overview.md) - Role-based access control
 - [MCP Apps](../mcpapps/overview.md) - Interactive UI for tool results
+- [Middleware Reference](../reference/middleware.md) - Request processing chain details

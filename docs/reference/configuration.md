@@ -488,6 +488,72 @@ tools:
 
 No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
 
+## Elicitation Configuration
+
+Elicitation prompts users for confirmation before expensive queries or when accessing PII-tagged columns. Requires client-side elicitation support (MCP `elicitation/create` capability). Gracefully degrades to a no-op if the client doesn't support it.
+
+```yaml
+elicitation:
+  enabled: true
+  cost_estimation:
+    enabled: true
+    row_threshold: 1000000
+  pii_consent:
+    enabled: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `elicitation.enabled` | bool | `false` | Master switch for elicitation |
+| `elicitation.cost_estimation.enabled` | bool | `false` | Prompt when EXPLAIN IO estimates exceed the row threshold |
+| `elicitation.cost_estimation.row_threshold` | int | `1000000` | Row estimate threshold for cost prompts |
+| `elicitation.pii_consent.enabled` | bool | `false` | Prompt when query accesses columns tagged as PII/sensitive |
+
+Elicitation is implemented as Trino toolkit middleware. When a user declines the prompt, the tool call returns an informational message instead of executing the query.
+
+## Icons Configuration
+
+Override or add icons to MCP `tools/list`, `resources/templates/list`, and `prompts/list` responses. Upstream toolkits (Trino, DataHub, S3) provide default icons; this configuration overrides them.
+
+```yaml
+icons:
+  enabled: true
+  tools:
+    trino_query:
+      src: "https://example.com/custom-trino.svg"
+      mime_type: "image/svg+xml"
+  resources:
+    "schema://{catalog}.{schema}/{table}":
+      src: "https://example.com/schema.svg"
+  prompts:
+    knowledge_capture:
+      src: "https://example.com/knowledge.svg"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `icons.enabled` | bool | `false` | Enable icon injection middleware |
+| `icons.tools` | map | `{}` | Tool name to icon mapping |
+| `icons.resources` | map | `{}` | Resource template URI to icon mapping |
+| `icons.prompts` | map | `{}` | Prompt name to icon mapping |
+| `icons.*.src` | string | - | Icon source URI (HTTPS URL or data URI) |
+| `icons.*.mime_type` | string | - | Icon MIME type (e.g., `image/svg+xml`) |
+
+## Resource Links Configuration
+
+DataHub search results and entity responses automatically include MCP resource links when resource templates are enabled. These links allow clients to navigate directly to related schema, glossary, and availability resources.
+
+```yaml
+resources:
+  enabled: true
+```
+
+When `resources.enabled: true`, DataHub tools include links to:
+
+- `schema://{catalog}.{schema}/{table}` — table schema details
+- `glossary://{term}` — glossary term definitions
+- `availability://{catalog}.{schema}/{table}` — query availability status
+
 ## Admin API Configuration
 
 ```yaml
@@ -695,6 +761,15 @@ injection:
   session_dedup:
     enabled: true
     mode: reference
+
+resources:
+  enabled: true
+
+elicitation:
+  enabled: true
+  cost_estimation:
+    enabled: true
+    row_threshold: 1000000
 
 knowledge:
   enabled: true

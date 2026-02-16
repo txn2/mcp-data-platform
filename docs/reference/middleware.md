@@ -6,23 +6,27 @@ Middleware processes requests and responses at the MCP protocol level. Each midd
 
 ```mermaid
 graph LR
-    Request --> ToolVisibility
+    Request --> Icons
+    Icons --> ToolVisibility
     ToolVisibility --> AppsMetadata
     AppsMetadata --> MCPToolCall
     MCPToolCall --> MCPAudit
-    MCPAudit --> MCPRules
+    MCPAudit --> ClientLogging
+    ClientLogging --> MCPRules
     MCPRules --> MCPEnrichment
     MCPEnrichment --> Handler
     Handler --> MCPEnrichment
     MCPEnrichment --> MCPRules
-    MCPRules --> MCPAudit
+    MCPRules --> ClientLogging
+    ClientLogging --> MCPAudit
     MCPAudit --> MCPToolCall
     MCPToolCall --> AppsMetadata
     AppsMetadata --> ToolVisibility
-    ToolVisibility --> Response
+    ToolVisibility --> Icons
+    Icons --> Response
 ```
 
-The platform registers up to six middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
+The platform registers up to eight middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
 
 ## MCP Middleware Interface
 
@@ -196,6 +200,36 @@ func MCPToolVisibilityMiddleware(allow, deny []string) mcp.Middleware
 7. Both = allow first, then deny removes from that set
 
 This is a **visibility filter**, not a security boundary. Persona-level tool filtering via MCPToolCallMiddleware continues to gate `tools/call` independently.
+
+### MCPIconMiddleware
+
+Injects config-driven icons into `tools/list`, `resources/templates/list`, and `prompts/list` responses. Upstream toolkits provide default icons; this middleware allows deployers to override or add custom icons via configuration.
+
+```go
+func MCPIconMiddleware(cfg IconsMiddlewareConfig) mcp.Middleware
+```
+
+**Behavior:**
+
+1. Intercepts list responses (`tools/list`, `resources/templates/list`, `prompts/list`)
+2. Matches tools/resources/prompts by name or URI
+3. Appends configured icons to matching entries
+4. Passes through all other methods unchanged
+
+Only registered when `icons.enabled: true` in configuration.
+
+### MCPClientLoggingMiddleware
+
+Sends server-to-client log messages via the MCP `logging/setLevel` protocol. Reports enrichment decisions, timing data, and platform diagnostics. Zero overhead if the client hasn't called `setLevel`.
+
+**Behavior:**
+
+1. Only active for `tools/call` requests
+2. Sends log messages using the server session's `LoggingMessage` method
+3. Messages include enrichment details, query timing, and semantic cache hits
+4. No-op if the client hasn't subscribed via `logging/setLevel`
+
+Only registered when `client_logging.enabled: true` in configuration.
 
 ### ToolMetadataMiddleware (MCP Apps)
 

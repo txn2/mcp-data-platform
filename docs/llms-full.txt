@@ -32,6 +32,10 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Client Logging**: Server-to-client log messages for platform decisions (enrichment, timing) via MCP `logging/setLevel` protocol. Zero overhead if the client hasn't opted in.
 
+- **Elicitation**: User confirmation prompts before expensive queries (EXPLAIN IO cost estimation) or PII access (sensitive column detection). Requires client-side elicitation support; gracefully degrades when unavailable.
+
+- **Icons**: Visual metadata for tools, resources, and prompts. Upstream toolkits provide default icons; deployers can override via configuration.
+
 ---
 
 # The Data Stack: DataHub + Trino + S3
@@ -320,6 +324,29 @@ When enabled, Trino query tools send three progress notifications per query: bef
 | `client_logging.enabled` | bool | `false` | Enable server-to-client log messages |
 
 When enabled, the platform sends log notifications to clients after enrichment is applied (tool name, duration). Uses MCP `logging/setLevel` protocol — zero overhead if the client hasn't called `setLevel`.
+
+## Elicitation Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `elicitation.enabled` | bool | `false` | Enable user confirmation prompts |
+| `elicitation.cost_estimation.enabled` | bool | `false` | Prompt when EXPLAIN IO estimates exceed the row threshold |
+| `elicitation.cost_estimation.row_threshold` | int | `1000000` | Row estimate threshold for cost prompts |
+| `elicitation.pii_consent.enabled` | bool | `false` | Prompt when query accesses PII-tagged columns |
+
+Elicitation requires client-side support (MCP `elicitation/create` capability). When the client doesn't support it, elicitation gracefully degrades to a no-op. If a user declines the confirmation, the tool returns an informational message instead of executing the query.
+
+## Icons Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `icons.enabled` | bool | `false` | Enable icon injection middleware |
+| `icons.tools.<name>.src` | string | - | Icon URI for a tool |
+| `icons.tools.<name>.mime_type` | string | - | Icon MIME type |
+| `icons.resources.<uri>.src` | string | - | Icon URI for a resource template |
+| `icons.prompts.<name>.src` | string | - | Icon URI for a prompt |
+
+Upstream toolkits (Trino, DataHub, S3) provide default icons on all tools. This configuration overrides or adds icons for tools, resource templates, and prompts in list responses.
 
 ## Audit Configuration
 
