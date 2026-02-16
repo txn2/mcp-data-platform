@@ -47,6 +47,10 @@ type Config struct {
 	ConnectionName string                      `yaml:"connection_name"`
 	Descriptions   map[string]string           `yaml:"descriptions"`
 	Annotations    map[string]AnnotationConfig `yaml:"annotations"`
+
+	// ProgressEnabled enables progress notifications for query execution.
+	// Injected by the platform from progress.enabled config.
+	ProgressEnabled bool `yaml:"progress_enabled"`
 }
 
 // Toolkit wraps mcp-trino toolkit for the platform.
@@ -173,6 +177,11 @@ func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 	// Add annotation overrides if configured
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, trinotools.WithAnnotations(toTrinoAnnotations(cfg.Annotations)))
+	}
+
+	// Add progress notifier injector if enabled
+	if cfg.ProgressEnabled {
+		opts = append(opts, trinotools.WithMiddleware(&ProgressInjector{}))
 	}
 
 	return trinotools.NewToolkit(client, trinotools.Config{

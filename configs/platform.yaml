@@ -280,6 +280,26 @@ tuning:
 #   persona: admin              # persona required for admin access (default: "admin")
 #   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
 
+# Resource templates (RFC 6570 URI templates)
+# Exposes platform data as browseable, parameterized MCP resources.
+# Templates: schema://{catalog}.{schema}/{table}, glossary://{term},
+#            availability://{catalog}.{schema}/{table}
+# resources:
+#   enabled: true
+
+# Progress notifications
+# Sends granular progress updates to MCP clients during long-running
+# Trino queries (requires client to send _meta.progressToken).
+# progress:
+#   enabled: true
+
+# Client logging
+# Sends server-to-client log messages (enrichment decisions, timing)
+# via MCP logging/setLevel protocol. Zero overhead if client hasn't
+# called setLevel.
+# client_logging:
+#   enabled: true
+
 # Audit logging
 audit:
   enabled: false

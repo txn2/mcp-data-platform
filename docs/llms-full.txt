@@ -26,6 +26,12 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Personas**: Define who can use which tools. Analysts get read access. Admins get everything. Map from your identity provider's roles.
 
+- **Resource Templates**: Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates: table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`).
+
+- **Progress Notifications**: Long-running Trino queries send granular progress updates (executing, formatting, complete) to clients that provide `_meta.progressToken`. Zero overhead when disabled.
+
+- **Client Logging**: Server-to-client log messages for platform decisions (enrichment, timing) via MCP `logging/setLevel` protocol. Zero overhead if the client hasn't opted in.
+
 ---
 
 # The Data Stack: DataHub + Trino + S3
@@ -287,6 +293,33 @@ No patterns configured means all tools are visible. When both are set, allow is 
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
 
 When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix. It provides audit log exploration, tool execution testing, and system monitoring.
+
+## Resource Templates Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `resources.enabled` | bool | `false` | Enable MCP resource templates |
+
+When enabled, three RFC 6570 URI templates are registered:
+- `schema://{catalog}.{schema_name}/{table}` — Table schema with semantic context
+- `glossary://{term}` — Glossary term definition and related assets
+- `availability://{catalog}.{schema_name}/{table}` — Data availability status and row count
+
+## Progress Notifications Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `progress.enabled` | bool | `false` | Enable progress notifications for Trino queries |
+
+When enabled, Trino query tools send three progress notifications per query: before execution, after query returns, and after formatting. Clients must include `_meta.progressToken` in their tool call to receive notifications.
+
+## Client Logging Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `client_logging.enabled` | bool | `false` | Enable server-to-client log messages |
+
+When enabled, the platform sends log notifications to clients after enrichment is applied (tool name, duration). Uses MCP `logging/setLevel` protocol — zero overhead if the client hasn't called `setLevel`.
 
 ## Audit Configuration
 
@@ -1001,6 +1034,7 @@ Use the library when you need to:
 | `pkg/semantic` | Semantic provider interface |
 | `pkg/query` | Query provider interface |
 | `pkg/middleware` | Request/response processing |
+| `pkg/mcpcontext` | MCP session/progress context helpers |
 | `pkg/persona` | Role-based tool filtering |
 | `pkg/auth` | OIDC and API key validation |
 | `pkg/admin` | Admin REST API for knowledge management |

@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestPlatformContext(t *testing.T) {
@@ -87,6 +89,59 @@ func TestTokenContext(t *testing.T) {
 		got := GetToken(ctx)
 		if got != "" {
 			t.Errorf("GetToken() = %q, want empty string", got)
+		}
+	})
+}
+
+func TestServerSessionContext(t *testing.T) {
+	t.Run("round-trip", func(t *testing.T) {
+		// We can't construct a real ServerSession (private fields), but we can
+		// verify nil handling and type safety of the context helpers.
+		ctx := context.Background()
+		got := GetServerSession(ctx)
+		if got != nil {
+			t.Error("expected nil for empty context")
+		}
+	})
+
+	t.Run("nil session stored", func(t *testing.T) {
+		ctx := WithServerSession(context.Background(), (*mcp.ServerSession)(nil))
+		got := GetServerSession(ctx)
+		if got != nil {
+			t.Error("expected nil for nil *ServerSession stored in context")
+		}
+	})
+}
+
+func TestProgressTokenContext(t *testing.T) {
+	t.Run("round-trip string token", func(t *testing.T) {
+		ctx := WithProgressToken(context.Background(), "tok-123")
+		got := GetProgressToken(ctx)
+		if got != "tok-123" {
+			t.Errorf("GetProgressToken() = %v, want %q", got, "tok-123")
+		}
+	})
+
+	t.Run("round-trip int token", func(t *testing.T) {
+		ctx := WithProgressToken(context.Background(), 42)
+		got := GetProgressToken(ctx)
+		if got != 42 {
+			t.Errorf("GetProgressToken() = %v, want %d", got, 42)
+		}
+	})
+
+	t.Run("not set returns nil", func(t *testing.T) {
+		got := GetProgressToken(context.Background())
+		if got != nil {
+			t.Errorf("GetProgressToken() = %v, want nil", got)
+		}
+	})
+
+	t.Run("nil token stored", func(t *testing.T) {
+		ctx := WithProgressToken(context.Background(), nil)
+		got := GetProgressToken(ctx)
+		if got != nil {
+			t.Errorf("GetProgressToken() = %v, want nil", got)
 		}
 	})
 }

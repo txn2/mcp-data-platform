@@ -11,7 +11,7 @@
 - [Home](index.md): Introduction, quick start, and key features
 - [Server Overview](server/overview.md): What the platform does, architecture, request flow
 - [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
-- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), config store options (file vs database mode), tool visibility filtering (allow/deny patterns for tools/list token reduction), admin API and portal, database, audit, and session configuration
+- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), config store options (file vs database mode), tool visibility filtering (allow/deny patterns for tools/list token reduction), resource templates, progress notifications, client logging, admin API and portal, database, audit, and session configuration
 - [Operating Modes](server/operating-modes.md): Three deployment modes — standalone (no database), full-config file + database, bootstrap + database config. Feature availability by mode, example configurations, decision guide
 - [Admin Portal](server/admin-portal.md): Built-in web dashboard for monitoring and managing the platform. Dashboard with activity timelines, performance percentiles, error monitoring. Tools overview with connection grid and tool inventory. Interactive tool explorer with semantic enrichment display. Searchable audit log with event detail drawer. Knowledge insight governance with approve/reject workflow and changeset tracking. Local dev with MSW mock data
 - [Admin API](server/admin-api.md): REST endpoints for system info, config management, personas, auth keys, audit, knowledge. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`
@@ -73,7 +73,7 @@
 - [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
 - [Configuration](reference/configuration.md): Full YAML schema with all options
 - [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
-- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware
+- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware, client logging, progress notifications
 
 ## Support
 

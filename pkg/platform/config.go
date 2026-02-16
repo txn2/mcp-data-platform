@@ -51,25 +51,28 @@ type ConfigStoreConfig struct {
 
 // Config holds the complete platform configuration.
 type Config struct {
-	APIVersion  string            `yaml:"apiVersion"`
-	ConfigStore ConfigStoreConfig `yaml:"config_store"`
-	Server      ServerConfig      `yaml:"server"`
-	Auth        AuthConfig        `yaml:"auth"`
-	OAuth       OAuthConfig       `yaml:"oauth"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Personas    PersonasConfig    `yaml:"personas"`
-	Toolkits    map[string]any    `yaml:"toolkits"`
-	Tools       ToolsConfig       `yaml:"tools"`
-	Semantic    SemanticConfig    `yaml:"semantic"`
-	Query       QueryConfig       `yaml:"query"`
-	Storage     StorageConfig     `yaml:"storage"`
-	Injection   InjectionConfig   `yaml:"injection"`
-	Tuning      TuningConfig      `yaml:"tuning"`
-	Audit       AuditConfig       `yaml:"audit"`
-	MCPApps     MCPAppsConfig     `yaml:"mcpapps"`
-	Sessions    SessionsConfig    `yaml:"sessions"`
-	Knowledge   KnowledgeConfig   `yaml:"knowledge"`
-	Admin       AdminConfig       `yaml:"admin"`
+	APIVersion    string              `yaml:"apiVersion"`
+	ConfigStore   ConfigStoreConfig   `yaml:"config_store"`
+	Server        ServerConfig        `yaml:"server"`
+	Auth          AuthConfig          `yaml:"auth"`
+	OAuth         OAuthConfig         `yaml:"oauth"`
+	Database      DatabaseConfig      `yaml:"database"`
+	Personas      PersonasConfig      `yaml:"personas"`
+	Toolkits      map[string]any      `yaml:"toolkits"`
+	Tools         ToolsConfig         `yaml:"tools"`
+	Semantic      SemanticConfig      `yaml:"semantic"`
+	Query         QueryConfig         `yaml:"query"`
+	Storage       StorageConfig       `yaml:"storage"`
+	Injection     InjectionConfig     `yaml:"injection"`
+	Tuning        TuningConfig        `yaml:"tuning"`
+	Audit         AuditConfig         `yaml:"audit"`
+	MCPApps       MCPAppsConfig       `yaml:"mcpapps"`
+	Sessions      SessionsConfig      `yaml:"sessions"`
+	Knowledge     KnowledgeConfig     `yaml:"knowledge"`
+	Admin         AdminConfig         `yaml:"admin"`
+	Resources     ResourcesConfig     `yaml:"resources"`
+	Progress      ProgressConfig      `yaml:"progress"`
+	ClientLogging ClientLoggingConfig `yaml:"client_logging"`
 }
 
 // AdminConfig configures the admin REST API.
@@ -413,6 +416,21 @@ type CSPAppConfig struct {
 
 	// ClipboardWrite requests write access to the clipboard.
 	ClipboardWrite bool `yaml:"clipboard_write"`
+}
+
+// ResourcesConfig configures MCP resource templates.
+type ResourcesConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// ProgressConfig configures progress notifications during tool execution.
+type ProgressConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// ClientLoggingConfig configures server-to-client log message notifications.
+type ClientLoggingConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // SessionsConfig configures session externalization.

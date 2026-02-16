@@ -57,6 +57,15 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc.Source = "mcp"
 			ctx = WithPlatformContext(ctx, pc)
 
+			// Store ServerSession and progress token in context for
+			// progress notifications and client logging.
+			if ss := extractServerSession(req); ss != nil {
+				ctx = WithServerSession(ctx, ss)
+			}
+			if pt := extractProgressToken(req); pt != nil {
+				ctx = WithProgressToken(ctx, pt)
+			}
+
 			// Populate toolkit metadata
 			populateToolkitMetadata(pc, toolkitLookup, toolName)
 
@@ -241,6 +250,50 @@ func extractBearerOrAPIKey(h http.Header) string {
 		return strings.TrimPrefix(authHeader, "Bearer ")
 	}
 	return h.Get("X-API-Key")
+}
+
+// extractServerSession extracts the ServerSession from an MCP Request.
+// Uses the same defensive pattern as extractSessionID to guard against
+// typed-nil panics from GetSession().
+func extractServerSession(req mcp.Request) (ss *mcp.ServerSession) {
+	if req == nil {
+		return nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			ss = nil
+		}
+	}()
+	session := req.GetSession()
+	if session == nil {
+		return nil
+	}
+	ss, _ = session.(*mcp.ServerSession)
+	return ss
+}
+
+// extractProgressToken extracts the progress token from an MCP Request.
+// Returns nil if the request has no progress token.
+// Uses defer/recover to guard against typed-nil panics from GetProgressToken.
+func extractProgressToken(req mcp.Request) (token any) {
+	if req == nil {
+		return nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			token = nil
+		}
+	}()
+	params := req.GetParams()
+	if params == nil {
+		return nil
+	}
+	// GetProgressToken is on RequestParams, not Params.
+	rp, ok := params.(mcp.RequestParams)
+	if !ok {
+		return nil
+	}
+	return rp.GetProgressToken()
 }
 
 // generateRequestID creates a cryptographically secure request ID.

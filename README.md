@@ -113,6 +113,15 @@ Every tool call is logged with user identity, persona, request details, and timi
 ### Knowledge Capture
 AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions, and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://txn2.github.io/mcp-data-platform/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://txn2.github.io/mcp-data-platform/knowledge/overview/) for details.
 
+### Resource Templates
+Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates expose table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`) without making tool calls.
+
+### Progress Notifications
+Long-running Trino queries send granular progress updates to MCP clients (executing, formatting, complete). Clients that provide a `_meta.progressToken` receive real-time status. Zero overhead when disabled.
+
+### Client Logging
+Server-to-client log messages give AI agents visibility into platform decisions (enrichment applied, timing). Uses the MCP `logging/setLevel` protocol — zero overhead if the client hasn't opted in.
+
 ### Extensible Middleware Architecture
 Add custom authentication, rate limiting, or logging. Swap providers to integrate different semantic layers or query engines. The Go library exposes everything—build the platform your organization needs.
 
@@ -367,6 +376,7 @@ database:
 | `pkg/semantic` | Semantic metadata provider abstraction |
 | `pkg/query` | Query execution provider abstraction |
 | `pkg/middleware` | Request/response middleware chain |
+| `pkg/mcpcontext` | MCP session/progress context helpers |
 | `pkg/registry` | Toolkit registration and management |
 | `pkg/audit` | Audit logging with PostgreSQL storage |
 | `pkg/tuning` | Prompts, hints, and operational rules |

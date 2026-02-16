@@ -42,6 +42,9 @@ import (
 // providerNoop is the provider name for no-op (disabled) providers.
 const providerNoop = "noop"
 
+// toolkitKindTrino is the toolkit kind name for Trino.
+const toolkitKindTrino = "trino"
+
 // minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
 const minSigningKeyLength = 32
 
@@ -341,6 +344,9 @@ func (p *Platform) initRegistries(opts *Options) error {
 	// Inject providers for cross-injection
 	p.toolkitRegistry.SetSemanticProvider(p.semanticProvider)
 	p.toolkitRegistry.SetQueryProvider(p.queryProvider)
+
+	// Inject platform-level config into toolkit instances before loading.
+	p.injectToolkitPlatformConfig()
 
 	// Load toolkits from configuration
 	if p.config.Toolkits != nil {
@@ -756,7 +762,7 @@ func (p *Platform) finalizeSetup() {
 	// added runs FIRST. We add innermost middleware first and outermost last.
 	//
 	// Desired execution order (outermost → innermost → handler):
-	//   Tool visibility → Apps metadata → Auth/Authz → Audit → Rules → Enrichment → handler
+	//   Tool visibility → Apps metadata → Auth/Authz → Audit → Rules → Client logging → Enrichment → handler
 	//
 	// Therefore we add in reverse (innermost first):
 
@@ -778,31 +784,40 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
-	// 2. Rule enforcement - adds operational guidance to responses
+	// 2. Client logging - sends enrichment info to client via session.Log()
+	if p.config.ClientLogging.Enabled {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPClientLoggingMiddleware(middleware.ClientLoggingConfig{
+				Enabled: true,
+			}),
+		)
+	}
+
+	// 3. Rule enforcement - adds operational guidance to responses
 	if p.ruleEngine != nil {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
 		)
 	}
 
-	// 3. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
+	// 4. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
 	if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(p.auditLogger),
 		)
 	}
 
-	// 4. Auth/Authz (outermost for tools/call) - authenticates and authorizes
+	// 5. Auth/Authz (outermost for tools/call) - authenticates and authorizes
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport),
 	)
 
-	// 5. MCP Apps metadata - injects _meta.ui into tools/list
+	// 6. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
 
-	// 6. Tool visibility (absolute outermost) - reduces tools/list for token savings
+	// 7. Tool visibility (absolute outermost) - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
 }
 
@@ -873,7 +888,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 		// Determine platform for URN building
 		platform := p.config.Semantic.URNMapping.Platform
 		if platform == "" {
-			platform = "trino" // Default platform if not configured
+			platform = toolkitKindTrino // Default platform if not configured
 		}
 
 		adapter, err := datahubsemantic.New(datahubsemantic.Config{
@@ -908,7 +923,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 // createQueryProvider creates the query provider based on config.
 func (p *Platform) createQueryProvider() (query.Provider, error) {
 	switch p.config.Query.Provider {
-	case "trino":
+	case toolkitKindTrino:
 		// Get Trino config from toolkits
 		trinoCfg := p.getTrinoConfig(p.config.Query.Instance)
 		if trinoCfg == nil {
@@ -1104,6 +1119,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register hints resource
 	p.registerHintsResource()
 
+	// Register resource templates (schema, glossary, availability)
+	p.registerResourceTemplates()
+
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)
 }
@@ -1275,7 +1293,7 @@ func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
 
 // getTrinoConfig extracts Trino configuration from toolkits config.
 func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
-	instanceCfg := p.getInstanceConfig("trino", instanceName)
+	instanceCfg := p.getInstanceConfig(toolkitKindTrino, instanceName)
 	if instanceCfg == nil {
 		return nil
 	}
@@ -1360,6 +1378,38 @@ func resolveDefaultInstance(kindCfg, instances map[string]any) string {
 		return name
 	}
 	return ""
+}
+
+// injectToolkitPlatformConfig injects platform-level configuration into
+// toolkit instance config maps before the registry loader processes them.
+// This allows platform-wide settings (e.g., progress.enabled) to reach
+// toolkit factories via the normal config parsing path.
+func (p *Platform) injectToolkitPlatformConfig() {
+	if p.config.Toolkits == nil || !p.config.Progress.Enabled {
+		return
+	}
+
+	trinoCfg, ok := p.config.Toolkits[toolkitKindTrino]
+	if !ok {
+		return
+	}
+	kindCfg, ok := trinoCfg.(map[string]any)
+	if !ok {
+		return
+	}
+	instances, ok := kindCfg["instances"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	for name, v := range instances {
+		instanceCfg, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		instanceCfg["progress_enabled"] = true
+		instances[name] = instanceCfg
+	}
 }
 
 // Configuration extraction helpers.

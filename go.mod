@@ -16,7 +16,8 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/txn2/mcp-datahub v0.7.0
 	github.com/txn2/mcp-s3 v0.2.0
-	github.com/txn2/mcp-trino v0.5.0
+	github.com/txn2/mcp-trino v0.6.1
+	github.com/yosida95/uritemplate/v3 v3.0.2
 	golang.org/x/crypto v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -102,7 +103,6 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/trinodb/trino-go-client v0.333.0 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
