@@ -3,10 +3,12 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -473,7 +475,8 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 		pc := NewPlatformContext("req-plain")
 		pc.ToolName = testAuditToolName
 
-		result := createErrorResult("some error")
+		result := &mcp.CallToolResult{}
+		result.SetError(errors.New("some error"))
 		event := buildMCPAuditEvent(pc, auditCallInfo{
 			Request:   createAuditTestRequest(t, testAuditToolName, nil),
 			Result:    result,
@@ -504,6 +507,30 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 		assert.Empty(t, event.ErrorMessage)
 		assert.Empty(t, event.ErrorCategory)
 	})
+}
+
+func TestBuildMCPAuditEvent_WithProtocolError(t *testing.T) {
+	pc := NewPlatformContext("req-proto")
+	pc.ToolName = testAuditToolName
+	pc.Transport = "http"
+	pc.Source = testAuditSourceMCP
+
+	protoErr := &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid request: missing tool name"}
+
+	event := buildMCPAuditEvent(pc, auditCallInfo{
+		Request:   createAuditTestRequest(t, testAuditToolName, nil),
+		Result:    nil,
+		Err:       protoErr,
+		StartTime: time.Now(),
+		Duration:  time.Millisecond,
+	})
+
+	assert.False(t, event.Success)
+	assert.Equal(t, "invalid request: missing tool name", event.ErrorMessage)
+	// jsonrpc.Error doesn't implement CategorizedError, so category should be empty.
+	assert.Empty(t, event.ErrorCategory)
+	assert.Equal(t, 0, event.ResponseChars, "no response for protocol error")
+	assert.Equal(t, 0, event.ContentBlocks, "no content blocks for protocol error")
 }
 
 // Helper to create ServerRequest for audit testing.

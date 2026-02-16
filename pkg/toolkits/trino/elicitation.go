@@ -68,11 +68,30 @@ func (*ElicitationDeclinedError) ErrorCategory() string {
 	return elicitationDeclinedCategory
 }
 
+// elicitor abstracts ServerSession methods used by elicitation middleware.
+// *mcp.ServerSession satisfies this implicitly.
+type elicitor interface {
+	Elicit(ctx context.Context, params *mcp.ElicitParams) (*mcp.ElicitResult, error)
+	InitializeParams() *mcp.InitializeParams
+}
+
+// queryExplainer abstracts Explain for cost estimation.
+// *trinoclient.Client satisfies this implicitly.
+type queryExplainer interface {
+	Explain(ctx context.Context, sql string, explainType trinoclient.ExplainType) (*trinoclient.ExplainResult, error)
+}
+
+// Compile-time interface satisfaction checks.
+var (
+	_ elicitor       = (*mcp.ServerSession)(nil)
+	_ queryExplainer = (*trinoclient.Client)(nil)
+)
+
 // ElicitationMiddleware intercepts Trino query execution to request user
 // confirmation when queries exceed cost thresholds or access PII data.
 // It implements trinotools.ToolMiddleware.
 type ElicitationMiddleware struct {
-	client           *trinoclient.Client
+	client           queryExplainer
 	config           ElicitationConfig
 	semanticProvider semantic.Provider
 	mu               sync.RWMutex
@@ -112,26 +131,32 @@ func (em *ElicitationMiddleware) Before(ctx context.Context, tc *trinotools.Tool
 		return ctx, nil
 	}
 
+	return ctx, em.beforeWithSession(ctx, ss, sql)
+}
+
+// beforeWithSession contains the core elicitation logic, extracted from Before
+// so it can be tested with a mock elicitor without requiring a real MCP session.
+func (em *ElicitationMiddleware) beforeWithSession(ctx context.Context, e elicitor, sql string) error {
 	// Check if the client supports elicitation.
-	if !clientSupportsElicitation(ss) {
-		return ctx, nil
+	if !clientSupportsElicitation(e) {
+		return nil
 	}
 
 	// Cost estimation trigger.
 	if em.config.CostEstimation.Enabled {
-		if err := em.checkCostEstimation(ctx, ss, sql); err != nil {
-			return ctx, err
+		if err := em.checkCostEstimation(ctx, e, sql); err != nil {
+			return err
 		}
 	}
 
 	// PII consent trigger.
 	if em.config.PIIConsent.Enabled {
-		if err := em.checkPIIConsent(ctx, ss, sql); err != nil {
-			return ctx, err
+		if err := em.checkPIIConsent(ctx, e, sql); err != nil {
+			return err
 		}
 	}
 
-	return ctx, nil
+	return nil
 }
 
 // After is a no-op — elicitation happens before query execution.
@@ -146,7 +171,7 @@ func (*ElicitationMiddleware) After(
 
 // checkCostEstimation runs EXPLAIN IO to estimate query cost and elicits
 // confirmation if the estimated row count exceeds the configured threshold.
-func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, ss *mcp.ServerSession, sql string) error {
+func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, e elicitor, sql string) error {
 	estimated, err := em.estimateRows(ctx, sql)
 	if err != nil {
 		slog.Debug("elicitation: cost estimation skipped",
@@ -167,7 +192,7 @@ func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, ss *mc
 		formatRowCount(threshold),
 	)
 
-	result, err := ss.Elicit(ctx, &mcp.ElicitParams{
+	result, err := e.Elicit(ctx, &mcp.ElicitParams{
 		Message: message,
 		RequestedSchema: map[string]any{
 			"type":       "object",
@@ -193,7 +218,7 @@ func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, ss *mc
 
 // checkPIIConsent checks if the query accesses PII columns and elicits
 // consent if any are found.
-func (em *ElicitationMiddleware) checkPIIConsent(ctx context.Context, ss *mcp.ServerSession, sql string) error {
+func (em *ElicitationMiddleware) checkPIIConsent(ctx context.Context, e elicitor, sql string) error {
 	sp := em.getSemanticProvider()
 	if sp == nil {
 		return nil
@@ -230,7 +255,7 @@ func (em *ElicitationMiddleware) checkPIIConsent(ctx context.Context, ss *mcp.Se
 		len(piiColumns),
 	)
 
-	result, err := ss.Elicit(ctx, &mcp.ElicitParams{
+	result, err := e.Elicit(ctx, &mcp.ElicitParams{
 		Message: message,
 		RequestedSchema: map[string]any{
 			"type":       "object",
@@ -329,8 +354,8 @@ func extractSQLFromInput(input any) string {
 
 // clientSupportsElicitation checks whether the connected client has
 // declared elicitation support in its capabilities.
-func clientSupportsElicitation(ss *mcp.ServerSession) bool {
-	params := ss.InitializeParams()
+func clientSupportsElicitation(e elicitor) bool {
+	params := e.InitializeParams()
 	if params == nil || params.Capabilities == nil {
 		return false
 	}

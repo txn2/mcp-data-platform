@@ -6,10 +6,52 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
+
+// mockElicitor implements elicitor for testing without a real MCP session.
+type mockElicitor struct {
+	elicitResult *mcp.ElicitResult
+	elicitErr    error
+	initParams   *mcp.InitializeParams
+}
+
+func (m *mockElicitor) Elicit(_ context.Context, _ *mcp.ElicitParams) (*mcp.ElicitResult, error) {
+	return m.elicitResult, m.elicitErr
+}
+
+func (m *mockElicitor) InitializeParams() *mcp.InitializeParams {
+	return m.initParams
+}
+
+// mockExplainer implements queryExplainer for testing without a real Trino client.
+type mockExplainer struct {
+	result *trinoclient.ExplainResult
+	err    error
+}
+
+func (m *mockExplainer) Explain(_ context.Context, _ string, _ trinoclient.ExplainType) (*trinoclient.ExplainResult, error) {
+	return m.result, m.err
+}
+
+// elicitCapableParams returns InitializeParams with elicitation capability set.
+func elicitCapableParams() *mcp.InitializeParams {
+	return &mcp.InitializeParams{
+		Capabilities: &mcp.ClientCapabilities{
+			Elicitation: &mcp.ElicitationCapabilities{},
+		},
+	}
+}
+
+// noElicitParams returns InitializeParams without elicitation capability.
+func noElicitParams() *mcp.InitializeParams {
+	return &mcp.InitializeParams{
+		Capabilities: &mcp.ClientCapabilities{},
+	}
+}
 
 func TestParseRowEstimates(t *testing.T) {
 	tests := []struct {
@@ -391,10 +433,43 @@ func (*mockSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFi
 
 func (*mockSemanticProvider) Close() error { return nil }
 
-func TestClientSupportsElicitation(_ *testing.T) {
-	// clientSupportsElicitation takes *mcp.ServerSession which requires
-	// a real MCP handshake to construct. Tested indirectly via Before
-	// with no session in context (returns early at GetServerSession).
+func TestClientSupportsElicitation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params *mcp.InitializeParams
+		want   bool
+	}{
+		{
+			name:   "nil params",
+			params: nil,
+			want:   false,
+		},
+		{
+			name:   "nil capabilities",
+			params: &mcp.InitializeParams{},
+			want:   false,
+		},
+		{
+			name:   "no elicitation capability",
+			params: noElicitParams(),
+			want:   false,
+		},
+		{
+			name:   "elicitation capable",
+			params: elicitCapableParams(),
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &mockElicitor{initParams: tt.params}
+			got := clientSupportsElicitation(e)
+			if got != tt.want {
+				t.Errorf("clientSupportsElicitation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestCheckPIIConsent_NoSemanticProvider(t *testing.T) {
@@ -450,8 +525,8 @@ func TestCheckPIIConsent_NoPIIColumns(t *testing.T) {
 	}
 }
 
-func TestCheckPIIConsent_PIIColumnsFound_NilSession(_ *testing.T) {
-	mock := &mockSemanticProvider{
+func TestCheckPIIConsent_PIIFound_Accepted(t *testing.T) {
+	sp := &mockSemanticProvider{
 		columns: map[string]map[string]*semantic.ColumnContext{
 			"schema.table1": {
 				"id":    {IsPII: false},
@@ -459,23 +534,79 @@ func TestCheckPIIConsent_PIIColumnsFound_NilSession(_ *testing.T) {
 			},
 		},
 	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "accept"},
+	}
 	em := &ElicitationMiddleware{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
 		},
-		semanticProvider: mock,
+		semanticProvider: sp,
 	}
-	// PII columns found but nil session — Elicit call will panic/fail gracefully
-	// This tests lines 224-232 (PII columns found, message formatted)
-	// The ss.Elicit call will panic on nil, so we test up to the point of elicitation
-	defer func() {
-		// The nil session will cause a panic in ss.Elicit — that's expected
-		// since we can't easily construct a *mcp.ServerSession for testing.
-		// The important thing is we exercised the PII detection path.
-		recover() //nolint:errcheck // intentional panic recovery for nil session test
-	}()
-	_ = em.checkPIIConsent(context.Background(), nil, "SELECT * FROM schema.table1 ")
+
+	err := em.checkPIIConsent(context.Background(), e, "SELECT * FROM schema.table1 ")
+	if err != nil {
+		t.Fatalf("expected nil when user accepts PII consent, got: %v", err)
+	}
+}
+
+func TestCheckPIIConsent_PIIFound_Declined(t *testing.T) {
+	sp := &mockSemanticProvider{
+		columns: map[string]map[string]*semantic.ColumnContext{
+			"schema.table1": {
+				"email": {IsPII: true},
+			},
+		},
+	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "decline"},
+	}
+	em := &ElicitationMiddleware{
+		config: ElicitationConfig{
+			Enabled:    true,
+			PIIConsent: PIIConsentConfig{Enabled: true},
+		},
+		semanticProvider: sp,
+	}
+
+	err := em.checkPIIConsent(context.Background(), e, "SELECT * FROM schema.table1 ")
+	var decErr *ElicitationDeclinedError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("expected ElicitationDeclinedError, got: %v", err)
+	}
+	if decErr.ErrorCategory() != "user_declined" {
+		t.Errorf("expected user_declined category, got %q", decErr.ErrorCategory())
+	}
+}
+
+func TestCheckPIIConsent_PIIFound_ElicitFails(t *testing.T) {
+	sp := &mockSemanticProvider{
+		columns: map[string]map[string]*semantic.ColumnContext{
+			"schema.table1": {
+				"email": {IsPII: true},
+			},
+		},
+	}
+	e := &mockElicitor{
+		initParams: elicitCapableParams(),
+		elicitErr:  errors.New("elicit failed"),
+	}
+	em := &ElicitationMiddleware{
+		config: ElicitationConfig{
+			Enabled:    true,
+			PIIConsent: PIIConsentConfig{Enabled: true},
+		},
+		semanticProvider: sp,
+	}
+
+	// Elicit error → graceful nil (degradation)
+	err := em.checkPIIConsent(context.Background(), e, "SELECT * FROM schema.table1 ")
+	if err != nil {
+		t.Fatalf("expected nil on elicit failure (graceful degradation), got: %v", err)
+	}
 }
 
 func TestCheckPIIConsent_ColumnsError(t *testing.T) {
@@ -522,3 +653,236 @@ func (*errSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFil
 	return nil, nil //nolint:nilnil // mock
 }
 func (*errSemanticProvider) Close() error { return nil }
+
+func TestEstimateRows_Success(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Type: trinoclient.ExplainIO,
+			Plan: `Fragment 0 [SOURCE]
+    Estimates: {rows: 5000000 (47.68MB), cpu: ?, memory: ?, network: ?}`,
+		},
+	}
+	em := &ElicitationMiddleware{client: explainer}
+
+	rows, err := em.estimateRows(context.Background(), "SELECT * FROM big_table")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rows != 5_000_000 {
+		t.Errorf("estimateRows() = %d, want 5000000", rows)
+	}
+}
+
+func TestEstimateRows_ExplainError(t *testing.T) {
+	explainer := &mockExplainer{
+		err: errors.New("connection refused"),
+	}
+	em := &ElicitationMiddleware{client: explainer}
+
+	_, err := em.estimateRows(context.Background(), "SELECT 1")
+	if err == nil {
+		t.Fatal("expected error when explain fails")
+	}
+}
+
+func TestCheckCostEstimation_BelowThreshold(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 100 (1KB)}",
+		},
+	}
+	e := &mockElicitor{initParams: elicitCapableParams()}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000,
+			},
+		},
+	}
+
+	err := em.checkCostEstimation(context.Background(), e, "SELECT 1")
+	if err != nil {
+		t.Fatalf("expected nil for below-threshold query, got: %v", err)
+	}
+}
+
+func TestCheckCostEstimation_AboveThreshold_Accepted(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 5000000 (47MB)}",
+		},
+	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "accept"},
+	}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000,
+			},
+		},
+	}
+
+	err := em.checkCostEstimation(context.Background(), e, "SELECT * FROM big")
+	if err != nil {
+		t.Fatalf("expected nil when user accepts, got: %v", err)
+	}
+}
+
+func TestCheckCostEstimation_AboveThreshold_Declined(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 5000000 (47MB)}",
+		},
+	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "decline"},
+	}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000,
+			},
+		},
+	}
+
+	err := em.checkCostEstimation(context.Background(), e, "SELECT * FROM big")
+	var decErr *ElicitationDeclinedError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("expected ElicitationDeclinedError, got: %v", err)
+	}
+}
+
+func TestCheckCostEstimation_ExplainFails(t *testing.T) {
+	explainer := &mockExplainer{
+		err: errors.New("explain failed"),
+	}
+	e := &mockElicitor{initParams: elicitCapableParams()}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000,
+			},
+		},
+	}
+
+	// Explain error → graceful nil
+	err := em.checkCostEstimation(context.Background(), e, "SELECT 1")
+	if err != nil {
+		t.Fatalf("expected nil on explain failure (graceful degradation), got: %v", err)
+	}
+}
+
+func TestCheckCostEstimation_ElicitFails(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 5000000 (47MB)}",
+		},
+	}
+	e := &mockElicitor{
+		initParams: elicitCapableParams(),
+		elicitErr:  errors.New("elicit failed"),
+	}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			CostEstimation: CostEstimationConfig{
+				Enabled:      true,
+				RowThreshold: 1000,
+			},
+		},
+	}
+
+	// Elicit error → graceful nil
+	err := em.checkCostEstimation(context.Background(), e, "SELECT * FROM big")
+	if err != nil {
+		t.Fatalf("expected nil on elicit failure (graceful degradation), got: %v", err)
+	}
+}
+
+func TestBeforeWithSession_ClientNoElicitation(t *testing.T) {
+	e := &mockElicitor{initParams: noElicitParams()}
+	em := &ElicitationMiddleware{
+		config: ElicitationConfig{
+			Enabled:        true,
+			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 100},
+			PIIConsent:     PIIConsentConfig{Enabled: true},
+		},
+	}
+
+	err := em.beforeWithSession(context.Background(), e, "SELECT * FROM schema.table1 ")
+	if err != nil {
+		t.Fatalf("expected nil when client lacks elicitation, got: %v", err)
+	}
+}
+
+func TestBeforeWithSession_CostAndPII(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 5000000 (47MB)}",
+		},
+	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "accept"},
+	}
+	sp := &mockSemanticProvider{
+		columns: map[string]map[string]*semantic.ColumnContext{
+			"schema.table1": {
+				"email": {IsPII: true},
+			},
+		},
+	}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			Enabled:        true,
+			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 1000},
+			PIIConsent:     PIIConsentConfig{Enabled: true},
+		},
+		semanticProvider: sp,
+	}
+
+	// Both cost and PII enabled, user accepts both
+	err := em.beforeWithSession(context.Background(), e, "SELECT * FROM schema.table1 ")
+	if err != nil {
+		t.Fatalf("expected nil when user accepts both checks, got: %v", err)
+	}
+}
+
+func TestBeforeWithSession_CostDeclined(t *testing.T) {
+	explainer := &mockExplainer{
+		result: &trinoclient.ExplainResult{
+			Plan: "Estimates: {rows: 5000000 (47MB)}",
+		},
+	}
+	e := &mockElicitor{
+		initParams:   elicitCapableParams(),
+		elicitResult: &mcp.ElicitResult{Action: "decline"},
+	}
+	em := &ElicitationMiddleware{
+		client: explainer,
+		config: ElicitationConfig{
+			Enabled:        true,
+			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 1000},
+			PIIConsent:     PIIConsentConfig{Enabled: true},
+		},
+	}
+
+	// Cost declined — should short-circuit without reaching PII check
+	err := em.beforeWithSession(context.Background(), e, "SELECT * FROM schema.table1 ")
+	var decErr *ElicitationDeclinedError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("expected ElicitationDeclinedError, got: %v", err)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -65,7 +66,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Extract tool name from request params
 			toolName, err := extractToolName(req)
 			if err != nil {
-				return createErrorResult(fmt.Sprintf("invalid request: %v", err)), nil
+				return nil, newInvalidParamsError(fmt.Sprintf("invalid request: %v", err))
 			}
 
 			// Create platform context
@@ -253,12 +254,11 @@ func extractToolName(req mcp.Request) (string, error) {
 	return callParams.Name, nil
 }
 
-// createErrorResult creates an MCP error result using the SDK's SetError method.
-// The underlying error is retrievable via CallToolResult.GetError().
-func createErrorResult(errMsg string) mcp.Result {
-	result := &mcp.CallToolResult{}
-	result.SetError(errors.New(errMsg))
-	return result
+// newInvalidParamsError creates a JSON-RPC error with CodeInvalidParams.
+// Used for malformed requests (e.g., missing tool name or wrong params type)
+// which are genuine protocol-level errors rather than tool-level failures.
+func newInvalidParamsError(msg string) *jsonrpc.Error {
+	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: msg}
 }
 
 // createCategorizedErrorResult creates an MCP error result with a category

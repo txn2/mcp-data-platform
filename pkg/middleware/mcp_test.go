@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -277,16 +278,15 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 	req := newMCPTestRequest("")
 
 	result, err := handler(context.Background(), mcpTestMethod, req)
-	if err != nil {
-		t.Fatalf(mcpTestErrFmt, err)
+	if result != nil {
+		t.Fatal("expected nil result for invalid params")
 	}
-
-	toolResult, ok := result.(*mcp.CallToolResult)
-	if !ok {
-		t.Fatalf(mcpTestResultFmt, result)
+	var wireErr *jsonrpc.Error
+	if !errors.As(err, &wireErr) {
+		t.Fatalf("expected *jsonrpc.Error, got %T", err)
 	}
-	if !toolResult.IsError {
-		t.Error("expected IsError to be true for missing tool name")
+	if wireErr.Code != jsonrpc.CodeInvalidParams {
+		t.Errorf("expected CodeInvalidParams (%d), got %d", jsonrpc.CodeInvalidParams, wireErr.Code)
 	}
 }
 
@@ -311,16 +311,15 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 	}
 
 	result, err := handler(context.Background(), mcpTestMethod, req)
-	if err != nil {
-		t.Fatalf(mcpTestErrFmt, err)
+	if result != nil {
+		t.Fatal("expected nil result for invalid params")
 	}
-
-	toolResult, ok := result.(*mcp.CallToolResult)
-	if !ok {
-		t.Fatalf(mcpTestResultFmt, result)
+	var wireErr *jsonrpc.Error
+	if !errors.As(err, &wireErr) {
+		t.Fatalf("expected *jsonrpc.Error, got %T", err)
 	}
-	if !toolResult.IsError {
-		t.Error("expected IsError to be true for nil params")
+	if wireErr.Code != jsonrpc.CodeInvalidParams {
+		t.Errorf("expected CodeInvalidParams (%d), got %d", jsonrpc.CodeInvalidParams, wireErr.Code)
 	}
 }
 
@@ -345,16 +344,15 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 	}
 
 	result, err := handler(context.Background(), mcpTestMethod, req)
-	if err != nil {
-		t.Fatalf(mcpTestErrFmt, err)
+	if result != nil {
+		t.Fatal("expected nil result for invalid params")
 	}
-
-	toolResult, ok := result.(*mcp.CallToolResult)
-	if !ok {
-		t.Fatalf(mcpTestResultFmt, result)
+	var wireErr *jsonrpc.Error
+	if !errors.As(err, &wireErr) {
+		t.Fatalf("expected *jsonrpc.Error, got %T", err)
 	}
-	if !toolResult.IsError {
-		t.Error("expected IsError to be true for wrong params type")
+	if wireErr.Code != jsonrpc.CodeInvalidParams {
+		t.Errorf("expected CodeInvalidParams (%d), got %d", jsonrpc.CodeInvalidParams, wireErr.Code)
 	}
 }
 
@@ -796,5 +794,21 @@ func TestCreateCategorizedErrorResult(t *testing.T) {
 	}
 	if got := ErrorCategory(err); got != ErrCategoryAuth {
 		t.Errorf("ErrorCategory = %q, want %q", got, ErrCategoryAuth)
+	}
+}
+
+func TestNewInvalidParamsError(t *testing.T) {
+	err := newInvalidParamsError("missing tool name")
+
+	if err.Code != jsonrpc.CodeInvalidParams {
+		t.Errorf("Code = %d, want %d", err.Code, jsonrpc.CodeInvalidParams)
+	}
+	if err.Message != "missing tool name" {
+		t.Errorf("Message = %q, want %q", err.Message, "missing tool name")
+	}
+	// Verify it satisfies the error interface
+	var goErr error = err
+	if goErr.Error() == "" {
+		t.Error("expected non-empty Error() string")
 	}
 }
