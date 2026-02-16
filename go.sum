@@ -44,8 +44,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 h1:RuNSMooz
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17/go.mod h1:F2xxQ9TZz5gDWsclCtPQscGpP0VUOc8RqgFM3vDENmU=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17 h1:bGeHBsGZx0Dvu/eJC0Lh9adJa3M1xREcndxLNZlve2U=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17/go.mod h1:dcW24lbU0CzHusTE8LLHhRLI42ejmINN8Lcr22bwh/g=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1 h1:C2dUPSnEpy4voWFIq3JNd8gN0Y5vYGDo44eUE58a/p8=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1/go.mod h1:5jggDlZ2CLQhwJBiZJb4vfk4f0GxWdEDruWKEJ1xOdo=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0 h1:oeu8VPlOre74lBA/PMhxa5vewaMIMmILM+RraSyB8KA=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0/go.mod h1:5jggDlZ2CLQhwJBiZJb4vfk4f0GxWdEDruWKEJ1xOdo=
 github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 h1:VrhDvQib/i0lxvr3zqlUwLwJP4fpmpyD9wYG1vfSu+Y=
 github.com/aws/aws-sdk-go-v2/service/signin v1.0.5/go.mod h1:k029+U8SY30/3/ras4G/Fnv/b88N4mAfliNn08Dem4M=
 github.com/aws/aws-sdk-go-v2/service/sso v1.30.9 h1:v6EiMvhEYBoHABfbGB4alOYmCIrcgyPPiBE1wZAEbqk=
@@ -266,8 +266,8 @@ github.com/trinodb/trino-go-client v0.333.0 h1:+bsW8/uLFNF00MEL9JZJym94LlUnle25V
 github.com/trinodb/trino-go-client v0.333.0/go.mod h1:91okdYtRUZoj3XJu/tqdzu11sNliQuN4A+vMFEB8GVE=
 github.com/txn2/mcp-datahub v0.6.0 h1:8iiaQ9xR67Qt8B84QK6TtdljP4hFEKYLBzZQDVA1BTY=
 github.com/txn2/mcp-datahub v0.6.0/go.mod h1:UyXoTLT9H5DFkrdi/k0G82x+fZN5N4PSjom6FPGTkI0=
-github.com/txn2/mcp-s3 v0.1.4 h1:73VfwofCNUoVAzWQgh1LoaAsNW42jEUTGfRPe1s7Vkk=
-github.com/txn2/mcp-s3 v0.1.4/go.mod h1:yu2m8DZdsHJEWj+Ktkhz1XUk17jqPdVSa4UcyZWetkc=
+github.com/txn2/mcp-s3 v0.2.0 h1:hycUsa8j6hz1rHDIr0OOe6wbDxW/aJgrCYTvqrAcgSM=
+github.com/txn2/mcp-s3 v0.2.0/go.mod h1:ygY1Bz6aXO4/3jvhfooR6y/BTXJ35Rsvwsl75zKktXg=
 github.com/txn2/mcp-trino v0.4.0 h1:QrCNv0d6NR4OW3+AhIiVYX2tDyph6uDm5tRLz3/UQyk=
 github.com/txn2/mcp-trino v0.4.0/go.mod h1:6m5jlHTExGTr2swFRFp2McDBHti8l/F7mHi2b1cYHk4=
 github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb h1:zGWFAtiMcyryUHoUjUJX0/lt1H2+i2Ka2n+D3DImSNo=
