@@ -311,6 +311,129 @@ func TestParseConfig_NoDescriptions(t *testing.T) {
 	}
 }
 
+func TestGetAnnotationsMap(t *testing.T) {
+	t.Run("valid map", func(t *testing.T) {
+		cfg := map[string]any{
+			"annotations": map[string]any{
+				"trino_query": map[string]any{
+					"read_only_hint":   true,
+					"destructive_hint": false,
+					"idempotent_hint":  true,
+					"open_world_hint":  false,
+				},
+			},
+		}
+		result := getAnnotationsMap(cfg, "annotations")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		ann := result["trino_query"]
+		if ann.ReadOnlyHint == nil || !*ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+		if ann.IdempotentHint == nil || !*ann.IdempotentHint {
+			t.Error("expected IdempotentHint=true")
+		}
+		if ann.OpenWorldHint == nil || *ann.OpenWorldHint {
+			t.Error("expected OpenWorldHint=false")
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		result := getAnnotationsMap(map[string]any{}, "annotations")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		result := getAnnotationsMap(map[string]any{"annotations": "not a map"}, "annotations")
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("skips non-map entries", func(t *testing.T) {
+		cfg := map[string]any{
+			"annotations": map[string]any{
+				"valid":   map[string]any{"read_only_hint": true},
+				"invalid": "not a map",
+			},
+		}
+		result := getAnnotationsMap(cfg, "annotations")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry (non-map skipped), got %d", len(result))
+		}
+		if result["valid"].ReadOnlyHint == nil || !*result["valid"].ReadOnlyHint {
+			t.Error("expected valid entry ReadOnlyHint=true")
+		}
+	})
+
+	t.Run("partial fields", func(t *testing.T) {
+		cfg := map[string]any{
+			"annotations": map[string]any{
+				"trino_query": map[string]any{
+					"read_only_hint": true,
+				},
+			},
+		}
+		result := getAnnotationsMap(cfg, "annotations")
+		ann := result["trino_query"]
+		if ann.ReadOnlyHint == nil || !*ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint != nil {
+			t.Error("expected DestructiveHint=nil (unset)")
+		}
+		if ann.IdempotentHint != nil {
+			t.Error("expected IdempotentHint=nil (unset)")
+		}
+		if ann.OpenWorldHint != nil {
+			t.Error("expected OpenWorldHint=nil (unset)")
+		}
+	})
+}
+
+func TestParseConfig_WithAnnotations(t *testing.T) {
+	cfg := map[string]any{
+		"host": "trino.example.com",
+		"annotations": map[string]any{
+			"trino_query": map[string]any{
+				"read_only_hint": true,
+			},
+		},
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if len(result.Annotations) != 1 {
+		t.Fatalf("expected 1 annotation, got %d", len(result.Annotations))
+	}
+	ann := result.Annotations["trino_query"]
+	if ann.ReadOnlyHint == nil || !*ann.ReadOnlyHint {
+		t.Error("expected trino_query ReadOnlyHint=true")
+	}
+}
+
+func TestParseConfig_NoAnnotations(t *testing.T) {
+	cfg := map[string]any{
+		"host": "trino.example.com",
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if result.Annotations != nil {
+		t.Errorf("expected nil annotations, got %v", result.Annotations)
+	}
+}
+
 func TestGetDuration(t *testing.T) {
 	cfg := map[string]any{
 		trinoCfgTestString:  "5m",
