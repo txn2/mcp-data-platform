@@ -4,6 +4,10 @@ package middleware
 import (
 	"context"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // contextKey is a private type for context keys.
@@ -93,4 +97,28 @@ func GetToken(ctx context.Context) string {
 		return token
 	}
 	return ""
+}
+
+// WithServerSession adds a ServerSession to the context.
+// Delegates to mcpcontext to share context keys with toolkit packages.
+func WithServerSession(ctx context.Context, ss *mcp.ServerSession) context.Context {
+	return mcpcontext.WithServerSession(ctx, ss)
+}
+
+// GetServerSession retrieves the ServerSession from the context.
+// Delegates to mcpcontext to share context keys with toolkit packages.
+func GetServerSession(ctx context.Context) *mcp.ServerSession {
+	return mcpcontext.GetServerSession(ctx)
+}
+
+// WithProgressToken adds a progress token to the context.
+// Delegates to mcpcontext to share context keys with toolkit packages.
+func WithProgressToken(ctx context.Context, token any) context.Context {
+	return mcpcontext.WithProgressToken(ctx, token)
+}
+
+// GetProgressToken retrieves the progress token from the context.
+// Delegates to mcpcontext to share context keys with toolkit packages.
+func GetProgressToken(ctx context.Context) any {
+	return mcpcontext.GetProgressToken(ctx)
 }

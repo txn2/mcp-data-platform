@@ -3017,3 +3017,125 @@ func TestPlatformTools(t *testing.T) {
 		t.Errorf("expected tool kind platform, got %s", tools[0].Kind)
 	}
 }
+
+func TestInjectToolkitPlatformConfig(t *testing.T) {
+	t.Run("nil toolkits", func(_ *testing.T) {
+		p := &Platform{config: &Config{
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		// Should not panic when Toolkits is nil.
+		p.injectToolkitPlatformConfig()
+	})
+
+	t.Run("progress disabled", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{"host": "localhost"},
+					},
+				},
+			},
+			Progress: ProgressConfig{Enabled: false},
+		}}
+		p.injectToolkitPlatformConfig()
+
+		instanceCfg, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any)["primary"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		if _, exists := instanceCfg["progress_enabled"]; exists {
+			t.Error("progress_enabled should not be set when progress is disabled")
+		}
+	})
+
+	t.Run("no trino toolkit", func(_ *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"datahub": map[string]any{},
+			},
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		// Should not panic when no trino toolkit exists.
+		p.injectToolkitPlatformConfig()
+	})
+
+	t.Run("trino not map", func(_ *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": "invalid",
+			},
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		// Should not panic when trino config is not a map.
+		p.injectToolkitPlatformConfig()
+	})
+
+	t.Run("instances not map", func(_ *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": "invalid",
+				},
+			},
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		// Should not panic when instances is not a map.
+		p.injectToolkitPlatformConfig()
+	})
+
+	t.Run("injects progress_enabled", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"primary":   map[string]any{"host": "host1"},
+						"secondary": map[string]any{"host": "host2"},
+					},
+				},
+			},
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		p.injectToolkitPlatformConfig()
+
+		instances, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		for name, v := range instances {
+			instanceCfg, castOK := v.(map[string]any) //nolint:errcheck // test assertion chain
+			if !castOK {
+				t.Fatalf("instance %q: unexpected type", name)
+			}
+			got, gotOK := instanceCfg["progress_enabled"].(bool)
+			if !gotOK || !got {
+				t.Errorf("instance %q: progress_enabled = %v, want true", name, got)
+			}
+		}
+	})
+
+	t.Run("instance not map skipped", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"valid":   map[string]any{"host": "host1"},
+						"invalid": "not-a-map",
+					},
+				},
+			},
+			Progress: ProgressConfig{Enabled: true},
+		}}
+		// Should not panic when an instance is not a map.
+		p.injectToolkitPlatformConfig()
+
+		validCfg, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any)["valid"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		got, gotOK := validCfg["progress_enabled"].(bool)
+		if !gotOK || !got {
+			t.Errorf("valid instance: progress_enabled = %v, want true", got)
+		}
+	})
+}

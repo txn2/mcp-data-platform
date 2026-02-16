@@ -688,3 +688,63 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractServerSession(t *testing.T) {
+	t.Run("nil request", func(t *testing.T) {
+		ss := extractServerSession(nil)
+		if ss != nil {
+			t.Error("expected nil for nil request")
+		}
+	})
+
+	t.Run("request without session", func(t *testing.T) {
+		req := newMCPTestRequest(mcpTestToolName)
+		ss := extractServerSession(req)
+		if ss != nil {
+			t.Error("expected nil for request without real session")
+		}
+	})
+}
+
+func TestExtractProgressToken(t *testing.T) {
+	t.Run("nil request", func(t *testing.T) {
+		pt := extractProgressToken(nil)
+		if pt != nil {
+			t.Errorf("expected nil, got %v", pt)
+		}
+	})
+
+	t.Run("request without progress token", func(t *testing.T) {
+		req := newMCPTestRequest(mcpTestToolName)
+		pt := extractProgressToken(req)
+		if pt != nil {
+			t.Errorf("expected nil, got %v", pt)
+		}
+	})
+
+	t.Run("request with progress token", func(t *testing.T) {
+		params := &mcp.CallToolParamsRaw{
+			Name: mcpTestToolName,
+		}
+		// Initialize meta map before setting progress token.
+		params.SetMeta(map[string]any{})
+		params.SetProgressToken("tok-abc")
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Params: params,
+		}
+		pt := extractProgressToken(req)
+		if pt != "tok-abc" {
+			t.Errorf("expected 'tok-abc', got %v", pt)
+		}
+	})
+
+	t.Run("nil params", func(t *testing.T) {
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Params: nil,
+		}
+		pt := extractProgressToken(req)
+		if pt != nil {
+			t.Errorf("expected nil, got %v", pt)
+		}
+	})
+}
