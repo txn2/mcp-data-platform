@@ -449,6 +449,63 @@ func (c *capturingAuditLogger) Events() []AuditEvent {
 	return result
 }
 
+func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
+	t.Run("categorized error in result", func(t *testing.T) {
+		pc := NewPlatformContext("req-cat")
+		pc.ToolName = testAuditToolName
+		pc.Transport = "http"
+		pc.Source = testAuditSourceMCP
+
+		result := createCategorizedErrorResult(ErrCategoryAuth, "auth failed")
+		event := buildMCPAuditEvent(pc, auditCallInfo{
+			Request:   createAuditTestRequest(t, testAuditToolName, nil),
+			Result:    result,
+			StartTime: time.Now(),
+			Duration:  time.Millisecond,
+		})
+
+		assert.False(t, event.Success)
+		assert.Equal(t, "auth failed", event.ErrorMessage)
+		assert.Equal(t, ErrCategoryAuth, event.ErrorCategory)
+	})
+
+	t.Run("plain error in result has empty category", func(t *testing.T) {
+		pc := NewPlatformContext("req-plain")
+		pc.ToolName = testAuditToolName
+
+		result := createErrorResult("some error")
+		event := buildMCPAuditEvent(pc, auditCallInfo{
+			Request:   createAuditTestRequest(t, testAuditToolName, nil),
+			Result:    result,
+			StartTime: time.Now(),
+			Duration:  time.Millisecond,
+		})
+
+		assert.False(t, event.Success)
+		assert.Equal(t, "some error", event.ErrorMessage)
+		assert.Empty(t, event.ErrorCategory)
+	})
+
+	t.Run("successful result has no category", func(t *testing.T) {
+		pc := NewPlatformContext("req-ok")
+		pc.ToolName = testAuditToolName
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}
+		event := buildMCPAuditEvent(pc, auditCallInfo{
+			Request:   createAuditTestRequest(t, testAuditToolName, nil),
+			Result:    result,
+			StartTime: time.Now(),
+			Duration:  time.Millisecond,
+		})
+
+		assert.True(t, event.Success)
+		assert.Empty(t, event.ErrorMessage)
+		assert.Empty(t, event.ErrorCategory)
+	})
+}
+
 // Helper to create ServerRequest for audit testing.
 func createAuditTestRequest(t *testing.T, toolName string, args map[string]any) *mcp.ServerRequest[*mcp.CallToolParamsRaw] {
 	t.Helper()

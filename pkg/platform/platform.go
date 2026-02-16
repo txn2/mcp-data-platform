@@ -752,7 +752,8 @@ func (p *Platform) finalizeSetup() {
 		Name:    p.config.Server.Name,
 		Version: p.config.Server.Version,
 	}, &mcp.ServerOptions{
-		SchemaCache: mcp.NewSchemaCache(),
+		SchemaCache:  mcp.NewSchemaCache(),
+		Capabilities: p.buildServerCapabilities(),
 	})
 
 	// Add MCP protocol-level middleware.
@@ -817,8 +818,11 @@ func (p *Platform) finalizeSetup() {
 	// 6. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
 
-	// 7. Tool visibility (absolute outermost) - reduces tools/list for token savings
+	// 7. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
+
+	// 8. Icons (outermost list decoration) - injects icons into list responses
+	p.addIconMiddleware()
 }
 
 // addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.
@@ -843,6 +847,54 @@ func (p *Platform) addToolVisibilityMiddleware() {
 	)
 }
 
+// addIconMiddleware registers icon injection middleware when icons are configured.
+func (p *Platform) addIconMiddleware() {
+	if !p.config.Icons.Enabled {
+		return
+	}
+	cfg := middleware.IconsMiddlewareConfig{
+		Tools:     convertIconDefs(p.config.Icons.Tools),
+		Resources: convertIconDefs(p.config.Icons.Resources),
+		Prompts:   convertIconDefs(p.config.Icons.Prompts),
+	}
+	p.mcpServer.AddReceivingMiddleware(middleware.MCPIconMiddleware(cfg))
+}
+
+// convertIconDefs converts platform IconDef map to middleware IconConfig map.
+func convertIconDefs(defs map[string]IconDef) map[string]middleware.IconConfig {
+	if len(defs) == 0 {
+		return nil
+	}
+	out := make(map[string]middleware.IconConfig, len(defs))
+	for k, v := range defs {
+		out[k] = middleware.IconConfig{Source: v.Source, MIMEType: v.MIMEType}
+	}
+	return out
+}
+
+// buildServerCapabilities constructs explicit server capabilities from config.
+// This replaces the SDK's auto-inference, making the server's contract visible.
+func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
+	caps := &mcp.ServerCapabilities{
+		// Tools are always available — every platform deployment has at least platform_info.
+		Tools: &mcp.ToolCapabilities{},
+		// Logging is always available for client logging support.
+		Logging: &mcp.LoggingCapabilities{},
+	}
+
+	// Resources are available when enabled in config.
+	if p.config.Resources.Enabled {
+		caps.Resources = &mcp.ResourceCapabilities{}
+	}
+
+	// Prompts are available when configured.
+	if len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || p.config.Knowledge.Enabled {
+		caps.Prompts = &mcp.PromptCapabilities{}
+	}
+
+	return caps
+}
+
 // buildEnrichmentConfig creates the enrichment middleware config, including
 // optional session dedup cache setup.
 func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
@@ -851,6 +903,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
 		EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
 		EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
+		ResourceLinksEnabled:        p.config.Resources.Enabled,
 	}
 
 	if p.config.Injection.SessionDedup.IsEnabled() {
@@ -1122,6 +1175,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
 
+	// Validate agent_instructions references against registered tools
+	p.validateAgentInstructions()
+
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)
 }
@@ -1382,23 +1438,18 @@ func resolveDefaultInstance(kindCfg, instances map[string]any) string {
 
 // injectToolkitPlatformConfig injects platform-level configuration into
 // toolkit instance config maps before the registry loader processes them.
-// This allows platform-wide settings (e.g., progress.enabled) to reach
-// toolkit factories via the normal config parsing path.
+// This allows platform-wide settings (e.g., progress.enabled, elicitation)
+// to reach toolkit factories via the normal config parsing path.
 func (p *Platform) injectToolkitPlatformConfig() {
-	if p.config.Toolkits == nil || !p.config.Progress.Enabled {
+	instances := p.trinoInstanceConfigs()
+	if instances == nil {
 		return
 	}
 
-	trinoCfg, ok := p.config.Toolkits[toolkitKindTrino]
-	if !ok {
-		return
-	}
-	kindCfg, ok := trinoCfg.(map[string]any)
-	if !ok {
-		return
-	}
-	instances, ok := kindCfg["instances"].(map[string]any)
-	if !ok {
+	needsProgress := p.config.Progress.Enabled
+	needsElicitation := p.config.Elicitation.Enabled
+
+	if !needsProgress && !needsElicitation {
 		return
 	}
 
@@ -1407,9 +1458,43 @@ func (p *Platform) injectToolkitPlatformConfig() {
 		if !ok {
 			continue
 		}
-		instanceCfg["progress_enabled"] = true
+		if needsProgress {
+			instanceCfg["progress_enabled"] = true
+		}
+		if needsElicitation {
+			instanceCfg["elicitation"] = map[string]any{
+				"enabled": true,
+				"cost_estimation": map[string]any{
+					"enabled":       p.config.Elicitation.CostEstimation.Enabled,
+					"row_threshold": p.config.Elicitation.CostEstimation.RowThreshold,
+				},
+				"pii_consent": map[string]any{
+					"enabled": p.config.Elicitation.PIIConsent.Enabled,
+				},
+			}
+		}
 		instances[name] = instanceCfg
 	}
+}
+
+// trinoInstanceConfigs returns the Trino toolkit instances map, or nil if not found.
+func (p *Platform) trinoInstanceConfigs() map[string]any {
+	if p.config.Toolkits == nil {
+		return nil
+	}
+	trinoCfg, ok := p.config.Toolkits[toolkitKindTrino]
+	if !ok {
+		return nil
+	}
+	kindCfg, ok := trinoCfg.(map[string]any)
+	if !ok {
+		return nil
+	}
+	instances, ok := kindCfg["instances"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return instances
 }
 
 // Configuration extraction helpers.

@@ -7,6 +7,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// MCP method names used across middleware.
+const (
+	methodToolsList              = "tools/list"
+	methodResourcesTemplatesList = "resources/templates/list"
+	methodPromptsList            = "prompts/list"
+)
+
 // MCPToolVisibilityMiddleware creates MCP protocol-level middleware that filters
 // tools/list responses based on allow/deny glob patterns. This reduces token
 // usage in LLM clients by hiding tools that are not needed for a deployment.
@@ -28,7 +35,7 @@ func MCPToolVisibilityMiddleware(allow, deny []string) mcp.Middleware {
 // filterToolVisibility filters tools from a tools/list response based on
 // allow/deny patterns. Non-tools/list methods pass through unchanged.
 func filterToolVisibility(allow, deny []string, method string, result mcp.Result) (mcp.Result, error) {
-	if method != "tools/list" {
+	if method != methodToolsList {
 		return result, nil
 	}
 

@@ -18,9 +18,10 @@ const defaultServerName = "mcp-data-platform"
 
 // Default configuration values.
 const (
-	defaultMaxOpenConns     = 25
-	defaultRetentionDays    = 90
-	defaultQualityThreshold = 0.7
+	defaultMaxOpenConns       = 25
+	defaultRetentionDays      = 90
+	defaultQualityThreshold   = 0.7
+	defaultElicitRowThreshold = 1_000_000
 )
 
 // Session store backend names.
@@ -73,6 +74,8 @@ type Config struct {
 	Resources     ResourcesConfig     `yaml:"resources"`
 	Progress      ProgressConfig      `yaml:"progress"`
 	ClientLogging ClientLoggingConfig `yaml:"client_logging"`
+	Icons         IconsConfig         `yaml:"icons"`
+	Elicitation   ElicitationConfig   `yaml:"elicitation"`
 }
 
 // AdminConfig configures the admin REST API.
@@ -433,6 +436,58 @@ type ClientLoggingConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// IconsConfig configures visual metadata for tools, resources, and prompts.
+type IconsConfig struct {
+	// Enabled is the master switch for icon injection.
+	Enabled bool `yaml:"enabled"`
+
+	// Tools maps tool names to their icon definitions.
+	Tools map[string]IconDef `yaml:"tools"`
+
+	// Resources maps resource URI templates to their icon definitions.
+	Resources map[string]IconDef `yaml:"resources"`
+
+	// Prompts maps prompt names to their icon definitions.
+	Prompts map[string]IconDef `yaml:"prompts"`
+}
+
+// IconDef defines an icon for config-driven injection.
+type IconDef struct {
+	// Source is the icon URL (HTTP/HTTPS) or data URI.
+	Source string `yaml:"src"`
+
+	// MIMEType is the optional MIME type (e.g., "image/svg+xml").
+	MIMEType string `yaml:"mime_type,omitempty"`
+}
+
+// ElicitationConfig configures user confirmation for expensive operations.
+type ElicitationConfig struct {
+	// Enabled is the master switch for all elicitation features.
+	Enabled bool `yaml:"enabled"`
+
+	// CostEstimation configures query cost estimation and confirmation.
+	CostEstimation CostEstimationConfig `yaml:"cost_estimation"`
+
+	// PIIConsent configures PII access consent.
+	PIIConsent PIIConsentConfig `yaml:"pii_consent"`
+}
+
+// CostEstimationConfig configures query cost estimation.
+type CostEstimationConfig struct {
+	// Enabled controls whether query cost estimation triggers elicitation.
+	Enabled bool `yaml:"enabled"`
+
+	// RowThreshold is the estimated row count above which confirmation is requested.
+	// Default: 1000000 (1 million rows).
+	RowThreshold int64 `yaml:"row_threshold"`
+}
+
+// PIIConsentConfig configures PII access consent.
+type PIIConsentConfig struct {
+	// Enabled controls whether PII table access triggers elicitation.
+	Enabled bool `yaml:"enabled"`
+}
+
 // SessionsConfig configures session externalization.
 type SessionsConfig struct {
 	// Store selects the session storage backend: "memory" (default) or "database".
@@ -525,6 +580,14 @@ func applyDefaults(cfg *Config) {
 	applySessionDedupDefaults(cfg)
 	applySessionDefaults(cfg)
 	applyAdminDefaults(cfg)
+	applyElicitationDefaults(cfg)
+}
+
+// applyElicitationDefaults sets defaults for elicitation config.
+func applyElicitationDefaults(cfg *Config) {
+	if cfg.Elicitation.CostEstimation.RowThreshold == 0 {
+		cfg.Elicitation.CostEstimation.RowThreshold = defaultElicitRowThreshold
+	}
 }
 
 // applyConfigStoreDefaults sets defaults for config store settings.

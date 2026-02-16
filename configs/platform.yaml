@@ -300,6 +300,34 @@ tuning:
 # client_logging:
 #   enabled: true
 
+# Elicitation (user confirmation prompts)
+# Requests user confirmation before expensive queries or PII access.
+# Requires client-side elicitation support (e.g., Claude Desktop).
+# Gracefully degrades to no-op if the client doesn't support elicitation.
+# elicitation:
+#   enabled: true
+#   cost_estimation:
+#     enabled: true
+#     row_threshold: 1000000    # prompt when EXPLAIN IO estimates > 1M rows
+#   pii_consent:
+#     enabled: true             # prompt when query accesses PII-tagged columns
+
+# Icons (tool/resource/prompt visual metadata)
+# Override or add icons to MCP list responses.
+# Upstream toolkits provide default icons; use this to customize.
+# icons:
+#   enabled: true
+#   tools:
+#     trino_query:
+#       src: "https://example.com/custom-trino.svg"
+#       mime_type: "image/svg+xml"
+#   resources:
+#     "schema://{catalog}.{schema}/{table}":
+#       src: "https://example.com/schema.svg"
+#   prompts:
+#     knowledge_capture:
+#       src: "https://example.com/knowledge.svg"
+
 # Audit logging
 audit:
   enabled: false

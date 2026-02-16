@@ -21,6 +21,25 @@ const (
 	methodToolsCall = "tools/call"
 )
 
+// Error categories for structured error handling and audit queries.
+const (
+	ErrCategoryAuth     = "authentication_failed"
+	ErrCategoryAuthz    = "authorization_denied"
+	ErrCategoryDeclined = "user_declined"
+)
+
+// PlatformError is a categorized error for structured audit and client handling.
+type PlatformError struct {
+	Category string
+	Message  string
+}
+
+// Error implements the error interface.
+func (e *PlatformError) Error() string { return e.Message }
+
+// ErrorCategory implements CategorizedError.
+func (e *PlatformError) ErrorCategory() string { return e.Category }
+
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
 // tools/call requests and enforces authentication and authorization.
 //
@@ -141,7 +160,7 @@ func authenticateAndAuthorize(
 			"request_id", params.pc.RequestID,
 			"error", err.Error(),
 		)
-		return createErrorResult("authentication failed: " + err.Error()), nil
+		return createCategorizedErrorResult(ErrCategoryAuth, "authentication failed: "+err.Error()), nil
 	}
 
 	if userInfo != nil {
@@ -165,7 +184,7 @@ func authenticateAndAuthorize(
 			"reason", reason,
 			"request_id", params.pc.RequestID,
 		)
-		return createErrorResult("not authorized: " + reason), nil
+		return createCategorizedErrorResult(ErrCategoryAuthz, "not authorized: "+reason), nil
 	}
 
 	authType := ""
@@ -240,6 +259,31 @@ func createErrorResult(errMsg string) mcp.Result {
 	result := &mcp.CallToolResult{}
 	result.SetError(errors.New(errMsg))
 	return result
+}
+
+// createCategorizedErrorResult creates an MCP error result with a category
+// for structured audit queries. The category is embedded in the error and
+// extractable via ErrorCategory().
+func createCategorizedErrorResult(category, errMsg string) mcp.Result {
+	result := &mcp.CallToolResult{}
+	result.SetError(&PlatformError{Category: category, Message: errMsg})
+	return result
+}
+
+// CategorizedError is implemented by errors that carry a category for audit.
+type CategorizedError interface {
+	error
+	ErrorCategory() string
+}
+
+// ErrorCategory extracts the error category from a categorized error.
+// Returns an empty string if the error is not categorized.
+func ErrorCategory(err error) string {
+	var ce CategorizedError
+	if errors.As(err, &ce) {
+		return ce.ErrorCategory()
+	}
+	return ""
 }
 
 // extractBearerOrAPIKey extracts an auth token from HTTP headers.

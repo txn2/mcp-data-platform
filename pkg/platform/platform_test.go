@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -3136,6 +3138,264 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 		got, gotOK := validCfg["progress_enabled"].(bool)
 		if !gotOK || !got {
 			t.Errorf("valid instance: progress_enabled = %v, want true", got)
+		}
+	})
+}
+
+func TestBuildServerCapabilities(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        Config
+		wantTools     bool
+		wantLogging   bool
+		wantResources bool
+		wantPrompts   bool
+	}{
+		{
+			name:          "minimal config: tools and logging always present",
+			config:        Config{},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: false,
+			wantPrompts:   false,
+		},
+		{
+			name: "resources enabled",
+			config: Config{
+				Resources: ResourcesConfig{Enabled: true},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: true,
+			wantPrompts:   false,
+		},
+		{
+			name: "prompts configured via server.prompts",
+			config: Config{
+				Server: ServerConfig{
+					Prompts: []PromptConfig{{Name: "test", Content: "test"}},
+				},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: false,
+			wantPrompts:   true,
+		},
+		{
+			name: "prompts configured via prompts_dir",
+			config: Config{
+				Tuning: TuningConfig{PromptsDir: "/some/dir"},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: false,
+			wantPrompts:   true,
+		},
+		{
+			name: "prompts configured via knowledge enabled",
+			config: Config{
+				Knowledge: KnowledgeConfig{Enabled: true},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: false,
+			wantPrompts:   true,
+		},
+		{
+			name: "all capabilities enabled",
+			config: Config{
+				Resources: ResourcesConfig{Enabled: true},
+				Knowledge: KnowledgeConfig{Enabled: true},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: true,
+			wantPrompts:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Platform{config: &tt.config}
+			caps := p.buildServerCapabilities()
+
+			if caps == nil {
+				t.Fatal("buildServerCapabilities returned nil")
+			}
+			if (caps.Tools != nil) != tt.wantTools {
+				t.Errorf("Tools: got %v, want present=%v", caps.Tools, tt.wantTools)
+			}
+			if (caps.Logging != nil) != tt.wantLogging {
+				t.Errorf("Logging: got %v, want present=%v", caps.Logging, tt.wantLogging)
+			}
+			if (caps.Resources != nil) != tt.wantResources {
+				t.Errorf("Resources: got %v, want present=%v", caps.Resources, tt.wantResources)
+			}
+			if (caps.Prompts != nil) != tt.wantPrompts {
+				t.Errorf("Prompts: got %v, want present=%v", caps.Prompts, tt.wantPrompts)
+			}
+		})
+	}
+}
+
+func TestConvertIconDefs(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		got := convertIconDefs(nil)
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		got := convertIconDefs(map[string]IconDef{})
+		if got != nil {
+			t.Errorf("expected nil for empty map, got %v", got)
+		}
+	})
+
+	t.Run("converts entries", func(t *testing.T) {
+		input := map[string]IconDef{
+			"trino_query": {Source: "https://example.com/trino.svg", MIMEType: "image/svg+xml"},
+			"s3_list":     {Source: "https://example.com/s3.png", MIMEType: "image/png"},
+		}
+		got := convertIconDefs(input)
+		if len(got) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(got))
+		}
+		if got["trino_query"].Source != "https://example.com/trino.svg" {
+			t.Errorf("trino_query source = %q", got["trino_query"].Source)
+		}
+		if got["trino_query"].MIMEType != "image/svg+xml" {
+			t.Errorf("trino_query mime = %q", got["trino_query"].MIMEType)
+		}
+		if got["s3_list"].Source != "https://example.com/s3.png" {
+			t.Errorf("s3_list source = %q", got["s3_list"].Source)
+		}
+	})
+}
+
+func TestAddIconMiddleware(t *testing.T) {
+	t.Run("disabled does nothing", func(_ *testing.T) {
+		p := &Platform{
+			config: &Config{Icons: IconsConfig{Enabled: false}},
+		}
+		// Should not panic even without mcpServer
+		p.addIconMiddleware()
+	})
+
+	t.Run("enabled with config", func(_ *testing.T) {
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+		p := &Platform{
+			config: &Config{
+				Icons: IconsConfig{
+					Enabled: true,
+					Tools: map[string]IconDef{
+						"trino_query": {Source: "https://example.com/trino.svg", MIMEType: "image/svg+xml"},
+					},
+					Resources: map[string]IconDef{
+						"schema://test": {Source: "https://example.com/schema.svg"},
+					},
+					Prompts: map[string]IconDef{
+						"knowledge": {Source: "https://example.com/knowledge.svg"},
+					},
+				},
+			},
+			mcpServer: server,
+		}
+		// Should not panic and should register middleware
+		p.addIconMiddleware()
+	})
+}
+
+func TestInjectToolkitPlatformConfig_Elicitation(t *testing.T) {
+	t.Run("injects elicitation config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Elicitation: ElicitationConfig{
+					Enabled: true,
+					CostEstimation: CostEstimationConfig{
+						Enabled:      true,
+						RowThreshold: 500000,
+					},
+					PIIConsent: PIIConsentConfig{Enabled: true},
+				},
+				Toolkits: map[string]any{
+					toolkitKindTrino: map[string]any{
+						"instances": map[string]any{
+							"primary": map[string]any{
+								"host": "localhost",
+								"user": "test",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		p.injectToolkitPlatformConfig()
+
+		instances := p.trinoInstanceConfigs()
+		primaryCfg, ok := instances["primary"].(map[string]any)
+		if !ok {
+			t.Fatal("primary instance config not found")
+		}
+
+		elicit, ok := primaryCfg["elicitation"].(map[string]any)
+		if !ok {
+			t.Fatal("elicitation config not injected")
+		}
+		if enabled, _ := elicit["enabled"].(bool); !enabled {
+			t.Error("elicitation.enabled should be true")
+		}
+		cost, ok := elicit["cost_estimation"].(map[string]any)
+		if !ok {
+			t.Fatal("cost_estimation not found")
+		}
+		if enabled, _ := cost["enabled"].(bool); !enabled {
+			t.Error("cost_estimation.enabled should be true")
+		}
+		if cost["row_threshold"] != int64(500000) {
+			t.Errorf("row_threshold = %v, want 500000", cost["row_threshold"])
+		}
+		pii, ok := elicit["pii_consent"].(map[string]any)
+		if !ok {
+			t.Fatal("pii_consent not found")
+		}
+		if enabled, _ := pii["enabled"].(bool); !enabled {
+			t.Error("pii_consent.enabled should be true")
+		}
+	})
+
+	t.Run("both progress and elicitation", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Progress:    ProgressConfig{Enabled: true},
+				Elicitation: ElicitationConfig{Enabled: true},
+				Toolkits: map[string]any{
+					toolkitKindTrino: map[string]any{
+						"instances": map[string]any{
+							"primary": map[string]any{
+								"host": "localhost",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		p.injectToolkitPlatformConfig()
+
+		instances := p.trinoInstanceConfigs()
+		primaryCfg, ok := instances["primary"].(map[string]any)
+		if !ok {
+			t.Fatal("primary instance config not found")
+		}
+
+		if enabled, _ := primaryCfg["progress_enabled"].(bool); !enabled {
+			t.Error("progress_enabled should be injected")
+		}
+		if _, ok := primaryCfg["elicitation"].(map[string]any); !ok {
+			t.Error("elicitation config should be injected")
 		}
 	})
 }

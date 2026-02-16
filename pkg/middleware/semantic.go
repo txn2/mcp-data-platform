@@ -46,6 +46,10 @@ type EnrichmentConfig struct {
 	// EnrichDataHubStorageResults adds storage context to DataHub tool results.
 	EnrichDataHubStorageResults bool
 
+	// ResourceLinksEnabled adds resource links to DataHub search results,
+	// pointing to schema:// and availability:// resource templates.
+	ResourceLinksEnabled bool
+
 	// SessionCache enables session-level metadata deduplication.
 	// If nil, dedup is disabled and full enrichment is always sent.
 	SessionCache *SessionEnrichmentCache
@@ -285,6 +289,11 @@ func (e *semanticEnricher) enrichDataHubResultWithAll(
 		if err != nil {
 			return enrichedResult, err
 		}
+	}
+
+	// Add resource links to DataHub search results
+	if e.cfg.ResourceLinksEnabled {
+		enrichedResult = appendResourceLinks(enrichedResult, extractURNsFromResult(enrichedResult))
 	}
 
 	return enrichedResult, nil
@@ -1071,4 +1080,77 @@ func appendStorageContext(result *mcp.CallToolResult, contexts map[string]*stora
 	})
 
 	return result, nil
+}
+
+// appendResourceLinks adds schema:// and availability:// resource links to a
+// tool result for each DataHub URN found. This lets agents follow up with
+// resource template reads for detailed schema or availability info.
+func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToolResult {
+	if len(urns) == 0 {
+		return result
+	}
+
+	for _, urn := range urns {
+		catalog, schema, table := parseDataHubURNComponents(urn)
+		if table == "" {
+			continue
+		}
+
+		schemaURI := fmt.Sprintf("schema://%s.%s/%s", catalog, schema, table)
+		result.Content = append(result.Content, &mcp.ResourceLink{
+			URI:         schemaURI,
+			Name:        fmt.Sprintf("Schema: %s.%s.%s", catalog, schema, table),
+			Description: "Table schema with semantic context",
+			MIMEType:    "application/json",
+		})
+
+		availURI := fmt.Sprintf("availability://%s.%s/%s", catalog, schema, table)
+		result.Content = append(result.Content, &mcp.ResourceLink{
+			URI:         availURI,
+			Name:        fmt.Sprintf("Availability: %s.%s.%s", catalog, schema, table),
+			Description: "Data availability status and row count",
+			MIMEType:    "application/json",
+		})
+	}
+
+	return result
+}
+
+// parseDataHubURNComponents extracts catalog, schema, and table from a DataHub
+// dataset URN. The expected format is:
+//
+//	urn:li:dataset:(urn:li:dataPlatform:<platform>,<catalog>.<schema>.<table>,PROD)
+//
+// Returns empty strings if the URN doesn't match the expected format.
+func parseDataHubURNComponents(urn string) (catalog, schema, table string) {
+	const prefix = "urn:li:dataset:(urn:li:dataPlatform:"
+	if !strings.HasPrefix(urn, prefix) {
+		return "", "", ""
+	}
+
+	// Strip prefix to get: "trino,catalog.schema.table,PROD)"
+	rest := urn[len(prefix):]
+
+	// Find first comma after platform name
+	firstComma := strings.Index(rest, ",")
+	if firstComma < 0 {
+		return "", "", ""
+	}
+
+	// Get the qualified name portion: "catalog.schema.table,PROD)"
+	rest = rest[firstComma+1:]
+
+	// Find the next comma (before ",PROD)")
+	qualifiedName, _, found := strings.Cut(rest, ",")
+	if !found {
+		return "", "", ""
+	}
+
+	// Split by dots: catalog.schema.table
+	parts := strings.SplitN(qualifiedName, ".", 3) //nolint:mnd,revive // 3 parts: catalog.schema.table
+	if len(parts) != 3 {                           //nolint:mnd,revive // 3 parts: catalog.schema.table
+		return "", "", ""
+	}
+
+	return parts[0], parts[1], parts[2]
 }

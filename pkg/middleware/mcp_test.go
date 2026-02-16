@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -747,4 +748,53 @@ func TestExtractProgressToken(t *testing.T) {
 			t.Errorf("expected nil, got %v", pt)
 		}
 	})
+}
+
+func TestPlatformError(t *testing.T) {
+	t.Run("implements error interface", func(t *testing.T) {
+		err := &PlatformError{Category: ErrCategoryAuth, Message: "auth failed"}
+		if err.Error() != "auth failed" {
+			t.Errorf("Error() = %q, want %q", err.Error(), "auth failed")
+		}
+	})
+
+	t.Run("ErrorCategory extracts category", func(t *testing.T) {
+		err := &PlatformError{Category: ErrCategoryAuthz, Message: "denied"}
+		if got := ErrorCategory(err); got != ErrCategoryAuthz {
+			t.Errorf("ErrorCategory = %q, want %q", got, ErrCategoryAuthz)
+		}
+	})
+
+	t.Run("ErrorCategory returns empty for plain error", func(t *testing.T) {
+		err := errors.New("plain error")
+		if got := ErrorCategory(err); got != "" {
+			t.Errorf("ErrorCategory = %q, want empty", got)
+		}
+	})
+
+	t.Run("ErrorCategory returns empty for nil", func(t *testing.T) {
+		if got := ErrorCategory(nil); got != "" {
+			t.Errorf("ErrorCategory = %q, want empty", got)
+		}
+	})
+}
+
+func TestCreateCategorizedErrorResult(t *testing.T) {
+	result := createCategorizedErrorResult(ErrCategoryAuth, "auth failed")
+	callResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatal("result is not *mcp.CallToolResult")
+	}
+	if !callResult.IsError {
+		t.Error("expected IsError to be true")
+	}
+
+	// Verify the error category is embedded
+	err := callResult.GetError()
+	if err == nil {
+		t.Fatal("GetError() returned nil")
+	}
+	if got := ErrorCategory(err); got != ErrCategoryAuth {
+		t.Errorf("ErrorCategory = %q, want %q", got, ErrCategoryAuth)
+	}
 }

@@ -51,6 +51,33 @@ type Config struct {
 	// ProgressEnabled enables progress notifications for query execution.
 	// Injected by the platform from progress.enabled config.
 	ProgressEnabled bool `yaml:"progress_enabled"`
+
+	// Elicitation configures user confirmation for expensive operations.
+	// Injected by the platform from elicitation config.
+	Elicitation ElicitationConfig `yaml:"elicitation"`
+}
+
+// ElicitationConfig configures elicitation triggers for the Trino toolkit.
+type ElicitationConfig struct {
+	// Enabled is the master switch for all elicitation features.
+	Enabled bool `yaml:"enabled"`
+
+	// CostEstimation configures query cost estimation and confirmation.
+	CostEstimation CostEstimationConfig `yaml:"cost_estimation"`
+
+	// PIIConsent configures PII access consent.
+	PIIConsent PIIConsentConfig `yaml:"pii_consent"`
+}
+
+// CostEstimationConfig configures query cost estimation.
+type CostEstimationConfig struct {
+	Enabled      bool  `yaml:"enabled"`
+	RowThreshold int64 `yaml:"row_threshold"`
+}
+
+// PIIConsentConfig configures PII access consent.
+type PIIConsentConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // Toolkit wraps mcp-trino toolkit for the platform.
@@ -62,6 +89,9 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+
+	// elicitation holds the middleware so providers can be propagated after init.
+	elicitation *ElicitationMiddleware
 }
 
 // New creates a new Trino toolkit.
@@ -77,14 +107,23 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		return nil, err
 	}
 
-	trinoToolkit := createToolkit(client, cfg)
+	t := &Toolkit{
+		name:   name,
+		config: cfg,
+		client: client,
+	}
 
-	return &Toolkit{
-		name:         name,
-		config:       cfg,
-		client:       client,
-		trinoToolkit: trinoToolkit,
-	}, nil
+	// Create elicitation middleware before toolkit so it can be passed as an option.
+	if cfg.Elicitation.Enabled {
+		t.elicitation = &ElicitationMiddleware{
+			client: client,
+			config: cfg.Elicitation,
+		}
+	}
+
+	t.trinoToolkit = createToolkit(client, cfg, t.elicitation)
+
+	return t, nil
 }
 
 // validateConfig validates the required configuration fields.
@@ -161,7 +200,7 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 }
 
 // createToolkit creates the mcp-trino toolkit with appropriate options.
-func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
+func createToolkit(client *trinoclient.Client, cfg Config, elicit *ElicitationMiddleware) *trinotools.Toolkit {
 	var opts []trinotools.ToolkitOption
 
 	// Add read-only interceptor if configured
@@ -182,6 +221,11 @@ func createToolkit(client *trinoclient.Client, cfg Config) *trinotools.Toolkit {
 	// Add progress notifier injector if enabled
 	if cfg.ProgressEnabled {
 		opts = append(opts, trinotools.WithMiddleware(&ProgressInjector{}))
+	}
+
+	// Add elicitation middleware if enabled
+	if elicit != nil {
+		opts = append(opts, trinotools.WithMiddleware(elicit))
 	}
 
 	return trinotools.NewToolkit(client, trinotools.Config{
@@ -258,6 +302,9 @@ func (*Toolkit) Tools() []string {
 // SetSemanticProvider sets the semantic metadata provider for enrichment.
 func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
 	t.semanticProvider = provider
+	if t.elicitation != nil {
+		t.elicitation.SetSemanticProvider(provider)
+	}
 }
 
 // SetQueryProvider sets the query execution provider for enrichment.

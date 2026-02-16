@@ -91,7 +91,7 @@ func TestCreateToolkit_ProgressEnabled(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	toolkit := createToolkit(client, cfg)
+	toolkit := createToolkit(client, cfg, nil)
 	if toolkit == nil {
 		t.Fatal("expected non-nil toolkit")
 	}
@@ -111,7 +111,7 @@ func TestCreateToolkit_ProgressDisabled(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	toolkit := createToolkit(client, cfg)
+	toolkit := createToolkit(client, cfg, nil)
 	if toolkit == nil {
 		t.Fatal("expected non-nil toolkit")
 	}
