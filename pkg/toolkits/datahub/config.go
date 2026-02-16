@@ -45,7 +45,48 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	// Optional description overrides
 	c.Descriptions = getStringMap(cfg, "descriptions")
 
+	// Optional annotation overrides
+	c.Annotations = getAnnotationsMap(cfg, "annotations")
+
 	return c, nil
+}
+
+// AnnotationConfig holds tool annotation overrides from configuration.
+type AnnotationConfig struct {
+	ReadOnlyHint    *bool `yaml:"read_only_hint"`
+	DestructiveHint *bool `yaml:"destructive_hint"`
+	IdempotentHint  *bool `yaml:"idempotent_hint"`
+	OpenWorldHint   *bool `yaml:"open_world_hint"`
+}
+
+// getAnnotationsMap extracts annotation overrides from a config map.
+func getAnnotationsMap(cfg map[string]any, key string) map[string]AnnotationConfig { //nolint:unparam // consistent with getStringMap
+	raw, ok := cfg[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]AnnotationConfig, len(raw))
+	for k, v := range raw {
+		toolCfg, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		ann := AnnotationConfig{}
+		if b, ok := toolCfg["read_only_hint"].(bool); ok {
+			ann.ReadOnlyHint = &b
+		}
+		if b, ok := toolCfg["destructive_hint"].(bool); ok {
+			ann.DestructiveHint = &b
+		}
+		if b, ok := toolCfg["idempotent_hint"].(bool); ok {
+			ann.IdempotentHint = &b
+		}
+		if b, ok := toolCfg["open_world_hint"].(bool); ok {
+			ann.OpenWorldHint = &b
+		}
+		result[k] = ann
+	}
+	return result
 }
 
 // getString extracts a string value from a config map.

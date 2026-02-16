@@ -363,6 +363,85 @@ func TestToDataHubToolNames(t *testing.T) {
 	})
 }
 
+func TestToDataHubAnnotations(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := toDataHubAnnotations(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("valid conversion", func(t *testing.T) {
+		readOnly := true
+		destructive := false
+		input := map[string]AnnotationConfig{
+			"datahub_search": {
+				ReadOnlyHint:    &readOnly,
+				DestructiveHint: &destructive,
+			},
+		}
+		result := toDataHubAnnotations(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		ann := result[dhtools.ToolName("datahub_search")]
+		if ann == nil {
+			t.Fatal("expected non-nil annotation")
+		}
+		if !ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+	})
+}
+
+func TestAnnotationConfigToMCP(t *testing.T) {
+	t.Run("all fields set", func(t *testing.T) {
+		readOnly := true
+		destructive := false
+		idempotent := true
+		openWorld := false
+		cfg := AnnotationConfig{
+			ReadOnlyHint:    &readOnly,
+			DestructiveHint: &destructive,
+			IdempotentHint:  &idempotent,
+			OpenWorldHint:   &openWorld,
+		}
+		ann := annotationConfigToMCP(cfg)
+		if !ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+		if !ann.IdempotentHint {
+			t.Error("expected IdempotentHint=true")
+		}
+		if ann.OpenWorldHint == nil || *ann.OpenWorldHint {
+			t.Error("expected OpenWorldHint=false")
+		}
+	})
+
+	t.Run("no fields set", func(t *testing.T) {
+		cfg := AnnotationConfig{}
+		ann := annotationConfigToMCP(cfg)
+		if ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=false")
+		}
+		if ann.DestructiveHint != nil {
+			t.Error("expected DestructiveHint=nil")
+		}
+		if ann.IdempotentHint {
+			t.Error("expected IdempotentHint=false")
+		}
+		if ann.OpenWorldHint != nil {
+			t.Error("expected OpenWorldHint=nil")
+		}
+	})
+}
+
 func TestToolkit_RegisterTools(_ *testing.T) {
 	tk := newTestDatahubToolkit()
 	// Should not panic with nil server

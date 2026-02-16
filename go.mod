@@ -14,9 +14,9 @@ require (
 	github.com/swaggo/swag v1.16.4
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
-	github.com/txn2/mcp-datahub v0.6.0
-	github.com/txn2/mcp-s3 v0.1.4
-	github.com/txn2/mcp-trino v0.4.0
+	github.com/txn2/mcp-datahub v0.7.0
+	github.com/txn2/mcp-s3 v0.2.0
+	github.com/txn2/mcp-trino v0.5.0
 	golang.org/x/crypto v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -39,7 +39,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.13 // indirect

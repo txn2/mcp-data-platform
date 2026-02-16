@@ -328,6 +328,114 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	}
 }
 
+func TestToS3ToolNames(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := toS3ToolNames(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("valid conversion", func(t *testing.T) {
+		input := map[string]string{
+			"s3_list_buckets": "Custom list",
+			"s3_get_object":   "Custom get",
+		}
+		result := toS3ToolNames(input)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+		for k, v := range input {
+			if got := result[s3tools.ToolName(k)]; got != v {
+				t.Errorf("result[%q] = %q, want %q", k, got, v)
+			}
+		}
+	})
+
+	t.Run("empty map", func(t *testing.T) {
+		result := toS3ToolNames(map[string]string{})
+		if result == nil {
+			t.Error("expected non-nil empty map")
+		}
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries, got %d", len(result))
+		}
+	})
+}
+
+func TestToS3Annotations(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := toS3Annotations(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("valid conversion", func(t *testing.T) {
+		readOnly := true
+		destructive := false
+		input := map[string]AnnotationConfig{
+			"s3_list_buckets": {
+				ReadOnlyHint:    &readOnly,
+				DestructiveHint: &destructive,
+			},
+		}
+		result := toS3Annotations(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		ann := result[s3tools.ToolName("s3_list_buckets")]
+		if ann == nil {
+			t.Fatal("expected non-nil annotation")
+		}
+		if !ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+	})
+}
+
+func TestS3AnnotationConfigToMCP(t *testing.T) {
+	t.Run("all fields set", func(t *testing.T) {
+		readOnly := true
+		destructive := false
+		idempotent := true
+		openWorld := false
+		cfg := AnnotationConfig{
+			ReadOnlyHint:    &readOnly,
+			DestructiveHint: &destructive,
+			IdempotentHint:  &idempotent,
+			OpenWorldHint:   &openWorld,
+		}
+		ann := annotationConfigToMCP(cfg)
+		if !ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=true")
+		}
+		if ann.DestructiveHint == nil || *ann.DestructiveHint {
+			t.Error("expected DestructiveHint=false")
+		}
+		if !ann.IdempotentHint {
+			t.Error("expected IdempotentHint=true")
+		}
+		if ann.OpenWorldHint == nil || *ann.OpenWorldHint {
+			t.Error("expected OpenWorldHint=false")
+		}
+	})
+
+	t.Run("no fields set", func(t *testing.T) {
+		cfg := AnnotationConfig{}
+		ann := annotationConfigToMCP(cfg)
+		if ann.ReadOnlyHint {
+			t.Error("expected ReadOnlyHint=false")
+		}
+		if ann.DestructiveHint != nil {
+			t.Error("expected DestructiveHint=nil")
+		}
+	})
+}
+
 func TestToolkit_RegisterTools(t *testing.T) {
 	t.Run("nil s3Toolkit does not panic", func(_ *testing.T) {
 		tk := &Toolkit{name: "test"}
