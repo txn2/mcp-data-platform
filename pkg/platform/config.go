@@ -260,7 +260,6 @@ type PromptsDef struct {
 // RoleMappingConfig configures role mapping.
 type RoleMappingConfig struct {
 	OIDCToPersona map[string]string `yaml:"oidc_to_persona"`
-	UserPersonas  map[string]string `yaml:"user_personas"`
 }
 
 // SemanticConfig configures the semantic layer.
@@ -496,10 +495,6 @@ type SessionsConfig struct {
 	// TTL is the session lifetime. Defaults to streamable.session_timeout.
 	TTL time.Duration `yaml:"ttl"`
 
-	// IdleTimeout is the idle session eviction threshold.
-	// Defaults to streamable.session_timeout.
-	IdleTimeout time.Duration `yaml:"idle_timeout"`
-
 	// CleanupInterval is how often the cleanup routine runs. Defaults to 1m.
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`
 }
@@ -665,9 +660,6 @@ func applySessionDefaults(cfg *Config) {
 	}
 	if cfg.Sessions.TTL == 0 {
 		cfg.Sessions.TTL = cfg.Server.Streamable.SessionTimeout
-	}
-	if cfg.Sessions.IdleTimeout == 0 {
-		cfg.Sessions.IdleTimeout = cfg.Server.Streamable.SessionTimeout
 	}
 	if cfg.Sessions.CleanupInterval == 0 {
 		cfg.Sessions.CleanupInterval = defaultCleanupInterval

@@ -987,6 +987,7 @@ Record domain knowledge shared during a session.
 | `category` | string | Yes | - | correction, business_context, data_quality, usage_guidance, relationship, enhancement |
 | `insight_text` | string | Yes | - | Knowledge to record (10-4000 chars) |
 | `confidence` | string | No | medium | high, medium, low |
+| `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
 | `suggested_actions` | array | No | [] | Proposed catalog changes (max 5) |
@@ -1154,6 +1155,7 @@ Records domain knowledge shared during a session.
 | `category` | string | Yes | One of: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement` |
 | `insight_text` | string | Yes | The knowledge to record (10-4000 characters) |
 | `confidence` | string | No | `high`, `medium` (default), or `low` |
+| `source` | string | No | `user` (default), `agent_discovery`, or `enrichment_gap` |
 | `entity_urns` | array | No | DataHub URNs this insight relates to (max 10) |
 | `related_columns` | array | No | Columns related to this insight (max 20) |
 | `suggested_actions` | array | No | Proposed catalog changes (max 5) |
@@ -1310,6 +1312,7 @@ HTTP endpoints for managing insights and changesets. All endpoints require admin
 | `entity_urn` | string | Filter by entity URN |
 | `captured_by` | string | Filter by user who captured |
 | `confidence` | string | Filter by confidence level |
+| `source` | string | Filter by source (user, agent_discovery, enrichment_gap) |
 | `since` | RFC3339 | Filter by creation time (after) |
 | `until` | RFC3339 | Filter by creation time (before) |
 | `page` | integer | Page number (1-based) |
@@ -1348,6 +1351,7 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 | `session_id` | TEXT | MCP session that produced it |
 | `captured_by` | TEXT | User who shared the knowledge |
 | `persona` | TEXT | Active persona at capture time |
+| `source` | TEXT | Where the knowledge came from: `user`, `agent_discovery`, `enrichment_gap` |
 | `category` | TEXT | Insight category |
 | `insight_text` | TEXT | The domain knowledge |
 | `confidence` | TEXT | Confidence level |

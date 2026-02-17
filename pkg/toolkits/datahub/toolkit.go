@@ -196,9 +196,23 @@ func (t *Toolkit) Connection() string {
 }
 
 // RegisterTools registers DataHub tools with the MCP server.
+// The platform provides a unified list_connections tool, so the per-toolkit
+// datahub_list_connections is excluded.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.datahubToolkit != nil {
-		t.datahubToolkit.RegisterAll(s)
+		t.datahubToolkit.Register(s,
+			dhtools.ToolSearch,
+			dhtools.ToolGetEntity,
+			dhtools.ToolGetSchema,
+			dhtools.ToolGetLineage,
+			dhtools.ToolGetColumnLineage,
+			dhtools.ToolGetQueries,
+			dhtools.ToolGetGlossaryTerm,
+			dhtools.ToolListTags,
+			dhtools.ToolListDomains,
+			dhtools.ToolListDataProducts,
+			dhtools.ToolGetDataProduct,
+		)
 	}
 }
 
@@ -216,7 +230,6 @@ func (*Toolkit) Tools() []string {
 		"datahub_list_domains",
 		"datahub_list_data_products",
 		"datahub_get_data_product",
-		"datahub_list_connections",
 	}
 }
 

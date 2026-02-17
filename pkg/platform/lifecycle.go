@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 )
 
@@ -49,18 +50,27 @@ func (l *Lifecycle) Start(ctx context.Context) error {
 
 	for i, cb := range l.startCallbacks {
 		if err := cb(ctx); err != nil {
-			// Rollback: stop already started components
-			for j := i - 1; j >= 0; j-- {
-				if l.stopCallbacks[j] != nil {
-					_ = l.stopCallbacks[j](ctx)
-				}
-			}
+			l.rollback(ctx, i)
 			return fmt.Errorf("start callback %d failed: %w", i, err)
 		}
 	}
 
 	l.started = true
 	return nil
+}
+
+// rollback stops already-started components in reverse order.
+// Called when a start callback fails at index failedAt.
+func (l *Lifecycle) rollback(ctx context.Context, failedAt int) {
+	for j := failedAt - 1; j >= 0; j-- {
+		if l.stopCallbacks[j] == nil {
+			continue
+		}
+		if err := l.stopCallbacks[j](ctx); err != nil {
+			slog.Warn("lifecycle rollback: stop callback failed",
+				"callback", j, "error", err)
+		}
+	}
 }
 
 // Stop runs all stop callbacks in reverse order.

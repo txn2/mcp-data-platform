@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -34,6 +35,7 @@ type captureInsightInput struct {
 	Category         string            `json:"category"`
 	InsightText      string            `json:"insight_text"`
 	Confidence       string            `json:"confidence,omitempty"`
+	Source           string            `json:"source,omitempty"`
 	EntityURNs       []string          `json:"entity_urns,omitempty"`
 	RelatedColumns   []RelatedColumn   `json:"related_columns,omitempty"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions,omitempty"`
@@ -128,7 +130,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name: toolName,
 		Description: "Records domain knowledge shared during a session for later admin review and catalog integration. " +
 			"Use this when you discover corrections to metadata, business context about data meaning, " +
-			"data quality observations, usage tips, or relationships between datasets.",
+			"data quality observations, usage tips, or relationships between datasets. " +
+			"Set source to 'agent_discovery' for insights you figure out yourself, or 'enrichment_gap' " +
+			"to flag metadata gaps for admin attention. Defaults to 'user' for user-provided knowledge.",
 	}, t.handleCaptureInsight)
 
 	if t.applyEnabled {
@@ -434,7 +438,10 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 
 	// Mark source insights as applied
 	for _, insID := range input.InsightIDs {
-		_ = t.store.MarkApplied(ctx, insID, appliedBy, csID)
+		if err := t.store.MarkApplied(ctx, insID, appliedBy, csID); err != nil {
+			slog.Warn("knowledge: failed to mark insight applied",
+				"insight_id", insID, "changeset_id", csID, "error", err)
+		}
 	}
 
 	result := map[string]any{
@@ -535,6 +542,9 @@ func validateInput(input captureInsightInput) error {
 	if err := ValidateConfidence(input.Confidence); err != nil {
 		return err
 	}
+	if err := ValidateSource(input.Source); err != nil {
+		return err
+	}
 	if err := ValidateEntityURNs(input.EntityURNs); err != nil {
 		return err
 	}
@@ -548,6 +558,7 @@ func validateInput(input captureInsightInput) error {
 func buildInsight(id string, pc *middleware.PlatformContext, input captureInsightInput) Insight {
 	insight := Insight{
 		ID:               id,
+		Source:           NormalizeSource(input.Source),
 		Category:         input.Category,
 		InsightText:      input.InsightText,
 		Confidence:       NormalizeConfidence(input.Confidence),
@@ -733,6 +744,33 @@ Example: "The customer_id in orders joins to the legacy CRM export, not the new 
 **Enhancements**: The user suggests improvements to existing documentation or metadata.
 Example: "It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT."
 
+### Agent-Discovered Insights
+
+You can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:
+
+**source: "agent_discovery"** — Use when you figure something out yourself during exploration:
+- Discovering what a column actually contains by sampling data (e.g., "column 'amt' appears to be in cents, not dollars, based on value ranges")
+- Finding join relationships not documented in lineage (e.g., "orders.cust_id matches customers.legacy_id, not customers.id")
+- Identifying data quality patterns through queries (e.g., "ship_date is NULL for 23% of completed orders since 2024-06")
+- Determining refresh cadence by observing max timestamps across multiple queries
+
+**source: "enrichment_gap"** — Use when flagging metadata gaps that need admin attention:
+- A table has no description and you cannot determine its purpose from the data alone
+- Column descriptions are missing or clearly outdated
+- Lineage is incomplete or contradicts what the data shows
+- Tags or glossary terms are absent for datasets that clearly belong to a domain
+
+**source: "user"** (default) — Use for insights the user explicitly shares with you.
+
+### When to Ask the User Instead
+
+Do NOT guess when:
+- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone
+- Multiple interpretations of a column or table are equally plausible
+- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)
+
+In these cases, ask the user to clarify before capturing anything.
+
 ### When NOT to Capture
 
 Do NOT capture insights for:
@@ -741,12 +779,16 @@ Do NOT capture insights for:
 - Information already present in the catalog metadata
 - Vague or unverifiable claims without specific context
 - Trivial observations that don't add catalog value
+- Trivially obvious metadata gaps without adding what the data actually means
+- Speculative interpretations you have not verified by querying the data
+- The same gap repeatedly within a single session
 
 ### Best Practices
 
 - Include specific entity URNs when the insight relates to known datasets
 - Suggest concrete actions (add_tag, update_description) when applicable
 - Set confidence to "high" only when the user is clearly authoritative
+- For agent discoveries, set confidence based on evidence strength: "high" if verified by querying, "medium" if inferred from patterns, "low" if speculative
 - Capture the insight promptly while context is fresh`
 
 // Verify interface compliance.

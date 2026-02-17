@@ -1163,8 +1163,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)
 
-	// Register platform info tool
+	// Register platform-level tools
 	p.registerInfoTool()
+	p.registerConnectionsTool()
 
 	// Register platform-level prompts from config
 	p.registerPlatformPrompts()
@@ -1287,6 +1288,7 @@ type ToolInfo struct {
 func (*Platform) PlatformTools() []ToolInfo {
 	return []ToolInfo{
 		{Name: "platform_info", Kind: "platform"},
+		{Name: "list_connections", Kind: "platform"},
 	}
 }
 

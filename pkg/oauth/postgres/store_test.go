@@ -423,6 +423,29 @@ func TestCleanupRoutineLifecycle(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCleanupRoutine_HandlesErrors(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+
+	// Mock both cleanup queries to return errors — the goroutine should log
+	// warnings via slog but not crash.
+	mock.ExpectExec("DELETE FROM oauth_authorization_codes").
+		WillReturnError(errors.New("codes cleanup error"))
+	mock.ExpectExec("DELETE FROM oauth_refresh_tokens").
+		WillReturnError(errors.New("tokens cleanup error"))
+
+	store.StartCleanupRoutine(10 * time.Millisecond) // short interval to trigger quickly
+
+	// Wait long enough for the ticker to fire at least once.
+	time.Sleep(50 * time.Millisecond)
+
+	err = store.Close()
+	assert.NoError(t, err)
+}
+
 func TestClose_WithoutCleanupRoutine(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)

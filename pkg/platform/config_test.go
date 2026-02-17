@@ -382,7 +382,6 @@ func TestConfigTypes_PersonasConfig(t *testing.T) {
 		DefaultPersona: cfgTestRoleAdmin,
 		RoleMapping: RoleMappingConfig{
 			OIDCToPersona: map[string]string{"admin_role": cfgTestRoleAdmin},
-			UserPersonas:  map[string]string{"user1": "analyst"},
 		},
 	}
 	if cfg.DefaultPersona != cfgTestRoleAdmin {
@@ -907,9 +906,6 @@ func TestApplyDefaults_SessionsConfig(t *testing.T) {
 	if cfg.Sessions.TTL != cfgTestDefaultSessTTL {
 		t.Errorf("Sessions.TTL = %v, want %v", cfg.Sessions.TTL, cfgTestDefaultSessTTL)
 	}
-	if cfg.Sessions.IdleTimeout != cfgTestDefaultSessTTL {
-		t.Errorf("Sessions.IdleTimeout = %v, want %v", cfg.Sessions.IdleTimeout, cfgTestDefaultSessTTL)
-	}
 	if cfg.Sessions.CleanupInterval != cfgTestDefaultCleanupInt {
 		t.Errorf("Sessions.CleanupInterval = %v, want %v", cfg.Sessions.CleanupInterval, cfgTestDefaultCleanupInt)
 	}
@@ -920,7 +916,6 @@ func TestApplyDefaults_SessionsPreservesExisting(t *testing.T) {
 		Sessions: SessionsConfig{
 			Store:           SessionStoreDatabase,
 			TTL:             cfgTestCustomSessionsTTL,
-			IdleTimeout:     cfgTestCustomSessionsTTL,
 			CleanupInterval: cfgTestCustomCleanup,
 		},
 	}
@@ -931,9 +926,6 @@ func TestApplyDefaults_SessionsPreservesExisting(t *testing.T) {
 	}
 	if cfg.Sessions.TTL != cfgTestCustomSessionsTTL {
 		t.Errorf("Sessions.TTL = %v, want %v (should preserve)", cfg.Sessions.TTL, cfgTestCustomSessionsTTL)
-	}
-	if cfg.Sessions.IdleTimeout != cfgTestCustomSessionsTTL {
-		t.Errorf("Sessions.IdleTimeout = %v, want %v (should preserve)", cfg.Sessions.IdleTimeout, cfgTestCustomSessionsTTL)
 	}
 	if cfg.Sessions.CleanupInterval != cfgTestCustomCleanup {
 		t.Errorf("Sessions.CleanupInterval = %v, want %v (should preserve)", cfg.Sessions.CleanupInterval, cfgTestCustomCleanup)
@@ -947,7 +939,6 @@ server:
 sessions:
   store: database
   ttl: 15m
-  idle_timeout: 15m
   cleanup_interval: 2m
 `)
 	if cfg.Sessions.Store != SessionStoreDatabase {

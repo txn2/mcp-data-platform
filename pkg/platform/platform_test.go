@@ -3009,14 +3009,24 @@ func TestPlatformTools(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	tools := p.PlatformTools()
-	if len(tools) != 1 {
-		t.Fatalf("expected 1 platform tool, got %d", len(tools))
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 platform tools, got %d", len(tools))
 	}
+
+	// Verify platform_info
 	if tools[0].Name != "platform_info" {
-		t.Errorf("expected tool name platform_info, got %s", tools[0].Name)
+		t.Errorf("expected tool[0] name platform_info, got %s", tools[0].Name)
 	}
 	if tools[0].Kind != "platform" {
-		t.Errorf("expected tool kind platform, got %s", tools[0].Kind)
+		t.Errorf("expected tool[0] kind platform, got %s", tools[0].Kind)
+	}
+
+	// Verify list_connections
+	if tools[1].Name != "list_connections" {
+		t.Errorf("expected tool[1] name list_connections, got %s", tools[1].Name)
+	}
+	if tools[1].Kind != "platform" {
+		t.Errorf("expected tool[1] kind platform, got %s", tools[1].Kind)
 	}
 }
 

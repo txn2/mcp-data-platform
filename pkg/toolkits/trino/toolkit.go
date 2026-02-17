@@ -280,9 +280,18 @@ func (t *Toolkit) Connection() string {
 }
 
 // RegisterTools registers Trino tools with the MCP server.
+// The platform provides a unified list_connections tool, so the per-toolkit
+// trino_list_connections is excluded.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.trinoToolkit != nil {
-		t.trinoToolkit.RegisterAll(s)
+		t.trinoToolkit.Register(s,
+			trinotools.ToolQuery,
+			trinotools.ToolExplain,
+			trinotools.ToolListCatalogs,
+			trinotools.ToolListSchemas,
+			trinotools.ToolListTables,
+			trinotools.ToolDescribeTable,
+		)
 	}
 }
 
@@ -295,7 +304,6 @@ func (*Toolkit) Tools() []string {
 		"trino_list_schemas",
 		"trino_list_tables",
 		"trino_describe_table",
-		"trino_list_connections",
 	}
 }
 

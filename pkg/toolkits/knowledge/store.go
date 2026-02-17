@@ -54,8 +54,8 @@ func (s *postgresStore) Insert(ctx context.Context, insight Insight) error {
 
 	query := `
 		INSERT INTO knowledge_insights
-		(id, session_id, captured_by, persona, category, insight_text, confidence, entity_urns, related_columns, suggested_actions, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		(id, session_id, captured_by, persona, source, category, insight_text, confidence, entity_urns, related_columns, suggested_actions, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -63,6 +63,7 @@ func (s *postgresStore) Insert(ctx context.Context, insight Insight) error {
 		insight.SessionID,
 		insight.CapturedBy,
 		insight.Persona,
+		insight.Source,
 		insight.Category,
 		insight.InsightText,
 		insight.Confidence,
@@ -81,7 +82,7 @@ func (s *postgresStore) Insert(ctx context.Context, insight Insight) error {
 // Get retrieves a single insight by ID.
 func (s *postgresStore) Get(ctx context.Context, id string) (*Insight, error) {
 	query := `
-		SELECT id, created_at, session_id, captured_by, persona, category,
+		SELECT id, created_at, session_id, captured_by, persona, source, category,
 		       insight_text, confidence, entity_urns, related_columns,
 		       suggested_actions, status, reviewed_by, reviewed_at,
 		       review_notes, applied_by, applied_at, changeset_ref
@@ -94,7 +95,7 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Insight, error) {
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&insight.ID, &insight.CreatedAt, &insight.SessionID,
-		&insight.CapturedBy, &insight.Persona, &insight.Category,
+		&insight.CapturedBy, &insight.Persona, &insight.Source, &insight.Category,
 		&insight.InsightText, &insight.Confidence, &entityURNs,
 		&relatedCols, &suggestedActions, &insight.Status,
 		&insight.ReviewedBy, &reviewedAt, &insight.ReviewNotes,
@@ -149,6 +150,9 @@ func applyInsightFilter(qb sq.SelectBuilder, filter InsightFilter) sq.SelectBuil
 	if filter.Confidence != "" {
 		qb = qb.Where(sq.Eq{"confidence": filter.Confidence})
 	}
+	if filter.Source != "" {
+		qb = qb.Where(sq.Eq{"source": filter.Source})
+	}
 	if filter.Since != nil {
 		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
 	}
@@ -175,7 +179,7 @@ func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insig
 	// Fetch paginated results.
 	limit := filter.EffectiveLimit()
 	selectQB := applyInsightFilter(psq.Select(
-		"id", "created_at", "session_id", "captured_by", "persona", "category",
+		"id", "created_at", "session_id", "captured_by", "persona", "source", "category",
 		"insight_text", "confidence", "entity_urns", "related_columns",
 		"suggested_actions", "status", "reviewed_by", "reviewed_at",
 		"review_notes", "applied_by", "applied_at", "changeset_ref",
@@ -222,7 +226,7 @@ func scanInsightRow(rows *sql.Rows) (Insight, error) {
 
 	if err := rows.Scan(
 		&insight.ID, &insight.CreatedAt, &insight.SessionID,
-		&insight.CapturedBy, &insight.Persona, &insight.Category,
+		&insight.CapturedBy, &insight.Persona, &insight.Source, &insight.Category,
 		&insight.InsightText, &insight.Confidence, &entityURNs,
 		&relatedCols, &suggestedActions, &insight.Status,
 		&insight.ReviewedBy, &reviewedAt, &insight.ReviewNotes,

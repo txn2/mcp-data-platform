@@ -1339,6 +1339,31 @@ func TestStartCleanupRoutine(t *testing.T) {
 	}
 }
 
+func TestStartCleanupRoutine_HandlesErrors(t *testing.T) {
+	storage := &mockStorage{
+		cleanupExpiredCodesFunc: func(_ context.Context) error {
+			return errors.New("codes cleanup error")
+		},
+		cleanupExpiredTokensFunc: func(_ context.Context) error {
+			return errors.New("tokens cleanup error")
+		},
+	}
+	server, err := NewServer(ServerConfig{}, storage)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server.StartCleanupRoutine(ctx, 10*time.Millisecond)
+
+	// Wait for the ticker to fire at least once.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	// Give the goroutine time to stop. No panic or deadlock = success.
+	time.Sleep(20 * time.Millisecond)
+}
+
 func TestAuthorizeSaveCodeError(t *testing.T) {
 	ctx := context.Background()
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)

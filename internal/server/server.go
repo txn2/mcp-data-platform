@@ -8,7 +8,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
-	"github.com/txn2/mcp-data-platform/pkg/tools"
 )
 
 // Version is set at build time.
@@ -27,26 +26,19 @@ func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 		return nil, nil, fmt.Errorf("starting platform: %w", err)
 	}
 
-	// Create default toolkit and register
 	mcpSrv := p.MCPServer()
-	toolkit := tools.NewToolkit()
-	toolkit.RegisterTools(mcpSrv)
-
 	return mcpSrv, p, nil
 }
 
 // NewWithDefaults creates a new MCP server with default configuration.
-func NewWithDefaults() (*mcp.Server, *tools.Toolkit, error) {
+func NewWithDefaults() (*mcp.Server, error) {
 	impl := &mcp.Implementation{
 		Name:    "mcp-data-platform",
 		Version: Version,
 	}
 	mcpServer := mcp.NewServer(impl, nil)
 
-	toolkit := tools.NewToolkit()
-	toolkit.RegisterTools(mcpServer)
-
-	return mcpServer, toolkit, nil
+	return mcpServer, nil
 }
 
 // NewWithConfig creates a new MCP server with the specified config file.

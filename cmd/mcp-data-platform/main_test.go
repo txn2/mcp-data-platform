@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +23,40 @@ const (
 	testGracePeriod20s = 20 * time.Second
 	testPreDelay3s     = 3 * time.Second
 )
+
+func TestInitLogging(t *testing.T) {
+	tests := []struct {
+		env   string
+		level slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"WARN", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"ERROR", slog.LevelError},
+		{"", slog.LevelInfo},        // default
+		{"unknown", slog.LevelInfo}, // unrecognized falls through
+	}
+
+	for _, tt := range tests {
+		t.Run("LOG_LEVEL="+tt.env, func(t *testing.T) {
+			t.Setenv("LOG_LEVEL", tt.env)
+			initLogging()
+
+			handler := slog.Default().Handler()
+			// Verify the handler is enabled at the expected level
+			if !handler.Enabled(context.Background(), tt.level) {
+				t.Errorf("expected handler enabled at %v", tt.level)
+			}
+			// For non-debug levels, debug should be disabled
+			if tt.level > slog.LevelDebug && handler.Enabled(context.Background(), slog.LevelDebug) {
+				t.Errorf("expected debug disabled when LOG_LEVEL=%q", tt.env)
+			}
+		})
+	}
+}
 
 func TestRegisterOAuthRoutes(t *testing.T) {
 	mux := http.NewServeMux()
