@@ -46,6 +46,10 @@ type PlatformContext struct {
 	Transport string // "stdio" or "http"
 	Source    string // "mcp", "admin", "inspector"
 
+	// ReadOnlyEnforced is true when the persona's read_only rules match the
+	// current tool. Toolkit interceptors check this flag to block writes.
+	ReadOnlyEnforced bool
+
 	// Enrichment tracking (set by enrichment middleware, read by audit)
 	EnrichmentApplied bool
 

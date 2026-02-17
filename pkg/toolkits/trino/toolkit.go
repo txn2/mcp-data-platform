@@ -203,7 +203,11 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 func createToolkit(client *trinoclient.Client, cfg Config, elicit *ElicitationMiddleware) *trinotools.Toolkit {
 	var opts []trinotools.ToolkitOption
 
-	// Add read-only interceptor if configured
+	// Always add persona-aware read-only interceptor.
+	// This is a no-op when PlatformContext.ReadOnlyEnforced is false.
+	opts = append(opts, trinotools.WithQueryInterceptor(NewPersonaReadOnlyInterceptor()))
+
+	// Add instance-level read-only interceptor if configured.
 	if cfg.ReadOnly {
 		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
 	}

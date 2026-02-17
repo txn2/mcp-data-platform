@@ -15,6 +15,7 @@ type contextKey int
 const (
 	serverSessionKey contextKey = iota
 	progressTokenKey
+	readOnlyEnforcedKey
 )
 
 // WithServerSession adds a ServerSession to the context.
@@ -36,4 +37,17 @@ func WithProgressToken(ctx context.Context, token any) context.Context {
 // GetProgressToken retrieves the progress token from the context.
 func GetProgressToken(ctx context.Context) any {
 	return ctx.Value(progressTokenKey)
+}
+
+// WithReadOnlyEnforced marks the context as read-only enforced.
+// Set by MCPToolCallMiddleware when the persona's read_only rules match
+// the tool; read by toolkit interceptors to block write operations.
+func WithReadOnlyEnforced(ctx context.Context, enforced bool) context.Context {
+	return context.WithValue(ctx, readOnlyEnforcedKey, enforced)
+}
+
+// IsReadOnlyEnforced returns true if the persona's read_only rules matched.
+func IsReadOnlyEnforced(ctx context.Context) bool {
+	v, _ := ctx.Value(readOnlyEnforcedKey).(bool)
+	return v
 }

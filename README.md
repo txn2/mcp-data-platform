@@ -196,7 +196,7 @@ mcp-data-platform implements a **fail-closed** security model designed for enter
 | **Required JWT Claims** | Tokens must include `sub` and `exp` claims |
 | **TLS for HTTP Transport** | Configurable TLS with warnings for plaintext connections |
 | **Prompt Injection Protection** | Metadata sanitization prevents injection attacks |
-| **Read-Only Mode** | Trino and S3 toolkits support enforced read-only access |
+| **Read-Only Mode** | Instance-level and per-persona read-only enforcement for Trino and S3 |
 | **Default-Deny Personas** | Users without explicit persona assignment have no tool access |
 | **Cryptographic Request IDs** | Request tracing uses secure random identifiers |
 
@@ -330,6 +330,13 @@ personas:
       tools:
         allow: ["trino_*", "datahub_*"]
         deny: ["*_delete_*"]
+    viewer:
+      display_name: "Viewer"
+      roles: ["viewer"]
+      tools:
+        allow: ["trino_*", "datahub_search", "datahub_get_*"]
+        deny: ["*_delete_*"]
+        read_only: ["trino_query"]  # Can query, but only SELECT
     admin:
       display_name: "Administrator"
       roles: ["admin"]

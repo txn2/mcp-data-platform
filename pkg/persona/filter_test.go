@@ -254,8 +254,144 @@ func TestAuthorizer_IsAuthorized_ToolAllowed(t *testing.T) {
 	}
 }
 
+func TestToolFilter_IsReadOnly(t *testing.T) {
+	reg := NewRegistry()
+	filter := NewToolFilter(reg)
+
+	tests := []struct {
+		name     string
+		persona  *Persona
+		toolName string
+		want     bool
+	}{
+		{
+			name:     "nil persona returns false",
+			persona:  nil,
+			toolName: filterTestTrinoQuery,
+			want:     false,
+		},
+		{
+			name: "empty read_only list",
+			persona: &Persona{
+				Name:  filterTestAnalyst,
+				Tools: ToolRules{Allow: []string{filterTestTrinoWild}},
+			},
+			toolName: filterTestTrinoQuery,
+			want:     false,
+		},
+		{
+			name: "exact match",
+			persona: &Persona{
+				Name:  "viewer",
+				Tools: ToolRules{Allow: []string{filterTestTrinoWild}, ReadOnly: []string{filterTestTrinoQuery}},
+			},
+			toolName: filterTestTrinoQuery,
+			want:     true,
+		},
+		{
+			name: "wildcard match",
+			persona: &Persona{
+				Name:  "viewer",
+				Tools: ToolRules{Allow: []string{filterTestWildcard}, ReadOnly: []string{filterTestTrinoWild}},
+			},
+			toolName: filterTestTrinoQuery,
+			want:     true,
+		},
+		{
+			name: "no match",
+			persona: &Persona{
+				Name:  "viewer",
+				Tools: ToolRules{Allow: []string{filterTestWildcard}, ReadOnly: []string{filterTestTrinoWild}},
+			},
+			toolName: filterTestDatahubSearch,
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filter.IsReadOnly(tt.persona, tt.toolName)
+			if got != tt.want {
+				t.Errorf("IsReadOnly(%q) = %v, want %v", tt.toolName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizer_IsToolReadOnly(t *testing.T) {
+	reg := NewRegistry()
+
+	t.Run("read_only match returns true", func(t *testing.T) {
+		persona := &Persona{
+			Name: "viewer",
+			Tools: ToolRules{
+				Allow:    []string{filterTestTrinoWild},
+				ReadOnly: []string{filterTestTrinoQuery},
+			},
+		}
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return persona, nil
+			},
+		}
+		auth := NewAuthorizer(reg, mapper)
+
+		got := auth.IsToolReadOnly(context.Background(), []string{"viewer"}, filterTestTrinoQuery)
+		if !got {
+			t.Error("expected IsToolReadOnly to return true for matching tool")
+		}
+	})
+
+	t.Run("no read_only match returns false", func(t *testing.T) {
+		persona := &Persona{
+			Name:  filterTestAnalyst,
+			Tools: ToolRules{Allow: []string{filterTestTrinoWild}},
+		}
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return persona, nil
+			},
+		}
+		auth := NewAuthorizer(reg, mapper)
+
+		got := auth.IsToolReadOnly(context.Background(), []string{filterTestAnalyst}, filterTestTrinoQuery)
+		if got {
+			t.Error("expected IsToolReadOnly to return false when no read_only rules")
+		}
+	})
+
+	t.Run("mapper error returns false", func(t *testing.T) {
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return nil, errors.New("mapper error")
+			},
+		}
+		auth := NewAuthorizer(reg, mapper)
+
+		got := auth.IsToolReadOnly(context.Background(), []string{"role"}, filterTestTrinoQuery)
+		if got {
+			t.Error("expected IsToolReadOnly to return false on mapper error")
+		}
+	})
+
+	t.Run("nil persona returns false", func(t *testing.T) {
+		mapper := &mockRoleMapper{
+			mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) {
+				return nil, nil //nolint:nilnil // test: nil means no persona found
+			},
+		}
+		auth := NewAuthorizer(reg, mapper)
+
+		got := auth.IsToolReadOnly(context.Background(), []string{"unknown"}, filterTestTrinoQuery)
+		if got {
+			t.Error("expected IsToolReadOnly to return false for nil persona")
+		}
+	})
+}
+
 // Verify interface compliance.
 var (
-	_ RoleMapper            = (*mockRoleMapper)(nil)
-	_ middleware.Authorizer = (*Authorizer)(nil)
+	_ RoleMapper                 = (*mockRoleMapper)(nil)
+	_ middleware.Authorizer      = (*Authorizer)(nil)
+	_ middleware.ReadOnlyChecker = (*Authorizer)(nil)
 )

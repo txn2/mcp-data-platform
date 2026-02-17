@@ -246,8 +246,9 @@ type ToolsConfig struct {
 
 // ToolRulesDef defines tool access rules.
 type ToolRulesDef struct {
-	Allow []string `yaml:"allow"`
-	Deny  []string `yaml:"deny"`
+	Allow    []string `yaml:"allow"`
+	Deny     []string `yaml:"deny"`
+	ReadOnly []string `yaml:"read_only,omitempty"`
 }
 
 // PromptsDef defines prompt customizations.

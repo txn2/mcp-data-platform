@@ -41,7 +41,7 @@
 ## Personas
 
 - [Overview](personas/overview.md): Role-based tool access control
-- [Tool Filtering](personas/tool-filtering.md): Allow/deny patterns with wildcards. Distinction between persona-level filtering (security boundary) and global tool visibility (token optimization)
+- [Tool Filtering](personas/tool-filtering.md): Allow/deny/read_only patterns with wildcards. Per-persona read-only enforcement (e.g., viewer can SELECT but not INSERT). Distinction between persona-level filtering (security boundary) and global tool visibility (token optimization)
 - [Role Mapping](personas/role-mapping.md): Map OIDC roles to personas
 
 ## Go Library

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // assertQueriesAllowed is a test helper that asserts all queries are allowed by the interceptor.
@@ -202,4 +204,84 @@ func TestIsWriteQuery(t *testing.T) {
 			t.Errorf("SELECT with 'insert' in column name should be allowed: %q", sql)
 		}
 	})
+}
+
+func TestPersonaReadOnlyInterceptor_BlocksWriteWhenEnforced(t *testing.T) {
+	interceptor := NewPersonaReadOnlyInterceptor()
+	ctx := mcpcontext.WithReadOnlyEnforced(context.Background(), true)
+
+	writeQueries := []string{
+		"INSERT INTO users VALUES (1, 'test')",
+		"UPDATE users SET name = 'test'",
+		"DELETE FROM users",
+		"DROP TABLE users",
+		"CREATE TABLE test (id INT)",
+	}
+
+	for _, q := range writeQueries {
+		_, err := interceptor.Intercept(ctx, q, trinotools.ToolQuery)
+		if err == nil {
+			t.Errorf("expected error for write query %q when read-only enforced", q)
+		}
+	}
+}
+
+func TestPersonaReadOnlyInterceptor_AllowsReadWhenEnforced(t *testing.T) {
+	interceptor := NewPersonaReadOnlyInterceptor()
+	ctx := mcpcontext.WithReadOnlyEnforced(context.Background(), true)
+
+	readQueries := []string{
+		"SELECT * FROM users",
+		"SHOW TABLES",
+		"DESCRIBE users",
+		"EXPLAIN SELECT * FROM users",
+	}
+
+	for _, q := range readQueries {
+		result, err := interceptor.Intercept(ctx, q, trinotools.ToolQuery)
+		if err != nil {
+			t.Errorf("expected no error for read query %q, got: %v", q, err)
+		}
+		if result != q {
+			t.Errorf("query should be unchanged: got %q, want %q", result, q)
+		}
+	}
+}
+
+func TestPersonaReadOnlyInterceptor_AllowsWriteWhenNotEnforced(t *testing.T) {
+	interceptor := NewPersonaReadOnlyInterceptor()
+
+	// No ReadOnlyEnforced in context
+	ctx := context.Background()
+	result, err := interceptor.Intercept(ctx, "INSERT INTO users VALUES (1)", trinotools.ToolQuery)
+	if err != nil {
+		t.Errorf("expected no error when read-only not enforced, got: %v", err)
+	}
+	if result != "INSERT INTO users VALUES (1)" {
+		t.Errorf("query should be unchanged")
+	}
+
+	// ReadOnlyEnforced explicitly false
+	ctx = mcpcontext.WithReadOnlyEnforced(context.Background(), false)
+	result, err = interceptor.Intercept(ctx, "DELETE FROM users", trinotools.ToolQuery)
+	if err != nil {
+		t.Errorf("expected no error when read-only false, got: %v", err)
+	}
+	if result != "DELETE FROM users" {
+		t.Errorf("query should be unchanged")
+	}
+}
+
+func TestPersonaReadOnlyInterceptor_ErrorMessage(t *testing.T) {
+	interceptor := NewPersonaReadOnlyInterceptor()
+	ctx := mcpcontext.WithReadOnlyEnforced(context.Background(), true)
+
+	_, err := interceptor.Intercept(ctx, "DELETE FROM users", trinotools.ToolQuery)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	expected := "write operations not allowed: persona read-only restriction"
+	if err.Error() != expected {
+		t.Errorf("error message = %q, want %q", err.Error(), expected)
+	}
 }

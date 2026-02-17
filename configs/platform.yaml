@@ -100,6 +100,26 @@ personas:
         You are providing business insights to an executive.
         Focus on what data means, not technical details.
 
+  viewer:
+    display_name: "Viewer"
+    description: "Can query data but only with SELECT statements"
+    roles:
+      - viewer
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_search"
+        - "datahub_get_*"
+        - "platform_info"
+        - "list_connections"
+      deny:
+        - "*_delete_*"
+        - "*_put_*"
+        - "*_copy_*"
+        - "apply_knowledge"
+      read_only:
+        - "trino_query"
+
   admin:
     display_name: "Administrator"
     roles:

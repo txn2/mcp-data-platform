@@ -26,3 +26,11 @@ func (*NoopAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ s
 func AllowAllAuthorizer() Authorizer {
 	return &NoopAuthorizer{}
 }
+
+// ReadOnlyChecker is an optional interface for authorizers that support
+// per-persona read-only enforcement. MCPToolCallMiddleware checks for this
+// via type assertion on the Authorizer — if the authorizer does not implement
+// it, read-only enforcement is skipped (zero impact on existing code).
+type ReadOnlyChecker interface {
+	IsToolReadOnly(ctx context.Context, roles []string, toolName string) bool
+}

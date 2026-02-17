@@ -797,6 +797,124 @@ func TestCreateCategorizedErrorResult(t *testing.T) {
 	}
 }
 
+// mcpTestReadOnlyAuthorizer implements both Authorizer and ReadOnlyChecker.
+type mcpTestReadOnlyAuthorizer struct {
+	authorized  bool
+	personaName string
+	reason      string
+	readOnly    bool
+}
+
+func (m *mcpTestReadOnlyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (authorized bool, persona, reason string) {
+	return m.authorized, m.personaName, m.reason
+}
+
+func (m *mcpTestReadOnlyAuthorizer) IsToolReadOnly(_ context.Context, _ []string, _ string) bool {
+	return m.readOnly
+}
+
+func TestMCPToolCallMiddleware_ReadOnlyEnforced(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: mcpTestUserID,
+			Email:  mcpTestEmail,
+			Roles:  []string{"viewer"},
+		},
+	}
+
+	t.Run("sets ReadOnlyEnforced when checker returns true", func(t *testing.T) {
+		authorizer := &mcpTestReadOnlyAuthorizer{
+			authorized:  true,
+			personaName: "viewer",
+			readOnly:    true,
+		}
+
+		mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if !pc.ReadOnlyEnforced {
+				t.Error("expected ReadOnlyEnforced to be true")
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	t.Run("does not set ReadOnlyEnforced when checker returns false", func(t *testing.T) {
+		authorizer := &mcpTestReadOnlyAuthorizer{
+			authorized:  true,
+			personaName: mcpTestPersona,
+			readOnly:    false,
+		}
+
+		mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.ReadOnlyEnforced {
+				t.Error("expected ReadOnlyEnforced to be false")
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	t.Run("does not set ReadOnlyEnforced when authorizer is not ReadOnlyChecker", func(t *testing.T) {
+		authorizer := &mcpTestAuthorizer{
+			authorized:  true,
+			personaName: mcpTestPersona,
+		}
+
+		mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.ReadOnlyEnforced {
+				t.Error("expected ReadOnlyEnforced to be false for non-ReadOnlyChecker authorizer")
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+}
+
 func TestNewInvalidParamsError(t *testing.T) {
 	err := newInvalidParamsError("missing tool name")
 

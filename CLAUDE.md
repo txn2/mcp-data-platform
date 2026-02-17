@@ -277,6 +277,13 @@ personas:
         deny: ["*_delete_*"]
       prompts:
         system_prefix: "You are helping a data analyst."
+    viewer:
+      display_name: "Viewer"
+      roles: ["viewer"]
+      tools:
+        allow: ["trino_*", "datahub_search", "datahub_get_*"]
+        deny: ["*_delete_*"]
+        read_only: ["trino_query"]  # Can query, but only SELECT
     admin:
       display_name: "Administrator"
       roles: ["admin"]

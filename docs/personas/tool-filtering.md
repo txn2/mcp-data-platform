@@ -9,7 +9,7 @@ Tool filtering controls which MCP tools are available to each persona. Rules use
 
 ## Rule Structure
 
-Each persona has `allow` and `deny` lists:
+Each persona has `allow`, `deny`, and optional `read_only` lists:
 
 ```yaml
 tools:
@@ -18,6 +18,8 @@ tools:
     - "datahub_search"    # Allow specific tool
   deny:
     - "*_delete_*"        # Deny any tool with delete in name
+  read_only:
+    - "trino_query"       # Allow tool but restrict to read-only operations
 ```
 
 ## Evaluation Order
@@ -47,6 +49,44 @@ graph TD
 | `trino_query` | Exact match only |
 
 Wildcards match zero or more characters.
+
+## Per-Persona Read-Only Enforcement
+
+The `read_only` list restricts specific tools to read-only operations without removing access entirely. This is useful when a persona should be able to query data but not modify it.
+
+When a tool matches a `read_only` pattern:
+
+1. The tool call is allowed (not blocked by deny rules)
+2. The platform sets a `ReadOnlyEnforced` flag in the request context
+3. Toolkit interceptors check this flag and block write operations (e.g., SQL `INSERT`, `UPDATE`, `DELETE`)
+
+```yaml
+viewer:
+  tools:
+    allow:
+      - "trino_*"
+      - "datahub_*"
+    deny:
+      - "*_delete_*"
+    read_only:
+      - "trino_query"     # SELECT only — INSERT/UPDATE/DELETE blocked
+```
+
+This is distinct from **instance-level** `read_only: true` on the toolkit config, which blocks writes for all users. Per-persona read-only lets you have analysts with full write access and viewers with read-only access on the same Trino instance.
+
+```mermaid
+graph TD
+    A[Tool Call] --> B{Matches Deny?}
+    B -->|Yes| C[Blocked]
+    B -->|No| D{Matches Allow?}
+    D -->|No| C
+    D -->|Yes| E{Matches ReadOnly?}
+    E -->|No| F[Full Access]
+    E -->|Yes| G[Read-Only Access]
+    G --> H{Write Operation?}
+    H -->|Yes| C
+    H -->|No| F
+```
 
 ## Common Patterns
 
@@ -200,9 +240,9 @@ etl_service:
     deny: []
 ```
 
-### Viewer Persona
+### Viewer Persona (No Queries)
 
-Viewers can only search and browse:
+Viewers can only search and browse metadata:
 
 ```yaml
 viewer:
@@ -217,6 +257,25 @@ viewer:
       - "trino_explain"
       - "trino_describe_*"
       - "s3_*"
+```
+
+### Read-Only Query Viewer
+
+Viewers can query data but only with SELECT statements:
+
+```yaml
+read_only_viewer:
+  tools:
+    allow:
+      - "trino_*"
+      - "datahub_search"
+      - "datahub_get_*"
+    deny:
+      - "*_delete_*"
+      - "*_put_*"
+      - "*_copy_*"
+    read_only:
+      - "trino_query"    # SELECT only
 ```
 
 ## Deny Takes Precedence

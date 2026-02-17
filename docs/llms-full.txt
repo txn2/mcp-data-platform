@@ -468,7 +468,7 @@ mcp-data-platform implements a **fail-closed** security model. Missing or invali
 - **Required JWT Claims**: Tokens must include `sub` (subject) and `exp` (expiration)
 - **Default-Deny Personas**: Users without explicit persona have no tool access
 - **Prompt Injection Protection**: DataHub metadata is sanitized before exposure
-- **Read-Only Enforcement**: Trino `read_only: true` blocks write queries at query level
+- **Read-Only Enforcement**: Instance-level (`read_only: true`) blocks all writes; per-persona `read_only` patterns restrict specific tools to SELECT-only
 - **Cryptographic Request IDs**: Secure random identifiers for audit trails
 
 ## stdio Transport (Local)
@@ -1022,6 +1022,13 @@ personas:
       tools:
         allow: ["trino_*", "datahub_*"]
         deny: ["*_delete_*"]
+    viewer:
+      display_name: "Viewer"
+      roles: ["viewer"]
+      tools:
+        allow: ["trino_*", "datahub_search", "datahub_get_*"]
+        deny: ["*_delete_*"]
+        read_only: ["trino_query"]  # Can query, but only SELECT
     admin:
       display_name: "Administrator"
       roles: ["admin"]
@@ -1038,6 +1045,10 @@ Patterns support wildcards:
 - `*_delete_*` matches any delete tool
 
 Evaluation order: deny patterns are checked first, then allow patterns.
+
+### Per-Persona Read-Only
+
+The `read_only` list restricts specific tools to read-only operations without removing access. When a tool matches a `read_only` pattern, write operations (INSERT, UPDATE, DELETE, etc.) are blocked by toolkit interceptors. This is distinct from instance-level `read_only: true` which blocks writes for all users.
 
 ---
 

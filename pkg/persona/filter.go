@@ -56,6 +56,21 @@ func (f *ToolFilter) FilterTools(persona *Persona, tools []string) []string {
 	return allowed
 }
 
+// IsReadOnly checks if a tool should be restricted to read-only operations
+// for the given persona. Returns false for nil personas (fail-open for reads
+// is safe because authorization already denied the tool entirely).
+func (*ToolFilter) IsReadOnly(persona *Persona, toolName string) bool {
+	if persona == nil {
+		return false
+	}
+	for _, pattern := range persona.Tools.ReadOnly {
+		if matchPattern(pattern, toolName) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchPattern checks if a tool name matches a pattern.
 // Supports glob-style patterns with * wildcard.
 func matchPattern(pattern, name string) bool {
@@ -104,5 +119,17 @@ func (a *Authorizer) IsAuthorized(ctx context.Context, _ string, roles []string,
 	return true, personaName, ""
 }
 
+// IsToolReadOnly checks if the tool should be read-only for the user's persona.
+func (a *Authorizer) IsToolReadOnly(ctx context.Context, roles []string, toolName string) bool {
+	persona, err := a.roleMapper.MapToPersona(ctx, roles)
+	if err != nil || persona == nil {
+		return false
+	}
+	return a.filter.IsReadOnly(persona, toolName)
+}
+
 // Verify interface compliance.
-var _ middleware.Authorizer = (*Authorizer)(nil)
+var (
+	_ middleware.Authorizer      = (*Authorizer)(nil)
+	_ middleware.ReadOnlyChecker = (*Authorizer)(nil)
+)

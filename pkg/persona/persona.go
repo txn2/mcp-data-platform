@@ -41,6 +41,11 @@ type ToolRules struct {
 
 	// Deny patterns for denied tools (takes precedence over Allow).
 	Deny []string `json:"deny" yaml:"deny"`
+
+	// ReadOnly patterns for tools that should be restricted to read-only operations.
+	// When a tool matches, PlatformContext.ReadOnlyEnforced is set to true and
+	// toolkit-level interceptors block write operations (e.g., SQL INSERT/UPDATE/DELETE).
+	ReadOnly []string `json:"read_only,omitempty" yaml:"read_only,omitempty"`
 }
 
 // PromptConfig defines prompt customizations for a persona.

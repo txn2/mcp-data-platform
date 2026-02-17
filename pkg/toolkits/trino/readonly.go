@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // ReadOnlyInterceptor blocks write operations when read_only mode is enabled.
@@ -59,5 +61,28 @@ func isWriteQuery(sql string) bool {
 	return writePattern.MatchString(normalized)
 }
 
+// PersonaReadOnlyInterceptor blocks write SQL when the persona's read_only
+// rules match the current tool. It reads the ReadOnlyEnforced flag from
+// PlatformContext, which is set by MCPToolCallMiddleware.
+// When ReadOnlyEnforced is false (or PlatformContext is absent), this
+// interceptor is a no-op.
+type PersonaReadOnlyInterceptor struct{}
+
+// NewPersonaReadOnlyInterceptor creates a new persona-aware read-only interceptor.
+func NewPersonaReadOnlyInterceptor() *PersonaReadOnlyInterceptor {
+	return &PersonaReadOnlyInterceptor{}
+}
+
+// Intercept blocks write queries when the persona enforces read-only.
+func (*PersonaReadOnlyInterceptor) Intercept(ctx context.Context, sql string, _ trinotools.ToolName) (string, error) {
+	if mcpcontext.IsReadOnlyEnforced(ctx) && isWriteQuery(sql) {
+		return "", fmt.Errorf("write operations not allowed: persona read-only restriction")
+	}
+	return sql, nil
+}
+
 // Verify interface compliance.
-var _ trinotools.QueryInterceptor = (*ReadOnlyInterceptor)(nil)
+var (
+	_ trinotools.QueryInterceptor = (*ReadOnlyInterceptor)(nil)
+	_ trinotools.QueryInterceptor = (*PersonaReadOnlyInterceptor)(nil)
+)

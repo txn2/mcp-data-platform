@@ -1053,8 +1053,9 @@ func (p *Platform) loadPersonas() error {
 			Description: def.Description,
 			Roles:       def.Roles,
 			Tools: persona.ToolRules{
-				Allow: def.Tools.Allow,
-				Deny:  def.Tools.Deny,
+				Allow:    def.Tools.Allow,
+				Deny:     def.Tools.Deny,
+				ReadOnly: def.Tools.ReadOnly,
 			},
 			Prompts: persona.PromptConfig{
 				SystemPrefix: def.Prompts.SystemPrefix,

@@ -12,6 +12,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 const (
@@ -188,6 +190,14 @@ func authenticateAndAuthorize(
 		return createCategorizedErrorResult(ErrCategoryAuthz, "not authorized: "+reason), nil
 	}
 
+	// Check persona-level read-only enforcement.
+	if roc, ok := params.authorizer.(ReadOnlyChecker); ok {
+		if roc.IsToolReadOnly(ctx, params.pc.Roles, params.toolName) {
+			params.pc.ReadOnlyEnforced = true
+			ctx = mcpcontext.WithReadOnlyEnforced(ctx, true)
+		}
+	}
+
 	authType := ""
 	if userInfo != nil {
 		authType = userInfo.AuthType
@@ -199,6 +209,7 @@ func authenticateAndAuthorize(
 		"roles", params.pc.Roles,
 		"persona", personaName,
 		"auth_type", authType,
+		"read_only", params.pc.ReadOnlyEnforced,
 		"request_id", params.pc.RequestID,
 	)
 

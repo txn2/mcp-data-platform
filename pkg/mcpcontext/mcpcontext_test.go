@@ -56,3 +56,25 @@ func TestProgressTokenContext(t *testing.T) {
 		}
 	})
 }
+
+func TestReadOnlyEnforcedContext(t *testing.T) {
+	t.Run("not set returns false", func(t *testing.T) {
+		if IsReadOnlyEnforced(context.Background()) {
+			t.Error("expected false for empty context")
+		}
+	})
+
+	t.Run("set true returns true", func(t *testing.T) {
+		ctx := WithReadOnlyEnforced(context.Background(), true)
+		if !IsReadOnlyEnforced(ctx) {
+			t.Error("expected true after WithReadOnlyEnforced(true)")
+		}
+	})
+
+	t.Run("set false returns false", func(t *testing.T) {
+		ctx := WithReadOnlyEnforced(context.Background(), false)
+		if IsReadOnlyEnforced(ctx) {
+			t.Error("expected false after WithReadOnlyEnforced(false)")
+		}
+	})
+}
