@@ -103,9 +103,6 @@ func (m *OIDCRoleMapper) MapToPersona(_ context.Context, roles []string) (*Perso
 
 // StaticRoleMapper uses static configuration for mapping.
 type StaticRoleMapper struct {
-	// UserPersonas maps user IDs/emails to persona names.
-	UserPersonas map[string]string
-
 	// GroupPersonas maps groups to persona names.
 	GroupPersonas map[string]string
 
@@ -123,9 +120,6 @@ func (*StaticRoleMapper) MapToRoles(_ map[string]any) ([]string, error) {
 
 // MapToPersona maps based on static configuration.
 func (m *StaticRoleMapper) MapToPersona(_ context.Context, _ []string) (*Persona, error) {
-	// This would need user ID from context - placeholder for now
-	// In practice, you'd extract user info from context
-
 	if m.DefaultPersonaName != "" {
 		if persona, ok := m.Registry.Get(m.DefaultPersonaName); ok {
 			return persona, nil

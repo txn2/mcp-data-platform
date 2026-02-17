@@ -183,16 +183,26 @@ func (t *Toolkit) Connection() string {
 	return t.config.ConnectionName
 }
 
+// s3ReadTools lists the read-only S3 tools registered by the platform.
+// This excludes s3_list_connections (replaced by the unified list_connections).
+var s3ReadTools = []s3tools.ToolName{
+	s3tools.ToolListBuckets,
+	s3tools.ToolListObjects,
+	s3tools.ToolGetObject,
+	s3tools.ToolGetObjectMetadata,
+	s3tools.ToolPresignURL,
+}
+
 // RegisterTools registers S3 tools with the MCP server.
-// When ReadOnly is true, only read tools are registered on the server.
+// The platform provides a unified list_connections tool, so the per-toolkit
+// s3_list_connections is excluded.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.s3Toolkit == nil {
 		return
 	}
-	if t.config.ReadOnly {
-		t.s3Toolkit.Register(s, s3tools.ReadTools()...)
-	} else {
-		t.s3Toolkit.RegisterAll(s)
+	t.s3Toolkit.Register(s, s3ReadTools...)
+	if !t.config.ReadOnly {
+		t.s3Toolkit.Register(s, s3tools.WriteTools()...)
 	}
 }
 
@@ -204,7 +214,6 @@ func (t *Toolkit) Tools() []string {
 		"s3_get_object",
 		"s3_get_object_metadata",
 		"s3_presign_url",
-		"s3_list_connections",
 	}
 
 	if !t.config.ReadOnly {

@@ -309,7 +309,6 @@ func TestToolkit_Tools(t *testing.T) {
 		"trino_list_schemas",
 		"trino_list_tables",
 		"trino_describe_table",
-		"trino_list_connections",
 	}
 
 	if len(tools) != len(expectedTools) {

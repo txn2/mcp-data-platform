@@ -15,7 +15,7 @@ import (
 
 // insightSelectColumns lists the columns returned by Get and List queries.
 var insightSelectColumns = []string{
-	"id", "created_at", "session_id", "captured_by", "persona", "category",
+	"id", "created_at", "session_id", "captured_by", "persona", "source", "category",
 	"insight_text", "confidence", "entity_urns", "related_columns",
 	"suggested_actions", "status", "reviewed_by", "reviewed_at",
 	"review_notes", "applied_by", "applied_at", "changeset_ref",
@@ -98,6 +98,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 		SessionID:   "sess-1",
 		CapturedBy:  "user-1",
 		Persona:     "analyst",
+		Source:      "user",
 		Category:    "correction",
 		InsightText: "Column name is misleading",
 		Confidence:  "high",
@@ -114,7 +115,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 	mock.ExpectExec("INSERT INTO knowledge_insights").
 		WithArgs(
 			insight.ID, insight.SessionID, insight.CapturedBy, insight.Persona,
-			insight.Category, insight.InsightText, insight.Confidence,
+			insight.Source, insight.Category, insight.InsightText, insight.Confidence,
 			sqlmock.AnyArg(), // entity_urns JSON
 			sqlmock.AnyArg(), // related_columns JSON
 			sqlmock.AnyArg(), // suggested_actions JSON
@@ -135,6 +136,7 @@ func TestPostgresStore_Insert_DBError(t *testing.T) {
 	store := NewPostgresStore(db)
 	insight := Insight{
 		ID:               "insight-2",
+		Source:           "user",
 		Category:         "data_quality",
 		InsightText:      "Timestamps are wrong",
 		Confidence:       "medium",
@@ -147,7 +149,7 @@ func TestPostgresStore_Insert_DBError(t *testing.T) {
 	mock.ExpectExec("INSERT INTO knowledge_insights").
 		WithArgs(
 			insight.ID, insight.SessionID, insight.CapturedBy, insight.Persona,
-			insight.Category, insight.InsightText, insight.Confidence,
+			insight.Source, insight.Category, insight.InsightText, insight.Confidence,
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			insight.Status,
 		).
@@ -171,7 +173,7 @@ func TestPostgresStore_Get(t *testing.T) {
 	reviewedAt := now.Add(-time.Hour)
 
 	rows := sqlmock.NewRows(insightSelectColumns).AddRow(
-		"ins-1", now, "sess-1", "user-1", "analyst", "correction",
+		"ins-1", now, "sess-1", "user-1", "analyst", "agent_discovery", "correction",
 		"Column misleading", "high",
 		`["urn:li:dataset:foo"]`,
 		`[{"urn":"urn:li:dataset:foo","column":"col1","relevance":"primary"}]`,
@@ -192,6 +194,7 @@ func TestPostgresStore_Get(t *testing.T) {
 	assert.Equal(t, "sess-1", insight.SessionID)
 	assert.Equal(t, "user-1", insight.CapturedBy)
 	assert.Equal(t, "analyst", insight.Persona)
+	assert.Equal(t, "agent_discovery", insight.Source)
 	assert.Equal(t, "correction", insight.Category)
 	assert.Equal(t, "Column misleading", insight.InsightText)
 	assert.Equal(t, "high", insight.Confidence)
@@ -216,7 +219,7 @@ func TestPostgresStore_Get_WithAppliedAt(t *testing.T) {
 	appliedAt := now.Add(-30 * time.Minute)
 
 	rows := sqlmock.NewRows(insightSelectColumns).AddRow(
-		"ins-2", now, "sess-2", "user-2", "admin", "business_context",
+		"ins-2", now, "sess-2", "user-2", "admin", "user", "business_context",
 		"MRR excludes trials", "medium",
 		`[]`, `[]`, `[]`,
 		"applied", "admin", now, "approved", //nolint:revive // test values
@@ -262,7 +265,7 @@ func TestPostgresStore_Get_InvalidJSON(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows(insightSelectColumns).AddRow(
-		"ins-bad", now, "sess", "user", "analyst", "correction", //nolint:revive // test values
+		"ins-bad", now, "sess", "user", "analyst", "user", "correction", //nolint:revive // test values
 		"Some text", "high", //nolint:revive // test values
 		`invalid-json`, `[]`, `[]`, //nolint:revive // test values
 		"pending", "", sql.NullTime{}, "",
@@ -296,7 +299,7 @@ func TestPostgresStore_List_NoFilter(t *testing.T) {
 
 	// Select query
 	rows := sqlmock.NewRows(insightSelectColumns).AddRow(
-		"ins-1", now, "sess-1", "user-1", "analyst", "correction", //nolint:revive // test values
+		"ins-1", now, "sess-1", "user-1", "analyst", "user", "correction", //nolint:revive // test values
 		"Column misleading", "high",
 		`["urn:li:dataset:foo"]`, `[]`, `[]`,
 		"pending", "", sql.NullTime{}, "", //nolint:revive // test values
@@ -443,14 +446,14 @@ func TestPostgresStore_List_MultipleRows(t *testing.T) {
 
 	rows := sqlmock.NewRows(insightSelectColumns).
 		AddRow(
-			"ins-1", now, "sess-1", "user-1", "analyst", "correction",
+			"ins-1", now, "sess-1", "user-1", "analyst", "user", "correction",
 			"First insight", "high",
 			`[]`, `[]`, `[]`,
 			"pending", "", sql.NullTime{}, "",
 			"", sql.NullTime{}, "",
 		).
 		AddRow(
-			"ins-2", now, "sess-2", "user-2", "admin", "data_quality",
+			"ins-2", now, "sess-2", "user-2", "admin", "agent_discovery", "data_quality",
 			"Second insight", "medium",
 			`["urn:li:dataset:bar"]`, `[]`, `[]`,
 			"approved", "reviewer", now, "ok",
@@ -481,7 +484,7 @@ func TestPostgresStore_List_InvalidJSON(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	rows := sqlmock.NewRows(insightSelectColumns).AddRow(
-		"ins-bad", now, "sess", "user", "analyst", "correction",
+		"ins-bad", now, "sess", "user", "analyst", "user", "correction",
 		"Some text", "high",
 		`not-json`, `[]`, `[]`,
 		"pending", "", sql.NullTime{}, "",
@@ -1027,6 +1030,12 @@ func TestApplyInsightFilter(t *testing.T) {
 			wantContains: []string{"confidence = $1"},
 		},
 		{
+			name:         "source only",
+			filter:       InsightFilter{Source: "agent_discovery"},
+			wantArgCount: 1,
+			wantContains: []string{"source = $1"},
+		},
+		{
 			name:         "since only",
 			filter:       InsightFilter{Since: &since},
 			wantArgCount: 1,
@@ -1046,10 +1055,11 @@ func TestApplyInsightFilter(t *testing.T) {
 				EntityURN:  "urn:li:dataset:foo",
 				CapturedBy: "user-1",
 				Confidence: "high",
+				Source:     "agent_discovery",
 				Since:      &since,
 				Until:      &until,
 			},
-			wantArgCount: 7, //nolint:revive // 7 filters
+			wantArgCount: 8, //nolint:revive // 8 filters
 			wantContains: []string{
 				"WHERE",
 				"status = $1",
@@ -1057,8 +1067,9 @@ func TestApplyInsightFilter(t *testing.T) {
 				"entity_urns @> $3::jsonb",
 				"captured_by = $4",
 				"confidence = $5",
-				"created_at >= $6",
-				"created_at <= $7",
+				"source = $6",
+				"created_at >= $7",
+				"created_at <= $8",
 			},
 		},
 		{

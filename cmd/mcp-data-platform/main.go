@@ -80,7 +80,6 @@ func setupSignalHandler() context.Context {
 type serverResult struct {
 	mcpServer *mcp.Server
 	platform  *platform.Platform
-	toolkit   interface{ Close() error }
 }
 
 func createServer(opts serverOptions) (*serverResult, error) {
@@ -95,14 +94,32 @@ func createServer(opts serverOptions) (*serverResult, error) {
 		return result, nil
 	}
 
-	result.mcpServer, result.toolkit, err = mcpserver.NewWithDefaults()
+	result.mcpServer, err = mcpserver.NewWithDefaults()
 	if err != nil {
 		return nil, fmt.Errorf("creating server with defaults: %w", err)
 	}
 	return result, nil
 }
 
+// initLogging configures slog from the LOG_LEVEL environment variable.
+// Supported values: debug, info, warn, error. Defaults to info.
+func initLogging() {
+	level := slog.LevelInfo
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug", "DEBUG":
+		level = slog.LevelDebug
+	case "warn", "WARN":
+		level = slog.LevelWarn
+	case "error", "ERROR":
+		level = slog.LevelError
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	})))
+}
+
 func run() error {
+	initLogging()
 	opts := parseFlags()
 
 	if opts.showVersion {
@@ -127,11 +144,6 @@ func closeServer(result *serverResult) {
 	if result.platform != nil {
 		if err := result.platform.Close(); err != nil {
 			slog.Error("shutdown: platform close error", "error", err)
-		}
-	}
-	if result.toolkit != nil {
-		if err := result.toolkit.Close(); err != nil {
-			slog.Error("shutdown: toolkit close error", "error", err)
 		}
 	}
 	slog.Info("shutdown: complete")

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -376,7 +377,9 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.Cleanup(ctx)
+				if err := s.Cleanup(ctx); err != nil {
+					slog.Warn("audit cleanup: expired logs", "error", err)
+				}
 			}
 		}
 	}()

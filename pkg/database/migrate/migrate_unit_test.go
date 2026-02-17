@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 18
+	migrateTestFileCount    = 20
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -62,6 +62,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000008_knowledge_changesets.down.sql",
 		"000009_config_store.up.sql",
 		"000009_config_store.down.sql",
+		"000010_knowledge_source.up.sql",
+		"000010_knowledge_source.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -92,6 +94,10 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000007_knowledge_lifecycle.down.sql",
 		"migrations/000008_knowledge_changesets.up.sql",
 		"migrations/000008_knowledge_changesets.down.sql",
+		"migrations/000009_config_store.up.sql",
+		"migrations/000009_config_store.down.sql",
+		"migrations/000010_knowledge_source.up.sql",
+		"migrations/000010_knowledge_source.down.sql",
 	}
 
 	for _, file := range files {

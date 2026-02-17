@@ -174,11 +174,23 @@ personas:
           - "apply_knowledge"
 ```
 
+## Insight Sources
+
+Insights track where the knowledge came from via the `source` field:
+
+| Source | Description | Example |
+|--------|-------------|---------|
+| `user` | Knowledge shared by the user during conversation (default) | User says "The amount column is gross margin, not revenue" |
+| `agent_discovery` | Knowledge the AI agent figured out independently | Agent samples data and discovers a column contains ISO country codes |
+| `enrichment_gap` | Metadata gap flagged for admin attention | Table has no description and the agent cannot determine its purpose from the data |
+
+The source field is optional when calling `capture_insight`. When omitted, it defaults to `user`.
+
 ## AI Agent Guidance
 
 The toolkit registers an MCP prompt called `knowledge_capture_guidance` that tells AI assistants when to capture insights. The prompt covers:
 
-**When to capture:**
+**When to capture (user-provided):**
 
 - User corrects a column description, table purpose, or data interpretation
 - User explains what data means in business terms not captured in metadata
@@ -187,12 +199,29 @@ The toolkit registers an MCP prompt called `knowledge_capture_guidance` that tel
 - User explains connections between datasets not captured in lineage
 - User suggests improvements to existing documentation or metadata
 
+**When to capture (agent-discovered):**
+
+- Agent discovers what a column means by sampling actual data (set `source: "agent_discovery"`)
+- Agent finds join relationships not documented in lineage metadata
+- Agent identifies data quality patterns (nulls, outliers, encoding issues)
+- Agent resolves ambiguous column names by examining values
+- Agent encounters metadata that is missing or clearly wrong and cannot resolve it from the data (set `source: "enrichment_gap"`)
+
+**When to ask the user instead:**
+
+- Enrichment is insufficient and the agent cannot resolve it from the data alone
+- Multiple interpretations are equally plausible
+- The insight would have high impact (e.g., PII classification, deprecation status)
+
 **When not to capture:**
 
 - Transient questions or debugging ("why is my query slow?")
 - Personal preferences ("I prefer using CTEs")
 - Information already present in the catalog metadata
 - Vague or unverifiable claims without specific context
+- Trivially obvious gaps without adding what the data actually means
+- Speculative interpretations without evidence from querying
+- The same gap repeatedly within a session
 
 The prompt is available via `prompts/list` and `prompts/get` in the MCP protocol.
 

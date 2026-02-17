@@ -284,7 +284,6 @@ func TestToolkit_Tools(t *testing.T) {
 		"datahub_list_domains",
 		"datahub_list_data_products",
 		"datahub_get_data_product",
-		"datahub_list_connections",
 	}
 
 	if len(tools) != len(expectedTools) {

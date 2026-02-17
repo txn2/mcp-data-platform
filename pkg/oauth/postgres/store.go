@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
@@ -287,8 +288,12 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.CleanupExpiredCodes(ctx)
-				_ = s.CleanupExpiredTokens(ctx)
+				if err := s.CleanupExpiredCodes(ctx); err != nil {
+					slog.Warn("oauth store cleanup: expired codes", "error", err)
+				}
+				if err := s.CleanupExpiredTokens(ctx); err != nil {
+					slog.Warn("oauth store cleanup: expired tokens", "error", err)
+				}
 			}
 		}
 	}()

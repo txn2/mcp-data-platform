@@ -184,6 +184,28 @@ func TestLifecycle_RegisterCloser(t *testing.T) {
 	}
 }
 
+func TestLifecycle_RollbackWithStopError(t *testing.T) {
+	lc := NewLifecycle()
+
+	lc.OnStart(func(_ context.Context) error { return nil })
+	lc.OnStop(func(_ context.Context) error {
+		return errors.New("stop1 failed")
+	})
+	lc.OnStart(func(_ context.Context) error {
+		return errors.New("start2 failed")
+	})
+	lc.OnStop(func(_ context.Context) error { return nil })
+
+	err := lc.Start(context.Background())
+	if err == nil {
+		t.Fatal("Start() expected error")
+	}
+	// Rollback called stop1 which returned an error — should be logged, not panic.
+	if lc.IsStarted() {
+		t.Error("lifecycle should not be started after rollback")
+	}
+}
+
 func TestLifecycle_StopWithError(t *testing.T) {
 	lc := NewLifecycle()
 

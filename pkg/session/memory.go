@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"sync"
 	"time"
@@ -137,7 +138,9 @@ func (s *MemoryStore) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.Cleanup(ctx)
+				if err := s.Cleanup(ctx); err != nil {
+					slog.Warn("session cleanup failed", "error", err)
+				}
 			}
 		}
 	}()

@@ -82,6 +82,41 @@ func TestNormalizeConfidence(t *testing.T) {
 	assert.Equal(t, testMedium, NormalizeConfidence(testMedium))
 }
 
+func TestValidateSource(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "valid user", input: "user", wantErr: false},
+		{name: "valid agent_discovery", input: "agent_discovery", wantErr: false},
+		{name: "valid enrichment_gap", input: "enrichment_gap", wantErr: false},
+		{name: "empty defaults to user", input: "", wantErr: false},
+		{name: "invalid value", input: "system", wantErr: true},
+		{name: "case sensitive", input: "User", wantErr: true},
+		{name: "extra spaces", input: " user ", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSource(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), testMustBeOf)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeSource(t *testing.T) {
+	assert.Equal(t, "user", NormalizeSource(""))
+	assert.Equal(t, "user", NormalizeSource("user"))
+	assert.Equal(t, "agent_discovery", NormalizeSource("agent_discovery"))
+	assert.Equal(t, "enrichment_gap", NormalizeSource("enrichment_gap"))
+}
+
 func TestValidateInsightText(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -497,6 +532,7 @@ func TestInsightJSONTags(t *testing.T) {
 		SessionID:   "sess-1",
 		CapturedBy:  "user",
 		Persona:     "analyst",
+		Source:      "agent_discovery",
 		Category:    "correction",
 		InsightText: "test insight text that is long enough",
 		Confidence:  testMedium,
@@ -515,6 +551,7 @@ func TestInsightJSONTags(t *testing.T) {
 	assert.Equal(t, "sess-1", m["session_id"])
 	assert.Equal(t, "user", m["captured_by"])
 	assert.Equal(t, "analyst", m["persona"])
+	assert.Equal(t, "agent_discovery", m["source"])
 	assert.Equal(t, "correction", m["category"]) //nolint:revive // test value
 	assert.Equal(t, "test insight text that is long enough", m["insight_text"])
 	assert.Equal(t, testMedium, m["confidence"])

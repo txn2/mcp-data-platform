@@ -627,6 +627,10 @@ func TestHandleCaptureInsight_ValidationError(t *testing.T) {
 			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, Confidence: "ultra"},
 		},
 		{
+			name:  "invalid source",
+			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, Source: "automated"},
+		},
+		{
 			name:  "too many entity_urns",
 			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, EntityURNs: make([]string, 11)},
 		},
@@ -709,6 +713,75 @@ func TestHandleCaptureInsight_ConfidenceDefaults(t *testing.T) {
 	require.False(t, result.IsError)
 	require.Len(t, spy.Insights, 1)
 	assert.Equal(t, testConfidence, spy.Insights[0].Confidence)
+}
+
+// ---------------------------------------------------------------------------
+// capture_insight: source field
+// ---------------------------------------------------------------------------
+
+func TestHandleCaptureInsight_SourceDefaults(t *testing.T) {
+	spy := &fullSpyStore{}
+	tk, err := New(testName, spy)
+	require.NoError(t, err)
+
+	input := captureInsightInput{
+		Category:    testCategory,
+		InsightText: "Insight without source specified",
+	}
+
+	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	require.Len(t, spy.Insights, 1)
+	assert.Equal(t, "user", spy.Insights[0].Source)
+}
+
+func TestHandleCaptureInsight_ExplicitSource(t *testing.T) {
+	spy := &fullSpyStore{}
+	tk, err := New(testName, spy)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "user", source: "user"},
+		{name: "agent_discovery", source: "agent_discovery"},
+		{name: "enrichment_gap", source: "enrichment_gap"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spy.Insights = nil
+			input := captureInsightInput{
+				Category:    testCategory,
+				InsightText: "Insight with explicit source",
+				Source:      tc.source,
+			}
+			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
+			require.Nil(t, callErr)
+			require.False(t, result.IsError)
+			require.Len(t, spy.Insights, 1)
+			assert.Equal(t, tc.source, spy.Insights[0].Source)
+		})
+	}
+}
+
+func TestHandleCaptureInsight_InvalidSource(t *testing.T) {
+	spy := &fullSpyStore{}
+	tk, err := New(testName, spy)
+	require.NoError(t, err)
+
+	input := captureInsightInput{
+		Category:    testCategory,
+		InsightText: "Insight with invalid source",
+		Source:      "system",
+	}
+
+	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	assert.True(t, result.IsError)
+	assert.Empty(t, spy.Insights, "store.Insert should not be called on validation error")
 }
 
 // ---------------------------------------------------------------------------
@@ -849,6 +922,10 @@ func TestToolkit_RegistersPrompt(t *testing.T) {
 	assert.Contains(t, knowledgeCapturePrompt, "When to Capture")
 	assert.Contains(t, knowledgeCapturePrompt, "When NOT to Capture")
 	assert.Contains(t, knowledgeCapturePrompt, "capture_insight")
+	assert.Contains(t, knowledgeCapturePrompt, "Agent-Discovered Insights")
+	assert.Contains(t, knowledgeCapturePrompt, "agent_discovery")
+	assert.Contains(t, knowledgeCapturePrompt, "enrichment_gap")
+	assert.Contains(t, knowledgeCapturePrompt, "When to Ask the User")
 }
 
 // ---------------------------------------------------------------------------
@@ -903,11 +980,34 @@ func TestBuildInsight(t *testing.T) {
 	assert.Equal(t, "s1", insight.SessionID)
 	assert.Equal(t, "u1", insight.CapturedBy)
 	assert.Equal(t, testPersona, insight.Persona)
+	assert.Equal(t, "user", insight.Source)             // Default when empty
 	assert.Equal(t, testConfidence, insight.Confidence) // Default
 	assert.Equal(t, testStatusVal, insight.Status)
 	assert.NotNil(t, insight.EntityURNs)
 	assert.NotNil(t, insight.RelatedColumns)
 	assert.NotNil(t, insight.SuggestedActions)
+}
+
+func TestBuildInsight_ExplicitSource(t *testing.T) {
+	input := captureInsightInput{
+		Category:    testCategory,
+		InsightText: "Discovered via sampling",
+		Source:      "agent_discovery",
+	}
+
+	insight := buildInsight("id-3", nil, input)
+	assert.Equal(t, "agent_discovery", insight.Source)
+}
+
+func TestBuildInsight_EnrichmentGapSource(t *testing.T) {
+	input := captureInsightInput{
+		Category:    testCategory,
+		InsightText: "Table has no description",
+		Source:      "enrichment_gap",
+	}
+
+	insight := buildInsight("id-4", nil, input)
+	assert.Equal(t, "enrichment_gap", insight.Source)
 }
 
 func TestBuildInsight_NilContext(t *testing.T) {

@@ -77,6 +77,43 @@ func NormalizeConfidence(c string) string {
 	return c
 }
 
+// source indicates where the insight originated.
+type source string
+
+// Valid source values.
+const (
+	sourceUser           source = "user"
+	sourceAgentDiscovery source = "agent_discovery"
+	sourceEnrichmentGap  source = "enrichment_gap"
+)
+
+// validSources is the set of accepted source values.
+var validSources = map[source]bool{
+	sourceUser:           true,
+	sourceAgentDiscovery: true,
+	sourceEnrichmentGap:  true,
+}
+
+// ValidateSource checks whether a source value is valid.
+// An empty string is valid and defaults to "user".
+func ValidateSource(s string) error {
+	if s == "" {
+		return nil
+	}
+	if !validSources[source(s)] {
+		return fmt.Errorf("invalid source %q: must be one of: user, agent_discovery, enrichment_gap", s)
+	}
+	return nil
+}
+
+// NormalizeSource returns the source value, defaulting to "user" if empty.
+func NormalizeSource(s string) string {
+	if s == "" {
+		return string(sourceUser)
+	}
+	return s
+}
+
 // Insight validation constraints.
 const (
 	MinInsightTextLen   = 10
@@ -173,6 +210,7 @@ type Insight struct {
 	SessionID        string            `json:"session_id"`
 	CapturedBy       string            `json:"captured_by"`
 	Persona          string            `json:"persona"`
+	Source           string            `json:"source"`
 	Category         string            `json:"category"`
 	InsightText      string            `json:"insight_text"`
 	Confidence       string            `json:"confidence"`
@@ -231,6 +269,7 @@ type InsightFilter struct {
 	EntityURN  string
 	CapturedBy string
 	Confidence string
+	Source     string
 	Since      *time.Time
 	Until      *time.Time
 	Limit      int

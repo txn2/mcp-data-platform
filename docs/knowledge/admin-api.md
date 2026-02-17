@@ -34,6 +34,7 @@ Returns a paginated list of insights with optional filtering.
 | `entity_urn` | string | Filter by related entity URN |
 | `captured_by` | string | Filter by the user who captured the insight |
 | `confidence` | string | Filter by confidence level: `high`, `medium`, `low` |
+| `source` | string | Filter by source: `user`, `agent_discovery`, `enrichment_gap` |
 | `since` | RFC 3339 | Filter insights created after this timestamp |
 | `until` | RFC 3339 | Filter insights created before this timestamp |
 | `page` | integer | Page number, 1-based (default: 1) |
@@ -57,6 +58,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights?status=pending&
       "session_id": "sess_abc123",
       "captured_by": "analyst@example.com",
       "persona": "analyst",
+      "source": "user",
       "category": "correction",
       "insight_text": "The amount column represents gross margin before returns, not revenue.",
       "confidence": "high",
@@ -348,6 +350,7 @@ Knowledge capture uses two PostgreSQL tables, created by migrations 000006, 0000
 | `session_id` | TEXT | MCP session that produced the insight |
 | `captured_by` | TEXT | User who shared the knowledge |
 | `persona` | TEXT | Active persona at capture time |
+| `source` | TEXT | Where the knowledge came from: `user`, `agent_discovery`, `enrichment_gap` |
 | `category` | TEXT | Insight category |
 | `insight_text` | TEXT | The domain knowledge content |
 | `confidence` | TEXT | Confidence level (high, medium, low) |

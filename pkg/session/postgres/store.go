@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -161,7 +162,9 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.Cleanup(ctx)
+				if err := s.Cleanup(ctx); err != nil {
+					slog.Warn("session cleanup failed", "error", err)
+				}
 			}
 		}
 	}()

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -917,8 +918,12 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.storage.CleanupExpiredCodes(ctx)
-				_ = s.storage.CleanupExpiredTokens(ctx)
+				if err := s.storage.CleanupExpiredCodes(ctx); err != nil {
+					slog.Warn("oauth cleanup: expired codes", "error", err)
+				}
+				if err := s.storage.CleanupExpiredTokens(ctx); err != nil {
+					slog.Warn("oauth cleanup: expired tokens", "error", err)
+				}
 			}
 		}
 	}()

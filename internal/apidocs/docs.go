@@ -2614,6 +2614,9 @@ const docTemplate = `{
                 "session_id": {
                     "type": "string"
                 },
+                "source": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
                 },

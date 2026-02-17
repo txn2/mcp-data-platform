@@ -9,17 +9,13 @@ import (
 )
 
 func TestNewWithDefaults(t *testing.T) {
-	s, toolkit, err := NewWithDefaults()
+	s, err := NewWithDefaults()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if s == nil {
 		t.Error("expected non-nil server")
-	}
-
-	if toolkit == nil {
-		t.Error("expected non-nil toolkit")
 	}
 }
 
