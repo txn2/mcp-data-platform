@@ -491,6 +491,30 @@ func TestToolkit_RegisterTools(_ *testing.T) {
 	tk.RegisterTools(server) // Should not panic
 }
 
+func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
+	// Create via New() to get a real trinoToolkit (non-nil).
+	tk, err := New("reg-test", Config{
+		Host: trinoTestHost,
+		User: "testuser",
+		Port: trinoTestPort8080,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	// Should register tools without panic when trinoToolkit is non-nil.
+	tk.RegisterTools(server)
+
+	// Verify list_connections is NOT in the toolkit's tool list.
+	for _, tool := range tk.Tools() {
+		if tool == "trino_list_connections" {
+			t.Error("trino_list_connections should not be in Tools()")
+		}
+	}
+}
+
 func TestNew_Success(t *testing.T) {
 	cfg := Config{
 		Host: "localhost",

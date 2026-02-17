@@ -3,6 +3,8 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -152,4 +154,49 @@ func TestPlatformToolsIncludesListConnections(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "PlatformTools() should include list_connections")
+}
+
+func TestRegisterConnectionsTool(t *testing.T) {
+	reg := registry.NewRegistry()
+	require.NoError(t, reg.Register(&mockToolkit{
+		kind: "trino", name: "prod", connection: "prod-trino",
+		tools: []string{"trino_query"},
+	}))
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+	p := &Platform{
+		mcpServer:       server,
+		toolkitRegistry: reg,
+	}
+
+	// Should not panic and should register the tool.
+	p.registerConnectionsTool()
+
+	// Invoke the registered tool through the MCP server transport to cover
+	// the closure callback.
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_connections",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Content)
+	assert.False(t, result.IsError)
+
+	var out listConnectionsOutput
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	err = json.Unmarshal([]byte(textContent.Text), &out)
+	require.NoError(t, err)
+	assert.Equal(t, 1, out.Count)
+	assert.Equal(t, "trino", out.Connections[0].Kind)
 }

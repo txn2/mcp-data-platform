@@ -206,6 +206,31 @@ func TestLifecycle_RollbackWithStopError(t *testing.T) {
 	}
 }
 
+func TestLifecycle_RollbackSkipsNilStopCallback(t *testing.T) {
+	lc := NewLifecycle()
+
+	// Register start/stop pairs where one stop callback is nil.
+	lc.OnStart(func(_ context.Context) error { return nil })
+	lc.OnStop(nil) // nil stop callback — should be skipped in rollback
+
+	lc.OnStart(func(_ context.Context) error { return nil })
+	lc.OnStop(func(_ context.Context) error { return nil })
+
+	// Third start fails → triggers rollback of callbacks 0 and 1.
+	lc.OnStart(func(_ context.Context) error {
+		return errors.New("start3 failed")
+	})
+	lc.OnStop(func(_ context.Context) error { return nil })
+
+	err := lc.Start(context.Background())
+	if err == nil {
+		t.Fatal("Start() expected error")
+	}
+	if lc.IsStarted() {
+		t.Error("lifecycle should not be started after rollback")
+	}
+}
+
 func TestLifecycle_StopWithError(t *testing.T) {
 	lc := NewLifecycle()
 

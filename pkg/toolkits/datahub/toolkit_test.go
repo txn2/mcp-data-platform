@@ -453,3 +453,32 @@ func TestToolkit_RegisterTools(_ *testing.T) {
 	// Should not panic with real server
 	tk.RegisterTools(server)
 }
+
+func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
+	// Construct a Toolkit with a non-nil datahubToolkit to exercise
+	// the Register branch in RegisterTools.
+	innerToolkit := dhtools.NewToolkit(nil, dhtools.Config{})
+	tk := &Toolkit{
+		name: "reg-test",
+		config: Config{
+			URL:            dhTestLocalhostURL,
+			ConnectionName: "reg-test",
+		},
+		datahubToolkit: innerToolkit,
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test",
+		Version: "1.0.0",
+	}, nil)
+
+	// Should register tools without panic when datahubToolkit is non-nil.
+	tk.RegisterTools(server)
+
+	// Verify the list_connections tool is NOT in the declared Tools() list.
+	for _, tool := range tk.Tools() {
+		if tool == "datahub_list_connections" {
+			t.Error("datahub_list_connections should not be in Tools()")
+		}
+	}
+}

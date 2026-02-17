@@ -1766,6 +1766,32 @@ func TestHandleApply_ChangesetStoreError(t *testing.T) {
 	assert.Contains(t, errMsg, "failed to record changeset")
 }
 
+func TestHandleApply_MarkAppliedError(t *testing.T) {
+	store := &fullSpyStore{
+		MarkAppliedErr: errors.New("mark applied failed"),
+	}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
+
+	input := applyKnowledgeInput{
+		Action:     "apply",
+		EntityURN:  testEntityURN,
+		Changes:    []ApplyChange{{ChangeType: "update_description", Detail: "New desc"}},
+		InsightIDs: []string{"ins-1", "ins-2"},
+	}
+
+	// MarkApplied error is logged but does not fail the operation.
+	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "MarkApplied errors should not fail the apply")
+
+	// Changeset was still recorded
+	require.Len(t, csStore.Changesets, 1)
+}
+
 func TestHandleApply_MetadataFetchError(t *testing.T) {
 	store := &fullSpyStore{}
 	csStore := &spyChangesetStore{}
