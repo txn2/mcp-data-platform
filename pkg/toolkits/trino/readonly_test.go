@@ -187,18 +187,17 @@ func TestReadOnlyInterceptor_ErrorMessage(t *testing.T) {
 	}
 }
 
-func TestIsWriteQuery(t *testing.T) {
+func TestIsWriteSQL_DelegatesToUpstream(t *testing.T) {
 	t.Run("SELECT with subquery containing write keyword is allowed", func(t *testing.T) {
-		// This should be allowed because DELETE is not at the start
 		sql := "SELECT * FROM users WHERE delete_flag = true"
-		if isWriteQuery(sql) {
+		if trinotools.IsWriteSQL(sql) {
 			t.Errorf("SELECT with 'delete' in WHERE should be allowed: %q", sql)
 		}
 	})
 
 	t.Run("SELECT with INSERT in column name is allowed", func(t *testing.T) {
 		sql := "SELECT insert_date FROM orders"
-		if isWriteQuery(sql) {
+		if trinotools.IsWriteSQL(sql) {
 			t.Errorf("SELECT with 'insert' in column name should be allowed: %q", sql)
 		}
 	})

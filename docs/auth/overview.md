@@ -187,7 +187,7 @@ personas:
       display_name: "Data Analyst"
       roles: ["analyst"]
       tools:
-        allow: ["trino_query", "trino_explain", "datahub_*"]
+        allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
         deny: ["*_delete_*"]
   default_persona: analyst  # Required: users need explicit persona
 ```

@@ -10,13 +10,13 @@ Complete specification for all MCP tools provided by mcp-data-platform.
 
 ### trino_query
 
-Execute a SQL query against the Trino cluster.
+Execute a read-only SQL query against the Trino cluster. Write operations (INSERT, UPDATE, DELETE, CREATE, DROP, etc.) are rejected before reaching Trino. Annotated with `ReadOnlyHint: true` for MCP client auto-approval.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | SQL query to execute |
+| `query` | string | Yes | - | SQL query to execute (read-only) |
 | `limit` | integer | No | 1000 | Maximum rows to return (capped by max_limit config) |
 | `connection` | string | No | first configured | Trino connection name |
 
@@ -59,6 +59,25 @@ Execute a SQL query against the Trino cluster.
 | `TABLE_NOT_FOUND` | Referenced table doesn't exist |
 | `PERMISSION_DENIED` | Insufficient privileges |
 | `TIMEOUT` | Query exceeded timeout |
+| `WRITE_REJECTED` | Write SQL rejected (use `trino_execute` instead) |
+
+---
+
+### trino_execute
+
+Execute any SQL against the Trino cluster, including write operations (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.). Annotated with `DestructiveHint: true` so MCP clients prompt for confirmation.
+
+When `read_only: true` is configured at the instance level, write operations are blocked.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | SQL query to execute |
+| `limit` | integer | No | 1000 | Maximum rows to return (capped by max_limit config) |
+| `connection` | string | No | first configured | Trino connection name |
+
+**Response Schema:** Same as `trino_query`.
 
 ---
 

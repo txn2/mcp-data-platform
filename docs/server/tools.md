@@ -13,7 +13,8 @@ mcp-data-platform provides tools from four integrated toolkits. Each tool can be
 
 | Toolkit | Tool | Description |
 |---------|------|-------------|
-| Trino | `trino_query` | Execute SQL queries |
+| Trino | `trino_query` | Execute read-only SQL queries (SELECT, SHOW, DESCRIBE, EXPLAIN) |
+| Trino | `trino_execute` | Execute any SQL including write operations (INSERT, UPDATE, DELETE, CREATE, DROP) |
 | Trino | `trino_explain` | Get query execution plans |
 | Trino | `trino_list_catalogs` | List available catalogs |
 | Trino | `trino_list_schemas` | List schemas in a catalog |
@@ -49,13 +50,15 @@ mcp-data-platform provides tools from four integrated toolkits. Each tool can be
 
 ### trino_query
 
-Execute a SQL query against Trino.
+Execute a read-only SQL query against Trino. Write operations (INSERT, UPDATE, DELETE, CREATE, DROP, etc.) are rejected with a clear error directing users to `trino_execute`.
+
+Annotated with `ReadOnlyHint: true` so MCP clients can auto-approve calls to this tool.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | SQL query to execute |
+| `query` | string | Yes | - | SQL query to execute (read-only) |
 | `limit` | integer | No | 1000 | Maximum rows to return |
 | `connection` | string | No | default | Connection name to use |
 
@@ -72,6 +75,24 @@ Tool call: `trino_query` with query `SELECT customer_id, SUM(amount) as revenue 
 - Query results as formatted table or JSON
 - Row count and execution time
 - **Semantic context** (if enabled): table description, owners, tags, quality score, deprecation warnings
+
+---
+
+### trino_execute
+
+Execute any SQL against Trino, including write operations (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.). Use this tool for data modification.
+
+Annotated with `DestructiveHint: true` so MCP clients will prompt for user confirmation.
+
+When `read_only: true` is configured at the instance level, write operations are blocked on this tool as well.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | SQL query to execute |
+| `limit` | integer | No | 1000 | Maximum rows to return |
+| `connection` | string | No | default | Connection name to use |
 
 ---
 

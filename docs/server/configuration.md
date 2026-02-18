@@ -240,10 +240,10 @@ tools:
 - Deny only: all tools appear except denied
 - Both: allow patterns are evaluated first, then deny removes from that set
 
-Patterns use `filepath.Match` syntax — `*` matches any sequence of non-separator characters. For example, `trino_*` matches `trino_query` and `trino_describe_table`.
+Patterns use `filepath.Match` syntax — `*` matches any sequence of non-separator characters. For example, `trino_*` matches `trino_query`, `trino_execute`, and `trino_describe_table`.
 
 !!! tip "When to use this"
-    Deployments that only use a subset of toolkits (e.g., only Trino) can hide unused tools to save tokens. A full tool list is 25-32 tools; filtering to `trino_*` reduces it to 7.
+    Deployments that only use a subset of toolkits (e.g., only Trino) can hide unused tools to save tokens. A full tool list is 26-33 tools; filtering to `trino_*` reduces it to 8.
 
 !!! warning "Not a security boundary"
     Tool visibility filtering only affects `tools/list` responses. A user who knows a tool name can still call it via `tools/call` if their persona allows it. Use persona tool filtering for access control.
@@ -539,6 +539,7 @@ mcpapps:
       assets_path: "/etc/mcp-apps/query-results"
       tools:
         - trino_query
+        - trino_execute
       csp:
         resource_domains:
           - "https://cdn.jsdelivr.net"
@@ -790,7 +791,7 @@ personas:
       display_name: "Data Analyst"
       roles: ["analyst"]
       tools:
-        allow: ["trino_query", "trino_explain", "datahub_*"]
+        allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
         deny: ["*_delete_*"]
     admin:
       display_name: "Administrator"

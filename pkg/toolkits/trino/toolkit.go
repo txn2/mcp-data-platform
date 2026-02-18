@@ -286,6 +286,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.trinoToolkit != nil {
 		t.trinoToolkit.Register(s,
 			trinotools.ToolQuery,
+			trinotools.ToolExecute,
 			trinotools.ToolExplain,
 			trinotools.ToolListCatalogs,
 			trinotools.ToolListSchemas,
@@ -299,6 +300,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 func (*Toolkit) Tools() []string {
 	return []string{
 		"trino_query",
+		"trino_execute",
 		"trino_explain",
 		"trino_list_catalogs",
 		"trino_list_schemas",

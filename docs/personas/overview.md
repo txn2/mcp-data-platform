@@ -74,6 +74,7 @@ personas:
           - "s3_get_object_metadata"
         deny:
           - "trino_query"
+          - "trino_execute"
           - "s3_get_object"
 
   default_persona: viewer

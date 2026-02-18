@@ -447,7 +447,7 @@ personas:
 
 | Pattern | Matches | Doesn't Match |
 |---------|---------|---------------|
-| `trino_*` | `trino_query`, `trino_list_tables` | `datahub_search` |
+| `trino_*` | `trino_query`, `trino_execute`, `trino_list_tables` | `datahub_search` |
 | `*_delete_*` | `s3_delete_object`, `trino_delete_row` | `s3_list_buckets` |
 | `*` | Everything | Nothing |
 

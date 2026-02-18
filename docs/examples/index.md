@@ -297,6 +297,7 @@ personas:
           - "datahub_get_glossary_term"
           - "datahub_list_domains"
           - "trino_query"
+          - "trino_execute"
           - "trino_list_*"
           - "trino_describe_*"
         deny:
@@ -423,6 +424,7 @@ personas:
           # No direct query access yet
         deny:
           - "trino_query"
+          - "trino_execute"
           - "*_delete_*"
 
       prompts:

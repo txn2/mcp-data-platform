@@ -40,7 +40,7 @@ graph TD
 | Pattern | Matches |
 |---------|---------|
 | `*` | Everything |
-| `trino_*` | trino_query, trino_explain, trino_list_tables, etc. |
+| `trino_*` | trino_query, trino_execute, trino_explain, trino_list_tables, etc. |
 | `*_list_*` | trino_list_catalogs, s3_list_buckets, datahub_list_tags, etc. |
 | `datahub_get_*` | datahub_get_entity, datahub_get_schema, etc. |
 | `s3_*` | All S3 tools |
@@ -71,6 +71,7 @@ tools:
     - "s3_list_*"
     - "s3_get_*"
   deny:
+    - "trino_execute"
     - "s3_put_*"
     - "s3_delete_*"
     - "s3_copy_*"
@@ -86,6 +87,7 @@ tools:
     - "trino_describe_*"
   deny:
     - "trino_query"
+    - "trino_execute"
     - "trino_explain"
 ```
 
@@ -121,7 +123,8 @@ tools:
 Use these exact names in your patterns:
 
 **Trino Tools:**
-- `trino_query`
+- `trino_query` (read-only)
+- `trino_execute` (read-write)
 - `trino_explain`
 - `trino_list_catalogs`
 - `trino_list_schemas`
@@ -186,6 +189,7 @@ data_steward:
       - "trino_describe_*"
     deny:
       - "trino_query"
+      - "trino_execute"
       - "trino_explain"
 ```
 
@@ -214,6 +218,7 @@ viewer:
       - "trino_list_*"
     deny:
       - "trino_query"
+      - "trino_execute"
       - "trino_explain"
       - "trino_describe_*"
       - "s3_*"

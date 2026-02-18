@@ -829,7 +829,17 @@ Session hijack prevention: each session stores a SHA-256 hash of the creation to
 
 ### trino_query
 
-Execute a SQL query against Trino.
+Execute a read-only SQL query against Trino. Write operations are rejected. Annotated with `ReadOnlyHint: true`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | SQL query to execute (read-only) |
+| `limit` | integer | No | 1000 | Maximum rows to return |
+| `connection` | string | No | first configured | Trino connection name |
+
+### trino_execute
+
+Execute any SQL against Trino including write operations (INSERT, UPDATE, DELETE, CREATE, DROP). Annotated with `DestructiveHint: true`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1461,6 +1471,7 @@ mcpapps:
       assets_path: "/etc/mcp-apps/query-results"
       tools:
         - trino_query
+        - trino_execute
       csp:
         resource_domains:
           - "https://cdn.jsdelivr.net"
