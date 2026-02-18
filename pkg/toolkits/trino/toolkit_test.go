@@ -304,6 +304,7 @@ func TestToolkit_Tools(t *testing.T) {
 
 	expectedTools := []string{
 		"trino_query",
+		"trino_execute",
 		"trino_explain",
 		"trino_list_catalogs",
 		"trino_list_schemas",

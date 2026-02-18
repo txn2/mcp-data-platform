@@ -49,7 +49,7 @@ The repository includes an example app at `apps/query-results/` that demonstrate
 - Dark mode support (respects system preference)
 - Stats bar showing query time, row count, query ID
 
-This example is designed for `trino_query` tool output. You can use it as-is, customize it, or write your own apps from scratch.
+This example is designed for `trino_query` and `trino_execute` tool output. You can use it as-is, customize it, or write your own apps from scratch.
 
 ### Expected Data Format
 

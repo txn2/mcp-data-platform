@@ -13,6 +13,7 @@ mcpapps:
       assets_path: "/etc/mcp-apps/query-results"
       tools:
         - trino_query
+        - trino_execute
 ```
 
 | Field | Type | Required | Description |
@@ -34,6 +35,7 @@ mcpapps:
       resource_uri: "ui://my_app"
       tools:
         - trino_query
+        - trino_execute
       csp:
         resource_domains:
           - "https://cdn.jsdelivr.net"

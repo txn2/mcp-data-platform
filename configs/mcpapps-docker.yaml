@@ -57,6 +57,7 @@ mcpapps:
       entry_point: "index.html"
       tools:
         - trino_query
+        - trino_execute
       csp:
         resource_domains:
           - "https://cdn.jsdelivr.net"
