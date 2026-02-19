@@ -56,6 +56,14 @@ func (w *DataHubClientWriter) UpdateDescription(ctx context.Context, urn, descri
 	return nil
 }
 
+// UpdateColumnDescription sets the editable description for a specific column.
+func (w *DataHubClientWriter) UpdateColumnDescription(ctx context.Context, urn, fieldPath, description string) error {
+	if err := w.client.UpdateColumnDescription(ctx, urn, fieldPath, description); err != nil {
+		return fmt.Errorf("updating column description for %s.%s: %w", urn, fieldPath, err)
+	}
+	return nil
+}
+
 // AddTag adds a tag to an entity.
 func (w *DataHubClientWriter) AddTag(ctx context.Context, urn, tag string) error {
 	if err := w.client.AddTag(ctx, urn, tag); err != nil {

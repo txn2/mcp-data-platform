@@ -202,6 +202,10 @@ func (*mockDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string
 	return nil
 }
 
+func (*mockDataHubWriter) UpdateColumnDescription(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 // Verify interface compliance.
 var _ knowledge.DataHubWriter = (*mockDataHubWriter)(nil)
 

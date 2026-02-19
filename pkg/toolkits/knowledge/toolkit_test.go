@@ -280,6 +280,10 @@ func (w *spyWriter) UpdateDescription(_ context.Context, urn, desc string) error
 	return w.recordAndCheck("UpdateDescription", urn, desc, "")
 }
 
+func (w *spyWriter) UpdateColumnDescription(_ context.Context, urn, fieldPath, desc string) error {
+	return w.recordAndCheck("UpdateColumnDescription", urn, fieldPath, desc)
+}
+
 func (w *spyWriter) AddTag(_ context.Context, urn, tag string) error {
 	return w.recordAndCheck("AddTag", urn, tag, "")
 }
@@ -2444,4 +2448,112 @@ func TestExecuteChanges_UnknownType(t *testing.T) {
 	err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	assert.Empty(t, writer.WriteCalls, "unknown type should not produce writer calls")
+}
+
+func TestExecuteChanges_ColumnTarget(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "update_description", Target: "column:location_type_id", Detail: "Type of location"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+
+	call := writer.WriteCalls[0]
+	assert.Equal(t, "UpdateColumnDescription", call.Method)
+	assert.Equal(t, testEntityURN, call.URN)
+	assert.Equal(t, "location_type_id", call.Arg1)
+	assert.Equal(t, "Type of location", call.Arg2)
+}
+
+func TestExecuteChanges_DatasetDescription(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	// No target (or empty target) should route to dataset-level description
+	changes := []ApplyChange{
+		{ChangeType: "update_description", Target: "", Detail: "New dataset desc"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+
+	call := writer.WriteCalls[0]
+	assert.Equal(t, "UpdateDescription", call.Method)
+	assert.Equal(t, "New dataset desc", call.Arg1)
+}
+
+func TestParseColumnTarget(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    string
+		wantField string
+		wantOK    bool
+	}{
+		{"column target", "column:location_type_id", "location_type_id", true},
+		{"nested column", "column:address.zip_code", "address.zip_code", true},
+		{"empty target", "", "", false},
+		{"no prefix", "location_type_id", "", false},
+		{"empty after prefix", "column:", "", false},
+		{"uppercase", "Column:foo", "", false},
+		{"dataset URN", "urn:li:dataset:test", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			field, ok := parseColumnTarget(tt.target)
+			assert.Equal(t, tt.wantOK, ok, "parseColumnTarget(%q) ok", tt.target)
+			assert.Equal(t, tt.wantField, field, "parseColumnTarget(%q) field", tt.target)
+		})
+	}
+}
+
+func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "update_description", Target: "", Detail: "Dataset description"},
+		{ChangeType: "update_description", Target: "column:email", Detail: "Email address"},
+		{ChangeType: "add_tag", Target: "", Detail: "urn:li:tag:PII"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 3)
+
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
+	assert.Equal(t, "UpdateColumnDescription", writer.WriteCalls[1].Method)
+	assert.Equal(t, "email", writer.WriteCalls[1].Arg1)
+	assert.Equal(t, "AddTag", writer.WriteCalls[2].Method)
+}
+
+func TestExecuteChanges_ColumnTargetError(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 1}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "update_description", Target: "column:email", Detail: "Email address"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "column description update")
+}
+
+func TestExecuteChanges_DatasetDescriptionError(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 1}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "update_description", Target: "", Detail: "New desc"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "description update")
 }
