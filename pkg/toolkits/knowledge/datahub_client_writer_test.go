@@ -291,6 +291,37 @@ func TestDataHubClientWriter_AddDocumentationLink_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestDataHubClientWriter_UpdateColumnDescription(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Return empty editableSchemaMetadata (aspect not found)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescription(context.Background(), testURN, "email", "Email address")
+
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_UpdateColumnDescription_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescription(context.Background(), testURN, "email", "desc")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "updating column description")
+}
+
 func TestDataHubClientWriter_InterfaceCompliance(t *testing.T) {
 	// Compile-time check is in the source file; runtime verification here.
 	var w DataHubWriter = &DataHubClientWriter{}

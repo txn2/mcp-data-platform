@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -133,13 +134,19 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"data quality observations, usage tips, or relationships between datasets. " +
 			"Set source to 'agent_discovery' for insights you figure out yourself, or 'enrichment_gap' " +
 			"to flag metadata gaps for admin attention. Defaults to 'user' for user-provided knowledge.",
+		InputSchema: captureInsightSchema,
 	}, t.handleCaptureInsight)
 
 	if t.applyEnabled {
 		mcp.AddTool(s, &mcp.Tool{
 			Name: applyToolName,
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
-				"Actions: bulk_review, review, synthesize, apply, approve, reject.",
+				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
+				"For the apply action, the target field in changes uses 'column:<fieldPath>' to target " +
+				"column-level descriptions (e.g., 'column:location_type_id'). " +
+				"Omit target or leave empty for dataset-level description updates. " +
+				"flag_quality_issue adds a 'quality_issue:<detail>' tag to the entity.",
+			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
 
@@ -464,13 +471,16 @@ func userIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// columnTargetPrefix is the prefix for column-level targets in the target field.
+const columnTargetPrefix = "column:"
+
 // executeChanges applies changes to DataHub, rolling back on failure.
 func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) error {
 	for i, c := range changes {
 		var err error
 		switch c.ChangeType {
 		case string(actionUpdateDescription):
-			err = t.datahubWriter.UpdateDescription(ctx, urn, c.Detail)
+			err = t.executeUpdateDescription(ctx, urn, c)
 		case string(actionAddTag):
 			err = t.datahubWriter.AddTag(ctx, urn, c.Detail)
 		case string(actionAddGlossaryTerm):
@@ -485,6 +495,32 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 		}
 	}
 	return nil
+}
+
+// executeUpdateDescription routes description updates to dataset-level or column-level
+// based on the target field. A target of "column:<fieldPath>" routes to column description.
+func (t *Toolkit) executeUpdateDescription(ctx context.Context, urn string, c ApplyChange) error {
+	if fieldPath, ok := parseColumnTarget(c.Target); ok {
+		if err := t.datahubWriter.UpdateColumnDescription(ctx, urn, fieldPath, c.Detail); err != nil {
+			return fmt.Errorf("column description update: %w", err)
+		}
+		return nil
+	}
+	if err := t.datahubWriter.UpdateDescription(ctx, urn, c.Detail); err != nil {
+		return fmt.Errorf("description update: %w", err)
+	}
+	return nil
+}
+
+// parseColumnTarget checks if a target string has the "column:" prefix and returns the field path.
+func parseColumnTarget(target string) (string, bool) {
+	if strings.HasPrefix(target, columnTargetPrefix) {
+		fieldPath := target[len(columnTargetPrefix):]
+		if fieldPath != "" {
+			return fieldPath, true
+		}
+	}
+	return "", false
 }
 
 // handleApproveReject transitions insight statuses.

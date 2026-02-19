@@ -67,6 +67,12 @@ func TestNoopDataHubWriter_AddDocumentationLink(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestNoopDataHubWriter_UpdateColumnDescription(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.UpdateColumnDescription(context.Background(), testDatasetURN, "email", "Email address")
+	assert.NoError(t, err)
+}
+
 // --- Interface compliance ---
 
 func TestNoopDataHubWriter_ImplementsInterface(_ *testing.T) {
