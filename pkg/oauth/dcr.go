@@ -78,7 +78,7 @@ type DCRRequest struct {
 // DCRResponse is a Dynamic Client Registration response.
 type DCRResponse struct {
 	ClientID              string   `json:"client_id"`
-	ClientSecret          string   `json:"client_secret,omitempty"`
+	ClientSecret          string   `json:"client_secret,omitempty"` // #nosec G117 -- required by OAuth 2.0 DCR spec (RFC 7591)
 	ClientName            string   `json:"client_name"`
 	RedirectURIs          []string `json:"redirect_uris"`
 	GrantTypes            []string `json:"grant_types"`

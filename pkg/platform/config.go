@@ -194,7 +194,7 @@ type OAuthConfig struct {
 // OAuthClientConfig defines a pre-registered OAuth client.
 type OAuthClientConfig struct {
 	ID           string   `yaml:"id"`
-	Secret       string   `yaml:"secret"`
+	Secret       string   `yaml:"secret"` // #nosec G117 -- API key secret from admin YAML config
 	RedirectURIs []string `yaml:"redirect_uris"`
 }
 
@@ -208,7 +208,7 @@ type DCRConfig struct {
 type UpstreamIDPConfig struct {
 	Issuer       string `yaml:"issuer"`        // Keycloak issuer URL
 	ClientID     string `yaml:"client_id"`     // MCP Server's client ID in Keycloak
-	ClientSecret string `yaml:"client_secret"` // MCP Server's client secret
+	ClientSecret string `yaml:"client_secret"` // #nosec G117 -- MCP Server's client secret from admin YAML config
 	RedirectURI  string `yaml:"redirect_uri"`  // Callback URL (e.g., http://localhost:8080/oauth/callback)
 }
 

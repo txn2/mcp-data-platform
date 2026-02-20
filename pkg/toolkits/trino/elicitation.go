@@ -370,11 +370,11 @@ func formatRowCount(n int64) string {
 	}
 
 	var result []byte
-	for i, c := range s {
+	for i := 0; i < len(s); i++ {
 		if i > 0 && (len(s)-i)%commaGroupSize == 0 {
 			result = append(result, ',')
 		}
-		result = append(result, byte(c))
+		result = append(result, s[i])
 	}
 	return string(result)
 }

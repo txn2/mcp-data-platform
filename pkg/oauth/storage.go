@@ -35,7 +35,7 @@ type Storage interface {
 type Client struct {
 	ID           string    `json:"id"`
 	ClientID     string    `json:"client_id"`
-	ClientSecret string    `json:"client_secret"` // bcrypt hashed
+	ClientSecret string    `json:"client_secret"` // #nosec G117 -- bcrypt hashed, required for OAuth client storage
 	Name         string    `json:"name"`
 	RedirectURIs []string  `json:"redirect_uris"`
 	GrantTypes   []string  `json:"grant_types"`

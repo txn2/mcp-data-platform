@@ -20,7 +20,7 @@ type Config struct {
 	Endpoint        string                      `yaml:"endpoint"`
 	AccessKeyID     string                      `yaml:"access_key_id"`
 	SecretAccessKey string                      `yaml:"secret_access_key"`
-	SessionToken    string                      `yaml:"session_token"`
+	SessionToken    string                      `yaml:"session_token"` // #nosec G117 -- S3 session token from admin YAML config
 	Profile         string                      `yaml:"profile"`
 	UsePathStyle    bool                        `yaml:"use_path_style"`
 	Timeout         time.Duration               `yaml:"timeout"`

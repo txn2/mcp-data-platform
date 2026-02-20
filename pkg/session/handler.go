@@ -153,7 +153,7 @@ func (h *AwareHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(sessionIDHeader)
 	if sessionID != "" {
 		if err := h.store.Delete(r.Context(), sessionID); err != nil {
-			slog.Debug("session: delete failed", "session_id", sessionID, slogKeyError, err)
+			slog.Debug("session: delete failed", "session_id", sanitizeLogValue(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
 		}
 	}
 	h.inner.ServeHTTP(w, r)
@@ -221,6 +221,12 @@ func extractToken(r *http.Request) string {
 		return r.Header.Get("X-API-Key")
 	}
 	return auth[bearerPrefixLen:]
+}
+
+// sanitizeLogValue strips control characters (newlines, tabs, carriage returns)
+// from a string before it is used as a structured log value, preventing log injection.
+func sanitizeLogValue(s string) string {
+	return strings.NewReplacer("\n", "", "\r", "", "\t", "").Replace(s)
 }
 
 // hashToken returns the SHA-256 hex digest of a token, or empty for empty tokens.

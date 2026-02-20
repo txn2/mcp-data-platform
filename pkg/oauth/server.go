@@ -98,7 +98,7 @@ type UpstreamConfig struct {
 	ClientID string
 
 	// ClientSecret is the MCP server's client secret.
-	ClientSecret string
+	ClientSecret string // #nosec G117 -- required for upstream IdP token exchange
 
 	// RedirectURI is the callback URL for the upstream IdP.
 	RedirectURI string
@@ -160,18 +160,18 @@ type TokenRequest struct {
 	Code         string
 	RedirectURI  string
 	ClientID     string
-	ClientSecret string
+	ClientSecret string // #nosec G117 -- required by OAuth 2.1 token request (RFC 6749 §4.1.3)
 	CodeVerifier string
-	RefreshToken string
+	RefreshToken string // #nosec G117 -- required by OAuth 2.1 refresh grant (RFC 6749 §6)
 	Scope        string
 }
 
 // TokenResponse represents a token response.
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
+	AccessToken  string `json:"access_token"` // #nosec G117 -- required by OAuth 2.1 token response (RFC 6749 §5.1)
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"` // #nosec G117 -- required by OAuth 2.1 token response (RFC 6749 §5.1)
 	Scope        string `json:"scope,omitempty"`
 }
 
@@ -748,10 +748,10 @@ func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool
 
 // upstreamTokenResponse represents the token response from the upstream IdP.
 type upstreamTokenResponse struct {
-	AccessToken  string `json:"access_token"`
+	AccessToken  string `json:"access_token"` // #nosec G117 -- upstream IdP token exchange response
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"` // #nosec G117 -- upstream IdP token exchange response
 	IDToken      string `json:"id_token,omitempty"`
 }
 
@@ -772,7 +772,7 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.httpClient.Do(req) // #nosec G704 -- URL from admin-controlled upstream IdP config
 	if err != nil {
 		return nil, fmt.Errorf("sending token request: %w", err)
 	}
