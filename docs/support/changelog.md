@@ -4,6 +4,13 @@ All releases are documented on the [GitHub Releases page](https://github.com/txn
 
 ## Recent Changes
 
+### Knowledge Pipeline Improvements (v0.22.x)
+
+- **`remove_tag` change type**: New change type for `apply_knowledge` to remove tags from DataHub entities. Tag names are auto-normalized to full URNs (e.g., `deprecated` becomes `urn:li:tag:deprecated`).
+- **`flag_quality_issue` redesign**: Now adds a single fixed `QualityIssue` tag instead of dynamic slugified tags (e.g., `quality_issue_missing_values`). The detail text is stored as context in the knowledge store, not encoded in the tag name. This avoids tag namespace pollution.
+- **Enum validation fix**: Removed JSON schema `enum` constraints that caused the MCP transport to reject invalid values with generic errors. Valid values are now listed in field descriptions so LLM clients discover them upfront while server-side validation provides descriptive error messages.
+- **Column-level targeting**: `update_description` supports `target: "column:<fieldPath>"` for column-level description updates (e.g., `column:location_type_id`).
+
 ### Tool Visibility Filtering
 
 Added config-driven `tools:` allow/deny filter on `tools/list` responses. Reduces LLM token usage by hiding unused tools from discovery. This is a visibility optimization, not a security boundary — persona auth continues to gate `tools/call`.

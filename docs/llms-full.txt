@@ -1170,7 +1170,13 @@ Records domain knowledge shared during a session.
 | `related_columns` | array | No | Columns related to this insight (max 20) |
 | `suggested_actions` | array | No | Proposed catalog changes (max 5) |
 
-**Suggested action types:** `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`
+**Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`
+
+**Target field:** Use `column:<fieldPath>` (e.g., `column:location_type_id`) for column-level descriptions. For `add_documentation`, the target is the URL. For other types, leave empty or omit.
+
+**Detail field:** Description text, tag name or URN (e.g., `pii` or `urn:li:tag:pii`), glossary term name or URN, quality issue description, or link description. Short tag/term names are auto-normalized to full URNs.
+
+`flag_quality_issue` adds a fixed `QualityIssue` tag; the detail text is stored as context in the knowledge store, not encoded in the tag name.
 
 **Response:**
 
@@ -1225,8 +1231,9 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
   "action": "apply",
   "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes": [
-    {"change_type": "update_description", "target": "entity", "detail": "Order records with gross margin amounts (before returns)"},
-    {"change_type": "add_tag", "target": "entity", "detail": "gross-margin"}
+    {"change_type": "update_description", "target": "", "detail": "Order records with gross margin amounts (before returns)"},
+    {"change_type": "add_tag", "target": "", "detail": "gross-margin"},
+    {"change_type": "remove_tag", "target": "", "detail": "urn:li:tag:outdated"}
   ],
   "insight_ids": ["a1b2c3d4e5f67890"],
   "confirm": true
