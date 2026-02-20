@@ -37,6 +37,10 @@ admin:
   portal: true                # Enable the admin web portal
   persona: admin              # Persona required for admin access
   path_prefix: /api/v1/admin  # URL prefix for all admin endpoints
+  portal_title: "ACME Data Platform"
+  portal_logo: https://example.com/logo.svg
+  portal_logo_light: https://example.com/logo-for-light-bg.svg
+  portal_logo_dark: https://example.com/logo-for-dark-bg.svg
 ```
 
 | Field | Type | Default | Description |
@@ -45,6 +49,10 @@ admin:
 | `portal` | bool | `false` | Enable the admin web portal |
 | `persona` | string | `admin` | Persona required for admin access |
 | `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+| `portal_title` | string | `Admin Portal` | Sidebar title text |
+| `portal_logo` | string | `""` | Logo URL (fallback for both themes) |
+| `portal_logo_light` | string | `""` | Logo URL for light theme |
+| `portal_logo_dark` | string | `""` | Logo URL for dark theme |
 
 ## Admin Portal
 
@@ -109,6 +117,10 @@ Returns platform identity, version, runtime feature availability, and config mod
   "description": "Semantic data platform",
   "transport": "http",
   "config_mode": "file",
+  "portal_title": "ACME Data Platform",
+  "portal_logo": "https://example.com/logo.svg",
+  "portal_logo_light": "https://example.com/logo-for-light-bg.svg",
+  "portal_logo_dark": "https://example.com/logo-for-dark-bg.svg",
   "features": {
     "audit": true,
     "oauth": false,

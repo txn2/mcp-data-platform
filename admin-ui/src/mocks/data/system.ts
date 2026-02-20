@@ -11,6 +11,9 @@ export const mockSystemInfo: SystemInfo = {
   transport: "http",
   config_mode: "database",
   portal_title: "Admin Portal",
+  portal_logo: "",
+  portal_logo_light: "",
+  portal_logo_dark: "",
   features: {
     audit: true,
     oauth: true,

@@ -2181,6 +2181,15 @@ const docTemplate = `{
                 "persona_count": {
                     "type": "integer"
                 },
+                "portal_logo": {
+                    "type": "string"
+                },
+                "portal_logo_dark": {
+                    "type": "string"
+                },
+                "portal_logo_light": {
+                    "type": "string"
+                },
                 "portal_title": {
                     "type": "string"
                 },

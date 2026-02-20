@@ -295,8 +295,12 @@ No patterns configured means all tools are visible. When both are set, allow is 
 | `admin.portal` | bool | `false` | Enable the admin web portal UI |
 | `admin.persona` | string | `admin` | Persona required for admin access |
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+| `admin.portal_title` | string | `Admin Portal` | Sidebar title text |
+| `admin.portal_logo` | string | `""` | Logo URL (fallback for both themes) |
+| `admin.portal_logo_light` | string | `""` | Logo URL for light theme |
+| `admin.portal_logo_dark` | string | `""` | Logo URL for dark theme |
 
-When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix. It provides audit log exploration, tool execution testing, and system monitoring.
+When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `portal_logo_light` → `portal_logo` → built-in default; dark theme uses `portal_logo_dark` → `portal_logo` → built-in default. The resolved logo is also used as the browser favicon.
 
 ## Resource Templates Configuration
 

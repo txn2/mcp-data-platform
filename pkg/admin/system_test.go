@@ -23,6 +23,9 @@ func TestGetSystemInfo(t *testing.T) {
 		cfg.OAuth.Enabled = true
 		cfg.Knowledge.Enabled = true
 		cfg.Admin.Enabled = true
+		cfg.Admin.PortalLogo = "https://cdn.example.com/logo.svg"
+		cfg.Admin.PortalLogoLight = "https://cdn.example.com/logo-light.svg"
+		cfg.Admin.PortalLogoDark = "https://cdn.example.com/logo-dark.svg"
 
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
@@ -55,6 +58,9 @@ func TestGetSystemInfo(t *testing.T) {
 		assert.Equal(t, "test-platform", body.Name)
 		assert.Equal(t, "Test description", body.Description)
 		assert.Equal(t, "http", body.Transport)
+		assert.Equal(t, "https://cdn.example.com/logo.svg", body.PortalLogo)
+		assert.Equal(t, "https://cdn.example.com/logo-light.svg", body.PortalLogoLight)
+		assert.Equal(t, "https://cdn.example.com/logo-dark.svg", body.PortalLogoDark)
 		assert.Equal(t, "database", body.ConfigMode)
 		assert.True(t, body.Features.Audit, "audit should be true when AuditQuerier is set")
 		assert.True(t, body.Features.OAuth)
@@ -110,6 +116,9 @@ func TestGetPublicBranding(t *testing.T) {
 		cfg := testConfig()
 		cfg.Server.Name = "acme-platform"
 		cfg.Admin.PortalTitle = "ACME Admin"
+		cfg.Admin.PortalLogo = "https://cdn.example.com/acme-logo.svg"
+		cfg.Admin.PortalLogoLight = "https://cdn.example.com/acme-light.svg"
+		cfg.Admin.PortalLogoDark = "https://cdn.example.com/acme-dark.svg"
 
 		h := NewHandler(Deps{Config: cfg}, nil)
 
@@ -122,6 +131,9 @@ func TestGetPublicBranding(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, "acme-platform", body.Name)
 		assert.Equal(t, "ACME Admin", body.PortalTitle)
+		assert.Equal(t, "https://cdn.example.com/acme-logo.svg", body.PortalLogo)
+		assert.Equal(t, "https://cdn.example.com/acme-light.svg", body.PortalLogoLight)
+		assert.Equal(t, "https://cdn.example.com/acme-dark.svg", body.PortalLogoDark)
 	})
 
 	t.Run("returns empty when no config", func(t *testing.T) {

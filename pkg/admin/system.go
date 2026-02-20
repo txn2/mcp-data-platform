@@ -15,8 +15,11 @@ type systemInfoResponse struct {
 	Description  string         `json:"description"`
 	Transport    string         `json:"transport"`
 	ConfigMode   string         `json:"config_mode"`
-	PortalTitle  string         `json:"portal_title"`
-	Features     systemFeatures `json:"features"`
+	PortalTitle      string         `json:"portal_title"`
+	PortalLogo       string         `json:"portal_logo"`
+	PortalLogoLight  string         `json:"portal_logo_light"`
+	PortalLogoDark   string         `json:"portal_logo_dark"`
+	Features         systemFeatures `json:"features"`
 	ToolkitCount int            `json:"toolkit_count"`
 	PersonaCount int            `json:"persona_count"`
 }
@@ -51,6 +54,9 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		resp.Description = cfg.Server.Description
 		resp.Transport = cfg.Server.Transport
 		resp.PortalTitle = cfg.Admin.PortalTitle
+		resp.PortalLogo = cfg.Admin.PortalLogo
+		resp.PortalLogoLight = cfg.Admin.PortalLogoLight
+		resp.PortalLogoDark = cfg.Admin.PortalLogoDark
 		resp.Features = systemFeatures{
 			Audit:     h.deps.AuditQuerier != nil,
 			OAuth:     cfg.OAuth.Enabled,
@@ -73,8 +79,11 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 
 // publicBrandingResponse is returned by the unauthenticated branding endpoint.
 type publicBrandingResponse struct {
-	Name        string `json:"name"`
-	PortalTitle string `json:"portal_title"`
+	Name            string `json:"name"`
+	PortalTitle     string `json:"portal_title"`
+	PortalLogo      string `json:"portal_logo"`
+	PortalLogoLight string `json:"portal_logo_light"`
+	PortalLogoDark  string `json:"portal_logo_dark"`
 }
 
 // getPublicBranding handles GET /api/v1/admin/public/branding.
@@ -84,6 +93,9 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name
 		resp.PortalTitle = h.deps.Config.Admin.PortalTitle
+		resp.PortalLogo = h.deps.Config.Admin.PortalLogo
+		resp.PortalLogoLight = h.deps.Config.Admin.PortalLogoLight
+		resp.PortalLogoDark = h.deps.Config.Admin.PortalLogoDark
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -11,9 +11,22 @@ admin:
   enabled: true
   portal: true
   persona: admin
+  portal_title: "ACME Data Platform"
+  portal_logo: https://example.com/logo.svg
+  portal_logo_light: https://example.com/logo-for-light-bg.svg
+  portal_logo_dark: https://example.com/logo-for-dark-bg.svg
 ```
 
 The portal is served at the admin path prefix (default: `/api/v1/admin/`). Authentication is required — use the same credentials as the [Admin API](admin-api.md).
+
+### Branding
+
+Customize the sidebar title and logo via `portal_title`, `portal_logo`, `portal_logo_light`, and `portal_logo_dark`. The portal picks the theme-appropriate logo automatically:
+
+- **Light theme**: `portal_logo_light` → `portal_logo` → built-in default
+- **Dark theme**: `portal_logo_dark` → `portal_logo` → built-in default
+
+The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Logos should be square SVGs for best results.
 
 ## Dashboard
 

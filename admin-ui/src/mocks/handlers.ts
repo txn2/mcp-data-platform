@@ -197,6 +197,9 @@ export const handlers = [
     HttpResponse.json({
       name: mockSystemInfo.name,
       portal_title: mockSystemInfo.portal_title,
+      portal_logo: mockSystemInfo.portal_logo,
+      portal_logo_light: mockSystemInfo.portal_logo_light,
+      portal_logo_dark: mockSystemInfo.portal_logo_dark,
     }),
   ),
 
