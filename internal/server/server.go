@@ -21,6 +21,11 @@ var Date = "unknown"
 
 // New creates a new MCP server with the given configuration.
 func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
+	// Use build-time version when config doesn't specify one
+	if cfg.Server.Version == "" {
+		cfg.Server.Version = Version
+	}
+
 	// Create platform
 	p, err := platform.New(platform.WithConfig(cfg))
 	if err != nil {

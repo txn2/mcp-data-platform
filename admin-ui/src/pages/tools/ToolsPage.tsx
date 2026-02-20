@@ -646,6 +646,33 @@ function ExploreTab() {
 }
 
 // ---------------------------------------------------------------------------
+// SqlTextarea — controlled textarea that preserves newlines on replay
+// ---------------------------------------------------------------------------
+
+function SqlTextarea({
+  name,
+  required,
+  initialValue,
+}: {
+  name: string;
+  required: boolean;
+  initialValue: string;
+}) {
+  const [val, setVal] = useState(initialValue);
+  return (
+    <textarea
+      name={name}
+      required={required}
+      rows={6}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none ring-ring focus:ring-2"
+      placeholder="SELECT ..."
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // FieldInput — renders the appropriate input for a tool parameter
 // ---------------------------------------------------------------------------
 
@@ -664,13 +691,10 @@ function FieldInput({
 
   if (prop.type === "string" && prop.format === "sql") {
     return (
-      <textarea
+      <SqlTextarea
         name={name}
         required={required}
-        rows={6}
-        defaultValue={String(resolvedDefault ?? "")}
-        className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none ring-ring focus:ring-2"
-        placeholder="SELECT ..."
+        initialValue={String(resolvedDefault ?? "")}
       />
     );
   }
