@@ -38,7 +38,7 @@ export function HomePage({
         ))}
       </div>
 
-      {tab === "dashboard" && <DashboardPage />}
+      {tab === "dashboard" && <DashboardPage onNavigate={onNavigate} />}
       {tab === "help" && <HelpTab onNavigate={onNavigate} />}
     </div>
   );

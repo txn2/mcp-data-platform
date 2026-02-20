@@ -5,9 +5,10 @@ import { EventDrawer } from "@/components/EventDrawer";
 
 interface RecentErrorsListProps {
   events: AuditEvent[] | undefined;
+  onNavigate?: (path: string) => void;
 }
 
-export function RecentErrorsList({ events }: RecentErrorsListProps) {
+export function RecentErrorsList({ events, onNavigate }: RecentErrorsListProps) {
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
 
   if (!events || events.length === 0) {
@@ -40,6 +41,7 @@ export function RecentErrorsList({ events }: RecentErrorsListProps) {
         <EventDrawer
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
+          onNavigate={onNavigate}
         />
       )}
     </>

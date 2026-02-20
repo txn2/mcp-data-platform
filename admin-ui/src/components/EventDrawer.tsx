@@ -1,15 +1,37 @@
 import type { AuditEvent } from "@/api/types";
+import { useToolSchemas } from "@/api/hooks";
+import { useInspectorStore } from "@/stores/inspector";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
 import { formatUser } from "@/lib/formatUser";
+import { Play } from "lucide-react";
 
 export function EventDrawer({
   event,
   onClose,
+  onNavigate,
 }: {
   event: AuditEvent;
   onClose: () => void;
+  onNavigate?: (path: string) => void;
 }) {
+  const { data: schemasData } = useToolSchemas();
+  const setReplayIntent = useInspectorStore((s) => s.setReplayIntent);
+
+  const schemas = schemasData?.schemas ?? {};
+  const toolExists = event.tool_name in schemas;
+
+  const handleReplay = () => {
+    setReplayIntent({
+      tool_name: event.tool_name,
+      connection: event.connection ?? "",
+      parameters: event.parameters ?? {},
+      event_id: event.id,
+      event_timestamp: event.timestamp,
+    });
+    onNavigate?.("/tools#explore");
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
@@ -128,6 +150,29 @@ export function EventDrawer({
                 </pre>
               </div>
             )}
+
+          {onNavigate && (
+            <div className="border-t pt-4">
+              <button
+                onClick={handleReplay}
+                disabled={!toolExists}
+                title={
+                  toolExists
+                    ? "Open this tool call in the Inspector with parameters pre-filled"
+                    : `Tool "${event.tool_name}" is not in the current catalog`
+                }
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Play className="h-3.5 w-3.5" />
+                Replay in Inspector
+              </button>
+              {!toolExists && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Tool not found in current catalog
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
