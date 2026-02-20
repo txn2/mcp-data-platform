@@ -279,7 +279,8 @@ tuning:
 #   portal: true                # enable admin UI portal (default: false)
 #   persona: admin              # persona required for admin access (default: "admin")
 #   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
-#   portal_logo: https://example.com/logo.svg        # logo URL, used if no light/dark specified
+#   portal_title: "My Data Platform"                        # sidebar title (default: "Admin Portal")
+#   portal_logo: https://example.com/logo.svg               # logo URL, used if no light/dark specified
 #   portal_logo_light: https://example.com/logo-dark.svg   # logo for light theme
 #   portal_logo_dark: https://example.com/logo-white.svg   # logo for dark theme
 

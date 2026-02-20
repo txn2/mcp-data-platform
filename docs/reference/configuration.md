@@ -562,6 +562,10 @@ admin:
   portal: true
   persona: admin
   path_prefix: /api/v1/admin
+  portal_title: "ACME Data Platform"
+  portal_logo: https://example.com/logo.svg
+  portal_logo_light: https://example.com/logo-for-light-bg.svg
+  portal_logo_dark: https://example.com/logo-for-dark-bg.svg
 ```
 
 | Option | Type | Default | Description |
@@ -570,6 +574,10 @@ admin:
 | `admin.portal` | bool | `false` | Enable the admin web portal UI |
 | `admin.persona` | string | `admin` | Persona required for admin access |
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+| `admin.portal_title` | string | `Admin Portal` | Sidebar title text |
+| `admin.portal_logo` | string | `""` | URL to logo image (used for both themes if no theme-specific logo is set) |
+| `admin.portal_logo_light` | string | `""` | URL to logo for light theme (overrides `portal_logo`) |
+| `admin.portal_logo_dark` | string | `""` | URL to logo for dark theme (overrides `portal_logo`) |
 
 ## Injection Configuration
 
