@@ -123,7 +123,8 @@ func run() error {
 	opts := parseFlags()
 
 	if opts.showVersion {
-		fmt.Printf("mcp-data-platform version %s\n", mcpserver.Version)
+		fmt.Printf("mcp-data-platform version %s (commit: %s, built: %s)\n",
+			mcpserver.Version, mcpserver.Commit, mcpserver.Date)
 		return nil
 	}
 

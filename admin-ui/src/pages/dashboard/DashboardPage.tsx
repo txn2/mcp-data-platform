@@ -142,7 +142,7 @@ export function DashboardPage() {
       {/* Activity Chart */}
       <div className="rounded-lg border bg-card p-4">
         <h2 className="mb-3 text-sm font-medium">Activity</h2>
-        <TimeseriesChart data={timeseries.data} isLoading={timeseries.isLoading} />
+        <TimeseriesChart data={timeseries.data} isLoading={timeseries.isLoading} preset={preset} />
       </div>
 
       {/* Charts Grid */}

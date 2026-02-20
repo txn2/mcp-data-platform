@@ -2166,6 +2166,12 @@ const docTemplate = `{
         "admin.systemInfoResponse": {
             "type": "object",
             "properties": {
+                "build_date": {
+                    "type": "string"
+                },
+                "commit": {
+                    "type": "string"
+                },
                 "config_mode": {
                     "type": "string"
                 },

@@ -264,6 +264,10 @@ definitions:
     type: object
   admin.systemInfoResponse:
     properties:
+      build_date:
+        type: string
+      commit:
+        type: string
       config_mode:
         type: string
       description:
