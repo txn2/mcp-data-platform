@@ -7,6 +7,9 @@ export interface SystemInfo {
   transport: string;
   config_mode: string;
   portal_title: string;
+  portal_logo: string;
+  portal_logo_light: string;
+  portal_logo_dark: string;
   features: SystemFeatures;
   toolkit_count: number;
   persona_count: number;

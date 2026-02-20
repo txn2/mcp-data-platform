@@ -84,7 +84,10 @@ type AdminConfig struct {
 	Portal      bool   `yaml:"portal"`       // enable admin UI portal (default: false)
 	Persona     string `yaml:"persona"`      // required admin persona (default: "admin")
 	PathPrefix  string `yaml:"path_prefix"`  // URL prefix (default: "/api/v1/admin")
-	PortalTitle string `yaml:"portal_title"` // sidebar title (default: "Admin Portal")
+	PortalTitle     string `yaml:"portal_title"`      // sidebar title (default: "Admin Portal")
+	PortalLogo      string `yaml:"portal_logo"`       // URL to logo (fallback for both themes)
+	PortalLogoLight string `yaml:"portal_logo_light"` // URL to logo for light theme
+	PortalLogoDark  string `yaml:"portal_logo_dark"`  // URL to logo for dark theme
 }
 
 // KnowledgeConfig configures the knowledge capture feature.

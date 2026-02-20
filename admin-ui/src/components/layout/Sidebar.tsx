@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Home, Wrench, ScrollText, Lightbulb, Users, LogOut } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useSystemInfo } from "@/api/hooks";
+import { useThemeStore } from "@/stores/theme";
 
 interface SidebarProps {
   currentPath: string;
@@ -19,12 +21,40 @@ const navItems = [
 export function Sidebar({ currentPath, onNavigate }: SidebarProps) {
   const clearApiKey = useAuthStore((s) => s.clearApiKey);
   const { data: systemInfo } = useSystemInfo();
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const portalTitle = systemInfo?.portal_title ?? "Admin Portal";
+  const base = import.meta.env.BASE_URL;
+  const defaultLogo = isDark
+    ? `${base}images/activity-svgrepo-com-white.svg`
+    : `${base}images/activity-svgrepo-com.svg`;
+  const portalLogo = isDark
+    ? (systemInfo?.portal_logo_dark || systemInfo?.portal_logo || defaultLogo)
+    : (systemInfo?.portal_logo_light || systemInfo?.portal_logo || defaultLogo);
+
+  useEffect(() => {
+    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/svg+xml";
+    link.href = portalLogo;
+  }, [portalLogo]);
 
   return (
     <aside className="flex h-screen w-[var(--sidebar-width)] flex-col border-r bg-card">
-      <div className="flex h-14 items-center border-b px-4">
-        <span className="text-sm font-semibold">{portalTitle}</span>
+      <div className="flex h-14 items-center gap-2 border-b px-4">
+        {portalLogo && (
+          <img
+            src={portalLogo}
+            alt=""
+            className="h-7 w-7 shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        )}
+        <span className="text-sm font-semibold truncate">{portalTitle}</span>
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
