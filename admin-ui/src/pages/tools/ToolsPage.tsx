@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   useTools,
   useConnections,
@@ -10,9 +10,10 @@ import type {
   ToolCallResponse,
   ConnectionInfo,
 } from "@/api/types";
+import { useInspectorStore } from "@/stores/inspector";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 
 type Tab = "overview" | "explore" | "help";
 
@@ -186,6 +187,8 @@ function ExploreTab() {
   const connections = connectionsData?.connections ?? [];
   const schemas = schemasData?.schemas ?? {};
 
+  const consumeReplayIntent = useInspectorStore((s) => s.consumeReplayIntent);
+
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [selectedConnection, setSelectedConnection] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -195,8 +198,27 @@ function ExploreTab() {
     null,
   );
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [replayParams, setReplayParams] = useState<Record<string, unknown> | null>(null);
+  const [replaySource, setReplaySource] = useState<{ event_id: string; event_timestamp: string } | null>(null);
+  const [formVersion, setFormVersion] = useState(0);
 
   const schema = selectedTool ? schemas[selectedTool] ?? null : null;
+
+  // Consume a replay intent from the inspector store (set by EventDrawer)
+  const consumedRef = useRef(false);
+  useEffect(() => {
+    if (consumedRef.current) return;
+    const intent = consumeReplayIntent();
+    if (!intent) return;
+    consumedRef.current = true;
+    setSelectedTool(intent.tool_name);
+    setSelectedConnection(intent.connection);
+    setReplayParams(intent.parameters);
+    setReplaySource({ event_id: intent.event_id, event_timestamp: intent.event_timestamp });
+    setLatestResult(null);
+    setShowRaw(false);
+    setFormVersion((v) => v + 1);
+  }, [consumeReplayIntent]);
 
   // Group connections for selector, filtered by search
   const filteredConnections = useMemo(() => {
@@ -230,6 +252,8 @@ function ExploreTab() {
       setSelectedConnection(connection?.connection ?? "");
       setLatestResult(null);
       setShowRaw(false);
+      setReplayParams(null);
+      setReplaySource(null);
     },
     [],
   );
@@ -323,7 +347,8 @@ function ExploreTab() {
       setSelectedConnection(entry.connection);
       setLatestResult(null);
       setShowRaw(false);
-      // Repopulate will happen via key change on form
+      setReplayParams(null);
+      setReplaySource(null);
     },
     [],
   );
@@ -417,8 +442,29 @@ function ExploreTab() {
               </p>
 
               {/* Dynamic form */}
+              {/* Replay banner */}
+              {replaySource && (
+                <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm">
+                  <span className="flex-1 text-muted-foreground">
+                    Replaying audit event{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
+                      {replaySource.event_id.slice(0, 8)}
+                    </code>{" "}
+                    from {new Date(replaySource.event_timestamp).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setReplaySource(null); setReplayParams(null); }}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Dismiss"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               <form
-                key={`${selectedTool}-${selectedConnection}`}
+                key={`${selectedTool}-${selectedConnection}-${formVersion}`}
                 onSubmit={handleExecute}
                 className="space-y-3 rounded-lg border bg-card p-4"
               >
@@ -460,6 +506,7 @@ function ExploreTab() {
                           name={key}
                           prop={prop}
                           required={isRequired}
+                          initialValue={replayParams?.[key]}
                         />
                       </div>
                     );
@@ -606,18 +653,22 @@ function FieldInput({
   name,
   prop,
   required,
+  initialValue,
 }: {
   name: string;
   prop: { type: string; format?: string; enum?: string[]; default?: string | number | boolean; description: string };
   required: boolean;
+  initialValue?: unknown;
 }) {
+  const resolvedDefault = initialValue !== undefined ? initialValue : prop.default;
+
   if (prop.type === "string" && prop.format === "sql") {
     return (
       <textarea
         name={name}
         required={required}
         rows={6}
-        defaultValue={String(prop.default ?? "")}
+        defaultValue={String(resolvedDefault ?? "")}
         className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none ring-ring focus:ring-2"
         placeholder="SELECT ..."
       />
@@ -629,7 +680,7 @@ function FieldInput({
       <select
         name={name}
         required={required}
-        defaultValue={String(prop.default ?? "")}
+        defaultValue={String(resolvedDefault ?? "")}
         className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
       >
         <option value="">-- select --</option>
@@ -648,7 +699,7 @@ function FieldInput({
         type="text"
         name={name}
         required={required}
-        defaultValue={String(prop.default ?? "")}
+        defaultValue={String(resolvedDefault ?? "")}
         className="w-full rounded-md border bg-background px-3 py-1.5 font-mono text-sm outline-none ring-ring focus:ring-2"
         placeholder="urn:li:dataset:..."
       />
@@ -661,18 +712,19 @@ function FieldInput({
         type="number"
         name={name}
         required={required}
-        defaultValue={prop.default !== undefined ? Number(prop.default) : undefined}
+        defaultValue={resolvedDefault !== undefined ? Number(resolvedDefault) : undefined}
         className="w-32 rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
       />
     );
   }
 
   if (prop.type === "boolean") {
+    const checked = initialValue !== undefined ? Boolean(initialValue) : prop.default === true;
     return (
       <input
         type="checkbox"
         name={name}
-        defaultChecked={prop.default === true}
+        defaultChecked={checked}
         className="h-4 w-4 rounded border"
       />
     );
@@ -684,7 +736,7 @@ function FieldInput({
       type="text"
       name={name}
       required={required}
-      defaultValue={String(prop.default ?? "")}
+      defaultValue={String(resolvedDefault ?? "")}
       className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
     />
   );

@@ -41,7 +41,7 @@ export function AppShell() {
             <ToolsPage key={currentPath} initialTab={initialTab} />
           )}
           {route === "/audit" && (
-            <AuditLogPage key={currentPath} initialTab={initialTab} />
+            <AuditLogPage key={currentPath} initialTab={initialTab} onNavigate={setCurrentPath} />
           )}
           {route === "/knowledge" && (
             <KnowledgePage key={currentPath} initialTab={initialTab} />

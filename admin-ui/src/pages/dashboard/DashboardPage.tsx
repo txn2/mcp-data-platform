@@ -35,7 +35,7 @@ function getResolution(preset: TimeRangePreset): Resolution {
   }
 }
 
-export function DashboardPage() {
+export function DashboardPage({ onNavigate }: { onNavigate?: (path: string) => void }) {
   const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
     () => ({ startTime: getStartTime(), endTime: getEndTime() }),
@@ -202,7 +202,7 @@ export function DashboardPage() {
         {/* Recent Errors */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Recent Errors</h2>
-          <RecentErrorsList events={recentErrors.data?.data} />
+          <RecentErrorsList events={recentErrors.data?.data} onNavigate={onNavigate} />
         </div>
       </div>
 

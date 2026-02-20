@@ -29,7 +29,7 @@ const TAB_ITEMS: { key: Tab; label: string }[] = [
   { key: "help", label: "Help" },
 ];
 
-export function AuditLogPage({ initialTab }: { initialTab?: string }) {
+export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; onNavigate?: (path: string) => void }) {
   const [tab, setTab] = useState<Tab>(
     (["overview", "events", "help"].includes(initialTab ?? "") ? initialTab : "overview") as Tab,
   );
@@ -53,8 +53,8 @@ export function AuditLogPage({ initialTab }: { initialTab?: string }) {
         ))}
       </div>
 
-      {tab === "overview" && <OverviewTab />}
-      {tab === "events" && <EventsTab />}
+      {tab === "overview" && <OverviewTab onNavigate={onNavigate} />}
+      {tab === "events" && <EventsTab onNavigate={onNavigate} />}
       {tab === "help" && <AuditHelpTab />}
     </div>
   );
@@ -80,7 +80,7 @@ function getResolution(preset: TimeRangePreset): Resolution {
   }
 }
 
-function OverviewTab() {
+function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
   const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
     () => ({ startTime: getStartTime(), endTime: getEndTime() }),
@@ -209,7 +209,7 @@ function OverviewTab() {
         {/* Recent Errors */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Recent Errors</h2>
-          <RecentErrorsList events={recentErrors.data?.data} />
+          <RecentErrorsList events={recentErrors.data?.data} onNavigate={onNavigate} />
         </div>
       </div>
     </div>
@@ -236,7 +236,7 @@ const COLUMNS: readonly {
   { key: "enrichment_applied", label: "Enriched",   thClass: "text-center", spanClass: "justify-center" },
 ];
 
-function EventsTab() {
+function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
   const [page, setPage] = useState(1);
   const [userId, setUserId] = useState("");
   const [toolName, setToolName] = useState("");
@@ -518,6 +518,7 @@ function EventsTab() {
         <EventDrawer
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
+          onNavigate={onNavigate}
         />
       )}
     </>
