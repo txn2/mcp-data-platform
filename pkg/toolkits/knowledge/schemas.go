@@ -65,11 +65,11 @@ var captureInsightSchema = json.RawMessage(`{
           },
           "target": {
             "type": "string",
-            "description": "Target for the change. Use 'column:<fieldPath>' for column-level changes (e.g., 'column:location_type_id'), or the entity URN for entity-level changes"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id'). For add_documentation, this is the URL. Leave empty for dataset-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The new value or content for the change"
+            "description": "The content for the change: description text, tag name or URN, glossary term name or URN, quality issue description, or documentation link description"
           }
         }
       },
@@ -113,11 +113,11 @@ var applyKnowledgeSchema = json.RawMessage(`{
           },
           "target": {
             "type": "string",
-            "description": "Target for the change. Use 'column:<fieldPath>' for column-level description updates (e.g., 'column:location_type_id'). For add_documentation, this is the link description. Leave empty for dataset-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id'). For add_documentation, this is the URL. Leave empty for dataset-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The new value: description text, tag URN, glossary term URN, quality issue description, or documentation URL"
+            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), glossary term name or URN, quality issue description, or documentation link description"
           }
         }
       },

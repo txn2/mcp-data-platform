@@ -482,19 +482,88 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 		case string(actionUpdateDescription):
 			err = t.executeUpdateDescription(ctx, urn, c)
 		case string(actionAddTag):
-			err = t.datahubWriter.AddTag(ctx, urn, c.Detail)
+			err = t.datahubWriter.AddTag(ctx, urn, normalizeTagURN(c.Detail))
 		case string(actionAddGlossaryTerm):
-			err = t.datahubWriter.AddGlossaryTerm(ctx, urn, c.Detail)
+			err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
 		case string(actionAddDocumentation):
-			err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Detail, c.Target)
+			// detail=description, target=URL (consistent with other change types
+			// where detail is always the content)
+			err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
 		case string(actionFlagQualityIssue):
-			err = t.datahubWriter.AddTag(ctx, urn, "quality_issue:"+c.Detail)
+			err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN(c.Detail))
 		}
 		if err != nil {
 			return fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
 		}
 	}
 	return nil
+}
+
+// normalizeTagURN ensures a tag value is a full DataHub TagUrn.
+// Per TagAssociation.pdl, the tag field must be a TagUrn (urn:li:tag:<name>).
+func normalizeTagURN(tag string) string {
+	if strings.HasPrefix(tag, "urn:li:tag:") {
+		return tag
+	}
+	return "urn:li:tag:" + tag
+}
+
+// normalizeGlossaryTermURN ensures a glossary term value is a full DataHub GlossaryTermUrn.
+// Per GlossaryTermAssociation.pdl, the urn field must be a GlossaryTermUrn.
+func normalizeGlossaryTermURN(term string) string {
+	if strings.HasPrefix(term, "urn:li:glossaryTerm:") {
+		return term
+	}
+	return "urn:li:glossaryTerm:" + term
+}
+
+// qualityIssueTagURN creates a valid DataHub TagUrn from a quality issue description.
+// Sanitizes the description to alphanumeric + underscores, truncated to 50 chars.
+func qualityIssueTagURN(detail string) string {
+	slug := sanitizeTagSlug(detail)
+	if slug == "" {
+		slug = "unspecified"
+	}
+	return "urn:li:tag:quality_issue_" + slug
+}
+
+// sanitizeTagSlug converts a free-text string into a valid tag name component.
+// Replaces non-alphanumeric characters with underscores, collapses runs,
+// trims edges, lowercases, and truncates to maxLen.
+func sanitizeTagSlug(s string) string {
+	const maxLen = 50
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	// Collapse consecutive underscores and trim edges
+	result := strings.Trim(collapseUnderscores(b.String()), "_")
+	if len(result) > maxLen {
+		result = result[:maxLen]
+	}
+	return strings.TrimRight(result, "_")
+}
+
+// collapseUnderscores replaces runs of consecutive underscores with a single underscore.
+func collapseUnderscores(s string) string {
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		if r == '_' {
+			if !prev {
+				b.WriteRune('_')
+			}
+			prev = true
+		} else {
+			b.WriteRune(r)
+			prev = false
+		}
+	}
+	return b.String()
 }
 
 // executeUpdateDescription routes description updates to dataset-level or column-level

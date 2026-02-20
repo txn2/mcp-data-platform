@@ -332,6 +332,13 @@ linters:
           - revive
         text: "add-constant"
 
+      # Test files legitimately contain hardcoded test credentials (G101) and
+      # httptest handlers that echo request data (G705 XSS false positives)
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G101|G705"
+
       # DTO/types packages naturally exceed 5 public structs — their job is to define types
       - path: pkg/audit/
         linters:

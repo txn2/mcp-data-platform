@@ -26,7 +26,7 @@ type Config struct {
 	Host           string
 	Port           int
 	User           string
-	Password       string
+	Password       string // #nosec G117 -- Trino connection credential from admin config
 	Catalog        string
 	Schema         string
 	SSL            bool

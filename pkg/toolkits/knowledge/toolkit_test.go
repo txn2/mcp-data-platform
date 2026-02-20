@@ -1531,7 +1531,7 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 			{ChangeType: "update_description", Detail: "New description"},
 			{ChangeType: "add_tag", Detail: "important"},
 			{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:revenue"},
-			{ChangeType: "add_documentation", Detail: "https://docs.example.com", Target: "Revenue docs"},
+			{ChangeType: "add_documentation", Detail: "Revenue docs", Target: "https://docs.example.com"},
 			{ChangeType: "flag_quality_issue", Detail: "missing_values"},
 		},
 		InsightIDs: []string{"ins-1", "ins-2"},
@@ -1545,12 +1545,15 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	assert.Len(t, writer.WriteCalls, 5)
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
 	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:tag:important", writer.WriteCalls[1].Arg1)
 	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
-	assert.Equal(t, "AddTag", writer.WriteCalls[4].Method) // flag_quality_issue -> AddTag with prefix
+	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
+	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
+	assert.Equal(t, "AddTag", writer.WriteCalls[4].Method)
 
-	// Verify flag_quality_issue gets tag prefix
-	assert.Equal(t, "quality_issue:missing_values", writer.WriteCalls[4].Arg1)
+	// Verify flag_quality_issue produces valid tag URN
+	assert.Equal(t, "urn:li:tag:quality_issue_missing_values", writer.WriteCalls[4].Arg1)
 
 	// Verify all writes target the correct URN
 	for _, wc := range writer.WriteCalls {
@@ -2396,7 +2399,7 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 		{ChangeType: "update_description", Detail: "new desc"},
 		{ChangeType: "add_tag", Detail: "tag1"},
 		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:t1"},
-		{ChangeType: "add_documentation", Detail: "https://docs.example.com", Target: "API Docs"},
+		{ChangeType: "add_documentation", Detail: "API Docs", Target: "https://docs.example.com"},
 		{ChangeType: "flag_quality_issue", Detail: "nulls"},
 	}
 
@@ -2407,18 +2410,21 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
 	assert.Equal(t, "new desc", writer.WriteCalls[0].Arg1)
 
+	// add_tag: short name normalized to full URN
 	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
-	assert.Equal(t, "tag1", writer.WriteCalls[1].Arg1)
+	assert.Equal(t, "urn:li:tag:tag1", writer.WriteCalls[1].Arg1)
 
 	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
 	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[2].Arg1)
 
+	// add_documentation: detail=description, target=URL
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
 	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
 	assert.Equal(t, "API Docs", writer.WriteCalls[3].Arg2)
 
+	// flag_quality_issue: sanitized tag URN
 	assert.Equal(t, "AddTag", writer.WriteCalls[4].Method)
-	assert.Equal(t, "quality_issue:nulls", writer.WriteCalls[4].Arg1)
+	assert.Equal(t, "urn:li:tag:quality_issue_nulls", writer.WriteCalls[4].Arg1)
 }
 
 func TestExecuteChanges_FailsOnError(t *testing.T) {
@@ -2530,6 +2536,8 @@ func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
 	assert.Equal(t, "UpdateColumnDescription", writer.WriteCalls[1].Method)
 	assert.Equal(t, "email", writer.WriteCalls[1].Arg1)
 	assert.Equal(t, "AddTag", writer.WriteCalls[2].Method)
+	// Full URN should pass through unchanged (no double-prepend)
+	assert.Equal(t, "urn:li:tag:PII", writer.WriteCalls[2].Arg1)
 }
 
 func TestExecuteChanges_ColumnTargetError(t *testing.T) {
@@ -2556,4 +2564,142 @@ func TestExecuteChanges_DatasetDescriptionError(t *testing.T) {
 	err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "description update")
+}
+
+// ---------------------------------------------------------------------------
+// URN normalization
+// ---------------------------------------------------------------------------
+
+func TestNormalizeTagURN(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"pii", "urn:li:tag:pii"},
+		{"PII", "urn:li:tag:PII"},
+		{"urn:li:tag:pii", "urn:li:tag:pii"},
+		{"urn:li:tag:PII", "urn:li:tag:PII"},
+		{"important", "urn:li:tag:important"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeTagURN(tt.input))
+		})
+	}
+}
+
+func TestNormalizeGlossaryTermURN(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Location", "urn:li:glossaryTerm:Location"},
+		{"urn:li:glossaryTerm:Location", "urn:li:glossaryTerm:Location"},
+		{"CustomerPII", "urn:li:glossaryTerm:CustomerPII"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeGlossaryTermURN(tt.input))
+		})
+	}
+}
+
+func TestQualityIssueTagURN(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple", "nulls", "urn:li:tag:quality_issue_nulls"},
+		{"underscored", "missing_values", "urn:li:tag:quality_issue_missing_values"},
+		{"spaces", "Missing values in 30% of rows", "urn:li:tag:quality_issue_missing_values_in_30_of_rows"},
+		{"special chars", "data!@#quality", "urn:li:tag:quality_issue_data_quality"},
+		{"empty", "", "urn:li:tag:quality_issue_unspecified"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, qualityIssueTagURN(tt.input))
+		})
+	}
+}
+
+func TestSanitizeTagSlug(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple", "hello", "hello"},
+		{"spaces", "hello world", "hello_world"},
+		{"special", "hello!@#world", "hello_world"},
+		{"consecutive specials", "a!!!b", "a_b"},
+		{"leading trailing", "  hello  ", "hello"},
+		{"uppercase", "Hello World", "hello_world"},
+		{"empty", "", ""},
+		{"long", strings.Repeat("a", 100), strings.Repeat("a", 50)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeTagSlug(tt.input))
+		})
+	}
+}
+
+func TestExecuteChanges_TagNormalization(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_tag", Detail: "pii"},
+		{ChangeType: "add_tag", Detail: "urn:li:tag:pii"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 2)
+
+	// Short name gets normalized
+	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[0].Arg1)
+	// Full URN passes through unchanged
+	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[1].Arg1)
+}
+
+func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_glossary_term", Detail: "Revenue"},
+		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:Revenue"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 2)
+
+	// Short name gets normalized
+	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].Arg1)
+	// Full URN passes through unchanged
+	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[1].Arg1)
+}
+
+func TestExecuteChanges_DocumentationParamMapping(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	// detail=description, target=URL (consistent with other change types)
+	changes := []ApplyChange{
+		{ChangeType: "add_documentation", Detail: "Revenue documentation", Target: "https://wiki.example.com/revenue"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+
+	call := writer.WriteCalls[0]
+	assert.Equal(t, "AddDocumentationLink", call.Method)
+	// First arg to AddDocumentationLink is URL (from target)
+	assert.Equal(t, "https://wiki.example.com/revenue", call.Arg1)
+	// Second arg is description (from detail)
+	assert.Equal(t, "Revenue documentation", call.Arg2)
 }

@@ -370,7 +370,7 @@ func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error)
 		return "", fmt.Errorf("creating discovery request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- URL from admin-controlled OIDC issuer config
 	if err != nil {
 		return "", fmt.Errorf("fetching discovery document: %w", err)
 	}
@@ -401,7 +401,7 @@ func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI strin
 		return nil, nil, fmt.Errorf("creating JWKS request: %w", err)
 	}
 
-	jwksResp, err := http.DefaultClient.Do(jwksReq)
+	jwksResp, err := http.DefaultClient.Do(jwksReq) // #nosec G704 -- URL from OIDC discovery document
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching JWKS: %w", err)
 	}

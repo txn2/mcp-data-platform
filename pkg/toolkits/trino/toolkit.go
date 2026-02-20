@@ -35,7 +35,7 @@ type Config struct {
 	Host           string                      `yaml:"host"`
 	Port           int                         `yaml:"port"`
 	User           string                      `yaml:"user"`
-	Password       string                      `yaml:"password"`
+	Password       string                      `yaml:"password"` // #nosec G117 -- Trino credential from admin YAML config
 	Catalog        string                      `yaml:"catalog"`
 	Schema         string                      `yaml:"schema"`
 	SSL            bool                        `yaml:"ssl"`
