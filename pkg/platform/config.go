@@ -613,9 +613,6 @@ func applyServerDefaults(cfg *Config) {
 	if cfg.Server.Name == "" {
 		cfg.Server.Name = defaultServerName
 	}
-	if cfg.Server.Version == "" {
-		cfg.Server.Version = "1.0.0"
-	}
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
 	}

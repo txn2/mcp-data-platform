@@ -61,6 +61,59 @@ func TestNew(t *testing.T) {
 		}
 	})
 
+	t.Run("sets build-time version when config version is empty", func(t *testing.T) {
+		cfg := &platform.Config{
+			Server: platform.ServerConfig{
+				Name:      "test-server",
+				Transport: "stdio",
+			},
+			Semantic: platform.SemanticConfig{Provider: "noop"},
+			Query:    platform.QueryConfig{Provider: "noop"},
+			Storage:  platform.StorageConfig{Provider: "noop"},
+		}
+
+		_, p, err := New(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		defer func() {
+			if err := p.Close(); err != nil {
+				t.Logf("Close() error (non-fatal): %v", err)
+			}
+		}()
+
+		if cfg.Server.Version != Version {
+			t.Errorf("expected version %q, got %q", Version, cfg.Server.Version)
+		}
+	})
+
+	t.Run("preserves explicit config version", func(t *testing.T) {
+		cfg := &platform.Config{
+			Server: platform.ServerConfig{
+				Name:      "test-server",
+				Version:   "custom-v1",
+				Transport: "stdio",
+			},
+			Semantic: platform.SemanticConfig{Provider: "noop"},
+			Query:    platform.QueryConfig{Provider: "noop"},
+			Storage:  platform.StorageConfig{Provider: "noop"},
+		}
+
+		_, p, err := New(cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		defer func() {
+			if err := p.Close(); err != nil {
+				t.Logf("Close() error (non-fatal): %v", err)
+			}
+		}()
+
+		if cfg.Server.Version != "custom-v1" {
+			t.Errorf("expected version %q, got %q", "custom-v1", cfg.Server.Version)
+		}
+	})
+
 	t.Run("with invalid semantic provider", func(t *testing.T) {
 		cfg := &platform.Config{
 			Server: platform.ServerConfig{Name: "test"},
