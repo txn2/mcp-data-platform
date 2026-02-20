@@ -689,7 +689,7 @@ function FieldInput({
 }) {
   const resolvedDefault = initialValue !== undefined ? initialValue : prop.default;
 
-  if (prop.type === "string" && prop.format === "sql") {
+  if (prop.type === "string" && (prop.format === "sql" || name === "sql")) {
     return (
       <SqlTextarea
         name={name}
