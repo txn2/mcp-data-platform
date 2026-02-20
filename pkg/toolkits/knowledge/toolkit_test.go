@@ -1530,6 +1530,7 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 		Changes: []ApplyChange{
 			{ChangeType: "update_description", Detail: "New description"},
 			{ChangeType: "add_tag", Detail: "important"},
+			{ChangeType: "remove_tag", Detail: "deprecated"},
 			{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:revenue"},
 			{ChangeType: "add_documentation", Detail: "Revenue docs", Target: "https://docs.example.com"},
 			{ChangeType: "flag_quality_issue", Detail: "missing_values"},
@@ -1541,19 +1542,21 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	require.Nil(t, callErr)
 	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
 
-	// Verify all 5 write calls were made
-	assert.Len(t, writer.WriteCalls, 5)
+	// Verify all 6 write calls were made
+	assert.Len(t, writer.WriteCalls, 6)
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
 	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
 	assert.Equal(t, "urn:li:tag:important", writer.WriteCalls[1].Arg1)
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
-	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
-	assert.Equal(t, "AddTag", writer.WriteCalls[4].Method)
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[2].Method)
+	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[2].Arg1)
+	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[3].Method)
+	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[4].Method)
+	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[4].Arg1)
+	assert.Equal(t, "Revenue docs", writer.WriteCalls[4].Arg2)
+	assert.Equal(t, "AddTag", writer.WriteCalls[5].Method)
 
-	// Verify flag_quality_issue produces valid tag URN
-	assert.Equal(t, "urn:li:tag:quality_issue_missing_values", writer.WriteCalls[4].Arg1)
+	// Verify flag_quality_issue uses fixed QualityIssue tag (not dynamic slugified tag)
+	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[5].Arg1)
 
 	// Verify all writes target the correct URN
 	for _, wc := range writer.WriteCalls {
@@ -1883,10 +1886,10 @@ func TestHandleApply_ChangeTypeValidation(t *testing.T) {
 	}{
 		{name: "valid update_description", changeType: "update_description", wantErr: false},
 		{name: "valid add_tag", changeType: "add_tag", wantErr: false},
+		{name: "valid remove_tag", changeType: "remove_tag", wantErr: false},
 		{name: "valid add_glossary_term", changeType: "add_glossary_term", wantErr: false},
 		{name: "valid flag_quality_issue", changeType: "flag_quality_issue", wantErr: false},
 		{name: "valid add_documentation", changeType: "add_documentation", wantErr: false},
-		{name: "invalid remove_tag", changeType: "remove_tag", wantErr: true},
 		{name: "invalid empty", changeType: "", wantErr: true},
 		{name: "invalid arbitrary", changeType: "delete_dataset", wantErr: true},
 	}
@@ -2398,6 +2401,7 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	changes := []ApplyChange{
 		{ChangeType: "update_description", Detail: "new desc"},
 		{ChangeType: "add_tag", Detail: "tag1"},
+		{ChangeType: "remove_tag", Detail: "old_tag"},
 		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:t1"},
 		{ChangeType: "add_documentation", Detail: "API Docs", Target: "https://docs.example.com"},
 		{ChangeType: "flag_quality_issue", Detail: "nulls"},
@@ -2405,7 +2409,7 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 
 	err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	assert.Len(t, writer.WriteCalls, 5)
+	assert.Len(t, writer.WriteCalls, 6)
 
 	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
 	assert.Equal(t, "new desc", writer.WriteCalls[0].Arg1)
@@ -2414,17 +2418,21 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
 	assert.Equal(t, "urn:li:tag:tag1", writer.WriteCalls[1].Arg1)
 
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[2].Arg1)
+	// remove_tag: short name normalized to full URN
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[2].Method)
+	assert.Equal(t, "urn:li:tag:old_tag", writer.WriteCalls[2].Arg1)
+
+	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[3].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[3].Arg1)
 
 	// add_documentation: detail=description, target=URL
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
-	assert.Equal(t, "API Docs", writer.WriteCalls[3].Arg2)
+	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[4].Method)
+	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[4].Arg1)
+	assert.Equal(t, "API Docs", writer.WriteCalls[4].Arg2)
 
-	// flag_quality_issue: sanitized tag URN
-	assert.Equal(t, "AddTag", writer.WriteCalls[4].Method)
-	assert.Equal(t, "urn:li:tag:quality_issue_nulls", writer.WriteCalls[4].Arg1)
+	// flag_quality_issue: fixed QualityIssue tag (detail is stored as context, not in tag name)
+	assert.Equal(t, "AddTag", writer.WriteCalls[5].Method)
+	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[5].Arg1)
 }
 
 func TestExecuteChanges_FailsOnError(t *testing.T) {
@@ -2604,45 +2612,10 @@ func TestNormalizeGlossaryTermURN(t *testing.T) {
 	}
 }
 
-func TestQualityIssueTagURN(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"simple", "nulls", "urn:li:tag:quality_issue_nulls"},
-		{"underscored", "missing_values", "urn:li:tag:quality_issue_missing_values"},
-		{"spaces", "Missing values in 30% of rows", "urn:li:tag:quality_issue_missing_values_in_30_of_rows"},
-		{"special chars", "data!@#quality", "urn:li:tag:quality_issue_data_quality"},
-		{"empty", "", "urn:li:tag:quality_issue_unspecified"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, qualityIssueTagURN(tt.input))
-		})
-	}
-}
-
-func TestSanitizeTagSlug(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"simple", "hello", "hello"},
-		{"spaces", "hello world", "hello_world"},
-		{"special", "hello!@#world", "hello_world"},
-		{"consecutive specials", "a!!!b", "a_b"},
-		{"leading trailing", "  hello  ", "hello"},
-		{"uppercase", "Hello World", "hello_world"},
-		{"empty", "", ""},
-		{"long", strings.Repeat("a", 100), strings.Repeat("a", 50)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, sanitizeTagSlug(tt.input))
-		})
-	}
+func TestQualityIssueTagURN_IsFixedConstant(t *testing.T) {
+	// flag_quality_issue uses a single fixed tag, not dynamic slugified tags.
+	// The detail text is stored as context in the knowledge store.
+	assert.Equal(t, "urn:li:tag:QualityIssue", qualityIssueTagURN)
 }
 
 func TestExecuteChanges_TagNormalization(t *testing.T) {
@@ -2662,6 +2635,49 @@ func TestExecuteChanges_TagNormalization(t *testing.T) {
 	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[0].Arg1)
 	// Full URN passes through unchanged
 	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[1].Arg1)
+}
+
+func TestExecuteChanges_RemoveTag(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "remove_tag", Detail: "deprecated"},
+		{ChangeType: "remove_tag", Detail: "urn:li:tag:QualityIssue"},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 2)
+
+	// Short name gets normalized
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[0].Arg1)
+	// Full URN passes through unchanged
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[1].Arg1)
+}
+
+func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
+	writer := &spyWriter{}
+	tk := &Toolkit{datahubWriter: writer}
+
+	// Regardless of detail text, the tag should be the fixed QualityIssue tag
+	changes := []ApplyChange{
+		{ChangeType: "flag_quality_issue", Detail: "Missing column descriptions"},
+		{ChangeType: "flag_quality_issue", Detail: "nulls"},
+		{ChangeType: "flag_quality_issue", Detail: ""},
+	}
+
+	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 3)
+
+	// All calls should use the same fixed tag
+	for i, call := range writer.WriteCalls {
+		assert.Equal(t, "AddTag", call.Method, "call %d", i)
+		assert.Equal(t, "urn:li:tag:QualityIssue", call.Arg1, "call %d", i)
+	}
 }
 
 func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {

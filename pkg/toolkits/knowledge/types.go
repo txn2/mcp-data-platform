@@ -146,15 +146,20 @@ type actionType string
 const (
 	actionUpdateDescription actionType = "update_description"
 	actionAddTag            actionType = "add_tag"
+	actionRemoveTag         actionType = "remove_tag"
 	actionAddGlossaryTerm   actionType = "add_glossary_term"
 	actionFlagQualityIssue  actionType = "flag_quality_issue"
 	actionAddDocumentation  actionType = "add_documentation"
 )
 
+// actionTypeList is a human-readable list of valid action types for error messages.
+const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation"
+
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
 	actionUpdateDescription: true,
 	actionAddTag:            true,
+	actionRemoveTag:         true,
 	actionAddGlossaryTerm:   true,
 	actionFlagQualityIssue:  true,
 	actionAddDocumentation:  true,
@@ -174,7 +179,7 @@ func ValidateSuggestedActions(actions []SuggestedAction) error {
 	}
 	for i, a := range actions {
 		if !validActionTypes[actionType(a.ActionType)] {
-			return fmt.Errorf("suggested_actions[%d]: invalid action_type %q: must be one of: update_description, add_tag, add_glossary_term, flag_quality_issue, add_documentation", i, a.ActionType)
+			return fmt.Errorf("suggested_actions[%d]: invalid action_type %q: must be one of: %s", i, a.ActionType, actionTypeList)
 		}
 	}
 	return nil
@@ -372,7 +377,7 @@ func ValidateApplyChanges(changes []ApplyChange) error {
 	}
 	for i, c := range changes {
 		if !validActionTypes[actionType(c.ChangeType)] {
-			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: update_description, add_tag, add_glossary_term, flag_quality_issue, add_documentation", i, c.ChangeType)
+			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: %s", i, c.ChangeType, actionTypeList)
 		}
 	}
 	return nil

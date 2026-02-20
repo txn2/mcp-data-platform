@@ -484,9 +484,10 @@ Record domain knowledge shared during a session. Available to all personas when 
 | `category` | string | Yes | - | correction, business_context, data_quality, usage_guidance, relationship, enhancement |
 | `insight_text` | string | Yes | - | Knowledge to record (10-4000 chars) |
 | `confidence` | string | No | medium | high, medium, low |
+| `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
-| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5) |
+| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation |
 
 ---
 

@@ -142,10 +142,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Name: applyToolName,
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
-				"For the apply action, the target field in changes uses 'column:<fieldPath>' to target " +
-				"column-level descriptions (e.g., 'column:location_type_id'). " +
-				"Omit target or leave empty for dataset-level description updates. " +
-				"flag_quality_issue adds a 'quality_issue:<detail>' tag to the entity.",
+				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation. " +
+				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for dataset-level. " +
+				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
+				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
+				"For add_documentation, target is the URL, detail is the link description.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
@@ -483,6 +484,8 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 			err = t.executeUpdateDescription(ctx, urn, c)
 		case string(actionAddTag):
 			err = t.datahubWriter.AddTag(ctx, urn, normalizeTagURN(c.Detail))
+		case string(actionRemoveTag):
+			err = t.datahubWriter.RemoveTag(ctx, urn, normalizeTagURN(c.Detail))
 		case string(actionAddGlossaryTerm):
 			err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
 		case string(actionAddDocumentation):
@@ -490,7 +493,7 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 			// where detail is always the content)
 			err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
 		case string(actionFlagQualityIssue):
-			err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN(c.Detail))
+			err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
 		}
 		if err != nil {
 			return fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
@@ -517,54 +520,10 @@ func normalizeGlossaryTermURN(term string) string {
 	return "urn:li:glossaryTerm:" + term
 }
 
-// qualityIssueTagURN creates a valid DataHub TagUrn from a quality issue description.
-// Sanitizes the description to alphanumeric + underscores, truncated to 50 chars.
-func qualityIssueTagURN(detail string) string {
-	slug := sanitizeTagSlug(detail)
-	if slug == "" {
-		slug = "unspecified"
-	}
-	return "urn:li:tag:quality_issue_" + slug
-}
-
-// sanitizeTagSlug converts a free-text string into a valid tag name component.
-// Replaces non-alphanumeric characters with underscores, collapses runs,
-// trims edges, lowercases, and truncates to maxLen.
-func sanitizeTagSlug(s string) string {
-	const maxLen = 50
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('_')
-		}
-	}
-	// Collapse consecutive underscores and trim edges
-	result := strings.Trim(collapseUnderscores(b.String()), "_")
-	if len(result) > maxLen {
-		result = result[:maxLen]
-	}
-	return strings.TrimRight(result, "_")
-}
-
-// collapseUnderscores replaces runs of consecutive underscores with a single underscore.
-func collapseUnderscores(s string) string {
-	var b strings.Builder
-	prev := false
-	for _, r := range s {
-		if r == '_' {
-			if !prev {
-				b.WriteRune('_')
-			}
-			prev = true
-		} else {
-			b.WriteRune(r)
-			prev = false
-		}
-	}
-	return b.String()
-}
+// qualityIssueTagURN is the single fixed DataHub tag applied by flag_quality_issue.
+// Instead of encoding quality issue details into dynamic tag names (which pollutes
+// the tag namespace), the detail text is stored as a knowledge insight for admin review.
+const qualityIssueTagURN = "urn:li:tag:QualityIssue"
 
 // executeUpdateDescription routes description updates to dataset-level or column-level
 // based on the target field. A target of "column:<fieldPath>" routes to column description.

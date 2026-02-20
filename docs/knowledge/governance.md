@@ -187,13 +187,16 @@ When `require_confirmation` is enabled in configuration and `confirm` is not `tr
 
 ### Supported Change Types
 
-| Change Type | Description | Detail Field |
-|-------------|-------------|--------------|
-| `update_description` | Update entity or column description | New description text |
-| `add_tag` | Add a tag to the entity | Tag name |
-| `add_glossary_term` | Associate a glossary term | Glossary term name or URN |
-| `flag_quality_issue` | Tag entity with a quality issue | Issue description (creates `quality_issue:` prefixed tag) |
-| `add_documentation` | Add a documentation link | URL of the documentation |
+| Change Type | Description | Target Field | Detail Field |
+|-------------|-------------|-------------|--------------|
+| `update_description` | Update entity or column description | `column:<fieldPath>` for columns, empty for dataset-level | New description text |
+| `add_tag` | Add a tag to the entity | (ignored) | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) |
+| `remove_tag` | Remove a tag from the entity | (ignored) | Tag name or URN to remove |
+| `add_glossary_term` | Associate a glossary term | (ignored) | Glossary term name or URN |
+| `flag_quality_issue` | Add fixed `QualityIssue` tag to the entity | (ignored) | Issue description (stored as context in the knowledge store) |
+| `add_documentation` | Add a documentation link | URL of the documentation | Link description |
+
+Tag names and glossary term names are automatically normalized to full DataHub URNs (e.g., `pii` becomes `urn:li:tag:pii`).
 
 ### Apply Response
 
