@@ -10,18 +10,20 @@ import (
 
 // systemInfoResponse is returned by GET /system/info.
 type systemInfoResponse struct {
-	Name         string         `json:"name"`
-	Version      string         `json:"version"`
-	Description  string         `json:"description"`
-	Transport    string         `json:"transport"`
-	ConfigMode   string         `json:"config_mode"`
-	PortalTitle      string         `json:"portal_title"`
-	PortalLogo       string         `json:"portal_logo"`
-	PortalLogoLight  string         `json:"portal_logo_light"`
-	PortalLogoDark   string         `json:"portal_logo_dark"`
-	Features         systemFeatures `json:"features"`
-	ToolkitCount int            `json:"toolkit_count"`
-	PersonaCount int            `json:"persona_count"`
+	Name            string         `json:"name"`
+	Version         string         `json:"version"`
+	Commit          string         `json:"commit"`
+	BuildDate       string         `json:"build_date"`
+	Description     string         `json:"description"`
+	Transport       string         `json:"transport"`
+	ConfigMode      string         `json:"config_mode"`
+	PortalTitle     string         `json:"portal_title"`
+	PortalLogo      string         `json:"portal_logo"`
+	PortalLogoLight string         `json:"portal_logo_light"`
+	PortalLogoDark  string         `json:"portal_logo_dark"`
+	Features        systemFeatures `json:"features"`
+	ToolkitCount    int            `json:"toolkit_count"`
+	PersonaCount    int            `json:"persona_count"`
 }
 
 // systemFeatures lists platform features based on runtime availability.
@@ -47,6 +49,8 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	cfg := h.deps.Config
 	resp := systemInfoResponse{
 		Version:    mcpserver.Version,
+		Commit:     mcpserver.Commit,
+		BuildDate:  mcpserver.Date,
 		ConfigMode: configModeFile,
 	}
 	if cfg != nil {

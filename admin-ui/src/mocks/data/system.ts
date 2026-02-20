@@ -7,6 +7,8 @@ import type {
 export const mockSystemInfo: SystemInfo = {
   name: "acme-data-platform",
   version: "1.4.2",
+  commit: "a1b2c3d",
+  build_date: "2025-01-15T10:30:00Z",
   description: "ACME Corporation Retail Data Platform",
   transport: "http",
   config_mode: "database",

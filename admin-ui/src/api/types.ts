@@ -3,6 +3,8 @@
 export interface SystemInfo {
   name: string;
   version: string;
+  commit: string;
+  build_date: string;
   description: string;
   transport: string;
   config_mode: string;

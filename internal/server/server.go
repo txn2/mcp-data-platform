@@ -10,8 +10,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
-// Version is set at build time.
+// Version is set at build time via ldflags.
 var Version = "dev"
+
+// Commit is the git short commit hash, set at build time via ldflags.
+var Commit = "none"
+
+// Date is the build timestamp, set at build time via ldflags.
+var Date = "unknown"
 
 // New creates a new MCP server with the given configuration.
 func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {

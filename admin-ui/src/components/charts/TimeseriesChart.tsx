@@ -15,17 +15,26 @@ interface TimeseriesChartProps {
   data: TimeseriesBucket[] | undefined;
   isLoading: boolean;
   height?: number;
+  preset?: "1h" | "6h" | "24h" | "7d";
 }
 
-function formatTime(iso: string) {
+function formatTick(iso: string, preset?: string) {
   const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  switch (preset) {
+    case "7d":
+      return d.toLocaleDateString([], { month: "short", day: "numeric" });
+    case "24h":
+      return d.toLocaleTimeString([], { hour: "numeric" });
+    default:
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 }
 
 export function TimeseriesChart({
   data,
   isLoading,
   height = 250,
+  preset,
 }: TimeseriesChartProps) {
   if (isLoading || !data) return <ChartSkeleton height={height} />;
 
@@ -35,7 +44,7 @@ export function TimeseriesChart({
         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
         <XAxis
           dataKey="bucket"
-          tickFormatter={formatTime}
+          tickFormatter={(v) => formatTick(v as string, preset)}
           className="text-xs"
           tick={{ fill: "hsl(var(--muted-foreground))" }}
         />

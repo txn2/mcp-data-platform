@@ -10,11 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
+	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 func TestGetSystemInfo(t *testing.T) {
 	t.Run("returns runtime feature availability", func(t *testing.T) {
+		origCommit, origDate := mcpserver.Commit, mcpserver.Date
+		mcpserver.Commit = "abc1234"
+		mcpserver.Date = "2025-01-15T10:30:00Z"
+		t.Cleanup(func() {
+			mcpserver.Commit = origCommit
+			mcpserver.Date = origDate
+		})
+
 		cfg := testConfig()
 		cfg.Server.Name = "test-platform"
 		cfg.Server.Description = "Test description"
@@ -56,6 +65,8 @@ func TestGetSystemInfo(t *testing.T) {
 		var body systemInfoResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, "test-platform", body.Name)
+		assert.Equal(t, "abc1234", body.Commit)
+		assert.Equal(t, "2025-01-15T10:30:00Z", body.BuildDate)
 		assert.Equal(t, "Test description", body.Description)
 		assert.Equal(t, "http", body.Transport)
 		assert.Equal(t, "https://cdn.example.com/logo.svg", body.PortalLogo)
