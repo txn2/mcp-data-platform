@@ -75,6 +75,17 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
+| `session_id` | VARCHAR(255) | MCP session ID. Links tool calls within the same session for pattern analysis. |
+| `response_chars` | INTEGER | Character count of the tool response. |
+| `content_blocks` | INTEGER | Number of content blocks in the tool response. |
+| `request_chars` | INTEGER | Character count of the tool request parameters. |
+| `transport` | VARCHAR(50) | Transport type: `stdio` or `http`. |
+| `source` | VARCHAR(50) | Request source: `mcp`, `admin`, `inspector`. |
+| `enrichment_applied` | BOOLEAN | Whether semantic enrichment was applied to this tool call's response. |
+| `authorized` | BOOLEAN | Whether the tool call was authorized by the persona system. |
+| `enrichment_tokens_full` | INTEGER | Estimated tokens for the full (non-dedup) enrichment content. Uses `chars / 4` approximation. |
+| `enrichment_tokens_dedup` | INTEGER | Estimated tokens for the dedup enrichment content. `0` when full enrichment was sent. |
+| `enrichment_mode` | VARCHAR(20) | Enrichment mode used: `full`, `summary`, `reference`, `none`, or empty (not enriched). |
 | `created_date` | DATE | Partition key derived from `timestamp`. Used for retention cleanup. |
 
 ## Parameter Sanitization
@@ -178,6 +189,47 @@ WHERE duration_ms > 5000
   AND toolkit_kind = 'trino'
 ORDER BY duration_ms DESC
 LIMIT 10;
+```
+
+### Enrichment token savings
+
+```sql
+SELECT enrichment_mode,
+       COUNT(*) AS calls,
+       SUM(enrichment_tokens_full) AS tokens_full,
+       SUM(enrichment_tokens_dedup) AS tokens_dedup,
+       SUM(enrichment_tokens_full) - SUM(enrichment_tokens_dedup) AS tokens_saved
+FROM audit_logs
+WHERE enrichment_applied = true
+  AND timestamp > NOW() - INTERVAL '7 days'
+GROUP BY enrichment_mode
+ORDER BY calls DESC;
+```
+
+### Discovery-before-query patterns
+
+```sql
+WITH session_tools AS (
+    SELECT session_id, toolkit_kind,
+           MIN(timestamp) AS first_call
+    FROM audit_logs
+    WHERE timestamp > NOW() - INTERVAL '7 days'
+    GROUP BY session_id, toolkit_kind
+),
+session_patterns AS (
+    SELECT session_id,
+           BOOL_OR(toolkit_kind = 'datahub') AS has_discovery,
+           BOOL_OR(toolkit_kind = 'trino') AS has_query,
+           MIN(CASE WHEN toolkit_kind = 'datahub' THEN first_call END) AS first_discovery,
+           MIN(CASE WHEN toolkit_kind = 'trino' THEN first_call END) AS first_query
+    FROM session_tools
+    GROUP BY session_id
+)
+SELECT
+    COUNT(*) AS total_sessions,
+    COUNT(*) FILTER (WHERE has_discovery AND has_query AND first_discovery < first_query) AS discovery_first,
+    COUNT(*) FILTER (WHERE has_query AND NOT has_discovery) AS query_without_discovery
+FROM session_patterns;
 ```
 
 ## Retention and Cleanup

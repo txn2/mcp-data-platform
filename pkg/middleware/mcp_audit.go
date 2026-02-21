@@ -123,6 +123,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 		EnrichmentApplied:     pc.EnrichmentApplied,
 		EnrichmentTokensFull:  pc.EnrichmentTokensFull,
 		EnrichmentTokensDedup: pc.EnrichmentTokensDedup,
+		EnrichmentMode:        pc.EnrichmentMode,
 		Authorized:            pc.Authorized,
 	}
 }

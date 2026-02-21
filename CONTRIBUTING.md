@@ -91,8 +91,7 @@ test: add tests for persona filtering
 3. Ensure all tests pass: `go test -race ./...`
 4. Ensure linting passes: `golangci-lint run ./...`
 5. Ensure security checks pass: `gosec ./...`
-6. Update CHANGELOG.md if applicable.
-7. Submit your pull request.
+6. Submit your pull request.
 
 #### PR Requirements
 

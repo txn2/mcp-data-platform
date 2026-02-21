@@ -38,7 +38,8 @@ func TestEvent_Builders(t *testing.T) {
 		WithTransport("stdio", "mcp").
 		WithEnrichment(true).
 		WithAuthorized(true).
-		WithEnrichmentTokens(500, 45)
+		WithEnrichmentTokens(500, 45).
+		WithEnrichmentMode("full")
 
 	assertEventCoreFields(t, event)
 	assertEventNewFields(t, event)
@@ -109,6 +110,9 @@ func assertEventNewFields(t *testing.T, event *Event) {
 	}
 	if event.EnrichmentTokensDedup != 45 {
 		t.Errorf("EnrichmentTokensDedup = %d, want 45", event.EnrichmentTokensDedup)
+	}
+	if event.EnrichmentMode != "full" {
+		t.Errorf("EnrichmentMode = %q, want %q", event.EnrichmentMode, "full")
 	}
 }
 

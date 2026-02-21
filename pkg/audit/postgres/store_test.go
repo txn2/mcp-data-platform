@@ -28,7 +28,7 @@ const (
 	testCountFiltered = 7
 )
 
-// selectColumns lists the 24 SELECT column names in scan order.
+// selectColumns lists the 25 SELECT column names in scan order.
 var selectColumns = []string{
 	"id", "timestamp", "duration_ms", "request_id", "session_id",
 	"user_id", "user_email", "persona", "tool_name", "toolkit_kind",
@@ -36,7 +36,7 @@ var selectColumns = []string{
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
-	"authorized",
+	"enrichment_mode", "authorized",
 }
 
 const (
@@ -69,6 +69,7 @@ func newTestEvent() audit.Event {
 		EnrichmentApplied:     true,
 		EnrichmentTokensFull:  testEnrichTokensFull,
 		EnrichmentTokensDedup: testEnrichTokensDedup,
+		EnrichmentMode:        "full",
 		Authorized:            true,
 	}
 }
@@ -126,6 +127,7 @@ func TestLog_Success(t *testing.T) {
 		event.EnrichmentApplied,
 		event.EnrichmentTokensFull,
 		event.EnrichmentTokensDedup,
+		event.EnrichmentMode,
 		event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -155,7 +157,7 @@ func TestLog_NilParameters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.Authorized,
+		event.EnrichmentMode, event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -196,7 +198,7 @@ func testEventRows(mock sqlmock.Sqlmock, events ...audit.Event) {
 			event.ResponseChars, event.RequestChars, event.ContentBlocks,
 			event.Transport, event.Source, event.EnrichmentApplied,
 			event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-			event.Authorized,
+			event.EnrichmentMode, event.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -254,7 +256,7 @@ func TestQuery_AllFilters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.Authorized,
+		event.EnrichmentMode, event.Authorized,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
@@ -387,6 +389,7 @@ func TestScanEvent_AllFields(t *testing.T) {
 		event.EnrichmentApplied,
 		event.EnrichmentTokensFull,
 		event.EnrichmentTokensDedup,
+		event.EnrichmentMode,
 		event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -621,7 +624,7 @@ func TestQuery_MultipleRows(t *testing.T) {
 			ev.ResponseChars, ev.RequestChars, ev.ContentBlocks,
 			ev.Transport, ev.Source, ev.EnrichmentApplied,
 			ev.EnrichmentTokensFull, ev.EnrichmentTokensDedup,
-			ev.Authorized,
+			ev.EnrichmentMode, ev.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -654,7 +657,7 @@ func TestQuery_EmptyParameters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.Authorized,
+		event.EnrichmentMode, event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -742,7 +745,7 @@ func TestQuery_IDFilter(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.Authorized,
+		event.EnrichmentMode, event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)
 
@@ -1018,5 +1021,6 @@ func assertEventEqual(t *testing.T, expected, got audit.Event) {
 	assert.Equal(t, expected.EnrichmentApplied, got.EnrichmentApplied)
 	assert.Equal(t, expected.EnrichmentTokensFull, got.EnrichmentTokensFull)
 	assert.Equal(t, expected.EnrichmentTokensDedup, got.EnrichmentTokensDedup)
+	assert.Equal(t, expected.EnrichmentMode, got.EnrichmentMode)
 	assert.Equal(t, expected.Authorized, got.Authorized)
 }

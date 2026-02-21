@@ -278,6 +278,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/audit/metrics/discovery": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns discovery-before-query session pattern statistics.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get discovery pattern metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.DiscoveryStats"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/audit/metrics/enrichment": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate enrichment statistics including mode breakdown and token savings.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Audit Metrics"
+                ],
+                "summary": "Get enrichment metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.EnrichmentStats"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/audit/metrics/overview": {
             "get": {
                 "security": [
@@ -2327,6 +2423,79 @@ const docTemplate = `{
                 }
             }
         },
+        "audit.DiscoveryStats": {
+            "type": "object",
+            "properties": {
+                "discovery_before_query": {
+                    "type": "integer"
+                },
+                "discovery_rate": {
+                    "type": "number"
+                },
+                "discovery_sessions": {
+                    "type": "integer"
+                },
+                "query_sessions": {
+                    "type": "integer"
+                },
+                "query_without_discovery": {
+                    "type": "integer"
+                },
+                "top_discovery_tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/audit.BreakdownEntry"
+                    }
+                },
+                "total_sessions": {
+                    "type": "integer"
+                }
+            }
+        },
+        "audit.EnrichmentStats": {
+            "type": "object",
+            "properties": {
+                "avg_tokens_dedup": {
+                    "type": "number"
+                },
+                "avg_tokens_full": {
+                    "type": "number"
+                },
+                "enriched_calls": {
+                    "type": "integer"
+                },
+                "enrichment_rate": {
+                    "type": "number"
+                },
+                "full_count": {
+                    "type": "integer"
+                },
+                "none_count": {
+                    "type": "integer"
+                },
+                "reference_count": {
+                    "type": "integer"
+                },
+                "summary_count": {
+                    "type": "integer"
+                },
+                "tokens_saved": {
+                    "type": "integer"
+                },
+                "total_calls": {
+                    "type": "integer"
+                },
+                "total_tokens_dedup": {
+                    "type": "integer"
+                },
+                "total_tokens_full": {
+                    "type": "integer"
+                },
+                "unique_sessions": {
+                    "type": "integer"
+                }
+            }
+        },
         "audit.Event": {
             "type": "object",
             "properties": {
@@ -2344,6 +2513,9 @@ const docTemplate = `{
                 },
                 "enrichment_applied": {
                     "type": "boolean"
+                },
+                "enrichment_mode": {
+                    "type": "string"
                 },
                 "enrichment_tokens_dedup": {
                     "type": "integer"

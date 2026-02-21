@@ -120,6 +120,12 @@ func (e *Event) WithEnrichmentTokens(full, dedup int) *Event {
 	return e
 }
 
+// WithEnrichmentMode records the enrichment mode used for this event.
+func (e *Event) WithEnrichmentMode(mode string) *Event {
+	e.EnrichmentMode = mode
+	return e
+}
+
 // generateEventID generates a unique event ID.
 func generateEventID() string {
 	bytes := make([]byte, 16)

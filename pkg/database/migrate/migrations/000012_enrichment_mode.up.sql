@@ -1,0 +1,1 @@
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS enrichment_mode VARCHAR(20) DEFAULT '';

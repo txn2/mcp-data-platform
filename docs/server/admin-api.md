@@ -494,6 +494,114 @@ Returns aggregate counts for total, successful, and failed events. Supports the 
 }
 ```
 
+### Audit Metrics: Overview
+
+```
+GET /api/v1/admin/audit/metrics/overview
+```
+
+Returns aggregated audit metrics including tool, user, and toolkit breakdowns, timeseries data, and performance statistics.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_time` | RFC 3339 | Start of time range |
+| `end_time` | RFC 3339 | End of time range |
+
+### Audit Metrics: Enrichment
+
+```
+GET /api/v1/admin/audit/metrics/enrichment
+```
+
+Returns enrichment statistics: how often enrichment is applied, which modes are used, and token savings from deduplication.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_time` | RFC 3339 | Start of time range |
+| `end_time` | RFC 3339 | End of time range |
+
+**Response:**
+
+```json
+{
+  "total_calls": 1500,
+  "enriched_calls": 1200,
+  "enrichment_rate": 0.80,
+  "full_count": 800,
+  "summary_count": 300,
+  "reference_count": 100,
+  "none_count": 0,
+  "total_tokens_full": 450000,
+  "total_tokens_dedup": 120000,
+  "tokens_saved": 330000,
+  "avg_tokens_full": 375.0,
+  "avg_tokens_dedup": 100.0,
+  "unique_sessions": 45
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_calls` | int | Total tool calls in the time range |
+| `enriched_calls` | int | Calls where enrichment was applied |
+| `enrichment_rate` | float | Fraction of calls that were enriched (0.0–1.0) |
+| `full_count` | int | Calls using `full` enrichment mode |
+| `summary_count` | int | Calls using `summary` dedup mode |
+| `reference_count` | int | Calls using `reference` dedup mode |
+| `none_count` | int | Calls using `none` dedup mode |
+| `total_tokens_full` | int64 | Sum of full enrichment tokens |
+| `total_tokens_dedup` | int64 | Sum of dedup enrichment tokens |
+| `tokens_saved` | int64 | Estimated tokens saved by deduplication |
+| `avg_tokens_full` | float | Average tokens per full enrichment |
+| `avg_tokens_dedup` | float | Average tokens per dedup enrichment |
+| `unique_sessions` | int | Distinct sessions in the time range |
+
+### Audit Metrics: Discovery Patterns
+
+```
+GET /api/v1/admin/audit/metrics/discovery
+```
+
+Returns session-level discovery patterns: how often users explore the catalog (DataHub) before querying (Trino), and which discovery tools are most popular.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_time` | RFC 3339 | Start of time range |
+| `end_time` | RFC 3339 | End of time range |
+
+**Response:**
+
+```json
+{
+  "total_sessions": 100,
+  "discovery_sessions": 75,
+  "query_sessions": 80,
+  "discovery_before_query": 60,
+  "discovery_rate": 0.75,
+  "query_without_discovery": 20,
+  "top_discovery_tools": [
+    {"name": "datahub_search", "count": 150},
+    {"name": "datahub_get_schema", "count": 90}
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_sessions` | int | Total sessions in the time range |
+| `discovery_sessions` | int | Sessions that used DataHub tools |
+| `query_sessions` | int | Sessions that used Trino tools |
+| `discovery_before_query` | int | Sessions where DataHub was used before Trino |
+| `discovery_rate` | float | Fraction of sessions that used discovery (0.0–1.0) |
+| `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
+| `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
+
 ## Knowledge Endpoints
 
 Knowledge endpoints require `knowledge.enabled: true` and a configured database. Without a database, endpoints return `409 Conflict`. For the full knowledge API reference, see [Knowledge Admin API](../knowledge/admin-api.md).

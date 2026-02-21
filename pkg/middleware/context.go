@@ -10,6 +10,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
+// EnrichmentModeFull is the enrichment mode value for full (non-dedup) enrichment.
+const EnrichmentModeFull = "full"
+
 // contextKey is a private type for context keys.
 type contextKey int
 
@@ -48,8 +51,9 @@ type PlatformContext struct {
 
 	// Enrichment tracking (set by enrichment middleware, read by audit)
 	EnrichmentApplied     bool
-	EnrichmentTokensFull  int // estimated tokens for full enrichment
-	EnrichmentTokensDedup int // estimated tokens for deduped enrichment (0 if full sent)
+	EnrichmentTokensFull  int    // estimated tokens for full enrichment
+	EnrichmentTokensDedup int    // estimated tokens for deduped enrichment (0 if full sent)
+	EnrichmentMode        string // "full", "summary", "reference", "none", or "" (not enriched)
 
 	// Results (populated after handler)
 	Success      bool

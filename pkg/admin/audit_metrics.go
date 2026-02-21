@@ -21,6 +21,8 @@ func (h *Handler) registerAuditMetricsRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/breakdown", h.getAuditBreakdown)
 	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/overview", h.getAuditOverview)
 	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/performance", h.getAuditPerformance)
+	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/enrichment", h.getAuditEnrichment)
+	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/discovery", h.getAuditDiscovery)
 }
 
 // getAuditTimeseries handles GET /api/v1/admin/audit/metrics/timeseries.
@@ -170,4 +172,62 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, perf)
+}
+
+// getAuditEnrichment handles GET /api/v1/admin/audit/metrics/enrichment.
+//
+// @Summary      Get enrichment metrics
+// @Description  Returns aggregate enrichment statistics including mode breakdown and token savings.
+// @Tags         Audit Metrics
+// @Produce      json
+// @Param        start_time  query  string  false  "Start time (RFC 3339)"
+// @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Success      200  {object}  audit.EnrichmentStats
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /audit/metrics/enrichment [get]
+func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	stats, err := h.deps.AuditMetricsQuerier.Enrichment(
+		r.Context(),
+		parseTimeParam(q, paramStartTime),
+		parseTimeParam(q, paramEndTime),
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query enrichment metrics")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// getAuditDiscovery handles GET /api/v1/admin/audit/metrics/discovery.
+//
+// @Summary      Get discovery pattern metrics
+// @Description  Returns discovery-before-query session pattern statistics.
+// @Tags         Audit Metrics
+// @Produce      json
+// @Param        start_time  query  string  false  "Start time (RFC 3339)"
+// @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Success      200  {object}  audit.DiscoveryStats
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /audit/metrics/discovery [get]
+func (h *Handler) getAuditDiscovery(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	stats, err := h.deps.AuditMetricsQuerier.Discovery(
+		r.Context(),
+		parseTimeParam(q, paramStartTime),
+		parseTimeParam(q, paramEndTime),
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query discovery metrics")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
 }

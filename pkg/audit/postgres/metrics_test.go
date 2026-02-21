@@ -504,3 +504,243 @@ func TestBreakdown_RowsErr(t *testing.T) {
 	})
 	assert.Error(t, err)
 }
+
+// --- Enrichment tests ---
+
+func TestEnrichment_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{
+		"total_calls", "enriched_calls", "enrichment_rate",
+		"full_count", "summary_count", "reference_count", "none_count",
+		"total_tokens_full", "total_tokens_dedup", "tokens_saved",
+		"avg_tokens_full", "avg_tokens_dedup", "unique_sessions",
+	}).AddRow(200, 150, 0.75, 80, 50, 20, 50, int64(100000), int64(40000), int64(60000), 500.0, 200.0, 25)
+
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now).
+		WillReturnRows(rows)
+
+	result, err := store.Enrichment(context.Background(), &start, &now)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 200, result.TotalCalls)
+	assert.Equal(t, 150, result.EnrichedCalls)
+	assert.InDelta(t, 0.75, result.EnrichmentRate, 0.01)
+	assert.Equal(t, 80, result.FullCount)
+	assert.Equal(t, 50, result.SummaryCount)
+	assert.Equal(t, 20, result.ReferenceCount)
+	assert.Equal(t, 50, result.NoneCount)
+	assert.Equal(t, int64(100000), result.TotalTokensFull)
+	assert.Equal(t, int64(40000), result.TotalTokensDedup)
+	assert.Equal(t, int64(60000), result.TokensSaved)
+	assert.InDelta(t, 500.0, result.AvgTokensFull, 0.01)
+	assert.InDelta(t, 200.0, result.AvgTokensDedup, 0.01)
+	assert.Equal(t, 25, result.UniqueSessions)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnrichment_DefaultTimeRange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	rows := sqlmock.NewRows([]string{
+		"total_calls", "enriched_calls", "enrichment_rate",
+		"full_count", "summary_count", "reference_count", "none_count",
+		"total_tokens_full", "total_tokens_dedup", "tokens_saved",
+		"avg_tokens_full", "avg_tokens_dedup", "unique_sessions",
+	}).AddRow(0, 0, 0, 0, 0, 0, 0, int64(0), int64(0), int64(0), 0, 0, 0)
+
+	mock.ExpectQuery("SELECT").WillReturnRows(rows)
+
+	result, err := store.Enrichment(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 0, result.TotalCalls)
+}
+
+func TestEnrichment_QueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	mock.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("db error"))
+
+	_, err = store.Enrichment(context.Background(), nil, nil)
+	assert.ErrorContains(t, err, "querying enrichment")
+}
+
+// --- Discovery tests ---
+
+func TestDiscovery_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	// Pattern query result
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(100, 60, 80, 50, 0.60, 20)
+
+	mock.ExpectQuery("WITH session_tools").
+		WithArgs(start, now).
+		WillReturnRows(patternRows)
+
+	// Top tools query result
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("datahub_search", 120, 0.98, 15.5).
+		AddRow("datahub_get_entity", 80, 1.0, 25.0)
+
+	mock.ExpectQuery("SELECT tool_name").
+		WithArgs(start, now).
+		WillReturnRows(toolRows)
+
+	result, err := store.Discovery(context.Background(), &start, &now)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 100, result.TotalSessions)
+	assert.Equal(t, 60, result.DiscoverySessions)
+	assert.Equal(t, 80, result.QuerySessions)
+	assert.Equal(t, 50, result.DiscoveryBeforeQuery)
+	assert.InDelta(t, 0.60, result.DiscoveryRate, 0.01)
+	assert.Equal(t, 20, result.QueryWithoutDiscovery)
+	require.Len(t, result.TopDiscoveryTools, 2)
+	assert.Equal(t, "datahub_search", result.TopDiscoveryTools[0].Dimension)
+	assert.Equal(t, 120, result.TopDiscoveryTools[0].Count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDiscovery_DefaultTimeRange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(0, 0, 0, 0, 0, 0)
+	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
+
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
+
+	result, err := store.Discovery(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 0, result.TotalSessions)
+	assert.NotNil(t, result.TopDiscoveryTools) // empty slice, not nil
+}
+
+func TestDiscovery_PatternQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	mock.ExpectQuery("WITH session_tools").WillReturnError(fmt.Errorf("db error"))
+
+	_, err = store.Discovery(context.Background(), nil, nil)
+	assert.ErrorContains(t, err, "querying discovery patterns")
+}
+
+func TestDiscovery_TopToolsQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(10, 5, 8, 4, 0.50, 3)
+	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
+
+	mock.ExpectQuery("SELECT tool_name").WillReturnError(fmt.Errorf("tool query error"))
+
+	_, err = store.Discovery(context.Background(), nil, nil)
+	assert.ErrorContains(t, err, "querying top discovery tools")
+}
+
+func TestDiscovery_TopToolsScanError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(10, 5, 8, 4, 0.50, 3)
+	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
+
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("tool", "bad", "bad", "bad")
+	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
+
+	_, err = store.Discovery(context.Background(), nil, nil)
+	assert.Error(t, err)
+}
+
+func TestDiscovery_TopToolsRowsErr(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(10, 5, 8, 4, 0.50, 3)
+	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
+
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("datahub_search", 10, 1.0, 15.0).
+		RowError(0, fmt.Errorf("row iteration error"))
+	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
+
+	_, err = store.Discovery(context.Background(), nil, nil)
+	assert.Error(t, err)
+}
+
+func TestDiscovery_EmptyTopTools(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(10, 0, 10, 0, 0, 10)
+	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
+
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
+
+	result, err := store.Discovery(context.Background(), nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, result.TopDiscoveryTools) // empty slice, not nil
+	assert.Empty(t, result.TopDiscoveryTools)
+}

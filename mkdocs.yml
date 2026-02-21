@@ -88,7 +88,6 @@ nav:
     - Middleware: reference/middleware.md
   - Support:
     - Troubleshooting: support/troubleshooting.md
-    - Changelog: support/changelog.md
 
 markdown_extensions:
   - abbr

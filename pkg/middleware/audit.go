@@ -36,6 +36,7 @@ type AuditEvent struct {
 	EnrichmentApplied     bool           `json:"enrichment_applied"`
 	EnrichmentTokensFull  int            `json:"enrichment_tokens_full"`
 	EnrichmentTokensDedup int            `json:"enrichment_tokens_dedup"`
+	EnrichmentMode        string         `json:"enrichment_mode,omitempty"`
 	Authorized            bool           `json:"authorized"`
 }
 

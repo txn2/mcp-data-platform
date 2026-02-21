@@ -95,6 +95,34 @@ type Overview struct {
 	ErrorCount     int     `json:"error_count"`
 }
 
+// EnrichmentStats holds aggregate enrichment statistics.
+type EnrichmentStats struct {
+	TotalCalls       int     `json:"total_calls"`
+	EnrichedCalls    int     `json:"enriched_calls"`
+	EnrichmentRate   float64 `json:"enrichment_rate"`
+	FullCount        int     `json:"full_count"`
+	SummaryCount     int     `json:"summary_count"`
+	ReferenceCount   int     `json:"reference_count"`
+	NoneCount        int     `json:"none_count"`
+	TotalTokensFull  int64   `json:"total_tokens_full"`
+	TotalTokensDedup int64   `json:"total_tokens_dedup"`
+	TokensSaved      int64   `json:"tokens_saved"`
+	AvgTokensFull    float64 `json:"avg_tokens_full"`
+	AvgTokensDedup   float64 `json:"avg_tokens_dedup"`
+	UniqueSessions   int     `json:"unique_sessions"`
+}
+
+// DiscoveryStats holds discovery-before-query pattern statistics.
+type DiscoveryStats struct {
+	TotalSessions         int              `json:"total_sessions"`
+	DiscoverySessions     int              `json:"discovery_sessions"`
+	QuerySessions         int              `json:"query_sessions"`
+	DiscoveryBeforeQuery  int              `json:"discovery_before_query"`
+	DiscoveryRate         float64          `json:"discovery_rate"`
+	QueryWithoutDiscovery int              `json:"query_without_discovery"`
+	TopDiscoveryTools     []BreakdownEntry `json:"top_discovery_tools"`
+}
+
 // PerformanceStats holds latency percentile statistics.
 type PerformanceStats struct {
 	P50MS            float64 `json:"p50_ms"`
