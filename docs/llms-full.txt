@@ -232,6 +232,7 @@ toolkits:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 ```
 
 ## Server Configuration
@@ -420,6 +421,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `trino_semantic_enrichment` | bool | false | Add DataHub context to Trino results |
 | `datahub_query_enrichment` | bool | false | Add Trino availability to DataHub results |
 | `s3_semantic_enrichment` | bool | false | Add DataHub context to S3 results |
+| `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
 
 ## URN Mapping Configuration
 
@@ -772,6 +774,7 @@ Session dedup tracks which tables have been enriched per client session. First c
 ```yaml
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true    # Only include SQL-referenced columns (default)
   session_dedup:
     enabled: true          # Default: true
     mode: reference        # reference (default), summary, none

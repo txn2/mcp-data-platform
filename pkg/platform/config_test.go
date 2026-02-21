@@ -1094,3 +1094,52 @@ server:
 		}
 	})
 }
+
+func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if !cfg.IsColumnContextFilteringEnabled() {
+			t.Error("expected nil ColumnContextFiltering to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		v := true
+		cfg := &InjectionConfig{ColumnContextFiltering: &v}
+		if !cfg.IsColumnContextFilteringEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		v := false
+		cfg := &InjectionConfig{ColumnContextFiltering: &v}
+		if cfg.IsColumnContextFilteringEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with column_context_filtering false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  column_context_filtering: false
+`)
+		if cfg.Injection.IsColumnContextFilteringEnabled() {
+			t.Error("expected column_context_filtering: false to disable filtering")
+		}
+	})
+
+	t.Run("YAML loading without column_context_filtering", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  trino_semantic_enrichment: true
+`)
+		if !cfg.Injection.IsColumnContextFilteringEnabled() {
+			t.Error("expected missing column_context_filtering to default to true")
+		}
+	})
+}

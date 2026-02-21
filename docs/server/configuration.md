@@ -56,6 +56,7 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
+  column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 ```
 
 ## Config Versioning
@@ -429,6 +430,7 @@ injection:
   datahub_query_enrichment: true     # Add Trino availability to DataHub results
   s3_semantic_enrichment: true       # Add DataHub context to S3 results
   datahub_storage_enrichment: true   # Add S3 availability to DataHub results
+  column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 
   # Session metadata deduplication (avoids repeating metadata for same table)
   session_dedup:
@@ -444,6 +446,7 @@ injection:
 | `datahub_query_enrichment` | bool | `false` | Add query availability to DataHub search results |
 | `s3_semantic_enrichment` | bool | `false` | Enrich S3 results with DataHub metadata |
 | `datahub_storage_enrichment` | bool | `false` | Add S3 availability to DataHub results |
+| `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
 | `session_dedup.enabled` | bool | `true` | Whether session dedup is active |
 | `session_dedup.mode` | string | `reference` | Repeat query content: `reference`, `summary`, `none` |
 | `session_dedup.entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |
@@ -769,6 +772,7 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
+  column_context_filtering: true
 
 resources:
   enabled: true

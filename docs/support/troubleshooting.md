@@ -523,6 +523,17 @@ injection:
   suppress_enrichment_warnings: true
 ```
 
+### Column enrichment shows all columns instead of referenced ones
+
+Column context filtering limits enrichment to columns mentioned in the SQL query. If you see all columns:
+
+```yaml
+injection:
+  column_context_filtering: true  # Default: true — set to false to include all columns
+```
+
+Note: `trino_describe_table` always returns all columns. Filtering only applies to `trino_query` results. PII/sensitive columns are always included regardless of this setting.
+
 ---
 
 ## Performance Issues

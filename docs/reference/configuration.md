@@ -587,6 +587,7 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
   datahub_storage_enrichment: true
+  column_context_filtering: true
   session_dedup:
     enabled: true
     mode: reference
@@ -600,6 +601,7 @@ injection:
 | `datahub_query_enrichment` | bool | `false` | Enrich DataHub with Trino |
 | `s3_semantic_enrichment` | bool | `false` | Enrich S3 with DataHub |
 | `datahub_storage_enrichment` | bool | `false` | Enrich DataHub with S3 |
+| `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
 
 **Session Dedup** (`injection.session_dedup`):
 
@@ -766,6 +768,7 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
+  column_context_filtering: true
   session_dedup:
     enabled: true
     mode: reference

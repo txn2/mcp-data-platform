@@ -315,6 +315,20 @@ type InjectionConfig struct {
 	DataHubStorageEnrichment bool               `yaml:"datahub_storage_enrichment"`
 	EstimateRowCounts        bool               `yaml:"estimate_row_counts"`
 	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
+
+	// ColumnContextFiltering limits column-level semantic enrichment to
+	// columns referenced in the SQL query. Saves tokens when queries
+	// touch a subset of a wide table. Defaults to true (nil = enabled).
+	ColumnContextFiltering *bool `yaml:"column_context_filtering"`
+}
+
+// IsColumnContextFilteringEnabled returns whether column context filtering
+// is enabled, defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsColumnContextFilteringEnabled() bool {
+	if c.ColumnContextFiltering == nil {
+		return true
+	}
+	return *c.ColumnContextFiltering
 }
 
 // SessionDedupConfig configures session-level metadata deduplication.
