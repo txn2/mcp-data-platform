@@ -28,39 +28,48 @@ const (
 	testCountFiltered = 7
 )
 
-// selectColumns lists the 22 SELECT column names in scan order.
+// selectColumns lists the 24 SELECT column names in scan order.
 var selectColumns = []string{
 	"id", "timestamp", "duration_ms", "request_id", "session_id",
 	"user_id", "user_email", "persona", "tool_name", "toolkit_kind",
 	"toolkit_name", "connection", "parameters", "success", "error_message",
 	"response_chars", "request_chars", "content_blocks",
-	"transport", "source", "enrichment_applied", "authorized",
+	"transport", "source", "enrichment_applied",
+	"enrichment_tokens_full", "enrichment_tokens_dedup",
+	"authorized",
 }
+
+const (
+	testEnrichTokensFull  = 400
+	testEnrichTokensDedup = 35
+)
 
 func newTestEvent() audit.Event {
 	return audit.Event{
-		ID:                "evt-123",
-		Timestamp:         time.Date(testYear, testMonth, 15, 10, 30, 0, 0, time.UTC), //nolint:revive // test fixture date
-		DurationMS:        testDurationMS,
-		RequestID:         "req-456",
-		SessionID:         "sess-789",
-		UserID:            "user-abc",
-		UserEmail:         "test@example.com",
-		Persona:           "analyst",
-		ToolName:          "trino_query",
-		ToolkitKind:       "trino",
-		ToolkitName:       "primary",
-		Connection:        "default",
-		Parameters:        map[string]any{"sql": "SELECT 1"},
-		Success:           true,
-		ErrorMessage:      "",
-		ResponseChars:     testResponseChars,
-		RequestChars:      testRequestChars,
-		ContentBlocks:     2,
-		Transport:         "http",
-		Source:            "mcp",
-		EnrichmentApplied: true,
-		Authorized:        true,
+		ID:                    "evt-123",
+		Timestamp:             time.Date(testYear, testMonth, 15, 10, 30, 0, 0, time.UTC), //nolint:revive // test fixture date
+		DurationMS:            testDurationMS,
+		RequestID:             "req-456",
+		SessionID:             "sess-789",
+		UserID:                "user-abc",
+		UserEmail:             "test@example.com",
+		Persona:               "analyst",
+		ToolName:              "trino_query",
+		ToolkitKind:           "trino",
+		ToolkitName:           "primary",
+		Connection:            "default",
+		Parameters:            map[string]any{"sql": "SELECT 1"},
+		Success:               true,
+		ErrorMessage:          "",
+		ResponseChars:         testResponseChars,
+		RequestChars:          testRequestChars,
+		ContentBlocks:         2,
+		Transport:             "http",
+		Source:                "mcp",
+		EnrichmentApplied:     true,
+		EnrichmentTokensFull:  testEnrichTokensFull,
+		EnrichmentTokensDedup: testEnrichTokensDedup,
+		Authorized:            true,
 	}
 }
 
@@ -115,6 +124,8 @@ func TestLog_Success(t *testing.T) {
 		event.Transport,
 		event.Source,
 		event.EnrichmentApplied,
+		event.EnrichmentTokensFull,
+		event.EnrichmentTokensDedup,
 		event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -142,7 +153,9 @@ func TestLog_NilParameters(t *testing.T) {
 		event.Success, event.ErrorMessage,
 		event.Timestamp.Format("2006-01-02"),
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
-		event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+		event.Transport, event.Source, event.EnrichmentApplied,
+		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
+		event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -181,7 +194,9 @@ func testEventRows(mock sqlmock.Sqlmock, events ...audit.Event) {
 			paramsJSON,
 			event.Success, event.ErrorMessage,
 			event.ResponseChars, event.RequestChars, event.ContentBlocks,
-			event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+			event.Transport, event.Source, event.EnrichmentApplied,
+			event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
+			event.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -237,7 +252,9 @@ func TestQuery_AllFilters(t *testing.T) {
 		event.Connection, paramsJSON,
 		event.Success, event.ErrorMessage,
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
-		event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+		event.Transport, event.Source, event.EnrichmentApplied,
+		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
+		event.Authorized,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
@@ -368,6 +385,8 @@ func TestScanEvent_AllFields(t *testing.T) {
 		event.Transport,
 		event.Source,
 		event.EnrichmentApplied,
+		event.EnrichmentTokensFull,
+		event.EnrichmentTokensDedup,
 		event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -600,7 +619,9 @@ func TestQuery_MultipleRows(t *testing.T) {
 			ev.Connection, p,
 			ev.Success, ev.ErrorMessage,
 			ev.ResponseChars, ev.RequestChars, ev.ContentBlocks,
-			ev.Transport, ev.Source, ev.EnrichmentApplied, ev.Authorized,
+			ev.Transport, ev.Source, ev.EnrichmentApplied,
+			ev.EnrichmentTokensFull, ev.EnrichmentTokensDedup,
+			ev.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -631,7 +652,9 @@ func TestQuery_EmptyParameters(t *testing.T) {
 		[]byte{},
 		event.Success, event.ErrorMessage,
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
-		event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+		event.Transport, event.Source, event.EnrichmentApplied,
+		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
+		event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -717,7 +740,9 @@ func TestQuery_IDFilter(t *testing.T) {
 		event.Connection, paramsJSON,
 		event.Success, event.ErrorMessage,
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
-		event.Transport, event.Source, event.EnrichmentApplied, event.Authorized,
+		event.Transport, event.Source, event.EnrichmentApplied,
+		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
+		event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)
 
@@ -991,5 +1016,7 @@ func assertEventEqual(t *testing.T, expected, got audit.Event) {
 	assert.Equal(t, expected.Transport, got.Transport)
 	assert.Equal(t, expected.Source, got.Source)
 	assert.Equal(t, expected.EnrichmentApplied, got.EnrichmentApplied)
+	assert.Equal(t, expected.EnrichmentTokensFull, got.EnrichmentTokensFull)
+	assert.Equal(t, expected.EnrichmentTokensDedup, got.EnrichmentTokensDedup)
 	assert.Equal(t, expected.Authorized, got.Authorized)
 }

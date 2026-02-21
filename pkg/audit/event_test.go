@@ -37,7 +37,8 @@ func TestEvent_Builders(t *testing.T) {
 		WithRequestSize(eventTestDurationMS).
 		WithTransport("stdio", "mcp").
 		WithEnrichment(true).
-		WithAuthorized(true)
+		WithAuthorized(true).
+		WithEnrichmentTokens(500, 45)
 
 	assertEventCoreFields(t, event)
 	assertEventNewFields(t, event)
@@ -102,6 +103,12 @@ func assertEventNewFields(t *testing.T, event *Event) {
 	}
 	if !event.Authorized {
 		t.Error("Authorized = false, want true")
+	}
+	if event.EnrichmentTokensFull != 500 {
+		t.Errorf("EnrichmentTokensFull = %d, want 500", event.EnrichmentTokensFull)
+	}
+	if event.EnrichmentTokensDedup != 45 {
+		t.Errorf("EnrichmentTokensDedup = %d, want 45", event.EnrichmentTokensDedup)
 	}
 }
 
