@@ -143,6 +143,58 @@ func TestCachedProvider_GetGlossaryTerm_Caches(t *testing.T) {
 	}
 }
 
+func TestCachedProvider_GetCuratedQueryCount_Caches(t *testing.T) {
+	callCount := 0
+	underlying := &countingCuratedQueryProvider{callCount: &callCount}
+	cfg := CacheConfig{TTL: cacheTestTTLMs * time.Millisecond}
+	provider := NewCachedProvider(underlying, cfg)
+	ctx := context.Background()
+	urn := "urn:li:dataset:curated_test"
+
+	result1, err := provider.GetCuratedQueryCount(ctx, urn)
+	if err != nil {
+		t.Fatalf("first GetCuratedQueryCount() error = %v", err)
+	}
+	if result1 != 5 {
+		t.Errorf("first call: expected 5, got %d", result1)
+	}
+
+	result2, err := provider.GetCuratedQueryCount(ctx, urn)
+	if err != nil {
+		t.Fatalf("second GetCuratedQueryCount() error = %v", err)
+	}
+	if result2 != 5 {
+		t.Errorf("second call: expected 5, got %d", result2)
+	}
+
+	// Should have only called the underlying provider once (cached on second call)
+	if callCount != 1 {
+		t.Errorf("expected 1 underlying call, got %d", callCount)
+	}
+}
+
+func TestCachedProvider_GetCuratedQueryCount_Expires(t *testing.T) {
+	callCount := 0
+	underlying := &countingCuratedQueryProvider{callCount: &callCount}
+	cfg := CacheConfig{TTL: cacheTestTTLMs * time.Millisecond}
+	provider := NewCachedProvider(underlying, cfg)
+	ctx := context.Background()
+	urn := "urn:li:dataset:expire_curated"
+
+	if _, err := provider.GetCuratedQueryCount(ctx, urn); err != nil {
+		t.Fatalf("first GetCuratedQueryCount() error = %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if _, err := provider.GetCuratedQueryCount(ctx, urn); err != nil {
+		t.Fatalf("second GetCuratedQueryCount() error = %v", err)
+	}
+
+	// Both calls should hit the underlying provider (cache expired)
+	if callCount != 2 {
+		t.Errorf("expected 2 underlying calls after expiry, got %d", callCount)
+	}
+}
+
 func TestCachedProvider_SearchAndClose(t *testing.T) {
 	provider := newTestCachedProvider()
 	ctx := context.Background()
@@ -188,6 +240,17 @@ func TestCacheEntry_IsExpired(t *testing.T) {
 	})
 }
 
+// countingCuratedQueryProvider tracks how many times GetCuratedQueryCount is called.
+type countingCuratedQueryProvider struct {
+	NoopProvider
+	callCount *int
+}
+
+func (c *countingCuratedQueryProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	*c.callCount++
+	return 5, nil
+}
+
 // errorProvider is a mock provider that always returns errors.
 type errorProvider struct{}
 
@@ -214,6 +277,10 @@ func (*errorProvider) GetGlossaryTerm(_ context.Context, _ string) (*GlossaryTer
 
 func (*errorProvider) SearchTables(_ context.Context, _ SearchFilter) ([]TableSearchResult, error) {
 	return nil, &mockError{}
+}
+
+func (*errorProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, &mockError{}
 }
 func (*errorProvider) Close() error { return nil }
 
@@ -261,6 +328,13 @@ func TestCachedProvider_Errors(t *testing.T) {
 
 	t.Run("GetGlossaryTerm error", func(t *testing.T) {
 		_, err := provider.GetGlossaryTerm(ctx, "urn:test")
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+
+	t.Run("GetCuratedQueryCount error", func(t *testing.T) {
+		_, err := provider.GetCuratedQueryCount(ctx, "urn:test")
 		if err == nil {
 			t.Error("expected error")
 		}

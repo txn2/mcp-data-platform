@@ -101,6 +101,18 @@ func TestNoopProvider_SearchTables(t *testing.T) {
 	}
 }
 
+func TestNoopProvider_GetCuratedQueryCount(t *testing.T) {
+	provider := NewNoopProvider()
+	ctx := context.Background()
+	count, err := provider.GetCuratedQueryCount(ctx, "urn:li:dataset:test")
+	if err != nil {
+		t.Errorf("GetCuratedQueryCount() error = %v", err)
+	}
+	if count != 0 {
+		t.Errorf("GetCuratedQueryCount() = %d, want 0", count)
+	}
+}
+
 func TestNoopProvider_Close(t *testing.T) {
 	provider := NewNoopProvider()
 	if err := provider.Close(); err != nil {

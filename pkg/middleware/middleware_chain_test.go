@@ -399,6 +399,10 @@ func (*mockSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*sema
 func (m *mockSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return m.searchResults, nil
 }
+
+func (*mockSemanticProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
 func (*mockSemanticProvider) Close() error { return nil }
 
 // mockQueryProvider returns canned query availability.

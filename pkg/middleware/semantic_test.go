@@ -31,6 +31,7 @@ const (
 	semTestDescTest        = "Test"
 	semTestDescTestTable   = "Test table"
 	semTestMetadataRef     = "metadata_reference"
+	semTestDatasetURN1     = "urn:li:dataset:1"
 	semTestDay             = 15
 	semTestHour            = 10
 	semTestMinute          = 30
@@ -332,7 +333,7 @@ func TestSplitTableName(t *testing.T) {
 func TestExtractURNsFromResult(t *testing.T) {
 	t.Run("text content with URN", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
-			"urn":  "urn:li:dataset:1",
+			"urn":  semTestDatasetURN1,
 			"name": "test",
 		})
 		result := &mcp.CallToolResult{
@@ -344,7 +345,7 @@ func TestExtractURNsFromResult(t *testing.T) {
 		if len(urns) != 1 {
 			t.Errorf("expected 1 URN, got %d", len(urns))
 		}
-		if urns[0] != "urn:li:dataset:1" {
+		if urns[0] != semTestDatasetURN1 {
 			t.Errorf("expected 'urn:li:dataset:1', got %q", urns[0])
 		}
 	})
@@ -352,7 +353,7 @@ func TestExtractURNsFromResult(t *testing.T) {
 	t.Run("nested URN", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
 			"results": []any{
-				map[string]any{"urn": "urn:li:dataset:1"},
+				map[string]any{"urn": semTestDatasetURN1},
 				map[string]any{"urn": "urn:li:dataset:2"},
 			},
 		})
@@ -370,7 +371,7 @@ func TestExtractURNsFromResult(t *testing.T) {
 
 func TestExtractURNsFromMap(t *testing.T) {
 	data := map[string]any{
-		"urn":   "urn:li:dataset:1",
+		"urn":   semTestDatasetURN1,
 		"URN":   "urn:li:dataset:2",
 		"other": "value",
 		"nested": map[string]any{
@@ -476,7 +477,7 @@ func TestAppendQueryContext(t *testing.T) {
 	t.Run("with contexts", func(t *testing.T) {
 		result := NewToolResultText("original")
 		contexts := map[string]*query.TableAvailability{
-			"urn:li:dataset:1": {Available: true, QueryTable: "schema.table"},
+			semTestDatasetURN1: {Available: true, QueryTable: "schema.table"},
 		}
 		enriched, err := appendQueryContext(result, contexts)
 		if err != nil {
@@ -594,7 +595,7 @@ func TestAppendStorageContext(t *testing.T) {
 	t.Run("with contexts", func(t *testing.T) {
 		result := NewToolResultText("original")
 		contexts := map[string]*storage.DatasetAvailability{
-			"urn:li:dataset:1": {Available: true, Bucket: "bucket"},
+			semTestDatasetURN1: {Available: true, Bucket: "bucket"},
 		}
 		enriched, err := appendStorageContext(result, contexts)
 		if err != nil {
@@ -629,7 +630,7 @@ func TestAppendS3SemanticContext(t *testing.T) {
 
 func TestBuildTableSemanticContext(t *testing.T) {
 	sr := semantic.TableSearchResult{
-		URN:  "urn:li:dataset:1",
+		URN:  semTestDatasetURN1,
 		Name: "test_table",
 	}
 	tableCtx := &semantic.TableContext{
@@ -645,7 +646,7 @@ func TestBuildTableSemanticContext(t *testing.T) {
 
 	result := buildTableSemanticContext(sr, tableCtx)
 
-	if result[semTestURNKey] != "urn:li:dataset:1" {
+	if result[semTestURNKey] != semTestDatasetURN1 {
 		t.Errorf("unexpected urn: %v", result[semTestURNKey])
 	}
 	if result["name"] != "test_table" {
@@ -664,9 +665,10 @@ func TestBuildTableSemanticContext(t *testing.T) {
 
 // mockSemanticProvider implements semantic.Provider for testing.
 type mockSemanticProvider struct {
-	getTableContextFunc   func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
-	getColumnsContextFunc func(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error)
-	searchTablesFunc      func(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
+	getTableContextFunc      func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
+	getColumnsContextFunc    func(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error)
+	searchTablesFunc         func(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
+	getCuratedQueryCountFunc func(ctx context.Context, urn string) (int, error)
 }
 
 func (*mockSemanticProvider) Name() string { return semTestMock }
@@ -701,6 +703,13 @@ func (m *mockSemanticProvider) SearchTables(ctx context.Context, filter semantic
 		return m.searchTablesFunc(ctx, filter)
 	}
 	return nil, nil //nolint:nilnil // test mock returns zero values
+}
+
+func (m *mockSemanticProvider) GetCuratedQueryCount(ctx context.Context, urn string) (int, error) {
+	if m.getCuratedQueryCountFunc != nil {
+		return m.getCuratedQueryCountFunc(ctx, urn)
+	}
+	return 0, nil
 }
 func (*mockSemanticProvider) Close() error { return nil }
 
@@ -885,7 +894,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 
 	t.Run("with URNs and query context", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
-			"urn": "urn:li:dataset:1",
+			"urn": semTestDatasetURN1,
 		})
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -909,7 +918,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 
 	t.Run("query provider error continues", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
-			"urn": "urn:li:dataset:1",
+			"urn": semTestDatasetURN1,
 		})
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -991,6 +1000,115 @@ func TestEnrichDataHubResult(t *testing.T) {
 	})
 }
 
+func TestEnrichDataHubResultWithCuratedQueries(t *testing.T) {
+	t.Run("no URNs in result", func(t *testing.T) {
+		result := NewToolResultText("no urns here")
+		provider := &mockSemanticProvider{}
+
+		enriched, err := enrichDataHubResultWithCuratedQueries(context.Background(), result, provider)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 1)
+	})
+
+	t.Run("URNs with curated queries", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"results": []any{
+				map[string]any{"urn": semTestDatasetURN1},
+				map[string]any{"urn": "urn:li:dataset:2"},
+			},
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		provider := &mockSemanticProvider{
+			getCuratedQueryCountFunc: func(_ context.Context, urn string) (int, error) {
+				if urn == semTestDatasetURN1 {
+					return 3, nil
+				}
+				return 0, nil
+			},
+		}
+
+		enriched, err := enrichDataHubResultWithCuratedQueries(context.Background(), result, provider)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
+
+		// Parse the curated query context
+		tc, ok := enriched.Content[1].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("expected TextContent at index 1")
+		}
+		data := requireUnmarshalJSON(t, tc.Text)
+		cqCtx, ok := data["curated_query_context"].(map[string]any)
+		if !ok {
+			t.Fatal("expected curated_query_context in enrichment")
+		}
+
+		// dataset:1 should be present with count 3
+		entry, ok := cqCtx[semTestDatasetURN1].(map[string]any)
+		if !ok {
+			t.Fatal("expected entry for urn:li:dataset:1")
+		}
+		hasCurated, _ := entry["has_curated_queries"].(bool)
+		if !hasCurated {
+			t.Error("expected has_curated_queries to be true")
+		}
+		count, ok := entry["curated_query_count"].(float64)
+		if !ok || int(count) != 3 {
+			t.Errorf("expected curated_query_count 3, got %v", entry["curated_query_count"])
+		}
+
+		// dataset:2 should NOT be present (zero count omitted)
+		if _, exists := cqCtx["urn:li:dataset:2"]; exists {
+			t.Error("expected urn:li:dataset:2 to be omitted (zero count)")
+		}
+	})
+
+	t.Run("all URNs have zero queries", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": semTestDatasetURN1,
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		provider := &mockSemanticProvider{
+			getCuratedQueryCountFunc: func(_ context.Context, _ string) (int, error) {
+				return 0, nil
+			},
+		}
+
+		enriched, err := enrichDataHubResultWithCuratedQueries(context.Background(), result, provider)
+		requireNoErr(t, err)
+		// No enrichment added when all counts are zero
+		requireContentLen(t, enriched, 1)
+	})
+
+	t.Run("provider error skipped gracefully", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": semTestDatasetURN1,
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		provider := &mockSemanticProvider{
+			getCuratedQueryCountFunc: func(_ context.Context, _ string) (int, error) {
+				return 0, context.Canceled
+			},
+		}
+
+		enriched, err := enrichDataHubResultWithCuratedQueries(context.Background(), result, provider)
+		requireNoErr(t, err)
+		// Error is skipped, no enrichment added
+		requireContentLen(t, enriched, 1)
+	})
+}
+
 func TestEnrichS3Result(t *testing.T) {
 	t.Run("no bucket in request", func(t *testing.T) {
 		result := NewToolResultText("original")
@@ -1030,7 +1148,7 @@ func TestEnrichS3Result(t *testing.T) {
 		provider := &mockSemanticProvider{
 			searchTablesFunc: func(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 				return []semantic.TableSearchResult{
-					{URN: "urn:li:dataset:1", Name: "dataset1"},
+					{URN: semTestDatasetURN1, Name: "dataset1"},
 				}, nil
 			},
 			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
@@ -1140,7 +1258,7 @@ func TestSemanticEnricherEnrich(t *testing.T) {
 			semanticProvider: &mockSemanticProvider{
 				searchTablesFunc: func(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 					return []semantic.TableSearchResult{
-						{URN: "urn:li:dataset:1", Name: "dataset1"},
+						{URN: semTestDatasetURN1, Name: "dataset1"},
 					}, nil
 				},
 				getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
@@ -1241,7 +1359,7 @@ func TestSearchS3Datasets(t *testing.T) {
 func TestEnrichDataHubResultWithAll(t *testing.T) {
 	t.Run("enriches with query context", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
-			"urn": "urn:li:dataset:1",
+			"urn": semTestDatasetURN1,
 		})
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -1298,7 +1416,7 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 	t.Run("enriches with both query and storage context", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
 			"results": []any{
-				map[string]any{"urn": "urn:li:dataset:1"},
+				map[string]any{"urn": semTestDatasetURN1},
 				map[string]any{"urn": "urn:li:dataset:(urn:li:dataPlatform:s3,bucket/key,PROD)"},
 			},
 		})
@@ -1335,6 +1453,68 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 		}
 	})
 
+	t.Run("enriches with curated query context", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": semTestDatasetURN1,
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			semanticProvider: &mockSemanticProvider{
+				getCuratedQueryCountFunc: func(_ context.Context, _ string) (int, error) {
+					return 5, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults: true,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Original + curated query context = 2
+		requireContentLen(t, enriched, 2)
+
+		tc, ok := enriched.Content[1].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("expected TextContent at index 1")
+		}
+		data := requireUnmarshalJSON(t, tc.Text)
+		if _, ok := data["curated_query_context"]; !ok {
+			t.Error("expected curated_query_context in enrichment")
+		}
+	})
+
+	t.Run("no curated query enrichment when semantic provider nil", func(t *testing.T) {
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": semTestDatasetURN1,
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		enricher := &semanticEnricher{
+			semanticProvider: nil,
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults: true,
+			},
+		}
+		request := mcp.CallToolRequest{}
+
+		enriched, err := enricher.enrichDataHubResultWithAll(context.Background(), result, request)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		requireContentLen(t, enriched, 1)
+	})
+
 	t.Run("no enrichment when disabled", func(t *testing.T) {
 		result := NewToolResultText("original")
 		enricher := &semanticEnricher{
@@ -1356,7 +1536,7 @@ func TestEnrichDataHubResultWithAll(t *testing.T) {
 func TestEnricherEnrichDataHubPath(t *testing.T) {
 	t.Run("datahub toolkit triggers enrichDataHubResultWithAll", func(t *testing.T) {
 		jsonContent, _ := json.Marshal(map[string]any{
-			"urn": "urn:li:dataset:1",
+			"urn": semTestDatasetURN1,
 		})
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{
