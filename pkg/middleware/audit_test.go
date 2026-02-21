@@ -108,6 +108,9 @@ func assertAuditEventExtFields(t *testing.T, got, want AuditEvent) {
 	if got.EnrichmentApplied != want.EnrichmentApplied {
 		t.Errorf("EnrichmentApplied = %v, want %v", got.EnrichmentApplied, want.EnrichmentApplied)
 	}
+	if got.EnrichmentMode != want.EnrichmentMode {
+		t.Errorf("EnrichmentMode = %q, want %q", got.EnrichmentMode, want.EnrichmentMode)
+	}
 	if got.Authorized != want.Authorized {
 		t.Errorf("Authorized = %v, want %v", got.Authorized, want.Authorized)
 	}

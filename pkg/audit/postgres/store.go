@@ -31,7 +31,7 @@ var auditColumns = []string{
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
-	"authorized",
+	"enrichment_mode", "authorized",
 }
 
 // Store implements audit.Logger using PostgreSQL.
@@ -67,8 +67,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, authorized)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, authorized)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -96,6 +96,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.EnrichmentApplied,
 		event.EnrichmentTokensFull,
 		event.EnrichmentTokensDedup,
+		event.EnrichmentMode,
 		event.Authorized,
 	)
 	if err != nil {
@@ -331,6 +332,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.EnrichmentApplied,
 		&event.EnrichmentTokensFull,
 		&event.EnrichmentTokensDedup,
+		&event.EnrichmentMode,
 		&event.Authorized,
 	)
 	if err != nil {

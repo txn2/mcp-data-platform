@@ -369,6 +369,54 @@ definitions:
       success_rate:
         type: number
     type: object
+  audit.DiscoveryStats:
+    properties:
+      discovery_before_query:
+        type: integer
+      discovery_rate:
+        type: number
+      discovery_sessions:
+        type: integer
+      query_sessions:
+        type: integer
+      query_without_discovery:
+        type: integer
+      top_discovery_tools:
+        items:
+          $ref: '#/definitions/audit.BreakdownEntry'
+        type: array
+      total_sessions:
+        type: integer
+    type: object
+  audit.EnrichmentStats:
+    properties:
+      avg_tokens_dedup:
+        type: number
+      avg_tokens_full:
+        type: number
+      enriched_calls:
+        type: integer
+      enrichment_rate:
+        type: number
+      full_count:
+        type: integer
+      none_count:
+        type: integer
+      reference_count:
+        type: integer
+      summary_count:
+        type: integer
+      tokens_saved:
+        type: integer
+      total_calls:
+        type: integer
+      total_tokens_dedup:
+        type: integer
+      total_tokens_full:
+        type: integer
+      unique_sessions:
+        type: integer
+    type: object
   audit.Event:
     properties:
       authorized:
@@ -381,6 +429,8 @@ definitions:
         type: integer
       enrichment_applied:
         type: boolean
+      enrichment_mode:
+        type: string
       enrichment_tokens_dedup:
         type: integer
       enrichment_tokens_full:
@@ -793,6 +843,65 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Get audit breakdown
+      tags:
+      - Audit Metrics
+  /audit/metrics/discovery:
+    get:
+      description: Returns discovery-before-query session pattern statistics.
+      parameters:
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.DiscoveryStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get discovery pattern metrics
+      tags:
+      - Audit Metrics
+  /audit/metrics/enrichment:
+    get:
+      description: Returns aggregate enrichment statistics including mode breakdown
+        and token savings.
+      parameters:
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.EnrichmentStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get enrichment metrics
       tags:
       - Audit Metrics
   /audit/metrics/overview:

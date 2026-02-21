@@ -89,6 +89,9 @@ func applyEnrichment(
 	enrichedResult, _ := enricher.enrich(ctx, callResult, callReq, pc)
 	if len(enrichedResult.Content) > beforeLen {
 		pc.EnrichmentApplied = true
+		if pc.EnrichmentMode == "" {
+			pc.EnrichmentMode = EnrichmentModeFull
+		}
 	}
 	return enrichedResult, nil
 }

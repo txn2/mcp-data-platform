@@ -1699,6 +1699,17 @@ Requires `audit.enabled: true` and database. Returns 409 without database.
 - `GET /audit/events` — Paginated audit events with filtering (user_id, tool_name, session_id, success, time range)
 - `GET /audit/events/{id}` — Single audit event
 - `GET /audit/stats` — Aggregate counts (total, success, failures)
+- `GET /audit/metrics/overview` — Aggregated audit metrics (tool/user/toolkit breakdowns, timeseries, performance)
+- `GET /audit/metrics/enrichment` — Enrichment statistics: mode breakdown (full/summary/reference/none), token usage, dedup savings, enrichment rate
+- `GET /audit/metrics/discovery` — Session-level discovery patterns: discovery-before-query rates, top discovery tools, sessions without catalog exploration
+
+### Enrichment Tracking Fields
+
+Audit events include enrichment instrumentation:
+- `enrichment_applied` (boolean) — whether semantic enrichment was applied
+- `enrichment_mode` (string) — `full`, `summary`, `reference`, `none`, or empty
+- `enrichment_tokens_full` (int) — estimated tokens for full enrichment content
+- `enrichment_tokens_dedup` (int) — estimated tokens for dedup content (0 when full sent)
 
 ## Knowledge Endpoints
 

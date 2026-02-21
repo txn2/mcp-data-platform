@@ -26,6 +26,10 @@ type mockAuditMetricsQuerier struct {
 	overviewErr       error
 	performanceResult *audit.PerformanceStats
 	performanceErr    error
+	enrichmentResult  *audit.EnrichmentStats
+	enrichmentErr     error
+	discoveryResult   *audit.DiscoveryStats
+	discoveryErr      error
 }
 
 func (m *mockAuditMetricsQuerier) Timeseries(_ context.Context, _ audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
@@ -42,6 +46,14 @@ func (m *mockAuditMetricsQuerier) Overview(_ context.Context, _, _ *time.Time) (
 
 func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _, _ *time.Time) (*audit.PerformanceStats, error) {
 	return m.performanceResult, m.performanceErr
+}
+
+func (m *mockAuditMetricsQuerier) Enrichment(_ context.Context, _, _ *time.Time) (*audit.EnrichmentStats, error) {
+	return m.enrichmentResult, m.enrichmentErr
+}
+
+func (m *mockAuditMetricsQuerier) Discovery(_ context.Context, _, _ *time.Time) (*audit.DiscoveryStats, error) {
+	return m.discoveryResult, m.discoveryErr
 }
 
 // Verify interface compliance.
@@ -309,6 +321,132 @@ func TestGetAuditPerformance_WithTimeParams(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// --- Enrichment handler tests ---
+
+func TestGetAuditEnrichment_Success(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		enrichmentResult: &audit.EnrichmentStats{
+			TotalCalls:       200,
+			EnrichedCalls:    150,
+			EnrichmentRate:   0.75,
+			FullCount:        80,
+			SummaryCount:     50,
+			ReferenceCount:   20,
+			NoneCount:        50,
+			TotalTokensFull:  100000,
+			TotalTokensDedup: 40000,
+			TokensSaved:      60000,
+			AvgTokensFull:    500.0,
+			AvgTokensDedup:   200.0,
+			UniqueSessions:   25,
+		},
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/metrics/enrichment", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var result audit.EnrichmentStats
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
+	assert.Equal(t, 200, result.TotalCalls)
+	assert.Equal(t, 150, result.EnrichedCalls)
+	assert.InDelta(t, 0.75, result.EnrichmentRate, 0.01)
+	assert.Equal(t, 80, result.FullCount)
+	assert.Equal(t, int64(60000), result.TokensSaved)
+}
+
+func TestGetAuditEnrichment_QueryError(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		enrichmentErr: fmt.Errorf("db error"),
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/metrics/enrichment", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGetAuditEnrichment_WithTimeParams(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		enrichmentResult: &audit.EnrichmentStats{},
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/admin/audit/metrics/enrichment?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// --- Discovery handler tests ---
+
+func TestGetAuditDiscovery_Success(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		discoveryResult: &audit.DiscoveryStats{
+			TotalSessions:         100,
+			DiscoverySessions:     60,
+			QuerySessions:         80,
+			DiscoveryBeforeQuery:  50,
+			DiscoveryRate:         0.60,
+			QueryWithoutDiscovery: 20,
+			TopDiscoveryTools: []audit.BreakdownEntry{
+				{Dimension: "datahub_search", Count: 120, SuccessRate: 0.98, AvgDurationMS: 15.5},
+			},
+		},
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/metrics/discovery", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var result audit.DiscoveryStats
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
+	assert.Equal(t, 100, result.TotalSessions)
+	assert.Equal(t, 50, result.DiscoveryBeforeQuery)
+	assert.InDelta(t, 0.60, result.DiscoveryRate, 0.01)
+	require.Len(t, result.TopDiscoveryTools, 1)
+	assert.Equal(t, "datahub_search", result.TopDiscoveryTools[0].Dimension)
+}
+
+func TestGetAuditDiscovery_QueryError(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		discoveryErr: fmt.Errorf("db error"),
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/metrics/discovery", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGetAuditDiscovery_WithTimeParams(t *testing.T) {
+	mock := &mockAuditMetricsQuerier{
+		discoveryResult: &audit.DiscoveryStats{
+			TopDiscoveryTools: []audit.BreakdownEntry{},
+		},
+	}
+
+	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/admin/audit/metrics/discovery?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // --- Route registration tests ---
 
 func TestAuditMetricsRoutes_NotRegisteredWhenNil(t *testing.T) {
@@ -319,6 +457,8 @@ func TestAuditMetricsRoutes_NotRegisteredWhenNil(t *testing.T) {
 		"/api/v1/admin/audit/metrics/breakdown",
 		"/api/v1/admin/audit/metrics/overview",
 		"/api/v1/admin/audit/metrics/performance",
+		"/api/v1/admin/audit/metrics/enrichment",
+		"/api/v1/admin/audit/metrics/discovery",
 	}
 
 	for _, ep := range endpoints {

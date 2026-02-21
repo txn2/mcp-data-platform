@@ -34,6 +34,8 @@ type AuditMetricsQuerier interface {
 	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
 	Overview(ctx context.Context, startTime, endTime *time.Time) (*audit.Overview, error)
 	Performance(ctx context.Context, startTime, endTime *time.Time) (*audit.PerformanceStats, error)
+	Enrichment(ctx context.Context, startTime, endTime *time.Time) (*audit.EnrichmentStats, error)
+	Discovery(ctx context.Context, startTime, endTime *time.Time) (*audit.DiscoveryStats, error)
 }
 
 // PersonaRegistry abstracts persona.Registry for testability.

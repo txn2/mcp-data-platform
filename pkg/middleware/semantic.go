@@ -118,6 +118,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	cache := e.cfg.SessionCache
 	if cache == nil {
 		slog.Debug("dedup: cache is nil, full enrichment")
+		pc.EnrichmentMode = EnrichmentModeFull
 		return enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
 	}
 
@@ -182,6 +183,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 	cache.AddTokensFull(int64(tokens))
 
 	pc.EnrichmentTokensFull = tokens
+	pc.EnrichmentMode = EnrichmentModeFull
 	return enrichedResult, nil
 }
 
@@ -214,6 +216,7 @@ func (e *semanticEnricher) handleDedupEnrichment(
 
 	pc.EnrichmentTokensFull = storedTokens
 	pc.EnrichmentTokensDedup = dedupTokens
+	pc.EnrichmentMode = string(e.cfg.DedupMode)
 	return dedupResult, nil
 }
 

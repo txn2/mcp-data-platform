@@ -43,6 +43,7 @@ type Event struct {
 	EnrichmentApplied     bool           `json:"enrichment_applied"`
 	EnrichmentTokensFull  int            `json:"enrichment_tokens_full"`
 	EnrichmentTokensDedup int            `json:"enrichment_tokens_dedup"`
+	EnrichmentMode        string         `json:"enrichment_mode,omitempty"`
 	Authorized            bool           `json:"authorized"`
 }
 
@@ -67,6 +68,7 @@ var ValidSortColumns = map[string]bool{
 	"duration_ms":        true,
 	"success":            true,
 	"enrichment_applied": true,
+	"enrichment_mode":    true,
 }
 
 // QueryFilter defines criteria for querying audit events.
