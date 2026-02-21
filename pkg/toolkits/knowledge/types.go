@@ -150,10 +150,11 @@ const (
 	actionAddGlossaryTerm   actionType = "add_glossary_term"
 	actionFlagQualityIssue  actionType = "flag_quality_issue"
 	actionAddDocumentation  actionType = "add_documentation"
+	actionAddCuratedQuery   actionType = "add_curated_query"
 )
 
 // actionTypeList is a human-readable list of valid action types for error messages.
-const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation"
+const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
@@ -163,13 +164,16 @@ var validActionTypes = map[actionType]bool{
 	actionAddGlossaryTerm:   true,
 	actionFlagQualityIssue:  true,
 	actionAddDocumentation:  true,
+	actionAddCuratedQuery:   true,
 }
 
 // SuggestedAction represents a proposed catalog change.
 type SuggestedAction struct {
-	ActionType string `json:"action_type"`
-	Target     string `json:"target"`
-	Detail     string `json:"detail"`
+	ActionType       string `json:"action_type"`
+	Target           string `json:"target"`
+	Detail           string `json:"detail"`
+	QuerySQL         string `json:"query_sql,omitempty"`
+	QueryDescription string `json:"query_description,omitempty"`
 }
 
 // ValidateSuggestedActions validates a slice of suggested actions.
@@ -180,6 +184,9 @@ func ValidateSuggestedActions(actions []SuggestedAction) error {
 	for i, a := range actions {
 		if !validActionTypes[actionType(a.ActionType)] {
 			return fmt.Errorf("suggested_actions[%d]: invalid action_type %q: must be one of: %s", i, a.ActionType, actionTypeList)
+		}
+		if a.ActionType == string(actionAddCuratedQuery) && a.QuerySQL == "" {
+			return fmt.Errorf("suggested_actions[%d]: query_sql is required for add_curated_query", i)
 		}
 	}
 	return nil
@@ -362,9 +369,11 @@ func (f *ChangesetFilter) EffectiveLimit() int {
 
 // ApplyChange represents a single change to apply to DataHub.
 type ApplyChange struct {
-	ChangeType string `json:"change_type"`
-	Target     string `json:"target"`
-	Detail     string `json:"detail"`
+	ChangeType       string `json:"change_type"`
+	Target           string `json:"target"`
+	Detail           string `json:"detail"`
+	QuerySQL         string `json:"query_sql,omitempty"`
+	QueryDescription string `json:"query_description,omitempty"`
 }
 
 // ValidateApplyChanges validates the changes slice for the apply action.
@@ -378,6 +387,9 @@ func ValidateApplyChanges(changes []ApplyChange) error {
 	for i, c := range changes {
 		if !validActionTypes[actionType(c.ChangeType)] {
 			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: %s", i, c.ChangeType, actionTypeList)
+		}
+		if c.ChangeType == string(actionAddCuratedQuery) && c.QuerySQL == "" {
+			return fmt.Errorf("changes[%d]: query_sql is required for add_curated_query", i)
 		}
 	}
 	return nil

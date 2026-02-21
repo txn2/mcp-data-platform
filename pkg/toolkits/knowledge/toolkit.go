@@ -142,11 +142,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Name: applyToolName,
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
-				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation. " +
+				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. " +
 				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for dataset-level. " +
 				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
 				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
-				"For add_documentation, target is the URL, detail is the link description.",
+				"For add_documentation, target is the URL, detail is the link description. " +
+				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
@@ -411,15 +412,16 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	}
 
 	// Apply all changes atomically — collect writes first, then execute
-	if err := t.executeChanges(ctx, input.EntityURN, input.Changes); err != nil {
+	createdURNs, err := t.executeChanges(ctx, input.EntityURN, input.Changes)
+	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	return t.recordChangesetAndMarkApplied(ctx, input, prevMeta, appliedBy)
+	return t.recordChangesetAndMarkApplied(ctx, input, prevMeta, appliedBy, createdURNs)
 }
 
 // recordChangesetAndMarkApplied records a changeset and marks source insights as applied.
-func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prevMeta *EntityMetadata, appliedBy string) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prevMeta *EntityMetadata, appliedBy string, createdURNs []string) (*mcp.CallToolResult, any, error) {
 	csID, err := generateID()
 	if err != nil {
 		return errorResult("internal error generating changeset ID"), nil, nil //nolint:nilerr // MCP protocol
@@ -460,6 +462,10 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 		"message":                 fmt.Sprintf("Changes applied to DataHub. Changeset %s recorded for rollback.", csID),
 	}
 
+	if len(createdURNs) > 0 {
+		result["created_query_urns"] = createdURNs
+	}
+
 	return jsonResult(result)
 }
 
@@ -476,30 +482,49 @@ func userIDFromContext(ctx context.Context) string {
 const columnTargetPrefix = "column:"
 
 // executeChanges applies changes to DataHub, rolling back on failure.
-func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) error {
+// Returns a list of URNs created by add_curated_query changes.
+func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
+	var createdURNs []string
 	for i, c := range changes {
-		var err error
-		switch c.ChangeType {
-		case string(actionUpdateDescription):
-			err = t.executeUpdateDescription(ctx, urn, c)
-		case string(actionAddTag):
-			err = t.datahubWriter.AddTag(ctx, urn, normalizeTagURN(c.Detail))
-		case string(actionRemoveTag):
-			err = t.datahubWriter.RemoveTag(ctx, urn, normalizeTagURN(c.Detail))
-		case string(actionAddGlossaryTerm):
-			err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
-		case string(actionAddDocumentation):
-			// detail=description, target=URL (consistent with other change types
-			// where detail is always the content)
-			err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
-		case string(actionFlagQualityIssue):
-			err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
-		}
+		queryURN, err := t.dispatchChange(ctx, urn, c)
 		if err != nil {
-			return fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
+			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
+		}
+		if queryURN != "" {
+			createdURNs = append(createdURNs, queryURN)
 		}
 	}
-	return nil
+	return createdURNs, nil
+}
+
+// dispatchChange executes a single change against DataHub.
+// Returns a non-empty query URN only for add_curated_query changes.
+func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	var err error
+	switch c.ChangeType {
+	case string(actionUpdateDescription):
+		err = t.executeUpdateDescription(ctx, urn, c)
+	case string(actionAddTag):
+		err = t.datahubWriter.AddTag(ctx, urn, normalizeTagURN(c.Detail))
+	case string(actionRemoveTag):
+		err = t.datahubWriter.RemoveTag(ctx, urn, normalizeTagURN(c.Detail))
+	case string(actionAddGlossaryTerm):
+		err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
+	case string(actionAddDocumentation):
+		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
+	case string(actionFlagQualityIssue):
+		err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
+	case string(actionAddCuratedQuery):
+		queryURN, qErr := t.datahubWriter.CreateCuratedQuery(ctx, urn, c.Detail, c.QuerySQL, c.QueryDescription)
+		if qErr != nil {
+			return "", fmt.Errorf("curated query: %w", qErr)
+		}
+		return queryURN, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("executing %s: %w", c.ChangeType, err)
+	}
+	return "", nil
 }
 
 // normalizeTagURN ensures a tag value is a full DataHub TagUrn.
@@ -774,11 +799,18 @@ func changesToMap(changes []ApplyChange) map[string]any {
 	result := map[string]any{}
 	for i, c := range changes {
 		key := fmt.Sprintf("change_%d", i)
-		result[key] = map[string]any{
+		entry := map[string]any{
 			"change_type": c.ChangeType,
 			"target":      c.Target,
 			"detail":      c.Detail,
 		}
+		if c.QuerySQL != "" {
+			entry["query_sql"] = c.QuerySQL
+		}
+		if c.QueryDescription != "" {
+			entry["query_description"] = c.QueryDescription
+		}
+		result[key] = entry
 	}
 	return result
 }

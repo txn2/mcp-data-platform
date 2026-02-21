@@ -877,9 +877,11 @@ Record domain knowledge shared during a session. Available to all personas when 
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation` |
+| `action_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query` |
 | `target` | string | Yes | Target of the change (entity name, column name, or URL) |
-| `detail` | string | Yes | Change detail (new description, tag name, term name, etc.) |
+| `detail` | string | Yes | Change detail (new description, tag name, term name, query name, etc.) |
+| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`) |
+| `query_description` | string | No | Optional description for `add_curated_query` |
 
 **Response Schema:**
 
@@ -912,9 +914,11 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation` |
+| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query` |
 | `target` | string | Yes | Target of the change |
-| `detail` | string | Yes | Change detail |
+| `detail` | string | Yes | Change detail (query name for `add_curated_query`) |
+| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`) |
+| `query_description` | string | No | Optional description for `add_curated_query` |
 
 **Actions:**
 

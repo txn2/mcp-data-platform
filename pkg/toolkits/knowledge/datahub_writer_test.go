@@ -73,6 +73,13 @@ func TestNoopDataHubWriter_UpdateColumnDescription(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestNoopDataHubWriter_CreateCuratedQuery(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	urn, err := writer.CreateCuratedQuery(context.Background(), testDatasetURN, "test query", "SELECT 1", "a test")
+	assert.NoError(t, err)
+	assert.Equal(t, "", urn)
+}
+
 // --- Interface compliance ---
 
 func TestNoopDataHubWriter_ImplementsInterface(_ *testing.T) {

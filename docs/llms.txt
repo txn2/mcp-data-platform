@@ -55,7 +55,7 @@
 ## Knowledge Capture
 
 - [Overview](knowledge/overview.md): Tribal knowledge capture for data catalogs. capture_insight records domain knowledge during AI sessions; apply_knowledge provides admin review, synthesis, and DataHub write-back with changeset tracking and rollback. Insight categories, lifecycle states, insight sources (user, agent_discovery, enrichment_gap), governance workflow, configuration, persona integration, AI agent guidance prompt for both user-provided and agent-discovered insights
-- [Governance Workflow](knowledge/governance.md): Active metadata management through human-in-the-loop curation. Bulk review, per-entity review, approve/reject actions, synthesize change proposals, apply changes to DataHub (update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation), changeset tracking, rollback. Column-level targeting via column:<fieldPath>. Complete end-to-end workflow example
+- [Governance Workflow](knowledge/governance.md): Active metadata management through human-in-the-loop curation. Bulk review, per-entity review, approve/reject actions, synthesize change proposals, apply changes to DataHub (update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query), changeset tracking, rollback. Column-level targeting via column:<fieldPath>. Agent-driven curated query creation via query_sql/query_description fields. Complete end-to-end workflow example
 - [Admin API](knowledge/admin-api.md): REST endpoints for managing insights and changesets. List/filter/get/update insights, approve/reject status transitions, insight statistics. List/get changesets, rollback. Authentication, error responses, database schema reference
 
 ## MCP Apps

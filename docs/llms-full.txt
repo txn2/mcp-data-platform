@@ -1177,13 +1177,15 @@ Records domain knowledge shared during a session.
 | `related_columns` | array | No | Columns related to this insight (max 20) |
 | `suggested_actions` | array | No | Proposed catalog changes (max 5) |
 
-**Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`
+**Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`
 
 **Target field:** Use `column:<fieldPath>` (e.g., `column:location_type_id`) for column-level descriptions. For `add_documentation`, the target is the URL. For other types, leave empty or omit.
 
-**Detail field:** Description text, tag name or URN (e.g., `pii` or `urn:li:tag:pii`), glossary term name or URN, quality issue description, or link description. Short tag/term names are auto-normalized to full URNs.
+**Detail field:** Description text, tag name or URN (e.g., `pii` or `urn:li:tag:pii`), glossary term name or URN, quality issue description, link description, or query name (for `add_curated_query`). Short tag/term names are auto-normalized to full URNs.
 
 `flag_quality_issue` adds a fixed `QualityIssue` tag; the detail text is stored as context in the knowledge store, not encoded in the tag name.
+
+`add_curated_query` creates a reusable Query entity in DataHub linked to the target dataset. Requires `query_sql` (the SQL statement) and optionally `query_description`. The `detail` field serves as the query name.
 
 **Response:**
 
