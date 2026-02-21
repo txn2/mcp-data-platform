@@ -397,6 +397,28 @@ func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
 	assert.True(t, event.Authorized)
 }
 
+func TestBuildMCPAuditEvent_ThreadsEnrichmentTokens(t *testing.T) {
+	pc := NewPlatformContext("req-tokens")
+	pc.ToolName = testAuditToolName
+	pc.EnrichmentTokensFull = 500
+	pc.EnrichmentTokensDedup = 50
+
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+	}
+	req := createAuditTestRequest(t, testAuditToolName, nil)
+
+	event := buildMCPAuditEvent(pc, auditCallInfo{
+		Request:   req,
+		Result:    result,
+		StartTime: time.Now(),
+		Duration:  time.Millisecond,
+	})
+
+	assert.Equal(t, 500, event.EnrichmentTokensFull)
+	assert.Equal(t, 50, event.EnrichmentTokensDedup)
+}
+
 func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
 	mockLogger := newCapturingAuditLogger()
 	mw := MCPAuditMiddleware(mockLogger)

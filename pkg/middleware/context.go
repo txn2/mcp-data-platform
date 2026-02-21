@@ -47,7 +47,9 @@ type PlatformContext struct {
 	Source    string // "mcp", "admin", "inspector"
 
 	// Enrichment tracking (set by enrichment middleware, read by audit)
-	EnrichmentApplied bool
+	EnrichmentApplied     bool
+	EnrichmentTokensFull  int // estimated tokens for full enrichment
+	EnrichmentTokensDedup int // estimated tokens for deduped enrichment (0 if full sent)
 
 	// Results (populated after handler)
 	Success      bool

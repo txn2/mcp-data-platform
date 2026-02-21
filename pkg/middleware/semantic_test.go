@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -2347,11 +2348,14 @@ func TestSessionDedup_ConfigurableModes(t *testing.T) {
 
 		textContent := requireTextContent(t, enriched2)
 		data := requireUnmarshalJSON(t, textContent.Text)
-		if _, ok := data[semTestSemanticCtx]; !ok {
-			t.Error("summary mode: expected semantic_context")
+		if _, ok := data["compact_context"]; !ok {
+			t.Error("summary mode: expected compact_context")
 		}
 		if _, ok := data["note"]; !ok {
-			t.Error("summary mode: expected note about summary")
+			t.Error("summary mode: expected note about compact view")
+		}
+		if _, ok := data["tables"]; !ok {
+			t.Error("summary mode: expected tables list")
 		}
 	})
 
@@ -2601,4 +2605,271 @@ func TestAppendResourceLinks(t *testing.T) {
 			t.Errorf("content count = %d, want 1", len(got.Content))
 		}
 	})
+}
+
+func TestBuildCompactSemanticContext(t *testing.T) {
+	score := 85.0
+	ctx := &semantic.TableContext{
+		URN:          "urn:li:dataset:test",
+		Description:  "Should not appear in compact",
+		Owners:       []semantic.Owner{{URN: "urn:li:corpuser:owner1", Type: semantic.OwnerTypeUser}},
+		Tags:         []string{"pii_email", "normal_tag", "sensitive_data"},
+		Domain:       &semantic.Domain{Name: "Sales"},
+		Deprecation:  &semantic.Deprecation{Deprecated: true, Note: "Use v2"},
+		QualityScore: &score,
+	}
+
+	compact := buildCompactSemanticContext(ctx)
+
+	// Critical fields present
+	assert.Equal(t, "urn:li:dataset:test", compact[keyURN])
+	assert.NotNil(t, compact["domain"])
+	assert.NotNil(t, compact["deprecation"])
+	assert.Equal(t, 85.0, compact["quality_score"])
+	assert.Equal(t, []string{"pii_email", "sensitive_data"}, compact["critical_tags"])
+
+	// Non-critical fields absent
+	assert.Nil(t, compact[keyDescription])
+	assert.Nil(t, compact["owners"])
+	assert.Nil(t, compact[keyTags])
+	assert.Nil(t, compact["glossary_terms"])
+}
+
+func TestBuildCompactSemanticContext_MinimalContext(t *testing.T) {
+	ctx := &semantic.TableContext{
+		Description: "Just a description",
+		Tags:        []string{"normal_tag"},
+	}
+
+	compact := buildCompactSemanticContext(ctx)
+	assert.Empty(t, compact)
+}
+
+func TestBuildCompactSemanticContext_NonDeprecated(t *testing.T) {
+	ctx := &semantic.TableContext{
+		Deprecation: &semantic.Deprecation{Deprecated: false},
+	}
+
+	compact := buildCompactSemanticContext(ctx)
+	assert.Nil(t, compact["deprecation"])
+}
+
+func TestFilterCriticalTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []string
+		expected []string
+	}{
+		{
+			name:     "pii tag",
+			tags:     []string{"pii_email", "normal"},
+			expected: []string{"pii_email"},
+		},
+		{
+			name:     "sensitive tag",
+			tags:     []string{"Sensitive_Data", "tag2"},
+			expected: []string{"Sensitive_Data"},
+		},
+		{
+			name:     "quality tag",
+			tags:     []string{"quality_issue"},
+			expected: []string{"quality_issue"},
+		},
+		{
+			name:     "restricted tag",
+			tags:     []string{"restricted_access"},
+			expected: []string{"restricted_access"},
+		},
+		{
+			name:     "confidential tag",
+			tags:     []string{"Confidential"},
+			expected: []string{"Confidential"},
+		},
+		{
+			name:     "no critical tags",
+			tags:     []string{"normal", "tag2", "another"},
+			expected: nil,
+		},
+		{
+			name:     "empty tags",
+			tags:     nil,
+			expected: nil,
+		},
+		{
+			name:     "multiple critical",
+			tags:     []string{"pii_phone", "sensitive_ssn", "normal"},
+			expected: []string{"pii_phone", "sensitive_ssn"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := filterCriticalTags(tc.tags)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestEstimateTokens(t *testing.T) {
+	assert.Equal(t, 0, estimateTokens(nil))
+	assert.Equal(t, 0, estimateTokens([]byte("ab")))
+	assert.Equal(t, 1, estimateTokens([]byte("abcd")))
+	assert.Equal(t, 25, estimateTokens(make([]byte, 100)))
+}
+
+func TestMeasureEnrichmentTokens(t *testing.T) {
+	assert.Equal(t, 0, measureEnrichmentTokens(100, 100))
+	assert.Equal(t, 0, measureEnrichmentTokens(100, 50))
+	assert.Equal(t, 25, measureEnrichmentTokens(0, 100))
+	assert.Equal(t, 50, measureEnrichmentTokens(100, 300))
+}
+
+func TestContentChars(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "hello"},
+			&mcp.TextContent{Text: "world!"},
+			&mcp.ImageContent{Data: []byte("image")},
+		},
+	}
+	// Only counts TextContent
+	assert.Equal(t, 11, contentChars(result))
+}
+
+func TestSumStoredTokenCounts(t *testing.T) {
+	cache := NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	cache.MarkSent("s1", "t1", 100)
+	cache.MarkSent("s1", "t2", 200)
+
+	assert.Equal(t, 300, sumStoredTokenCounts(cache, "s1", []string{"t1", "t2"}))
+	assert.Equal(t, 100, sumStoredTokenCounts(cache, "s1", []string{"t1"}))
+	assert.Equal(t, 0, sumStoredTokenCounts(cache, "s1", []string{"t3"}))
+}
+
+func TestSessionDedup_SummaryMode_CriticalFieldsPassThrough(t *testing.T) {
+	score := 90.0
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					URN:          "urn:li:dataset:test",
+					Description:  "Full description that should not appear",
+					Tags:         []string{"pii_email", "normal_tag"},
+					Domain:       &semantic.Domain{Name: "Sales"},
+					Deprecation:  &semantic.Deprecation{Deprecated: true, Note: "Use v2"},
+					QualityScore: &score,
+					Owners:       []semantic.Owner{{URN: "urn:li:corpuser:owner1", Type: semantic.OwnerTypeUser}},
+				}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute),
+			DedupMode:          DedupModeSummary,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
+
+	// First call — full enrichment
+	requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
+
+	// Second call — compact summary
+	enriched2 := requireEnrich(t, enricher, NewToolResultText("r2"), request, pc)
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+
+	compact, ok := data["compact_context"].(map[string]any)
+	if !ok {
+		t.Fatal("expected compact_context map")
+	}
+
+	// Critical fields present
+	assert.Equal(t, "urn:li:dataset:test", compact[keyURN])
+	assert.NotNil(t, compact["domain"])
+	assert.NotNil(t, compact["deprecation"])
+	assert.NotNil(t, compact["quality_score"])
+	assert.NotNil(t, compact["critical_tags"])
+}
+
+func TestSessionDedup_SummaryMode_OmitsNonCritical(t *testing.T) {
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description:      "Full description",
+					Owners:           []semantic.Owner{{URN: "urn:li:corpuser:owner1", Type: semantic.OwnerTypeUser}},
+					Tags:             []string{"normal_tag"},
+					GlossaryTerms:    []semantic.GlossaryTerm{{URN: "urn:li:glossaryTerm:Revenue", Name: "Revenue"}},
+					CustomProperties: map[string]string{"key": "value"},
+				}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute),
+			DedupMode:          DedupModeSummary,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+	pc := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
+
+	requireEnrich(t, enricher, NewToolResultText("r1"), request, pc)
+	enriched2 := requireEnrich(t, enricher, NewToolResultText("r2"), request, pc)
+	textContent := requireTextContent(t, enriched2)
+	data := requireUnmarshalJSON(t, textContent.Text)
+
+	compact, ok := data["compact_context"].(map[string]any)
+	if !ok {
+		t.Fatal("expected compact_context map")
+	}
+
+	// Non-critical fields absent
+	assert.Nil(t, compact[keyDescription])
+	assert.Nil(t, compact["owners"])
+	assert.Nil(t, compact["glossary_terms"])
+	assert.Nil(t, compact["custom_properties"])
+}
+
+func TestSessionDedup_TokenTracking(t *testing.T) {
+	enricher := &semanticEnricher{
+		semanticProvider: &mockSemanticProvider{
+			getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return &semantic.TableContext{
+					Description: semTestDescTestTable,
+					Tags:        []string{"tag1"},
+				}, nil
+			},
+		},
+		cfg: EnrichmentConfig{
+			EnrichTrinoResults: true,
+			SessionCache:       NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute),
+			DedupMode:          DedupModeReference,
+		},
+	}
+
+	args, _ := json.Marshal(map[string]any{"table": semTestCatalogSchTable})
+	request := mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Arguments: args},
+	}
+
+	// First call — full enrichment sets EnrichmentTokensFull
+	pc1 := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
+	requireEnrich(t, enricher, NewToolResultText("r1"), request, pc1)
+	assert.Greater(t, pc1.EnrichmentTokensFull, 0, "full enrichment should set token count")
+	assert.Equal(t, 0, pc1.EnrichmentTokensDedup, "first call should not set dedup tokens")
+
+	// Second call — dedup sets both full (stored) and dedup tokens
+	pc2 := &PlatformContext{ToolkitKind: semTestTrino, SessionID: "s1"}
+	requireEnrich(t, enricher, NewToolResultText("r2"), request, pc2)
+	assert.Greater(t, pc2.EnrichmentTokensFull, 0, "dedup should report stored full token count")
+	assert.GreaterOrEqual(t, pc2.EnrichmentTokensDedup, 0, "dedup should report dedup token count")
 }

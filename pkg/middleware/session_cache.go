@@ -3,6 +3,7 @@ package middleware
 import (
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,12 @@ const (
 	DedupModeNone DedupMode = "none"
 )
 
+// SentTableEntry records when a table was enriched and the estimated token count.
+type SentTableEntry struct {
+	SentAt     time.Time `json:"sent_at"`
+	TokenCount int       `json:"token_count"`
+}
+
 // SessionEnrichmentCache tracks which tables have been enriched per client
 // session, enabling deduplication of large semantic metadata blocks.
 type SessionEnrichmentCache struct {
@@ -28,11 +35,15 @@ type SessionEnrichmentCache struct {
 	entryTTL       time.Duration
 	sessionTimeout time.Duration
 	done           chan struct{}
+
+	// Cumulative token counters for diagnostics.
+	tokensFull    atomic.Int64
+	tokensDeduped atomic.Int64
 }
 
 // sessionState tracks enrichment state for a single session.
 type sessionState struct {
-	sentTables map[string]time.Time
+	sentTables map[string]SentTableEntry
 	lastAccess time.Time
 }
 
@@ -47,12 +58,15 @@ func NewSessionEnrichmentCache(entryTTL, sessionTimeout time.Duration) *SessionE
 }
 
 // MarkSent records that full enrichment was sent for the given table in this session.
-func (c *SessionEnrichmentCache) MarkSent(sessionID, tableKey string) {
+func (c *SessionEnrichmentCache) MarkSent(sessionID, tableKey string, tokenCount int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	state := c.getOrCreateSession(sessionID)
-	state.sentTables[tableKey] = time.Now()
+	state.sentTables[tableKey] = SentTableEntry{
+		SentAt:     time.Now(),
+		TokenCount: tokenCount,
+	}
 	state.lastAccess = time.Now()
 }
 
@@ -67,12 +81,51 @@ func (c *SessionEnrichmentCache) WasSentRecently(sessionID, tableKey string) boo
 		return false
 	}
 
-	sentAt, ok := state.sentTables[tableKey]
+	entry, ok := state.sentTables[tableKey]
 	if !ok {
 		return false
 	}
 
-	return time.Since(sentAt) < c.entryTTL
+	return time.Since(entry.SentAt) < c.entryTTL
+}
+
+// GetTokenCount returns the stored full enrichment token count for a table
+// in a session, or 0 if not found.
+func (c *SessionEnrichmentCache) GetTokenCount(sessionID, tableKey string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	state, ok := c.sessions[sessionID]
+	if !ok {
+		return 0
+	}
+
+	entry, ok := state.sentTables[tableKey]
+	if !ok {
+		return 0
+	}
+
+	return entry.TokenCount
+}
+
+// AddTokensFull adds to the cumulative full enrichment token counter.
+func (c *SessionEnrichmentCache) AddTokensFull(n int64) {
+	c.tokensFull.Add(n)
+}
+
+// AddTokensDeduped adds to the cumulative deduped enrichment token counter.
+func (c *SessionEnrichmentCache) AddTokensDeduped(n int64) {
+	c.tokensDeduped.Add(n)
+}
+
+// TokensFull returns the cumulative full enrichment tokens sent.
+func (c *SessionEnrichmentCache) TokensFull() int64 {
+	return c.tokensFull.Load()
+}
+
+// TokensDeduped returns the cumulative deduped enrichment tokens sent.
+func (c *SessionEnrichmentCache) TokensDeduped() int64 {
+	return c.tokensDeduped.Load()
 }
 
 // StartCleanup starts a background goroutine that evicts idle sessions.
@@ -115,7 +168,7 @@ func (c *SessionEnrichmentCache) getOrCreateSession(sessionID string) *sessionSt
 	state, ok := c.sessions[sessionID]
 	if !ok {
 		state = &sessionState{
-			sentTables: make(map[string]time.Time),
+			sentTables: make(map[string]SentTableEntry),
 			lastAccess: time.Now(),
 		}
 		c.sessions[sessionID] = state
@@ -126,7 +179,7 @@ func (c *SessionEnrichmentCache) getOrCreateSession(sessionID string) *sessionSt
 // LoadSession pre-populates dedup state for a session from external storage.
 // This is used on startup to restore enrichment dedup continuity from the
 // session store.
-func (c *SessionEnrichmentCache) LoadSession(sessionID string, sentTables map[string]time.Time) {
+func (c *SessionEnrichmentCache) LoadSession(sessionID string, sentTables map[string]SentTableEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -136,14 +189,14 @@ func (c *SessionEnrichmentCache) LoadSession(sessionID string, sentTables map[st
 }
 
 // ExportSessions returns all session dedup states for persistence.
-// Each map entry maps a session ID to its sent-table timestamps.
-func (c *SessionEnrichmentCache) ExportSessions() map[string]map[string]time.Time {
+// Each map entry maps a session ID to its sent-table entries.
+func (c *SessionEnrichmentCache) ExportSessions() map[string]map[string]SentTableEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make(map[string]map[string]time.Time, len(c.sessions))
+	result := make(map[string]map[string]SentTableEntry, len(c.sessions))
 	for id, state := range c.sessions {
-		tables := make(map[string]time.Time, len(state.sentTables))
+		tables := make(map[string]SentTableEntry, len(state.sentTables))
 		maps.Copy(tables, state.sentTables)
 		result[id] = tables
 	}
@@ -163,8 +216,8 @@ func (c *SessionEnrichmentCache) cleanup() {
 			continue
 		}
 		// Remove expired entries from active sessions
-		for table, sentAt := range state.sentTables {
-			if now.Sub(sentAt) > c.entryTTL {
+		for table, entry := range state.sentTables {
+			if now.Sub(entry.SentAt) > c.entryTTL {
 				delete(state.sentTables, table)
 			}
 		}

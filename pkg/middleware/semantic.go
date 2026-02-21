@@ -15,6 +15,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
+// tokenDivisor is the approximate characters-per-token ratio for estimation.
+const tokenDivisor = 4
+
+// criticalTagPrefixes lists tag substrings that indicate safety-relevant metadata.
+var criticalTagPrefixes = []string{"pii", "sensitive", "quality", "restricted", "confidential"}
+
 // toolPrefixTrino is the toolkit kind identifier for Trino tools.
 const toolPrefixTrino = "trino"
 
@@ -25,6 +31,7 @@ const (
 	keyURN             = "urn"
 	keyDescription     = "description"
 	keyTags            = "tags"
+	keyDeprecation     = "deprecation"
 	keySemanticContext = "semantic_context"
 	keySessionID       = "session_id"
 
@@ -125,50 +132,82 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 		"session_count", cache.SessionCount(),
 	)
 
-	// Check if all tables were recently enriched in this session
-	allSent := true
+	if allSentRecently(cache, pc.SessionID, tableKeys) {
+		return e.handleDedupEnrichment(ctx, result, request, pc, tableKeys)
+	}
+
+	return e.handleFullEnrichment(ctx, result, request, pc, tableKeys)
+}
+
+// allSentRecently returns true if every table key was recently enriched.
+func allSentRecently(cache *SessionEnrichmentCache, sessionID string, tableKeys []string) bool {
 	for _, key := range tableKeys {
-		wasSent := cache.WasSentRecently(pc.SessionID, key)
-		if !wasSent {
-			slog.Debug("dedup: cache miss",
-				keySessionID, pc.SessionID,
-				"table_key", key,
-			)
-			allSent = false
-			break
+		if !cache.WasSentRecently(sessionID, key) {
+			return false
 		}
-		slog.Debug("dedup: cache hit",
-			keySessionID, pc.SessionID,
-			"table_key", key,
-		)
 	}
+	return true
+}
 
-	if allSent {
-		slog.Debug("dedup: all tables cached, applying dedup mode",
-			keySessionID, pc.SessionID,
-			"mode", e.cfg.DedupMode,
-			"table_keys", tableKeys,
-		)
-		// All tables already enriched for this session - apply dedup mode
-		return e.applyDedupMode(ctx, result, request, tableKeys)
-	}
+// handleFullEnrichment performs full enrichment, measures tokens, and marks tables as sent.
+func (e *semanticEnricher) handleFullEnrichment(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	request mcp.CallToolRequest,
+	pc *PlatformContext,
+	tableKeys []string,
+) (*mcp.CallToolResult, error) {
+	cache := e.cfg.SessionCache
+	beforeChars := contentChars(result)
 
-	// Full enrichment needed
 	enrichedResult, err := enrichTrinoResult(ctx, result, request, e.semanticProvider)
 	if err != nil {
 		return enrichedResult, err
 	}
 
-	// Mark all tables as sent
+	afterChars := contentChars(enrichedResult)
+	tokens := measureEnrichmentTokens(beforeChars, afterChars)
+
+	// Mark all tables as sent with token count
 	for _, key := range tableKeys {
-		cache.MarkSent(pc.SessionID, key)
-		slog.Debug("dedup: marked sent",
-			keySessionID, pc.SessionID,
-			"table_key", key,
-		)
+		cache.MarkSent(pc.SessionID, key, tokens)
+	}
+	cache.AddTokensFull(int64(tokens))
+
+	pc.EnrichmentTokensFull = tokens
+	return enrichedResult, nil
+}
+
+// handleDedupEnrichment applies dedup mode and records token savings.
+func (e *semanticEnricher) handleDedupEnrichment(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	request mcp.CallToolRequest,
+	pc *PlatformContext,
+	tableKeys []string,
+) (*mcp.CallToolResult, error) {
+	cache := e.cfg.SessionCache
+	slog.Debug("dedup: all tables cached, applying dedup mode",
+		keySessionID, pc.SessionID,
+		"mode", e.cfg.DedupMode,
+		"table_keys", tableKeys,
+	)
+
+	storedTokens := sumStoredTokenCounts(cache, pc.SessionID, tableKeys)
+	beforeChars := contentChars(result)
+
+	dedupResult, err := e.applyDedupMode(ctx, result, request, tableKeys)
+	if err != nil {
+		return dedupResult, err
 	}
 
-	return enrichedResult, nil
+	afterChars := contentChars(dedupResult)
+	dedupTokens := measureEnrichmentTokens(beforeChars, afterChars)
+	cache.AddTokensDeduped(int64(dedupTokens))
+
+	pc.EnrichmentTokensFull = storedTokens
+	pc.EnrichmentTokensDedup = dedupTokens
+	return dedupResult, nil
 }
 
 // extractTableKeysFromRequest extracts table keys from a tool call request.
@@ -238,7 +277,7 @@ func appendMetadataReference(result *mcp.CallToolResult, tableKeys []string) *mc
 	return result
 }
 
-// appendSemanticSummary appends table-level semantic context without column details.
+// appendSemanticSummary appends compact semantic context with only critical fields.
 func (e *semanticEnricher) appendSemanticSummary(
 	ctx context.Context,
 	result *mcp.CallToolResult,
@@ -252,8 +291,9 @@ func (e *semanticEnricher) appendSemanticSummary(
 		}
 
 		enrichment := map[string]any{
-			keySemanticContext: buildTrinoSemanticContext(tableCtx),
-			"note":             "Summary only. Full column metadata was provided earlier in this session.",
+			"compact_context": buildCompactSemanticContext(tableCtx),
+			"tables":          []string{key},
+			"note":            "Compact view. Full metadata was provided earlier in this session. Only critical warnings, quality scores, and sensitivity flags are shown.",
 		}
 
 		enrichmentJSON, marshalErr := json.Marshal(enrichment)
@@ -450,7 +490,7 @@ func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[s
 		summary[keyURN] = ctx.URN
 	}
 	if ctx.Deprecation != nil && ctx.Deprecation.Deprecated {
-		summary["deprecation"] = ctx.Deprecation
+		summary[keyDeprecation] = ctx.Deprecation
 	}
 	if len(ctx.Tags) > 0 {
 		summary[keyTags] = ctx.Tags
@@ -723,7 +763,7 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 		keyTags:         ctx.Tags,
 		"domain":        ctx.Domain,
 		"quality_score": ctx.QualityScore,
-		"deprecation":   ctx.Deprecation,
+		keyDeprecation:  ctx.Deprecation,
 	}
 
 	if ctx.URN != "" {
@@ -740,6 +780,77 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 	}
 
 	return semanticCtx
+}
+
+// buildCompactSemanticContext extracts only critical safety-relevant fields
+// from a table context for deduped responses.
+func buildCompactSemanticContext(ctx *semantic.TableContext) map[string]any {
+	compact := make(map[string]any)
+	if ctx.URN != "" {
+		compact[keyURN] = ctx.URN
+	}
+	if ctx.Domain != nil {
+		compact["domain"] = ctx.Domain
+	}
+	if ctx.Deprecation != nil && ctx.Deprecation.Deprecated {
+		compact[keyDeprecation] = ctx.Deprecation
+	}
+	if ctx.QualityScore != nil {
+		compact["quality_score"] = *ctx.QualityScore
+	}
+	if critical := filterCriticalTags(ctx.Tags); len(critical) > 0 {
+		compact["critical_tags"] = critical
+	}
+	return compact
+}
+
+// filterCriticalTags returns tags that match known critical prefixes.
+func filterCriticalTags(tags []string) []string {
+	var critical []string
+	for _, tag := range tags {
+		lower := strings.ToLower(tag)
+		for _, prefix := range criticalTagPrefixes {
+			if strings.Contains(lower, prefix) {
+				critical = append(critical, tag)
+				break
+			}
+		}
+	}
+	return critical
+}
+
+// estimateTokens estimates the token count from raw byte data.
+func estimateTokens(data []byte) int {
+	return len(data) / tokenDivisor
+}
+
+// contentChars returns the total character count of text content in a result.
+func contentChars(result *mcp.CallToolResult) int {
+	total := 0
+	for _, c := range result.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			total += len(tc.Text)
+		}
+	}
+	return total
+}
+
+// measureEnrichmentTokens estimates tokens added by enrichment.
+func measureEnrichmentTokens(beforeChars, afterChars int) int {
+	added := afterChars - beforeChars
+	if added <= 0 {
+		return 0
+	}
+	return added / tokenDivisor
+}
+
+// sumStoredTokenCounts sums the stored full enrichment token counts for multiple tables.
+func sumStoredTokenCounts(cache *SessionEnrichmentCache, sessionID string, tableKeys []string) int {
+	total := 0
+	for _, key := range tableKeys {
+		total += cache.GetTokenCount(sessionID, key)
+	}
+	return total
 }
 
 // buildColumnInfo creates a column info map from column context.
@@ -937,7 +1048,7 @@ func buildTableSemanticContext(sr semantic.TableSearchResult, tableCtx *semantic
 		semanticCtx["domain"] = tableCtx.Domain.Name
 	}
 	if tableCtx.Deprecation != nil && tableCtx.Deprecation.Deprecated {
-		semanticCtx["deprecation"] = tableCtx.Deprecation
+		semanticCtx[keyDeprecation] = tableCtx.Deprecation
 	}
 	if tableCtx.QualityScore != nil {
 		semanticCtx["quality_score"] = *tableCtx.QualityScore

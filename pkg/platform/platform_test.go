@@ -2336,22 +2336,45 @@ func TestParseDedupState(t *testing.T) {
 		}
 	})
 
-	t.Run("typed map[string]time.Time (memory store)", func(t *testing.T) {
+	t.Run("typed SentTableEntry map (memory store)", func(t *testing.T) {
 		now := time.Now()
-		input := map[string]time.Time{
-			"table1": now,
-			"table2": now.Add(-5 * time.Minute),
+		input := map[string]middleware.SentTableEntry{
+			"table1": {SentAt: now, TokenCount: 100},
+			"table2": {SentAt: now.Add(-5 * time.Minute), TokenCount: 200},
 		}
 		result := parseDedupState(input)
 		if len(result) != 2 {
 			t.Fatalf("expected 2 entries, got %d", len(result))
 		}
-		if !result["table1"].Equal(now) {
+		if !result["table1"].SentAt.Equal(now) {
 			t.Errorf("table1 time mismatch")
+		}
+		if result["table1"].TokenCount != 100 {
+			t.Errorf("table1 token count: got %d, want 100", result["table1"].TokenCount)
+		}
+		if result["table2"].TokenCount != 200 {
+			t.Errorf("table2 token count: got %d, want 200", result["table2"].TokenCount)
 		}
 	})
 
-	t.Run("map[string]any with time.Time values (JSON)", func(t *testing.T) {
+	t.Run("new JSON format with object values", func(t *testing.T) {
+		now := time.Now().UTC()
+		input := map[string]any{
+			"table1": map[string]any{
+				"sent_at":     now.Format(time.RFC3339Nano),
+				"token_count": float64(150),
+			},
+		}
+		result := parseDedupState(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		if result["table1"].TokenCount != 150 {
+			t.Errorf("token count: got %d, want 150", result["table1"].TokenCount)
+		}
+	})
+
+	t.Run("old format: map[string]any with time.Time values", func(t *testing.T) {
 		now := time.Now()
 		input := map[string]any{
 			"table1": now,
@@ -2361,12 +2384,15 @@ func TestParseDedupState(t *testing.T) {
 		if len(result) != 2 {
 			t.Fatalf("expected 2 entries, got %d", len(result))
 		}
-		if !result["table1"].Equal(now) {
+		if !result["table1"].SentAt.Equal(now) {
 			t.Errorf("table1 time mismatch")
+		}
+		if result["table1"].TokenCount != 0 {
+			t.Errorf("old format should have TokenCount 0, got %d", result["table1"].TokenCount)
 		}
 	})
 
-	t.Run("map with RFC3339 string values", func(t *testing.T) {
+	t.Run("old format: map with RFC3339 string values", func(t *testing.T) {
 		now := time.Now().UTC().Truncate(time.Nanosecond)
 		input := map[string]any{
 			"table1": now.Format(time.RFC3339Nano),
@@ -2374,6 +2400,9 @@ func TestParseDedupState(t *testing.T) {
 		result := parseDedupState(input)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+		if result["table1"].TokenCount != 0 {
+			t.Errorf("old format should have TokenCount 0, got %d", result["table1"].TokenCount)
 		}
 	})
 
@@ -2394,6 +2423,31 @@ func TestParseDedupState(t *testing.T) {
 		result := parseDedupState(input)
 		if len(result) != 0 {
 			t.Errorf("expected 0 entries for int value, got %d", len(result))
+		}
+	})
+
+	t.Run("new format: missing sent_at skipped", func(t *testing.T) {
+		input := map[string]any{
+			"table1": map[string]any{
+				"token_count": float64(100),
+			},
+		}
+		result := parseDedupState(input)
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries for missing sent_at, got %d", len(result))
+		}
+	})
+
+	t.Run("new format: invalid sent_at type skipped", func(t *testing.T) {
+		input := map[string]any{
+			"table1": map[string]any{
+				"sent_at":     12345,
+				"token_count": float64(100),
+			},
+		}
+		result := parseDedupState(input)
+		if len(result) != 0 {
+			t.Errorf("expected 0 entries for invalid sent_at type, got %d", len(result))
 		}
 	})
 }
@@ -2429,8 +2483,8 @@ func TestFlushEnrichmentState(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 
-		// Mark table as sent in cache
-		cache.MarkSent("flush-sess", "catalog.schema.users")
+		// Mark table as sent in cache with token count
+		cache.MarkSent("flush-sess", "catalog.schema.users", 250)
 
 		p := &Platform{sessionCache: cache, sessionStore: store}
 		p.flushEnrichmentState()
@@ -2447,12 +2501,16 @@ func TestFlushEnrichmentState(t *testing.T) {
 		if !ok {
 			t.Fatal("expected enrichment_dedup key in state")
 		}
-		tables, ok := dedup.(map[string]time.Time)
+		tables, ok := dedup.(map[string]middleware.SentTableEntry)
 		if !ok {
-			t.Fatalf("expected map[string]time.Time, got %T", dedup)
+			t.Fatalf("expected map[string]middleware.SentTableEntry, got %T", dedup)
 		}
-		if _, exists := tables["catalog.schema.users"]; !exists {
+		entry, exists := tables["catalog.schema.users"]
+		if !exists {
 			t.Error("expected catalog.schema.users in flushed dedup state")
+		}
+		if entry.TokenCount != 250 {
+			t.Errorf("token count: got %d, want 250", entry.TokenCount)
 		}
 	})
 }
@@ -2534,7 +2592,7 @@ func TestFlushLoadRoundTrip(t *testing.T) {
 
 	// Phase 1: populate cache and flush
 	cache1 := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
-	cache1.MarkSent("rt-sess", "catalog.schema.products")
+	cache1.MarkSent("rt-sess", "catalog.schema.products", 350)
 
 	p1 := &Platform{sessionCache: cache1, sessionStore: store}
 	p1.flushEnrichmentState()
@@ -2546,6 +2604,9 @@ func TestFlushLoadRoundTrip(t *testing.T) {
 
 	if !cache2.WasSentRecently("rt-sess", "catalog.schema.products") {
 		t.Error("expected round-trip to preserve dedup state")
+	}
+	if tc := cache2.GetTokenCount("rt-sess", "catalog.schema.products"); tc != 350 {
+		t.Errorf("expected token count 350 after round-trip, got %d", tc)
 	}
 }
 

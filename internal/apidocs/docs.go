@@ -2345,6 +2345,12 @@ const docTemplate = `{
                 "enrichment_applied": {
                     "type": "boolean"
                 },
+                "enrichment_tokens_dedup": {
+                    "type": "integer"
+                },
+                "enrichment_tokens_full": {
+                    "type": "integer"
+                },
                 "error_message": {
                     "type": "string"
                 },

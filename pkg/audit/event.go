@@ -113,6 +113,13 @@ func (e *Event) WithAuthorized(authorized bool) *Event {
 	return e
 }
 
+// WithEnrichmentTokens records estimated token counts for enrichment.
+func (e *Event) WithEnrichmentTokens(full, dedup int) *Event {
+	e.EnrichmentTokensFull = full
+	e.EnrichmentTokensDedup = dedup
+	return e
+}
+
 // generateEventID generates a unique event ID.
 func generateEventID() string {
 	bytes := make([]byte, 16)

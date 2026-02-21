@@ -47,6 +47,7 @@ const (
 	chainTestDedupNoneSemantic = "call 2: should not have semantic_context on deduped call"
 	chainTestPrimaryKey        = "Primary key"
 	chainTestPKTag             = "pk"
+	chainTestCompactCtx        = "compact_context"
 )
 
 // --- Test assertion helpers ---
@@ -1139,7 +1140,7 @@ func TestMiddlewareChain_SessionDedup_Modes(t *testing.T) {
 		{
 			name:         "summary mode",
 			mode:         middleware.DedupModeSummary,
-			secondHasKey: chainTestSemanticCtx,
+			secondHasKey: chainTestCompactCtx,
 			secondLacks:  "column_context",
 		},
 		{
