@@ -27,6 +27,10 @@ const (
 	keyTags            = "tags"
 	keySemanticContext = "semantic_context"
 	keySessionID       = "session_id"
+
+	// noteNoColumnMetadata is the note appended when columns exist but none have
+	// meaningful metadata (description, tags, glossary terms, PII flags, etc.).
+	noteNoColumnMetadata = "No column-level metadata available"
 )
 
 // tablePartsWithCatalog is the expected number of parts in a fully-qualified table name (catalog.schema.table).
@@ -474,7 +478,11 @@ func appendSemanticContextWithAdditional(
 
 	if len(columnsCtx) > 0 {
 		columnContext, sources := buildColumnContexts(columnsCtx)
-		enrichment["column_context"] = columnContext
+		if len(columnContext) > 0 {
+			enrichment["column_context"] = columnContext
+		} else {
+			enrichment["column_context_note"] = noteNoColumnMetadata
+		}
 		if len(sources) > 0 {
 			enrichment["inheritance_sources"] = sources
 		}
@@ -762,6 +770,9 @@ func buildColumnContexts(columnsCtx map[string]*semantic.ColumnContext) (columnC
 	inheritanceSources := make(map[string]bool)
 
 	for name, col := range columnsCtx {
+		if !col.HasContent() {
+			continue // Skip columns with no meaningful metadata
+		}
 		columnContext[name] = buildColumnInfo(col)
 		if col.InheritedFrom != nil {
 			inheritanceSources[col.InheritedFrom.SourceURN] = true
@@ -792,7 +803,11 @@ func appendSemanticContextWithColumns(
 
 	if len(columnsCtx) > 0 {
 		columnContext, sources := buildColumnContexts(columnsCtx)
-		enrichment["column_context"] = columnContext
+		if len(columnContext) > 0 {
+			enrichment["column_context"] = columnContext
+		} else {
+			enrichment["column_context_note"] = noteNoColumnMetadata
+		}
 		if len(sources) > 0 {
 			enrichment["inheritance_sources"] = sources
 		}
