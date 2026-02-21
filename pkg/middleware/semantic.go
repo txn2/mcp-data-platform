@@ -316,8 +316,35 @@ func (e *semanticEnricher) appendSemanticSummary(
 	return result, nil
 }
 
-// enrichDataHubResultWithAll enriches DataHub results with query and storage context.
+// enrichDataHubResultWithAll enriches DataHub results with query, storage, and curated query context.
 func (e *semanticEnricher) enrichDataHubResultWithAll(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	request mcp.CallToolRequest,
+) (*mcp.CallToolResult, error) {
+	enrichedResult, err := e.enrichDataHubQueryAndStorage(ctx, result, request)
+	if err != nil {
+		return enrichedResult, err
+	}
+
+	// Enrich with curated query availability
+	if e.cfg.EnrichDataHubResults && e.semanticProvider != nil {
+		enrichedResult, err = enrichDataHubResultWithCuratedQueries(ctx, enrichedResult, e.semanticProvider)
+		if err != nil {
+			return enrichedResult, err
+		}
+	}
+
+	// Add resource links to DataHub search results
+	if e.cfg.ResourceLinksEnabled {
+		enrichedResult = appendResourceLinks(enrichedResult, extractURNsFromResult(enrichedResult))
+	}
+
+	return enrichedResult, nil
+}
+
+// enrichDataHubQueryAndStorage enriches DataHub results with query context (Trino) and storage context (S3).
+func (e *semanticEnricher) enrichDataHubQueryAndStorage(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
@@ -340,11 +367,6 @@ func (e *semanticEnricher) enrichDataHubResultWithAll(
 		if err != nil {
 			return enrichedResult, err
 		}
-	}
-
-	// Add resource links to DataHub search results
-	if e.cfg.ResourceLinksEnabled {
-		enrichedResult = appendResourceLinks(enrichedResult, extractURNsFromResult(enrichedResult))
 	}
 
 	return enrichedResult, nil
@@ -637,6 +659,56 @@ func enrichDataHubResult(
 
 	// Append query context to result
 	return appendQueryContext(result, queryContexts)
+}
+
+// enrichDataHubResultWithCuratedQueries adds curated query availability
+// to DataHub tool results so agents know curated queries exist without
+// requiring the 3-call discovery chain.
+func enrichDataHubResultWithCuratedQueries(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	provider semantic.Provider,
+) (*mcp.CallToolResult, error) {
+	urns := extractURNsFromResult(result)
+	if len(urns) == 0 {
+		return result, nil
+	}
+
+	counts := make(map[string]any)
+	for _, urn := range urns {
+		count, err := provider.GetCuratedQueryCount(ctx, urn)
+		if err != nil || count == 0 {
+			continue
+		}
+		counts[urn] = map[string]any{
+			"has_curated_queries": true,
+			"curated_query_count": count,
+		}
+	}
+
+	if len(counts) == 0 {
+		return result, nil
+	}
+
+	return appendCuratedQueryContext(result, counts)
+}
+
+// appendCuratedQueryContext appends curated query context to the result.
+func appendCuratedQueryContext(result *mcp.CallToolResult, contexts map[string]any) (*mcp.CallToolResult, error) {
+	enrichment := map[string]any{
+		"curated_query_context": contexts,
+	}
+
+	enrichmentJSON, err := json.Marshal(enrichment)
+	if err != nil {
+		return result, fmt.Errorf("marshal curated query context: %w", err)
+	}
+
+	result.Content = append(result.Content, &mcp.TextContent{
+		Text: string(enrichmentJSON),
+	})
+
+	return result, nil
 }
 
 // extractTableFromRequest extracts table name from request arguments.

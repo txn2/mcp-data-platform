@@ -55,6 +55,7 @@ type Client interface {
 	GetLineage(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
 	GetColumnLineage(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	GetGlossaryTerm(ctx context.Context, urn string) (*types.GlossaryTerm, error)
+	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -273,6 +274,15 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 	}
 
 	return results, nil
+}
+
+// GetCuratedQueryCount returns the number of curated/saved queries for a dataset.
+func (a *Adapter) GetCuratedQueryCount(ctx context.Context, urn string) (int, error) {
+	queries, err := a.client.GetQueries(ctx, urn)
+	if err != nil {
+		return 0, fmt.Errorf("getting curated query count: %w", err)
+	}
+	return queries.Total, nil
 }
 
 // Close releases resources.

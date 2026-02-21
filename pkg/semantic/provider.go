@@ -26,6 +26,9 @@ type Provider interface {
 	// SearchTables searches for tables matching the filter.
 	SearchTables(ctx context.Context, filter SearchFilter) ([]TableSearchResult, error)
 
+	// GetCuratedQueryCount returns the number of curated/saved queries for a dataset.
+	GetCuratedQueryCount(ctx context.Context, urn string) (int, error)
+
 	// Close releases resources.
 	Close() error
 }

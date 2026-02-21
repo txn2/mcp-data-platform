@@ -111,6 +111,10 @@ func (*mockSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFi
 	return nil, nil //nolint:nilnil // mock stub: unused method required by interface
 }
 
+func (*mockSemanticProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 func (*mockSemanticProvider) Close() error { return nil }
 
 // mockQueryProvider implements query.Provider for testing.

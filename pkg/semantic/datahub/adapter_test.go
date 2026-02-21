@@ -36,6 +36,7 @@ type mockDataHubClient struct {
 	getLineageFunc       func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
 	getColumnLineageFunc func(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	getGlossaryTermFunc  func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
+	getQueriesFunc       func(ctx context.Context, urn string) (*types.QueryList, error)
 	pingFunc             func(ctx context.Context) error
 	closeFunc            func() error
 }
@@ -87,6 +88,13 @@ func (m *mockDataHubClient) GetGlossaryTerm(ctx context.Context, urn string) (*t
 		return m.getGlossaryTermFunc(ctx, urn)
 	}
 	return &types.GlossaryTerm{}, nil
+}
+
+func (m *mockDataHubClient) GetQueries(ctx context.Context, urn string) (*types.QueryList, error) {
+	if m.getQueriesFunc != nil {
+		return m.getQueriesFunc(ctx, urn)
+	}
+	return &types.QueryList{}, nil
 }
 
 func (m *mockDataHubClient) Ping(ctx context.Context) error {
@@ -905,6 +913,61 @@ func TestFieldToColumnContextEdgeCases(t *testing.T) {
 	if !result.IsPII {
 		t.Error("expected IsPII to be true for pii tag")
 	}
+}
+
+func TestGetCuratedQueryCount(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns count from client", func(t *testing.T) {
+		mock := &mockDataHubClient{
+			getQueriesFunc: func(_ context.Context, _ string) (*types.QueryList, error) {
+				return &types.QueryList{
+					Total:   3,
+					Queries: []types.Query{{URN: "q1"}, {URN: "q2"}, {URN: "q3"}},
+				}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		count, err := adapter.GetCuratedQueryCount(ctx, "urn:li:dataset:1")
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if count != 3 {
+			t.Errorf("expected count 3, got %d", count)
+		}
+	})
+
+	t.Run("returns zero for empty queries", func(t *testing.T) {
+		mock := &mockDataHubClient{
+			getQueriesFunc: func(_ context.Context, _ string) (*types.QueryList, error) {
+				return &types.QueryList{Total: 0}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		count, err := adapter.GetCuratedQueryCount(ctx, "urn:li:dataset:1")
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if count != 0 {
+			t.Errorf("expected count 0, got %d", count)
+		}
+	})
+
+	t.Run("returns error on client failure", func(t *testing.T) {
+		mock := &mockDataHubClient{
+			getQueriesFunc: func(_ context.Context, _ string) (*types.QueryList, error) {
+				return nil, errors.New("client error")
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		_, err := adapter.GetCuratedQueryCount(ctx, "urn:li:dataset:1")
+		if err == nil {
+			t.Error(dhAdapterTestExpectedErr)
+		}
+	})
 }
 
 // Verify Adapter implements interfaces.

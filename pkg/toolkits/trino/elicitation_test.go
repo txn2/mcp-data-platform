@@ -431,6 +431,10 @@ func (*mockSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFi
 	return nil, nil //nolint:nilnil // mock returns zero values
 }
 
+func (*mockSemanticProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 func (*mockSemanticProvider) Close() error { return nil }
 
 func TestClientSupportsElicitation(t *testing.T) {
@@ -651,6 +655,10 @@ func (*errSemanticProvider) GetGlossaryTerm(_ context.Context, _ string) (*seman
 
 func (*errSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return nil, nil //nolint:nilnil // mock
+}
+
+func (*errSemanticProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 func (*errSemanticProvider) Close() error { return nil }
 

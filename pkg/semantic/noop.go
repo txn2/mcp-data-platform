@@ -49,6 +49,11 @@ func (*NoopProvider) SearchTables(_ context.Context, _ SearchFilter) ([]TableSea
 	return []TableSearchResult{}, nil
 }
 
+// GetCuratedQueryCount returns zero for the noop provider.
+func (*NoopProvider) GetCuratedQueryCount(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 // Close does nothing.
 func (*NoopProvider) Close() error {
 	return nil

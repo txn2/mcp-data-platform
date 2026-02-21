@@ -15,12 +15,13 @@ type CachedProvider struct {
 	provider Provider
 	ttl      time.Duration
 
-	mu           sync.RWMutex
-	tableCache   map[string]*cacheEntry[*TableContext]
-	columnCache  map[string]*cacheEntry[*ColumnContext]
-	columnsCache map[string]*cacheEntry[map[string]*ColumnContext]
-	lineageCache map[string]*cacheEntry[*LineageInfo]
-	termCache    map[string]*cacheEntry[*GlossaryTerm]
+	mu                sync.RWMutex
+	tableCache        map[string]*cacheEntry[*TableContext]
+	columnCache       map[string]*cacheEntry[*ColumnContext]
+	columnsCache      map[string]*cacheEntry[map[string]*ColumnContext]
+	lineageCache      map[string]*cacheEntry[*LineageInfo]
+	termCache         map[string]*cacheEntry[*GlossaryTerm]
+	curatedQueryCache map[string]*cacheEntry[int]
 }
 
 type cacheEntry[T any] struct {
@@ -44,13 +45,14 @@ func NewCachedProvider(provider Provider, cfg CacheConfig) *CachedProvider {
 		ttl = defaultCacheTTL
 	}
 	return &CachedProvider{
-		provider:     provider,
-		ttl:          ttl,
-		tableCache:   make(map[string]*cacheEntry[*TableContext]),
-		columnCache:  make(map[string]*cacheEntry[*ColumnContext]),
-		columnsCache: make(map[string]*cacheEntry[map[string]*ColumnContext]),
-		lineageCache: make(map[string]*cacheEntry[*LineageInfo]),
-		termCache:    make(map[string]*cacheEntry[*GlossaryTerm]),
+		provider:          provider,
+		ttl:               ttl,
+		tableCache:        make(map[string]*cacheEntry[*TableContext]),
+		columnCache:       make(map[string]*cacheEntry[*ColumnContext]),
+		columnsCache:      make(map[string]*cacheEntry[map[string]*ColumnContext]),
+		lineageCache:      make(map[string]*cacheEntry[*LineageInfo]),
+		termCache:         make(map[string]*cacheEntry[*GlossaryTerm]),
+		curatedQueryCache: make(map[string]*cacheEntry[int]),
 	}
 }
 
@@ -187,6 +189,30 @@ func (c *CachedProvider) GetGlossaryTerm(ctx context.Context, urn string) (*Glos
 	return result, nil
 }
 
+// GetCuratedQueryCount retrieves curated query count with caching.
+func (c *CachedProvider) GetCuratedQueryCount(ctx context.Context, urn string) (int, error) {
+	c.mu.RLock()
+	if entry, ok := c.curatedQueryCache[urn]; ok && !entry.isExpired() {
+		c.mu.RUnlock()
+		return entry.value, nil
+	}
+	c.mu.RUnlock()
+
+	result, err := c.provider.GetCuratedQueryCount(ctx, urn)
+	if err != nil {
+		return 0, fmt.Errorf("getting curated query count from provider: %w", err)
+	}
+
+	c.mu.Lock()
+	c.curatedQueryCache[urn] = &cacheEntry[int]{
+		value:     result,
+		expiresAt: time.Now().Add(c.ttl),
+	}
+	c.mu.Unlock()
+
+	return result, nil
+}
+
 // SearchTables searches without caching (queries vary too much).
 func (c *CachedProvider) SearchTables(ctx context.Context, filter SearchFilter) ([]TableSearchResult, error) {
 	results, err := c.provider.SearchTables(ctx, filter)
@@ -213,6 +239,7 @@ func (c *CachedProvider) Invalidate() {
 	c.columnsCache = make(map[string]*cacheEntry[map[string]*ColumnContext])
 	c.lineageCache = make(map[string]*cacheEntry[*LineageInfo])
 	c.termCache = make(map[string]*cacheEntry[*GlossaryTerm])
+	c.curatedQueryCache = make(map[string]*cacheEntry[int])
 }
 
 // Verify interface compliance.
