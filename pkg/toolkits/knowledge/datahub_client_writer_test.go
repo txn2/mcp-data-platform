@@ -322,6 +322,65 @@ func TestDataHubClientWriter_UpdateColumnDescription_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "updating column description")
 }
 
+func TestDataHubClientWriter_CreateCuratedQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{
+				"createQuery": {
+					"urn": "urn:li:query:abc123",
+					"properties": {
+						"name": "Daily revenue",
+						"description": "Revenue by day",
+						"source": "MANUAL",
+						"statement": {"value": "SELECT date, SUM(amount) FROM sales GROUP BY date", "language": "SQL"}
+					},
+					"subjects": {
+						"datasets": [{"dataset": {"urn": "` + testURN + `"}}]
+					}
+				}
+			}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateCuratedQuery(
+		context.Background(),
+		testURN,
+		"Daily revenue",
+		"SELECT date, SUM(amount) FROM sales GROUP BY date",
+		"Revenue by day",
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:query:abc123", urn)
+}
+
+func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.CreateCuratedQuery(
+		context.Background(),
+		testURN,
+		"Query",
+		"SELECT 1",
+		"desc",
+	)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "creating curated query")
+}
+
 func TestDataHubClientWriter_InterfaceCompliance(t *testing.T) {
 	// Compile-time check is in the source file; runtime verification here.
 	var w DataHubWriter = &DataHubClientWriter{}

@@ -242,6 +242,7 @@ type spyWriter struct {
 	WriteCalls  []writerCall
 	FailAtCall  int // If > 0, fail on the Nth write call
 	currentCall int
+	QueryURN    string // URN returned by CreateCuratedQuery
 }
 
 type writerCall struct {
@@ -298,6 +299,16 @@ func (w *spyWriter) AddGlossaryTerm(_ context.Context, urn, termURN string) erro
 
 func (w *spyWriter) AddDocumentationLink(_ context.Context, urn, url, desc string) error {
 	return w.recordAndCheck("AddDocumentationLink", urn, url, desc)
+}
+
+func (w *spyWriter) CreateCuratedQuery(_ context.Context, urn, name, sqlText, _ string) (string, error) {
+	if err := w.recordAndCheck("CreateCuratedQuery", urn, name, sqlText); err != nil {
+		return "", err
+	}
+	if w.QueryURN != "" {
+		return w.QueryURN, nil
+	}
+	return "urn:li:query:generated-id", nil
 }
 
 var _ DataHubWriter = (*spyWriter)(nil)
@@ -2217,6 +2228,66 @@ func TestHandleApply_NoConfirmationRequired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// AC: handleApply with add_curated_query returns created_query_urns
+// ---------------------------------------------------------------------------
+
+func TestHandleApply_AddCuratedQuery(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{QueryURN: "urn:li:query:new-query"}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes: []ApplyChange{
+			{ChangeType: "add_curated_query", Detail: "Revenue Query", QuerySQL: "SELECT SUM(amount) FROM sales", QueryDescription: "Total revenue"},
+		},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
+
+	m := parseJSONResult(t, result)
+	assert.NotEmpty(t, m["changeset_id"])
+	assert.Equal(t, testEntityURN, m["entity_urn"])
+
+	// Verify created_query_urns is in the response
+	urns, ok := m["created_query_urns"].([]any)
+	require.True(t, ok, "expected created_query_urns to be an array")
+	require.Len(t, urns, 1)
+	assert.Equal(t, "urn:li:query:new-query", urns[0])
+
+	// Verify writer was called
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "CreateCuratedQuery", writer.WriteCalls[0].Method)
+}
+
+func TestHandleApply_NoCuratedQueryURNs_OmitsField(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+
+	m := parseJSONResult(t, result)
+	_, hasCreatedURNs := m["created_query_urns"]
+	assert.False(t, hasCreatedURNs, "created_query_urns should be omitted when no queries created")
+}
+
+// ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
 
@@ -2295,6 +2366,23 @@ func TestChangesToMap(t *testing.T) {
 	assert.Equal(t, "add_tag", c0["change_type"])
 	assert.Equal(t, "tgt1", c0["target"])
 	assert.Equal(t, "tag1", c0["detail"])
+	_, hasQuerySQL := c0["query_sql"]
+	assert.False(t, hasQuerySQL, "query_sql should be omitted when empty")
+}
+
+func TestChangesToMap_WithQueryFields(t *testing.T) {
+	changes := []ApplyChange{
+		{ChangeType: "add_curated_query", Detail: "Revenue", QuerySQL: "SELECT 1", QueryDescription: "Test query"},
+	}
+	m := changesToMap(changes)
+	require.Len(t, m, 1)
+
+	c0, ok := m["change_0"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "add_curated_query", c0["change_type"])
+	assert.Equal(t, "Revenue", c0["detail"])
+	assert.Equal(t, "SELECT 1", c0["query_sql"])
+	assert.Equal(t, "Test query", c0["query_description"])
 }
 
 func TestBuildEntitySummaries(t *testing.T) {
@@ -2407,7 +2495,7 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 		{ChangeType: "flag_quality_issue", Detail: "nulls"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	assert.Len(t, writer.WriteCalls, 6)
 
@@ -2435,6 +2523,42 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[5].Arg1)
 }
 
+func TestExecuteChanges_AddCuratedQuery(t *testing.T) {
+	writer := &spyWriter{QueryURN: "urn:li:query:test-123"}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_curated_query", Detail: "Daily Revenue", QuerySQL: "SELECT date, SUM(amount) FROM sales GROUP BY date", QueryDescription: "Revenue by day"},
+	}
+
+	createdURNs, err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.NoError(t, err)
+
+	// Verify writer was called correctly
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "CreateCuratedQuery", writer.WriteCalls[0].Method)
+	assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
+	assert.Equal(t, "Daily Revenue", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "SELECT date, SUM(amount) FROM sales GROUP BY date", writer.WriteCalls[0].Arg2)
+
+	// Verify created URN is returned
+	require.Len(t, createdURNs, 1)
+	assert.Equal(t, "urn:li:query:test-123", createdURNs[0])
+}
+
+func TestExecuteChanges_AddCuratedQuery_Error(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 1}
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"},
+	}
+
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "datahub write failed")
+}
+
 func TestExecuteChanges_FailsOnError(t *testing.T) {
 	writer := &spyWriter{FailAtCall: 1}
 	tk := &Toolkit{datahubWriter: writer}
@@ -2444,7 +2568,7 @@ func TestExecuteChanges_FailsOnError(t *testing.T) {
 		{ChangeType: "add_tag", Detail: "tag2"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "datahub write failed for change 1 of 2")
 }
@@ -2459,7 +2583,7 @@ func TestExecuteChanges_UnknownType(t *testing.T) {
 		{ChangeType: "unknown_type", Detail: "detail"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	assert.Empty(t, writer.WriteCalls, "unknown type should not produce writer calls")
 }
@@ -2472,7 +2596,7 @@ func TestExecuteChanges_ColumnTarget(t *testing.T) {
 		{ChangeType: "update_description", Target: "column:location_type_id", Detail: "Type of location"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 1)
 
@@ -2492,7 +2616,7 @@ func TestExecuteChanges_DatasetDescription(t *testing.T) {
 		{ChangeType: "update_description", Target: "", Detail: "New dataset desc"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 1)
 
@@ -2536,7 +2660,7 @@ func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
 		{ChangeType: "add_tag", Target: "", Detail: "urn:li:tag:PII"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 3)
 
@@ -2556,7 +2680,7 @@ func TestExecuteChanges_ColumnTargetError(t *testing.T) {
 		{ChangeType: "update_description", Target: "column:email", Detail: "Email address"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "column description update")
 }
@@ -2569,7 +2693,7 @@ func TestExecuteChanges_DatasetDescriptionError(t *testing.T) {
 		{ChangeType: "update_description", Target: "", Detail: "New desc"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "description update")
 }
@@ -2627,7 +2751,7 @@ func TestExecuteChanges_TagNormalization(t *testing.T) {
 		{ChangeType: "add_tag", Detail: "urn:li:tag:pii"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 2)
 
@@ -2646,7 +2770,7 @@ func TestExecuteChanges_RemoveTag(t *testing.T) {
 		{ChangeType: "remove_tag", Detail: "urn:li:tag:QualityIssue"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 2)
 
@@ -2669,7 +2793,7 @@ func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
 		{ChangeType: "flag_quality_issue", Detail: ""},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 3)
 
@@ -2689,7 +2813,7 @@ func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
 		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:Revenue"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 2)
 
@@ -2708,7 +2832,7 @@ func TestExecuteChanges_DocumentationParamMapping(t *testing.T) {
 		{ChangeType: "add_documentation", Detail: "Revenue documentation", Target: "https://wiki.example.com/revenue"},
 	}
 
-	err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 1)
 

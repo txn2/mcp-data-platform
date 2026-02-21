@@ -11,6 +11,7 @@ type DataHubWriter interface {
 	RemoveTag(ctx context.Context, urn string, tag string) error
 	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
 	AddDocumentationLink(ctx context.Context, urn string, url string, description string) error
+	CreateCuratedQuery(ctx context.Context, entityURN, name, sql, description string) (string, error)
 }
 
 // NoopDataHubWriter is a no-op implementation for when DataHub write-back is not configured.
@@ -44,6 +45,11 @@ func (*NoopDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error 
 
 // AddDocumentationLink is a no-op.
 func (*NoopDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string) error { return nil }
+
+// CreateCuratedQuery is a no-op.
+func (*NoopDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ string) (string, error) {
+	return "", nil
+}
 
 // Verify interface compliance.
 var _ DataHubWriter = (*NoopDataHubWriter)(nil)

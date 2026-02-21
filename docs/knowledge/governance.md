@@ -195,6 +195,7 @@ When `require_confirmation` is enabled in configuration and `confirm` is not `tr
 | `add_glossary_term` | Associate a glossary term | (ignored) | Glossary term name or URN |
 | `flag_quality_issue` | Add fixed `QualityIssue` tag to the entity | (ignored) | Issue description (stored as context in the knowledge store) |
 | `add_documentation` | Add a documentation link | URL of the documentation | Link description |
+| `add_curated_query` | Create a reusable Query entity linked to the dataset | (ignored) | Query name. Also requires `query_sql` (SQL statement) and optionally `query_description` |
 
 Tag names and glossary term names are automatically normalized to full DataHub URNs (e.g., `pii` becomes `urn:li:tag:pii`).
 

@@ -668,6 +668,10 @@ definitions:
         type: string
       detail:
         type: string
+      query_description:
+        type: string
+      query_sql:
+        type: string
       target:
         type: string
     type: object

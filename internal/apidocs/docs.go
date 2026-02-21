@@ -2876,6 +2876,12 @@ const docTemplate = `{
                 "detail": {
                     "type": "string"
                 },
+                "query_description": {
+                    "type": "string"
+                },
+                "query_sql": {
+                    "type": "string"
+                },
                 "target": {
                     "type": "string"
                 }

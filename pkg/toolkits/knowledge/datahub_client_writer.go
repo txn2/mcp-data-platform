@@ -95,3 +95,17 @@ func (w *DataHubClientWriter) AddDocumentationLink(ctx context.Context, urn, lin
 	}
 	return nil
 }
+
+// CreateCuratedQuery creates a Query entity in DataHub associated with the given dataset.
+func (w *DataHubClientWriter) CreateCuratedQuery(ctx context.Context, entityURN, name, sqlText, description string) (string, error) {
+	result, err := w.client.CreateQuery(ctx, dhclient.CreateQueryInput{
+		Name:        name,
+		Description: description,
+		Statement:   sqlText,
+		DatasetURNs: []string{entityURN},
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating curated query for %s: %w", entityURN, err)
+	}
+	return result.URN, nil
+}

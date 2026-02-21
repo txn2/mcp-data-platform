@@ -60,7 +60,7 @@ var captureInsightSchema = json.RawMessage(`{
         "properties": {
           "action_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation"
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
           },
           "target": {
             "type": "string",
@@ -68,7 +68,15 @@ var captureInsightSchema = json.RawMessage(`{
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove, glossary term name or URN, quality issue description, or documentation link description"
+            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove, glossary term name or URN, quality issue description, documentation link description, or query name (for add_curated_query)"
+          },
+          "query_sql": {
+            "type": "string",
+            "description": "SQL statement for the curated query (required for add_curated_query)"
+          },
+          "query_description": {
+            "type": "string",
+            "description": "Optional description for the curated query (used with add_curated_query)"
           }
         }
       },
@@ -107,7 +115,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
         "properties": {
           "change_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation"
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
           },
           "target": {
             "type": "string",
@@ -115,7 +123,15 @@ var applyKnowledgeSchema = json.RawMessage(`{
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove (e.g., 'urn:li:tag:QualityIssue'), glossary term name or URN, quality issue description, or documentation link description"
+            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove (e.g., 'urn:li:tag:QualityIssue'), glossary term name or URN, quality issue description, documentation link description, or query name (for add_curated_query)"
+          },
+          "query_sql": {
+            "type": "string",
+            "description": "SQL statement for the curated query (required for add_curated_query)"
+          },
+          "query_description": {
+            "type": "string",
+            "description": "Optional description for the curated query (used with add_curated_query)"
           }
         }
       },
