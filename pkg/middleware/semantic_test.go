@@ -664,8 +664,9 @@ func TestBuildTableSemanticContext(t *testing.T) {
 
 // mockSemanticProvider implements semantic.Provider for testing.
 type mockSemanticProvider struct {
-	getTableContextFunc func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
-	searchTablesFunc    func(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
+	getTableContextFunc   func(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
+	getColumnsContextFunc func(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error)
+	searchTablesFunc      func(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
 }
 
 func (*mockSemanticProvider) Name() string { return semTestMock }
@@ -680,7 +681,10 @@ func (*mockSemanticProvider) GetColumnContext(_ context.Context, _ semantic.Colu
 	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (*mockSemanticProvider) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+func (m *mockSemanticProvider) GetColumnsContext(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+	if m.getColumnsContextFunc != nil {
+		return m.getColumnsContextFunc(ctx, table)
+	}
 	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
@@ -764,7 +768,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -784,7 +788,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -801,7 +805,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		// Should return original result without error
 		requireContentLen(t, enriched, 1)
@@ -824,7 +828,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		// Should have original + semantic context
 		requireContentLen(t, enriched, 2)
@@ -840,7 +844,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		// No tables found, no enrichment
 		requireContentLen(t, enriched, 1)
@@ -861,7 +865,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider)
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
 		requireNoErr(t, err)
 		// Should still have enrichment even if columns fail
 		requireContentLen(t, enriched, 2)
@@ -1970,7 +1974,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		result := &mcp.CallToolResult{Content: []mcp.Content{}}
 		provider := &mockSemanticProvider{}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, []TableRef{}, provider)
+		enriched, err := enrichTrinoQueryResult(context.Background(), result, []TableRef{}, provider, "")
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 0)
 	})
@@ -1993,7 +1997,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
+		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 
@@ -2015,7 +2019,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
+		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -2045,7 +2049,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider)
+		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -2872,4 +2876,227 @@ func TestSessionDedup_TokenTracking(t *testing.T) {
 	requireEnrich(t, enricher, NewToolResultText("r2"), request, pc2)
 	assert.Greater(t, pc2.EnrichmentTokensFull, 0, "dedup should report stored full token count")
 	assert.GreaterOrEqual(t, pc2.EnrichmentTokensDedup, 0, "dedup should report dedup token count")
+}
+
+func TestFilterColumnsBySQL(t *testing.T) {
+	allColumns := map[string]*semantic.ColumnContext{
+		"id":               {Name: "id", Description: "Primary key"},
+		"name":             {Name: "name", Description: "User name"},
+		"email":            {Name: "email", Description: "Email address", IsPII: true},
+		"ssn":              {Name: "ssn", Description: "Social security", IsSensitive: true},
+		"salary":           {Name: "salary", Description: "Salary", Tags: []string{"confidential"}},
+		"location_type_id": {Name: "location_type_id", Description: "Location type"},
+		"total_amount":     {Name: "total_amount", Description: "Total"},
+		"status":           {Name: "status", Description: "Status"},
+		"created_at":       {Name: "created_at", Description: "Created timestamp"},
+		"updated_at":       {Name: "updated_at", Description: "Updated timestamp"},
+	}
+
+	t.Run("filters to referenced columns", func(t *testing.T) {
+		sql := "SELECT id, name, status FROM users"
+		filtered := filterColumnsBySQL(allColumns, sql)
+
+		// Referenced columns present
+		assert.Contains(t, filtered, "id")
+		assert.Contains(t, filtered, "name")
+		assert.Contains(t, filtered, "status")
+
+		// PII/sensitive always included
+		assert.Contains(t, filtered, "email")
+		assert.Contains(t, filtered, "ssn")
+		assert.Contains(t, filtered, "salary") // has "confidential" tag
+
+		// Unreferenced non-safety columns excluded
+		assert.NotContains(t, filtered, "location_type_id")
+		assert.NotContains(t, filtered, "total_amount")
+		assert.NotContains(t, filtered, "created_at")
+		assert.NotContains(t, filtered, "updated_at")
+	})
+
+	t.Run("always includes PII columns", func(t *testing.T) {
+		sql := "SELECT id FROM users"
+		filtered := filterColumnsBySQL(allColumns, sql)
+
+		assert.Contains(t, filtered, "email")
+		assert.Contains(t, filtered, "ssn")
+	})
+
+	t.Run("always includes critical tag columns", func(t *testing.T) {
+		sql := "SELECT id FROM users"
+		filtered := filterColumnsBySQL(allColumns, sql)
+
+		assert.Contains(t, filtered, "salary") // has "confidential" tag
+	})
+
+	t.Run("empty SQL returns all when no safety columns", func(t *testing.T) {
+		// When no identifiers match and no safety-relevant columns exist,
+		// the fallback returns all columns.
+		cols := map[string]*semantic.ColumnContext{
+			"alpha": {Name: "alpha", Description: "A"},
+			"beta":  {Name: "beta", Description: "B"},
+		}
+		filtered := filterColumnsBySQL(cols, "")
+		assert.Equal(t, len(cols), len(filtered))
+	})
+
+	t.Run("empty SQL with safety columns returns only safety", func(t *testing.T) {
+		// When no identifiers match but safety-relevant columns exist,
+		// only those are returned (non-zero matches, no fallback).
+		filtered := filterColumnsBySQL(allColumns, "")
+		// Only PII (email), sensitive (ssn), and critical-tag (salary) columns
+		assert.Contains(t, filtered, "email")
+		assert.Contains(t, filtered, "ssn")
+		assert.Contains(t, filtered, "salary")
+		assert.NotContains(t, filtered, "id")
+	})
+
+	t.Run("no matches returns all columns (graceful degradation)", func(t *testing.T) {
+		// SQL with no column name matches and no safety-relevant columns
+		cols := map[string]*semantic.ColumnContext{
+			"alpha": {Name: "alpha", Description: "A"},
+			"beta":  {Name: "beta", Description: "B"},
+		}
+		sql := "SELECT xyz FROM unknown_table"
+		filtered := filterColumnsBySQL(cols, sql)
+		assert.Equal(t, len(cols), len(filtered))
+	})
+
+	t.Run("case insensitive matching", func(t *testing.T) {
+		sql := "SELECT ID, Name, STATUS FROM users"
+		filtered := filterColumnsBySQL(allColumns, sql)
+
+		assert.Contains(t, filtered, "id")
+		assert.Contains(t, filtered, "name")
+		assert.Contains(t, filtered, "status")
+	})
+}
+
+func TestIsSafetyRelevant(t *testing.T) {
+	tests := []struct {
+		name string
+		col  *semantic.ColumnContext
+		want bool
+	}{
+		{"PII column", &semantic.ColumnContext{IsPII: true}, true},
+		{"sensitive column", &semantic.ColumnContext{IsSensitive: true}, true},
+		{"quality tag", &semantic.ColumnContext{Tags: []string{"quality_issue"}}, true},
+		{"pii tag", &semantic.ColumnContext{Tags: []string{"PII"}}, true},
+		{"restricted tag", &semantic.ColumnContext{Tags: []string{"Restricted-Data"}}, true},
+		{"confidential tag", &semantic.ColumnContext{Tags: []string{"confidential"}}, true},
+		{"normal column", &semantic.ColumnContext{Description: "just a column"}, false},
+		{"empty column", &semantic.ColumnContext{}, false},
+		{"unrelated tags", &semantic.ColumnContext{Tags: []string{"analytics", "core"}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSafetyRelevant(tt.col))
+		})
+	}
+}
+
+func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
+	tenColumns := map[string]*semantic.ColumnContext{
+		"id":               {Name: "id", Description: "Primary key"},
+		"name":             {Name: "name", Description: "User name"},
+		"email":            {Name: "email", Description: "Email address", IsPII: true},
+		"status":           {Name: "status", Description: "Status"},
+		"location_type_id": {Name: "location_type_id", Description: "Location type"},
+		"total_amount":     {Name: "total_amount", Description: "Total"},
+		"created_at":       {Name: "created_at", Description: "Created timestamp"},
+		"updated_at":       {Name: "updated_at", Description: "Updated timestamp"},
+		"category":         {Name: "category", Description: "Category"},
+		"region":           {Name: "region", Description: "Region"},
+	}
+
+	provider := &mockSemanticProvider{
+		getTableContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+			return &semantic.TableContext{Description: semTestDescTestTable}, nil
+		},
+		getColumnsContextFunc: func(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+			return tenColumns, nil
+		},
+	}
+
+	t.Run("with filtering enabled, only SQL-referenced columns appear", func(t *testing.T) {
+		sql := "SELECT id, name, status FROM iceberg.public.users WHERE id > 10"
+		args, _ := json.Marshal(map[string]any{"sql": sql})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		result := NewToolResultText("query result")
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, true)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
+
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
+
+		colCtx, ok := data["column_context"].(map[string]any)
+		assert.True(t, ok, "expected column_context in enrichment")
+
+		// Referenced columns
+		assert.Contains(t, colCtx, "id")
+		assert.Contains(t, colCtx, "name")
+		assert.Contains(t, colCtx, "status")
+
+		// PII always included
+		assert.Contains(t, colCtx, "email")
+
+		// Unreferenced non-safety columns excluded
+		assert.NotContains(t, colCtx, "location_type_id")
+		assert.NotContains(t, colCtx, "total_amount")
+		assert.NotContains(t, colCtx, "created_at")
+		assert.NotContains(t, colCtx, "updated_at")
+		assert.NotContains(t, colCtx, "category")
+		assert.NotContains(t, colCtx, "region")
+	})
+
+	t.Run("with filtering disabled, all columns appear", func(t *testing.T) {
+		sql := "SELECT id, name, status FROM iceberg.public.users"
+		args, _ := json.Marshal(map[string]any{"sql": sql})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		result := NewToolResultText("query result")
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
+
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
+
+		colCtx, ok := data["column_context"].(map[string]any)
+		assert.True(t, ok, "expected column_context in enrichment")
+
+		// All 10 columns should be present
+		assert.Len(t, colCtx, len(tenColumns))
+	})
+
+	t.Run("describe_table path (no SQL) always shows all columns", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"catalog": "iceberg",
+			"schema":  "public",
+			"table":   "users",
+		})
+		request := mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Arguments: args},
+		}
+		result := NewToolResultText("describe result")
+
+		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, true)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
+
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
+
+		colCtx, ok := data["column_context"].(map[string]any)
+		assert.True(t, ok, "expected column_context in enrichment")
+
+		// All 10 columns should be present (no SQL filtering on describe path)
+		assert.Len(t, colCtx, len(tenColumns))
+	})
 }

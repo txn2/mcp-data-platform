@@ -326,6 +326,7 @@ injection:
   datahub_query_enrichment: true    # DataHub results show Trino availability
   datahub_storage_enrichment: true  # DataHub results show S3 availability
   s3_semantic_enrichment: true      # S3 results get DataHub context
+  column_context_filtering: true    # Only include SQL-referenced columns (default)
 
 # Configure the semantic provider (for Trino/S3 enrichment)
 semantic:
@@ -377,6 +378,7 @@ injection:
   datahub_query_enrichment: true
   datahub_storage_enrichment: true
   s3_semantic_enrichment: true
+  column_context_filtering: true    # Only include SQL-referenced columns (default)
 
 semantic:
   provider: datahub
@@ -590,6 +592,7 @@ Repeat calls return the raw tool result with no enrichment appended.
 ```yaml
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true    # Only include SQL-referenced columns (default)
   session_dedup:
     enabled: true          # Default: true
     mode: reference        # reference (default), summary, none

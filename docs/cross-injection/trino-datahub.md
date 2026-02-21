@@ -122,6 +122,7 @@ Enable Trino semantic enrichment:
 ```yaml
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true     # Only include SQL-referenced columns (default)
 
 semantic:
   provider: datahub

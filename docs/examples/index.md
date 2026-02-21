@@ -84,6 +84,7 @@ toolkits:
 
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
   # PII handling configuration
   enrichment:
@@ -272,6 +273,7 @@ toolkits:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 semantic:
   provider: datahub
@@ -360,6 +362,7 @@ toolkits:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 semantic:
   provider: datahub
@@ -483,6 +486,7 @@ toolkits:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 # Full lineage depth for understanding data provenance
 semantic:
@@ -550,6 +554,7 @@ toolkits:
 
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
   # Quality gates for feature selection
   quality_gates:
@@ -622,6 +627,7 @@ semantic:
 
 injection:
   trino_semantic_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
   # Include full lineage in enrichment
   enrichment:

@@ -68,6 +68,13 @@ type EnrichmentConfig struct {
 	// DedupMode controls what content is sent for previously-enriched tables.
 	// Only used when SessionCache is non-nil.
 	DedupMode DedupMode
+
+	// ColumnContextFiltering limits column-level enrichment to only columns
+	// whose names appear in the SQL query. This saves tokens when a query
+	// references 3 of 70 columns but the table has metadata for all 70.
+	// Only applies to the SQL path (trino_query); trino_describe_table
+	// always shows all columns. Defaults to true.
+	ColumnContextFiltering bool
 }
 
 // semanticEnricher holds the enrichment dependencies.
@@ -111,7 +118,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	cache := e.cfg.SessionCache
 	if cache == nil {
 		slog.Debug("dedup: cache is nil, full enrichment")
-		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
+		return enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
 	}
 
 	// Identify tables from the request
@@ -122,7 +129,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 			keySessionID, pc.SessionID,
 			"has_params", request.Params != nil,
 		)
-		return enrichTrinoResult(ctx, result, request, e.semanticProvider)
+		return enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
 	}
 
 	slog.Debug("dedup: checking cache",
@@ -160,7 +167,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 	cache := e.cfg.SessionCache
 	beforeChars := contentChars(result)
 
-	enrichedResult, err := enrichTrinoResult(ctx, result, request, e.semanticProvider)
+	enrichedResult, err := enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
 	if err != nil {
 		return enrichedResult, err
 	}
@@ -349,6 +356,7 @@ func enrichTrinoResult(
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
 	provider semantic.Provider,
+	columnFiltering bool,
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
@@ -359,7 +367,11 @@ func enrichTrinoResult(
 				"table_count", len(tables),
 				"tables", formatTableRefs(tables),
 			)
-			return enrichTrinoQueryResult(ctx, result, tables, provider)
+			filterSQL := ""
+			if columnFiltering {
+				filterSQL = sql
+			}
+			return enrichTrinoQueryResult(ctx, result, tables, provider, filterSQL)
 		}
 	}
 
@@ -422,11 +434,14 @@ func formatTableRefs(refs []TableRef) []string {
 }
 
 // enrichTrinoQueryResult enriches results for SQL queries with multiple tables.
+// When filterSQL is non-empty, column context is filtered to only columns
+// whose names appear as identifiers in the SQL query (plus PII/sensitive columns).
 func enrichTrinoQueryResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	tables []TableRef,
 	provider semantic.Provider,
+	filterSQL string,
 ) (*mcp.CallToolResult, error) {
 	if len(tables) == 0 {
 		return result, nil
@@ -453,6 +468,11 @@ func enrichTrinoQueryResult(
 		)
 	}
 
+	// Filter columns to only those referenced in the SQL query
+	if filterSQL != "" && len(columnsCtx) > 0 {
+		columnsCtx = filterColumnsBySQL(columnsCtx, filterSQL)
+	}
+
 	// Additional tables get summary context
 	additionalTables := make([]map[string]any, 0, len(tables)-1)
 	for _, t := range tables[1:] {
@@ -469,6 +489,45 @@ func enrichTrinoQueryResult(
 	}
 
 	return appendSemanticContextWithAdditional(result, tableCtx, columnsCtx, additionalTables)
+}
+
+// filterColumnsBySQL returns only columns whose names appear as identifiers
+// in the SQL query. PII/sensitive columns and columns with critical tags are
+// always included for safety. If no column names match (e.g., SELECT *), all
+// columns are returned as a graceful fallback.
+func filterColumnsBySQL(columnsCtx map[string]*semantic.ColumnContext, sql string) map[string]*semantic.ColumnContext {
+	sqlIDs := ExtractIdentifiers(sql)
+
+	filtered := make(map[string]*semantic.ColumnContext, len(columnsCtx))
+	for name, col := range columnsCtx {
+		if sqlIDs[strings.ToLower(name)] || isSafetyRelevant(col) {
+			filtered[name] = col
+		}
+	}
+
+	// Graceful degradation: if nothing matched, return all columns
+	if len(filtered) == 0 {
+		return columnsCtx
+	}
+
+	return filtered
+}
+
+// isSafetyRelevant returns true if a column has PII, sensitivity, or critical
+// tag flags that should always be included regardless of SQL references.
+func isSafetyRelevant(col *semantic.ColumnContext) bool {
+	if col.IsPII || col.IsSensitive {
+		return true
+	}
+	for _, tag := range col.Tags {
+		lower := strings.ToLower(tag)
+		for _, prefix := range criticalTagPrefixes {
+			if strings.Contains(lower, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // refToTableIdentifier converts TableRef to semantic.TableIdentifier.

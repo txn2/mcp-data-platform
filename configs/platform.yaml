@@ -246,6 +246,13 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
 
+  # Column context filtering
+  # Limits column-level semantic enrichment to only columns referenced
+  # in the SQL query. Saves tokens when queries touch a subset of wide tables.
+  # Only applies to SQL queries (trino_query); trino_describe_table always
+  # shows all columns. PII/sensitive columns are always included for safety.
+  # column_context_filtering: true   # Default: true
+
   # Session metadata deduplication
   # Avoids repeating large semantic metadata blocks for previously-enriched
   # tables within the same client session, saving LLM context tokens.

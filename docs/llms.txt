@@ -29,6 +29,7 @@
 - [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
 - [Lineage Inheritance](cross-injection/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
 - [Session Dedup](cross-injection/overview.md#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
+- [Column Context Filtering](cross-injection/trino-datahub.md#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
 
 ## Authentication & Security
 

@@ -904,6 +904,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
 		EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
 		ResourceLinksEnabled:        p.config.Resources.Enabled,
+		ColumnContextFiltering:      p.config.Injection.IsColumnContextFilteringEnabled(),
 	}
 
 	if p.config.Injection.SessionDedup.IsEnabled() {

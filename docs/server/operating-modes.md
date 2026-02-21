@@ -59,6 +59,7 @@ query:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:
   definitions:
@@ -148,6 +149,7 @@ query:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:
   definitions:
