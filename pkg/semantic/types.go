@@ -79,6 +79,20 @@ type ColumnContext struct {
 	InheritedFrom *InheritedMetadata `json:"inherited_from,omitempty"`
 }
 
+// HasContent reports whether the column has any meaningful metadata worth
+// including in enrichment responses. Columns with no description, tags,
+// glossary terms, sensitivity flags, business name, or inherited metadata
+// are considered empty and can be omitted to save tokens.
+func (c *ColumnContext) HasContent() bool {
+	return c.Description != "" ||
+		len(c.Tags) > 0 ||
+		len(c.GlossaryTerms) > 0 ||
+		c.IsPII ||
+		c.IsSensitive ||
+		c.BusinessName != "" ||
+		c.InheritedFrom != nil
+}
+
 // InheritedMetadata tracks the provenance of inherited column metadata.
 type InheritedMetadata struct {
 	// SourceURN is the DataHub URN of the upstream dataset.

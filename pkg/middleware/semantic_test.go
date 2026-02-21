@@ -1553,6 +1553,48 @@ func TestBuildColumnContexts(t *testing.T) {
 			t.Error("expected source2 in sources")
 		}
 	})
+
+	t.Run("filters out empty columns", func(t *testing.T) {
+		columns := map[string]*semantic.ColumnContext{
+			"id":          {Name: "id"},
+			"name":        {Name: "name", Description: "User name"},
+			"created_at":  {Name: "created_at"},
+			"email":       {Name: "email", IsPII: true},
+			"internal_id": {Name: "internal_id"},
+		}
+
+		ctx, _ := buildColumnContexts(columns)
+
+		if len(ctx) != 2 {
+			t.Errorf("expected 2 columns with content, got %d", len(ctx))
+		}
+		if _, ok := ctx["name"]; !ok {
+			t.Error("expected 'name' column to be included")
+		}
+		if _, ok := ctx["email"]; !ok {
+			t.Error("expected 'email' column to be included")
+		}
+		if _, ok := ctx["id"]; ok {
+			t.Error("expected 'id' column to be filtered out")
+		}
+	})
+
+	t.Run("all columns empty returns empty map", func(t *testing.T) {
+		columns := map[string]*semantic.ColumnContext{
+			"id":         {Name: "id"},
+			"created_at": {Name: "created_at"},
+			"updated_at": {Name: "updated_at"},
+		}
+
+		ctx, sources := buildColumnContexts(columns)
+
+		if len(ctx) != 0 {
+			t.Errorf("expected empty context, got %d entries", len(ctx))
+		}
+		if len(sources) != 0 {
+			t.Errorf("expected empty sources, got %d entries", len(sources))
+		}
+	})
 }
 
 func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
@@ -1631,6 +1673,71 @@ func TestAppendSemanticContextWithColumns_WithColumnContext(t *testing.T) {
 		}
 		if _, ok := data["inheritance_sources"]; ok {
 			t.Error("inheritance_sources should not exist when no columns have inheritance")
+		}
+	})
+
+	t.Run("all columns empty produces note instead of column_context", func(t *testing.T) {
+		result := NewToolResultText("original")
+		tableCtx := &semantic.TableContext{Description: semTestDescTestTable}
+		columnsCtx := map[string]*semantic.ColumnContext{
+			"id":         {Name: "id"},
+			"created_at": {Name: "created_at"},
+		}
+
+		enriched, err := appendSemanticContextWithColumns(result, tableCtx, columnsCtx)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
+
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
+
+		if _, ok := data["column_context"]; ok {
+			t.Error("column_context should not exist when all columns are empty")
+		}
+		note, ok := data["column_context_note"].(string)
+		if !ok {
+			t.Fatal("expected column_context_note when all columns are filtered")
+		}
+		if note != "No column-level metadata available" {
+			t.Errorf("unexpected note: %q", note)
+		}
+	})
+
+	t.Run("mix of empty and content columns filters correctly", func(t *testing.T) {
+		result := NewToolResultText("original")
+		tableCtx := &semantic.TableContext{Description: semTestDescTestTable}
+		columnsCtx := map[string]*semantic.ColumnContext{
+			"id":     {Name: "id"},
+			"email":  {Name: "email", IsPII: true, Description: "User email"},
+			"status": {Name: "status"},
+			"amount": {Name: "amount", Tags: []string{"financial"}},
+		}
+
+		enriched, err := appendSemanticContextWithColumns(result, tableCtx, columnsCtx)
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
+
+		tc := requireTextContent(t, enriched)
+		data := requireUnmarshalJSON(t, tc.Text)
+
+		colCtx, ok := data["column_context"].(map[string]any)
+		if !ok {
+			t.Fatal("expected column_context in enrichment")
+		}
+		if len(colCtx) != 2 {
+			t.Errorf("expected 2 columns with content, got %d", len(colCtx))
+		}
+		if _, ok := colCtx["email"]; !ok {
+			t.Error("expected 'email' column in context")
+		}
+		if _, ok := colCtx["amount"]; !ok {
+			t.Error("expected 'amount' column in context")
+		}
+		if _, ok := colCtx["id"]; ok {
+			t.Error("'id' column should be filtered out")
+		}
+		if _, ok := data["column_context_note"]; ok {
+			t.Error("column_context_note should not exist when some columns have content")
 		}
 	})
 }
