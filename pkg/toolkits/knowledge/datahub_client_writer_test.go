@@ -335,9 +335,7 @@ func TestDataHubClientWriter_CreateCuratedQuery(t *testing.T) {
 						"source": "MANUAL",
 						"statement": {"value": "SELECT date, SUM(amount) FROM sales GROUP BY date", "language": "SQL"}
 					},
-					"subjects": {
-						"datasets": [{"dataset": {"urn": "` + testURN + `"}}]
-					}
+					"subjects": [{"dataset": {"urn": "` + testURN + `"}}]
 				}
 			}`),
 		}
