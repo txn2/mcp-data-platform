@@ -21,6 +21,9 @@ type Registry struct {
 	// Factory functions by kind
 	factories map[string]ToolkitFactory
 
+	// Aggregate factory functions by kind (multi-instance → single toolkit)
+	aggregateFactories map[string]AggregateToolkitFactory
+
 	// Providers for cross-injection
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -29,8 +32,9 @@ type Registry struct {
 // NewRegistry creates a new toolkit registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		toolkits:  make(map[string]Toolkit),
-		factories: make(map[string]ToolkitFactory),
+		toolkits:           make(map[string]Toolkit),
+		factories:          make(map[string]ToolkitFactory),
+		aggregateFactories: make(map[string]AggregateToolkitFactory),
 	}
 }
 
@@ -39,6 +43,23 @@ func (r *Registry) RegisterFactory(kind string, factory ToolkitFactory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[kind] = factory
+}
+
+// RegisterAggregateFactory registers an aggregate toolkit factory for a kind.
+// Aggregate factories receive all instance configs and produce a single toolkit
+// that handles multi-connection routing internally.
+func (r *Registry) RegisterAggregateFactory(kind string, factory AggregateToolkitFactory) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.aggregateFactories[kind] = factory
+}
+
+// GetAggregateFactory returns the aggregate factory for a kind, if registered.
+func (r *Registry) GetAggregateFactory(kind string) (AggregateToolkitFactory, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	f, ok := r.aggregateFactories[kind]
+	return f, ok
 }
 
 // SetSemanticProvider sets the semantic provider for all toolkits.

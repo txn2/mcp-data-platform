@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // connectionEntry describes a single toolkit connection.
 type connectionEntry struct {
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Connection string `json:"connection"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Connection  string `json:"connection"`
+	Description string `json:"description,omitempty"`
+	IsDefault   bool   `json:"is_default,omitempty"`
 }
 
 // listConnectionsOutput is the JSON response for the list_connections tool.
@@ -40,11 +44,23 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 
 	entries := make([]connectionEntry, 0, len(toolkits))
 	for _, tk := range toolkits {
-		entries = append(entries, connectionEntry{
-			Kind:       tk.Kind(),
-			Name:       tk.Name(),
-			Connection: tk.Connection(),
-		})
+		if lister, ok := tk.(toolkit.ConnectionLister); ok {
+			for _, conn := range lister.ListConnections() {
+				entries = append(entries, connectionEntry{
+					Kind:        tk.Kind(),
+					Name:        conn.Name,
+					Connection:  conn.Name,
+					Description: conn.Description,
+					IsDefault:   conn.IsDefault,
+				})
+			}
+		} else {
+			entries = append(entries, connectionEntry{
+				Kind:       tk.Kind(),
+				Name:       tk.Name(),
+				Connection: tk.Connection(),
+			})
+		}
 	}
 
 	out := listConnectionsOutput{

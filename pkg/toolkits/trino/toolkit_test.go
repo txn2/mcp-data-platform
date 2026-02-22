@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -25,6 +26,8 @@ const (
 	trinoTestDefLimit       = 1000
 	trinoTestDefMaxLimit    = 10000
 	trinoTestDefTimeoutSec  = 120
+	trinoTestKind           = "trino"
+	trinoTestWarehouse      = "warehouse"
 )
 
 func TestNew(t *testing.T) {
@@ -284,8 +287,8 @@ func newTestTrinoToolkit() *Toolkit {
 
 func TestToolkit_KindAndName(t *testing.T) {
 	tk := newTestTrinoToolkit()
-	if tk.Kind() != "trino" {
-		t.Errorf("Kind() = %q, want 'trino'", tk.Kind())
+	if tk.Kind() != trinoTestKind {
+		t.Errorf("Kind() = %q, want %q", tk.Kind(), trinoTestKind)
 	}
 	if tk.Name() != "test-toolkit" {
 		t.Errorf("Name() = %q", tk.Name())
@@ -627,4 +630,331 @@ func TestCreateToolkit_WithProgressAndElicitation(t *testing.T) {
 	if tk == nil {
 		t.Fatal("expected non-nil toolkit")
 	}
+}
+
+func TestNewMulti(t *testing.T) {
+	t.Run("empty instances", func(t *testing.T) {
+		_, err := NewMulti(MultiConfig{})
+		if err == nil {
+			t.Error("expected error for empty instances")
+		}
+	})
+
+	t.Run("default not found in instances", func(t *testing.T) {
+		_, err := NewMulti(MultiConfig{
+			DefaultConnection: "nonexistent",
+			Instances: map[string]Config{
+				"warehouse": {Host: "localhost", User: "testuser"},
+			},
+		})
+		if err == nil {
+			t.Error("expected error for missing default connection")
+		}
+	})
+
+	t.Run("invalid instance config", func(t *testing.T) {
+		_, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse": {Host: "localhost", User: "testuser"},
+				"bad":       {Host: ""}, // missing host triggers validation error
+			},
+		})
+		if err == nil {
+			t.Error("expected error for invalid instance config")
+		}
+	})
+
+	t.Run("single instance succeeds", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse": {Host: "localhost", User: "testuser", Port: trinoTestPort8080},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tk.Kind() != trinoTestKind {
+			t.Errorf("Kind() = %q, want %q", tk.Kind(), trinoTestKind)
+		}
+		if tk.Name() != trinoTestWarehouse {
+			t.Errorf("Name() = %q, want %q", tk.Name(), trinoTestWarehouse)
+		}
+		if tk.Connection() != trinoTestWarehouse {
+			t.Errorf("Connection() = %q, want %q", tk.Connection(), trinoTestWarehouse)
+		}
+		if tk.manager == nil {
+			t.Error("expected non-nil manager")
+		}
+		if tk.client != nil {
+			t.Error("expected nil client in multi-connection mode")
+		}
+
+		tools := tk.Tools()
+		if len(tools) != 7 { //nolint:mnd // 7 trino tools
+			t.Errorf("expected 7 tools, got %d", len(tools))
+		}
+	})
+
+	t.Run("multiple instances succeeds", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse":     {Host: "warehouse.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "hive"},
+				"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "elasticsearch"},
+				"cassandra":     {Host: "cass.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "cassandra"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tk.Name() != trinoTestWarehouse {
+			t.Errorf("Name() = %q, want %q", tk.Name(), trinoTestWarehouse)
+		}
+		if tk.Connection() != trinoTestWarehouse {
+			t.Errorf("Connection() = %q, want %q", tk.Connection(), trinoTestWarehouse)
+		}
+	})
+
+	t.Run("auto-selects default alphabetically when not specified", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			Instances: map[string]Config{
+				"charlie": {Host: "c.example.com", User: "trino", Port: trinoTestPort8080},
+				"alpha":   {Host: "a.example.com", User: "trino", Port: trinoTestPort8080},
+				"bravo":   {Host: "b.example.com", User: "trino", Port: trinoTestPort8080},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tk.Name() != "alpha" {
+			t.Errorf("Name() = %q, want 'alpha' (first alphabetically)", tk.Name())
+		}
+	})
+
+	t.Run("close delegates to manager", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse": {Host: "localhost", User: "testuser", Port: trinoTestPort8080},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Close should not error (no active clients yet).
+		if err := tk.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	t.Run("register tools on server", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse": {Host: "localhost", User: "testuser", Port: trinoTestPort8080},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+		tk.RegisterTools(server) // Should not panic.
+	})
+}
+
+func TestListConnections_SingleMode(t *testing.T) {
+	tk := &Toolkit{
+		name: "prod-trino",
+		config: Config{
+			Description: "Production data warehouse",
+		},
+	}
+	conns := tk.ListConnections()
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if conns[0].Name != "prod-trino" {
+		t.Errorf("Name = %q, want 'prod-trino'", conns[0].Name)
+	}
+	if conns[0].Description != "Production data warehouse" {
+		t.Errorf("Description = %q", conns[0].Description)
+	}
+	if !conns[0].IsDefault {
+		t.Error("expected IsDefault=true for single connection")
+	}
+}
+
+func TestListConnections_MultiMode(t *testing.T) {
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: trinoTestWarehouse,
+		Instances: map[string]Config{
+			"warehouse":     {Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Analytics warehouse"},
+			"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Sales data"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewMulti error: %v", err)
+	}
+
+	conns := tk.ListConnections()
+	if len(conns) != 2 {
+		t.Fatalf("expected 2 connections, got %d", len(conns))
+	}
+
+	byName := make(map[string]toolkit.ConnectionDetail, len(conns))
+	for _, c := range conns {
+		byName[c.Name] = c
+	}
+
+	wh, ok := byName["warehouse"]
+	if !ok {
+		t.Fatal("missing warehouse connection")
+	}
+	if wh.Description != "Analytics warehouse" {
+		t.Errorf("warehouse.Description = %q", wh.Description)
+	}
+	if !wh.IsDefault {
+		t.Error("warehouse should be default")
+	}
+
+	es, ok := byName["elasticsearch"]
+	if !ok {
+		t.Fatal("missing elasticsearch connection")
+	}
+	if es.Description != "Sales data" {
+		t.Errorf("elasticsearch.Description = %q", es.Description)
+	}
+	if es.IsDefault {
+		t.Error("elasticsearch should not be default")
+	}
+}
+
+func TestListConnections_ImplementsConnectionLister(t *testing.T) {
+	tk := &Toolkit{name: "test"}
+	var _ toolkit.ConnectionLister = tk // compile-time check
+	conns := tk.ListConnections()
+	if len(conns) != 1 {
+		t.Errorf("expected 1 connection, got %d", len(conns))
+	}
+}
+
+func TestBuildMultiserverConfig(t *testing.T) {
+	instances := map[string]Config{
+		"warehouse": {
+			Host: "warehouse.example.com", User: "trino", Port: trinoTestPort443,
+			SSL: true, Catalog: "hive", Schema: "default", Password: "pass1",
+		},
+		"elasticsearch": {
+			Host: "es.example.com", User: "es-user", Catalog: "elasticsearch",
+			SSL: true, Password: "pass2",
+		},
+		"cassandra": {
+			Host: "cass.example.com", Catalog: "cassandra",
+		},
+	}
+	defaultCfg := instances[trinoTestWarehouse]
+
+	msCfg := buildMultiserverConfig(trinoTestWarehouse, defaultCfg, instances)
+
+	// Primary should reflect the default instance.
+	if msCfg.Primary.Host != "warehouse.example.com" {
+		t.Errorf("Primary.Host = %q", msCfg.Primary.Host)
+	}
+	if msCfg.Primary.Source != "mcp-data-platform" {
+		t.Errorf("Primary.Source = %q", msCfg.Primary.Source)
+	}
+	if msCfg.Default != trinoTestWarehouse {
+		t.Errorf("Default = %q, want %q", msCfg.Default, trinoTestWarehouse)
+	}
+
+	// Should have connections for non-default instances.
+	if len(msCfg.Connections) != 2 {
+		t.Fatalf("expected 2 connections, got %d", len(msCfg.Connections))
+	}
+
+	esCfg, ok := msCfg.Connections["elasticsearch"]
+	if !ok {
+		t.Fatal("missing elasticsearch connection")
+	}
+	if esCfg.Host != "es.example.com" {
+		t.Errorf("es.Host = %q", esCfg.Host)
+	}
+	if esCfg.User != "es-user" {
+		t.Errorf("es.User = %q", esCfg.User)
+	}
+	if esCfg.Catalog != "elasticsearch" {
+		t.Errorf("es.Catalog = %q", esCfg.Catalog)
+	}
+	if esCfg.SSL == nil || !*esCfg.SSL {
+		t.Error("es.SSL should be true")
+	}
+
+	cassCfg := msCfg.Connections["cassandra"]
+	if cassCfg.Host != "cass.example.com" {
+		t.Errorf("cass.Host = %q", cassCfg.Host)
+	}
+	if cassCfg.SSL != nil {
+		t.Error("cass.SSL should be nil (not explicitly set)")
+	}
+}
+
+func TestBuildToolkitOptions(t *testing.T) {
+	t.Run("empty config produces no options", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{}, nil, nil)
+		if len(opts) != 0 {
+			t.Errorf("expected 0 options, got %d", len(opts))
+		}
+	})
+
+	t.Run("read-only adds interceptor", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil)
+		if len(opts) != 1 {
+			t.Errorf("expected 1 option, got %d", len(opts))
+		}
+	})
+
+	t.Run("descriptions and annotations add options", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{
+			Descriptions: map[string]string{"trino_query": "custom"},
+			Annotations:  map[string]AnnotationConfig{"trino_query": {}},
+		}, nil, nil)
+		if len(opts) != 2 {
+			t.Errorf("expected 2 options, got %d", len(opts))
+		}
+	})
+
+	t.Run("progress adds middleware", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil)
+		if len(opts) != 1 {
+			t.Errorf("expected 1 option, got %d", len(opts))
+		}
+	})
+
+	t.Run("connection required adds middleware", func(t *testing.T) {
+		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a"}, {Name: "b"},
+		})
+		opts := buildToolkitOptions(Config{}, nil, cr)
+		if len(opts) != 1 {
+			t.Errorf("expected 1 option, got %d", len(opts))
+		}
+	})
+
+	t.Run("all features combined", func(t *testing.T) {
+		em := &ElicitationMiddleware{}
+		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a"}, {Name: "b"},
+		})
+		opts := buildToolkitOptions(Config{
+			ReadOnly:        true,
+			Descriptions:    map[string]string{"a": "b"},
+			Annotations:     map[string]AnnotationConfig{"a": {}},
+			ProgressEnabled: true,
+		}, em, cr)
+		if len(opts) != 6 { //nolint:mnd // 6 option types: readonly + descs + annots + connRequired + progress + elicit
+			t.Errorf("expected 6 options, got %d", len(opts))
+		}
+	})
 }

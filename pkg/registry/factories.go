@@ -10,9 +10,25 @@ import (
 
 // RegisterBuiltinFactories registers all built-in toolkit factories.
 func RegisterBuiltinFactories(r *Registry) {
-	r.RegisterFactory("trino", TrinoFactory)
+	r.RegisterAggregateFactory("trino", TrinoAggregateFactory)
 	r.RegisterFactory("datahub", DataHubFactory)
 	r.RegisterFactory("s3", S3Factory)
+}
+
+// TrinoAggregateFactory creates a single multi-connection Trino toolkit
+// from all configured instances. This ensures deterministic connection
+// routing based on the "connection" parameter in each tool call, rather
+// than the non-deterministic last-write-wins behavior of N separate toolkits.
+func TrinoAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	multiCfg, err := trinokit.ParseMultiConfig(defaultName, instances)
+	if err != nil {
+		return nil, fmt.Errorf("parsing trino multi config: %w", err)
+	}
+	tk, err := trinokit.NewMulti(multiCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating trino toolkit: %w", err)
+	}
+	return tk, nil
 }
 
 // TrinoFactory creates a Trino toolkit from configuration.

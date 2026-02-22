@@ -142,9 +142,11 @@ toolkits:
         password: "${TRINO_PASSWORD}"
         catalog: "iceberg"
         ssl: true
+        description: "Production data warehouse for batch analytics and reporting"
       staging:
         host: "trino-staging.example.com"
         port: 8080
+        description: "Staging environment for testing queries before production"
     default: production
     config:
       default_limit: 1000

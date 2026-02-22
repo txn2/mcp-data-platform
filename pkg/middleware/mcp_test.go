@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -811,4 +812,160 @@ func TestNewInvalidParamsError(t *testing.T) {
 	if goErr.Error() == "" {
 		t.Error("expected non-empty Error() string")
 	}
+}
+
+func TestExtractConnectionArg(t *testing.T) {
+	tests := []struct {
+		name string
+		req  mcp.Request
+		want string
+	}{
+		{
+			name: "nil request",
+			req:  nil,
+			want: "",
+		},
+		{
+			name: "no arguments",
+			req:  newMCPTestRequest(mcpTestToolName),
+			want: "",
+		},
+		{
+			name: "connection present",
+			req: &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      mcpTestToolName,
+					Arguments: json.RawMessage(`{"connection":"warehouse","sql":"SELECT 1"}`),
+				},
+			},
+			want: "warehouse",
+		},
+		{
+			name: "connection absent in args",
+			req: &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      mcpTestToolName,
+					Arguments: json.RawMessage(`{"sql":"SELECT 1"}`),
+				},
+			},
+			want: "",
+		},
+		{
+			name: "malformed JSON arguments",
+			req: &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      mcpTestToolName,
+					Arguments: json.RawMessage(`{invalid`),
+				},
+			},
+			want: "",
+		},
+		{
+			name: "connection is non-string",
+			req: &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      mcpTestToolName,
+					Arguments: json.RawMessage(`{"connection":42}`),
+				},
+			},
+			want: "",
+		},
+		{
+			name: "nil params",
+			req: &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+				Params: nil,
+			},
+			want: "",
+		},
+		{
+			name: "wrong params type",
+			req: &mcp.ServerRequest[*mcp.ListToolsParams]{
+				Params: &mcp.ListToolsParams{},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractConnectionArg(tt.req)
+			if got != tt.want {
+				t.Errorf("extractConnectionArg() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMCPToolCallMiddleware_ConnectionOverride(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+	toolkitLookup := &mcpTestToolkitLookup{
+		kind:       "trino",
+		name:       "default-trino",
+		connection: "default-trino",
+		found:      true,
+	}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, mcpTestStdio)
+
+	t.Run("connection arg overrides toolkit default", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.Connection != "elasticsearch" {
+				t.Errorf("Connection = %q, want 'elasticsearch'", pc.Connection)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := middleware(next)
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Params: &mcp.CallToolParamsRaw{
+				Name:      testAuditToolName,
+				Arguments: json.RawMessage(`{"connection":"elasticsearch","sql":"SELECT 1"}`),
+			},
+		}
+
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	t.Run("no connection arg keeps toolkit default", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.Connection != "default-trino" {
+				t.Errorf("Connection = %q, want 'default-trino'", pc.Connection)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := middleware(next)
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Params: &mcp.CallToolParamsRaw{
+				Name:      testAuditToolName,
+				Arguments: json.RawMessage(`{"sql":"SELECT 1"}`),
+			},
+		}
+
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
 }

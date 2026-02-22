@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -69,28 +70,13 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				return nil, newInvalidParamsError(fmt.Sprintf("invalid request: %v", err))
 			}
 
-			// Create platform context
+			// Build platform context and enrich the Go context.
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
 			pc.SessionID = extractSessionID(req)
 			pc.Transport = transport
 			pc.Source = "mcp"
-			ctx = WithPlatformContext(ctx, pc)
-
-			// Store ServerSession and progress token in context for
-			// progress notifications and client logging.
-			if ss := extractServerSession(req); ss != nil {
-				ctx = WithServerSession(ctx, ss)
-			}
-			if pt := extractProgressToken(req); pt != nil {
-				ctx = WithProgressToken(ctx, pt)
-			}
-
-			// Populate toolkit metadata
-			populateToolkitMetadata(pc, toolkitLookup, toolName)
-
-			// Bridge auth token from Streamable HTTP per-request headers.
-			ctx = bridgeAuthToken(ctx, req)
+			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 
 			// Authenticate and authorize
 			return authenticateAndAuthorize(ctx, method, req, next, authParams{
@@ -101,6 +87,35 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			})
 		}
 	}
+}
+
+// buildToolCallContext enriches the context with session, progress, toolkit
+// metadata, connection override, and auth token bridging for a tool call.
+func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformContext, toolkitLookup ToolkitLookup, toolName string) context.Context {
+	ctx = WithPlatformContext(ctx, pc)
+
+	// Store ServerSession and progress token in context for
+	// progress notifications and client logging.
+	if ss := extractServerSession(req); ss != nil {
+		ctx = WithServerSession(ctx, ss)
+	}
+	if pt := extractProgressToken(req); pt != nil {
+		ctx = WithProgressToken(ctx, pt)
+	}
+
+	// Populate toolkit metadata (kind, name, default connection).
+	populateToolkitMetadata(pc, toolkitLookup, toolName)
+
+	// Override connection from request arguments for accurate audit logging.
+	// With multi-connection toolkits, the toolkit's Connection() returns the
+	// default, but the actual connection is determined by the request's
+	// "connection" argument.
+	if connFromArgs := extractConnectionArg(req); connFromArgs != "" {
+		pc.Connection = connFromArgs
+	}
+
+	// Bridge auth token from Streamable HTTP per-request headers.
+	return bridgeAuthToken(ctx, req)
 }
 
 // populateToolkitMetadata fills PlatformContext toolkit fields from the lookup.
@@ -348,4 +363,26 @@ func generateRequestID() string {
 		return fmt.Sprintf("req-%d", time.Now().UnixNano())
 	}
 	return fmt.Sprintf("req-%x", b)
+}
+
+// extractConnectionArg extracts the "connection" field from tool call arguments.
+// Returns an empty string if the request has no connection argument.
+func extractConnectionArg(req mcp.Request) string {
+	if req == nil {
+		return ""
+	}
+	params := req.GetParams()
+	if params == nil {
+		return ""
+	}
+	callParams, ok := params.(*mcp.CallToolParamsRaw)
+	if !ok || callParams == nil || len(callParams.Arguments) == 0 {
+		return ""
+	}
+	var args map[string]any
+	if err := json.Unmarshal(callParams.Arguments, &args); err != nil {
+		return ""
+	}
+	conn, _ := args["connection"].(string)
+	return conn
 }
