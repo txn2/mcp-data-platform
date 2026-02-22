@@ -75,6 +75,32 @@ type EnrichmentConfig struct {
 	// Only applies to the SQL path (trino_query); trino_describe_table
 	// always shows all columns. Defaults to true.
 	ColumnContextFiltering bool
+
+	// SearchSchemaPreview adds a bounded column-name+type preview to
+	// datahub_search query_context for available tables, so agents can
+	// write SQL without an intermediate datahub_get_schema call.
+	SearchSchemaPreview bool
+
+	// SchemaPreviewMaxColumns caps how many columns appear per entity
+	// in the schema preview. Zero disables the preview.
+	SchemaPreviewMaxColumns int
+}
+
+// schemaPreviewColumn is a minimal column entry for search result schema previews.
+type schemaPreviewColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// queryContextEntry extends TableAvailability with an optional schema preview.
+type queryContextEntry struct {
+	Available     bool                  `json:"available"`
+	QueryTable    string                `json:"query_table,omitempty"`
+	Connection    string                `json:"connection,omitempty"`
+	EstimatedRows *int64                `json:"estimated_rows,omitempty"`
+	Error         string                `json:"error,omitempty"`
+	SchemaPreview []schemaPreviewColumn `json:"schema_preview,omitempty"`
+	TotalColumns  int                   `json:"total_columns,omitempty"`
 }
 
 // semanticEnricher holds the enrichment dependencies.
@@ -354,10 +380,10 @@ func (e *semanticEnricher) enrichDataHubQueryAndStorage(
 ) (*mcp.CallToolResult, error) {
 	enrichedResult := result
 
-	// Enrich with query context (Trino)
+	// Enrich with query context (Trino) and optional schema preview
 	if e.cfg.EnrichDataHubResults && e.queryProvider != nil {
 		var err error
-		enrichedResult, err = enrichDataHubResult(ctx, enrichedResult, request, e.queryProvider)
+		enrichedResult, err = e.enrichDataHubResult(ctx, enrichedResult, request)
 		if err != nil {
 			return enrichedResult, err
 		}
@@ -628,20 +654,20 @@ func appendSemanticContextWithAdditional(
 	return result, nil
 }
 
-// enrichDataHubResult adds query context to DataHub tool results.
-func enrichDataHubResult(
+// enrichDataHubResult adds query context (and optional schema preview) to DataHub tool results.
+func (e *semanticEnricher) enrichDataHubResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
-	provider query.Provider,
 ) (*mcp.CallToolResult, error) {
+	provider := e.queryProvider
+
 	// Extract URNs from result content
 	urns := extractURNsFromResult(result)
 
 	// Also extract URN from request (for tools like datahub_get_schema that take urn param)
 	if reqURN := extractURNFromRequest(request); reqURN != "" {
-		found := slices.Contains(urns, reqURN)
-		if !found {
+		if !slices.Contains(urns, reqURN) {
 			urns = append(urns, reqURN)
 		}
 	}
@@ -651,17 +677,79 @@ func enrichDataHubResult(
 	}
 
 	// Get query context for each URN
-	queryContexts := make(map[string]*query.TableAvailability)
+	queryContexts := make(map[string]*queryContextEntry, len(urns))
 	for _, urn := range urns {
 		availability, err := provider.GetTableAvailability(ctx, urn)
 		if err != nil {
 			continue
 		}
-		queryContexts[urn] = availability
+		entry := &queryContextEntry{
+			Available:     availability.Available,
+			QueryTable:    availability.QueryTable,
+			Connection:    availability.Connection,
+			EstimatedRows: availability.EstimatedRows,
+			Error:         availability.Error,
+		}
+		// Best-effort schema preview for available tables
+		if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
+			preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
+			if len(preview) > 0 {
+				entry.SchemaPreview = preview
+				entry.TotalColumns = total
+			}
+		}
+		queryContexts[urn] = entry
 	}
 
 	// Append query context to result
 	return appendQueryContext(result, queryContexts)
+}
+
+// fetchSchemaPreview resolves a URN to a table and returns a bounded column
+// preview. Primary key columns are listed first. Returns nil on any error.
+func fetchSchemaPreview(
+	ctx context.Context,
+	provider query.Provider,
+	urn string,
+	maxCols int,
+) (preview []schemaPreviewColumn, totalColumns int) {
+	tableID, err := provider.ResolveTable(ctx, urn)
+	if err != nil || tableID == nil {
+		return nil, 0
+	}
+	schema, err := provider.GetTableSchema(ctx, *tableID)
+	if err != nil || schema == nil || len(schema.Columns) == 0 {
+		return nil, 0
+	}
+	return buildSchemaPreview(schema, maxCols), len(schema.Columns)
+}
+
+// buildSchemaPreview selects up to maxCols columns with primary key columns first.
+func buildSchemaPreview(schema *query.TableSchema, maxCols int) []schemaPreviewColumn {
+	pkSet := make(map[string]bool, len(schema.PrimaryKey))
+	for _, pk := range schema.PrimaryKey {
+		pkSet[pk] = true
+	}
+	preview := make([]schemaPreviewColumn, 0, min(maxCols, len(schema.Columns)))
+	// Primary key columns first
+	for _, col := range schema.Columns {
+		if len(preview) >= maxCols {
+			break
+		}
+		if pkSet[col.Name] {
+			preview = append(preview, schemaPreviewColumn{Name: col.Name, Type: col.Type})
+		}
+	}
+	// Then remaining columns
+	for _, col := range schema.Columns {
+		if len(preview) >= maxCols {
+			break
+		}
+		if !pkSet[col.Name] {
+			preview = append(preview, schemaPreviewColumn{Name: col.Name, Type: col.Type})
+		}
+	}
+	return preview
 }
 
 // enrichDataHubResultWithCuratedQueries adds curated query availability
@@ -1071,7 +1159,7 @@ func appendSemanticContextWithColumns(
 }
 
 // appendQueryContext appends query context to the result.
-func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*query.TableAvailability) (*mcp.CallToolResult, error) {
+func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*queryContextEntry) (*mcp.CallToolResult, error) {
 	if len(contexts) == 0 {
 		return result, nil
 	}

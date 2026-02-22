@@ -320,6 +320,16 @@ type InjectionConfig struct {
 	// columns referenced in the SQL query. Saves tokens when queries
 	// touch a subset of a wide table. Defaults to true (nil = enabled).
 	ColumnContextFiltering *bool `yaml:"column_context_filtering"`
+
+	// SearchSchemaPreview adds a bounded column-name+type preview to
+	// datahub_search query_context, eliminating the intermediate
+	// datahub_get_schema or trino_describe_table call before writing SQL.
+	// Defaults to true (nil = enabled).
+	SearchSchemaPreview *bool `yaml:"search_schema_preview"`
+
+	// SchemaPreviewMaxColumns caps how many columns appear in each
+	// schema preview. Defaults to 15 (nil = 15).
+	SchemaPreviewMaxColumns *int `yaml:"schema_preview_max_columns"`
 }
 
 // IsColumnContextFilteringEnabled returns whether column context filtering
@@ -329,6 +339,27 @@ func (c *InjectionConfig) IsColumnContextFilteringEnabled() bool {
 		return true
 	}
 	return *c.ColumnContextFiltering
+}
+
+// defaultSchemaPreviewMaxColumns is the default cap for schema preview columns.
+const defaultSchemaPreviewMaxColumns = 15
+
+// IsSearchSchemaPreviewEnabled returns whether search schema preview
+// is enabled, defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsSearchSchemaPreviewEnabled() bool {
+	if c.SearchSchemaPreview == nil {
+		return true
+	}
+	return *c.SearchSchemaPreview
+}
+
+// EffectiveSchemaPreviewMaxColumns returns the configured max columns
+// for schema preview, defaulting to 15 when not explicitly set.
+func (c *InjectionConfig) EffectiveSchemaPreviewMaxColumns() int {
+	if c.SchemaPreviewMaxColumns == nil {
+		return defaultSchemaPreviewMaxColumns
+	}
+	return *c.SchemaPreviewMaxColumns
 }
 
 // SessionDedupConfig configures session-level metadata deduplication.

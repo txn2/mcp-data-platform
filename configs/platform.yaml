@@ -246,6 +246,13 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
 
+  # Search schema preview
+  # Adds a bounded column-name+type preview to datahub_search query_context
+  # for available tables, so agents can write SQL without an intermediate
+  # datahub_get_schema or trino_describe_table call.
+  # search_schema_preview: true            # Default: true
+  # schema_preview_max_columns: 15         # Default: 15
+
   # Column context filtering
   # Limits column-level semantic enrichment to only columns referenced
   # in the SQL query. Saves tokens when queries touch a subset of wide tables.

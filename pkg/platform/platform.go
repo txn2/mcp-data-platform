@@ -905,6 +905,8 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
 		ResourceLinksEnabled:        p.config.Resources.Enabled,
 		ColumnContextFiltering:      p.config.Injection.IsColumnContextFilteringEnabled(),
+		SearchSchemaPreview:         p.config.Injection.IsSearchSchemaPreviewEnabled(),
+		SchemaPreviewMaxColumns:     p.config.Injection.EffectiveSchemaPreviewMaxColumns(),
 	}
 
 	if p.config.Injection.SessionDedup.IsEnabled() {
