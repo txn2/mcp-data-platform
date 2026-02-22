@@ -588,6 +588,8 @@ injection:
   s3_semantic_enrichment: true
   datahub_storage_enrichment: true
   column_context_filtering: true
+  search_schema_preview: true
+  schema_preview_max_columns: 15
   session_dedup:
     enabled: true
     mode: reference
@@ -602,6 +604,8 @@ injection:
 | `s3_semantic_enrichment` | bool | `false` | Enrich S3 with DataHub |
 | `datahub_storage_enrichment` | bool | `false` | Enrich DataHub with S3 |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
+| `search_schema_preview` | bool | `true` | Add column preview to search query_context |
+| `schema_preview_max_columns` | int | `15` | Max columns per entity in schema preview |
 
 **Session Dedup** (`injection.session_dedup`):
 
@@ -769,6 +773,8 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
   column_context_filtering: true
+  search_schema_preview: true
+  schema_preview_max_columns: 15
   session_dedup:
     enabled: true
     mode: reference

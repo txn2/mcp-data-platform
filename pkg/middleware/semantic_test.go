@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -56,6 +57,32 @@ func requireUnmarshalJSON(t *testing.T, text string) map[string]any {
 		t.Fatalf("failed to parse JSON: %v", err)
 	}
 	return data
+}
+
+// requireQueryContextEntry extracts query_context[urn] from enriched result content.
+//
+//nolint:unparam // urn varies by test case even if current callers use the same constant
+func requireQueryContextEntry(t *testing.T, result *mcp.CallToolResult, urn string) map[string]any {
+	t.Helper()
+	tc := requireTextContent(t, result)
+	data := requireUnmarshalJSON(t, tc.Text)
+	qcRaw, ok := data["query_context"]
+	if !ok {
+		t.Fatal("expected query_context in enrichment")
+	}
+	qcMap, ok := qcRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected query_context to be object, got %T", qcRaw)
+	}
+	entryRaw, ok := qcMap[urn]
+	if !ok {
+		t.Fatalf("expected query_context[%s]", urn)
+	}
+	entry, ok := entryRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected query_context[%s] to be object, got %T", urn, entryRaw)
+	}
+	return entry
 }
 
 // requireEnrich calls enricher.enrich and fails the test on error.
@@ -476,7 +503,7 @@ func TestAppendQueryContext(t *testing.T) {
 
 	t.Run("with contexts", func(t *testing.T) {
 		result := NewToolResultText("original")
-		contexts := map[string]*query.TableAvailability{
+		contexts := map[string]*queryContextEntry{
 			semTestDatasetURN1: {Available: true, QueryTable: "schema.table"},
 		}
 		enriched, err := appendQueryContext(result, contexts)
@@ -716,10 +743,16 @@ func (*mockSemanticProvider) Close() error { return nil }
 // mockQueryProvider implements query.Provider for testing.
 type mockQueryProvider struct {
 	getTableAvailabilityFunc func(ctx context.Context, urn string) (*query.TableAvailability, error)
+	resolveTableFunc         func(ctx context.Context, urn string) (*query.TableIdentifier, error)
+	getTableSchemaFunc       func(ctx context.Context, table query.TableIdentifier) (*query.TableSchema, error)
 }
 
 func (*mockQueryProvider) Name() string { return semTestMock }
-func (*mockQueryProvider) ResolveTable(_ context.Context, _ string) (*query.TableIdentifier, error) {
+
+func (m *mockQueryProvider) ResolveTable(ctx context.Context, urn string) (*query.TableIdentifier, error) {
+	if m.resolveTableFunc != nil {
+		return m.resolveTableFunc(ctx, urn)
+	}
 	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
@@ -738,7 +771,10 @@ func (*mockQueryProvider) GetExecutionContext(_ context.Context, _ []string) (*q
 	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 
-func (*mockQueryProvider) GetTableSchema(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+func (m *mockQueryProvider) GetTableSchema(ctx context.Context, table query.TableIdentifier) (*query.TableSchema, error) {
+	if m.getTableSchemaFunc != nil {
+		return m.getTableSchemaFunc(ctx, table)
+	}
 	return nil, nil //nolint:nilnil // test mock returns zero values
 }
 func (*mockQueryProvider) Close() error { return nil }
@@ -882,12 +918,19 @@ func TestEnrichTrinoResult(t *testing.T) {
 }
 
 func TestEnrichDataHubResult(t *testing.T) {
+	newEnricher := func(qp query.Provider) *semanticEnricher {
+		return &semanticEnricher{
+			queryProvider: qp,
+			cfg:           EnrichmentConfig{EnrichDataHubResults: true},
+		}
+	}
+
 	t.Run("no URNs in result", func(t *testing.T) {
 		result := NewToolResultText("no urns here")
-		provider := &mockQueryProvider{}
+		enricher := newEnricher(&mockQueryProvider{})
 		request := mcp.CallToolRequest{}
 
-		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
+		enriched, err := enricher.enrichDataHubResult(context.Background(), result, request)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -901,17 +944,17 @@ func TestEnrichDataHubResult(t *testing.T) {
 				&mcp.TextContent{Text: string(jsonContent)},
 			},
 		}
-		provider := &mockQueryProvider{
+		enricher := newEnricher(&mockQueryProvider{
 			getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
 				return &query.TableAvailability{
 					Available:  true,
 					QueryTable: "schema.table",
 				}, nil
 			},
-		}
+		})
 		request := mcp.CallToolRequest{}
 
-		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
+		enriched, err := enricher.enrichDataHubResult(context.Background(), result, request)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -925,14 +968,14 @@ func TestEnrichDataHubResult(t *testing.T) {
 				&mcp.TextContent{Text: string(jsonContent)},
 			},
 		}
-		provider := &mockQueryProvider{
+		enricher := newEnricher(&mockQueryProvider{
 			getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
 				return nil, context.Canceled
 			},
-		}
+		})
 		request := mcp.CallToolRequest{}
 
-		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
+		enriched, err := enricher.enrichDataHubResult(context.Background(), result, request)
 		requireNoErr(t, err)
 		// Should return original result (error on GetTableAvailability is skipped)
 		requireContentLen(t, enriched, 1)
@@ -941,7 +984,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 	t.Run("URN from request added if not in result", func(t *testing.T) {
 		result := NewToolResultText("no urns here")
 		urnsCalled := make([]string, 0)
-		provider := &mockQueryProvider{
+		enricher := newEnricher(&mockQueryProvider{
 			getTableAvailabilityFunc: func(_ context.Context, urn string) (*query.TableAvailability, error) {
 				urnsCalled = append(urnsCalled, urn)
 				return &query.TableAvailability{
@@ -949,7 +992,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 					QueryTable: "schema.table",
 				}, nil
 			},
-		}
+		})
 		args, _ := json.Marshal(map[string]any{
 			"urn": "urn:li:dataset:from_request",
 		})
@@ -957,7 +1000,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichDataHubResult(context.Background(), result, request, provider)
+		enriched, err := enricher.enrichDataHubResult(context.Background(), result, request)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 		if len(urnsCalled) != 1 || urnsCalled[0] != "urn:li:dataset:from_request" {
@@ -975,7 +1018,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 			},
 		}
 		urnsCalled := make([]string, 0)
-		provider := &mockQueryProvider{
+		enricher := newEnricher(&mockQueryProvider{
 			getTableAvailabilityFunc: func(_ context.Context, urn string) (*query.TableAvailability, error) {
 				urnsCalled = append(urnsCalled, urn)
 				return &query.TableAvailability{
@@ -983,7 +1026,7 @@ func TestEnrichDataHubResult(t *testing.T) {
 					QueryTable: "schema.table",
 				}, nil
 			},
-		}
+		})
 		args, _ := json.Marshal(map[string]any{
 			"urn": "urn:li:dataset:same",
 		})
@@ -991,11 +1034,344 @@ func TestEnrichDataHubResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		_, err := enrichDataHubResult(context.Background(), result, request, provider)
+		_, err := enricher.enrichDataHubResult(context.Background(), result, request)
 		requireNoErr(t, err)
 		// Should only be called once, not twice
 		if len(urnsCalled) != 1 {
 			t.Errorf("expected URN to be called once (not duplicated), got %d calls", len(urnsCalled))
+		}
+	})
+}
+
+func TestEnrichDataHubResult_SchemaPreview(t *testing.T) {
+	makeResult := func(urn string) *mcp.CallToolResult {
+		jsonContent, _ := json.Marshal(map[string]any{"urn": urn})
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: string(jsonContent)}},
+		}
+	}
+
+	t.Run("includes schema preview for available table", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "c.s.t"}, nil
+				},
+				resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+					return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+				},
+				getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+					return &query.TableSchema{
+						Columns: []query.Column{
+							{Name: "id", Type: "integer"},
+							{Name: "name", Type: "varchar"},
+							{Name: "created", Type: "timestamp"},
+						},
+					}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     true,
+				SchemaPreviewMaxColumns: 15,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+		requireContentLen(t, enriched, 2)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		preview, ok := qc["schema_preview"].([]any)
+		if !ok {
+			t.Fatal("expected schema_preview to be array")
+		}
+		if len(preview) != 3 {
+			t.Errorf("expected 3 preview columns, got %d", len(preview))
+		}
+		totalCols, ok := qc["total_columns"].(float64)
+		if !ok || int(totalCols) != 3 {
+			t.Errorf("expected total_columns=3, got %v", qc["total_columns"])
+		}
+	})
+
+	t.Run("preview bounded by max columns", func(t *testing.T) {
+		cols := make([]query.Column, 20)
+		for i := range cols {
+			cols[i] = query.Column{Name: fmt.Sprintf("col_%d", i), Type: "varchar"}
+		}
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "c.s.t"}, nil
+				},
+				resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+					return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+				},
+				getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+					return &query.TableSchema{Columns: cols}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     true,
+				SchemaPreviewMaxColumns: 5,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		preview, ok := qc["schema_preview"].([]any)
+		if !ok {
+			t.Fatal("expected schema_preview to be array")
+		}
+		if len(preview) != 5 {
+			t.Errorf("expected 5 preview columns (max), got %d", len(preview))
+		}
+		totalCols, ok := qc["total_columns"].(float64)
+		if !ok || int(totalCols) != 20 {
+			t.Errorf("expected total_columns=20, got %v", qc["total_columns"])
+		}
+	})
+
+	t.Run("primary key columns listed first", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "c.s.t"}, nil
+				},
+				resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+					return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+				},
+				getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+					return &query.TableSchema{
+						Columns: []query.Column{
+							{Name: "name", Type: "varchar"},
+							{Name: "id", Type: "integer"},
+							{Name: "status", Type: "varchar"},
+						},
+						PrimaryKey: []string{"id"},
+					}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     true,
+				SchemaPreviewMaxColumns: 15,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		preview, ok := qc["schema_preview"].([]any)
+		if !ok {
+			t.Fatal("expected schema_preview to be array")
+		}
+		first, ok := preview[0].(map[string]any)
+		if !ok {
+			t.Fatal("expected preview[0] to be object")
+		}
+		if first["name"] != "id" {
+			t.Errorf("expected PK column 'id' first, got %q", first["name"])
+		}
+	})
+
+	t.Run("preview omitted when unavailable", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: false, Error: "not found"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     true,
+				SchemaPreviewMaxColumns: 15,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		if _, ok := qc["schema_preview"]; ok {
+			t.Error("expected schema_preview to be omitted for unavailable table")
+		}
+	})
+
+	t.Run("preview omitted when schema lookup fails", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "c.s.t"}, nil
+				},
+				resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+					return nil, fmt.Errorf("resolve failed")
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     true,
+				SchemaPreviewMaxColumns: 15,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		if _, ok := qc["schema_preview"]; ok {
+			t.Error("expected schema_preview to be omitted when resolve fails")
+		}
+	})
+
+	t.Run("preview disabled via config", func(t *testing.T) {
+		enricher := &semanticEnricher{
+			queryProvider: &mockQueryProvider{
+				getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
+					return &query.TableAvailability{Available: true, QueryTable: "c.s.t"}, nil
+				},
+			},
+			cfg: EnrichmentConfig{
+				EnrichDataHubResults:    true,
+				SearchSchemaPreview:     false,
+				SchemaPreviewMaxColumns: 15,
+			},
+		}
+
+		enriched, err := enricher.enrichDataHubResult(context.Background(), makeResult(semTestDatasetURN1), mcp.CallToolRequest{})
+		requireNoErr(t, err)
+
+		qc := requireQueryContextEntry(t, enriched, semTestDatasetURN1)
+		if _, ok := qc["schema_preview"]; ok {
+			t.Error("expected no schema_preview when disabled")
+		}
+	})
+}
+
+func TestBuildSchemaPreview(t *testing.T) {
+	t.Run("all columns when under max", func(t *testing.T) {
+		schema := &query.TableSchema{
+			Columns: []query.Column{
+				{Name: "a", Type: "int"},
+				{Name: "b", Type: "varchar"},
+			},
+		}
+		preview := buildSchemaPreview(schema, 10)
+		if len(preview) != 2 {
+			t.Errorf("expected 2, got %d", len(preview))
+		}
+	})
+
+	t.Run("truncates at max", func(t *testing.T) {
+		cols := make([]query.Column, 10)
+		for i := range cols {
+			cols[i] = query.Column{Name: fmt.Sprintf("c%d", i), Type: "int"}
+		}
+		preview := buildSchemaPreview(&query.TableSchema{Columns: cols}, 3)
+		if len(preview) != 3 {
+			t.Errorf("expected 3, got %d", len(preview))
+		}
+	})
+
+	t.Run("pk columns first", func(t *testing.T) {
+		schema := &query.TableSchema{
+			Columns: []query.Column{
+				{Name: "data", Type: "jsonb"},
+				{Name: "pk_col", Type: "int"},
+				{Name: "other", Type: "text"},
+			},
+			PrimaryKey: []string{"pk_col"},
+		}
+		preview := buildSchemaPreview(schema, 10)
+		if preview[0].Name != "pk_col" {
+			t.Errorf("expected pk_col first, got %s", preview[0].Name)
+		}
+		if len(preview) != 3 {
+			t.Errorf("expected 3, got %d", len(preview))
+		}
+	})
+
+	t.Run("pk columns fill up to max", func(t *testing.T) {
+		schema := &query.TableSchema{
+			Columns: []query.Column{
+				{Name: "x", Type: "int"},
+				{Name: "pk1", Type: "int"},
+				{Name: "pk2", Type: "int"},
+			},
+			PrimaryKey: []string{"pk1", "pk2"},
+		}
+		preview := buildSchemaPreview(schema, 2)
+		if len(preview) != 2 {
+			t.Errorf("expected 2, got %d", len(preview))
+		}
+		if preview[0].Name != "pk1" || preview[1].Name != "pk2" {
+			t.Errorf("expected pk1, pk2, got %s, %s", preview[0].Name, preview[1].Name)
+		}
+	})
+}
+
+func TestFetchSchemaPreview(t *testing.T) {
+	t.Run("returns preview on success", func(t *testing.T) {
+		provider := &mockQueryProvider{
+			resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+				return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+			},
+			getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+				return &query.TableSchema{
+					Columns: []query.Column{{Name: "a", Type: "int"}},
+				}, nil
+			},
+		}
+		preview, total := fetchSchemaPreview(context.Background(), provider, "urn:test", 10)
+		if len(preview) != 1 || total != 1 {
+			t.Errorf("expected 1 preview col, total=1; got %d, %d", len(preview), total)
+		}
+	})
+
+	t.Run("returns nil on resolve error", func(t *testing.T) {
+		provider := &mockQueryProvider{
+			resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+				return nil, fmt.Errorf("fail")
+			},
+		}
+		preview, total := fetchSchemaPreview(context.Background(), provider, "urn:test", 10)
+		if preview != nil || total != 0 {
+			t.Errorf("expected nil, 0; got %v, %d", preview, total)
+		}
+	})
+
+	t.Run("returns nil on schema error", func(t *testing.T) {
+		provider := &mockQueryProvider{
+			resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+				return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+			},
+			getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+				return nil, fmt.Errorf("schema fail")
+			},
+		}
+		preview, total := fetchSchemaPreview(context.Background(), provider, "urn:test", 10)
+		if preview != nil || total != 0 {
+			t.Errorf("expected nil, 0; got %v, %d", preview, total)
+		}
+	})
+
+	t.Run("returns nil on empty columns", func(t *testing.T) {
+		provider := &mockQueryProvider{
+			resolveTableFunc: func(_ context.Context, _ string) (*query.TableIdentifier, error) {
+				return &query.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"}, nil
+			},
+			getTableSchemaFunc: func(_ context.Context, _ query.TableIdentifier) (*query.TableSchema, error) {
+				return &query.TableSchema{Columns: []query.Column{}}, nil
+			},
+		}
+		preview, total := fetchSchemaPreview(context.Background(), provider, "urn:test", 10)
+		if preview != nil || total != 0 {
+			t.Errorf("expected nil, 0; got %v, %d", preview, total)
 		}
 	})
 }

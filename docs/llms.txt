@@ -30,6 +30,7 @@
 - [Lineage Inheritance](cross-injection/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
 - [Session Dedup](cross-injection/overview.md#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
 - [Column Context Filtering](cross-injection/trino-datahub.md#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
+- [Schema Preview](cross-injection/datahub-trino.md#schema-preview): Adds bounded column-name+type preview to datahub_search query_context, eliminating intermediate datahub_get_schema calls (default: enabled, max 15 columns)
 
 ## Authentication & Security
 

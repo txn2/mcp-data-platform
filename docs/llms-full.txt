@@ -422,6 +422,8 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `datahub_query_enrichment` | bool | false | Add Trino availability to DataHub results |
 | `s3_semantic_enrichment` | bool | false | Add DataHub context to S3 results |
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
+| `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
+| `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |
 
 ## URN Mapping Configuration
 
@@ -638,22 +640,30 @@ Five calls to understand one table. With cross-injection, step 1 gives you every
 
 ## Query Context (added to DataHub results)
 
+When `search_schema_preview` is enabled (default), available tables also include a bounded column preview so agents can write SQL without an intermediate `datahub_get_schema` call:
+
 ```json
 {
   "query_context": {
     "urn:li:dataset:orders": {
-      "queryable": true,
+      "available": true,
+      "query_table": "hive.sales.orders",
       "connection": "production",
-      "table_identifier": {
-        "catalog": "hive",
-        "schema": "sales",
-        "table": "orders"
-      },
-      "sample_query": "SELECT * FROM hive.sales.orders LIMIT 10"
+      "estimated_rows": 1500000,
+      "schema_preview": [
+        {"name": "order_id", "type": "integer"},
+        {"name": "customer_id", "type": "integer"},
+        {"name": "order_date", "type": "date"},
+        {"name": "total_amount", "type": "decimal(10,2)"},
+        {"name": "status", "type": "varchar"}
+      ],
+      "total_columns": 42
     }
   }
 }
 ```
+
+Primary key columns are listed first. `total_columns` indicates when the preview is truncated. The preview is omitted (not empty) when schema lookup fails or the table is unavailable.
 
 ## Lineage-Aware Column Inheritance
 

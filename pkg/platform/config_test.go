@@ -1143,3 +1143,69 @@ injection:
 		}
 	})
 }
+
+func TestInjectionConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if !cfg.IsSearchSchemaPreviewEnabled() {
+			t.Error("expected nil SearchSchemaPreview to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		v := true
+		cfg := &InjectionConfig{SearchSchemaPreview: &v}
+		if !cfg.IsSearchSchemaPreviewEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		v := false
+		cfg := &InjectionConfig{SearchSchemaPreview: &v}
+		if cfg.IsSearchSchemaPreviewEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with search_schema_preview false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  search_schema_preview: false
+`)
+		if cfg.Injection.IsSearchSchemaPreviewEnabled() {
+			t.Error("expected search_schema_preview: false to disable")
+		}
+	})
+}
+
+func TestInjectionConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
+	t.Run("nil defaults to 15", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if cfg.EffectiveSchemaPreviewMaxColumns() != defaultSchemaPreviewMaxColumns {
+			t.Errorf("expected %d, got %d", defaultSchemaPreviewMaxColumns, cfg.EffectiveSchemaPreviewMaxColumns())
+		}
+	})
+
+	t.Run("explicit value", func(t *testing.T) {
+		v := 5
+		cfg := &InjectionConfig{SchemaPreviewMaxColumns: &v}
+		if cfg.EffectiveSchemaPreviewMaxColumns() != 5 {
+			t.Errorf("expected 5, got %d", cfg.EffectiveSchemaPreviewMaxColumns())
+		}
+	})
+
+	t.Run("YAML loading", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  schema_preview_max_columns: 10
+`)
+		if cfg.Injection.EffectiveSchemaPreviewMaxColumns() != 10 {
+			t.Errorf("expected 10, got %d", cfg.Injection.EffectiveSchemaPreviewMaxColumns())
+		}
+	})
+}

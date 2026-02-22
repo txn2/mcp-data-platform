@@ -127,11 +127,44 @@ Enable DataHub query enrichment:
 ```yaml
 injection:
   datahub_query_enrichment: true
+  search_schema_preview: true          # Default: true
+  schema_preview_max_columns: 15       # Default: 15
 
 query:
   provider: trino
   instance: production    # Which Trino instance for availability checks
 ```
+
+## Schema Preview
+
+When `search_schema_preview` is enabled (default), available tables in `datahub_search` results include a bounded column-name+type preview. This eliminates the intermediate `datahub_get_schema` or `trino_describe_table` call that agents typically need before writing SQL.
+
+```json
+{
+  "query_context": {
+    "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)": {
+      "available": true,
+      "query_table": "hive.sales.orders",
+      "connection": "production",
+      "estimated_rows": 1500000,
+      "schema_preview": [
+        {"name": "order_id", "type": "integer"},
+        {"name": "customer_id", "type": "integer"},
+        {"name": "order_date", "type": "date"},
+        {"name": "total_amount", "type": "decimal(10,2)"}
+      ],
+      "total_columns": 42
+    }
+  }
+}
+```
+
+Key behaviors:
+- Primary key columns are listed first, then remaining columns in table order
+- `total_columns` indicates total column count so agents know when the preview is truncated
+- Preview is omitted (not empty array) when schema is unavailable -- no blocking, no errors
+- Set `search_schema_preview: false` to disable
+- Adjust `schema_preview_max_columns` to control preview size (default: 15)
 
 ## Sample Query Generation
 
