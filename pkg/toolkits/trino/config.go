@@ -56,6 +56,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Catalog = getString(cfg, "catalog")
 	c.Schema = getString(cfg, "schema")
 	c.ConnectionName = getString(cfg, "connection_name")
+	c.Description = getString(cfg, "description")
 
 	// Optional int fields
 	c.Port = getInt(cfg, "port", c.Port)

@@ -297,6 +297,35 @@ func TestParseConfig_WithDescriptions(t *testing.T) {
 	}
 }
 
+func TestParseConfig_WithDescription(t *testing.T) {
+	cfg := map[string]any{
+		"host":        "trino.example.com",
+		"description": "Production data warehouse for analytics",
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if result.Description != "Production data warehouse for analytics" {
+		t.Errorf("Description = %q, want 'Production data warehouse for analytics'", result.Description)
+	}
+}
+
+func TestParseConfig_NoDescription(t *testing.T) {
+	cfg := map[string]any{
+		"host": "trino.example.com",
+	}
+
+	result, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf(trinoCfgTestUnexpectedErr, err)
+	}
+	if result.Description != "" {
+		t.Errorf("Description should be empty, got %q", result.Description)
+	}
+}
+
 func TestParseConfig_NoDescriptions(t *testing.T) {
 	cfg := map[string]any{
 		"host": "trino.example.com",
@@ -437,7 +466,7 @@ func TestParseConfig_NoAnnotations(t *testing.T) {
 func TestParseMultiConfig(t *testing.T) {
 	t.Run("multiple instances", func(t *testing.T) {
 		instances := map[string]map[string]any{
-			"warehouse": {
+			trinoTestWarehouse: {
 				"host": "warehouse.example.com",
 				"user": "trino",
 				"port": trinoTestPort8080,
@@ -448,24 +477,24 @@ func TestParseMultiConfig(t *testing.T) {
 			},
 		}
 
-		mc, err := ParseMultiConfig("warehouse", instances)
+		mc, err := ParseMultiConfig(trinoTestWarehouse, instances)
 		if err != nil {
 			t.Fatalf(trinoCfgTestUnexpectedErr, err)
 		}
 
-		if mc.DefaultConnection != "warehouse" {
-			t.Errorf("DefaultConnection = %q, want 'warehouse'", mc.DefaultConnection)
+		if mc.DefaultConnection != trinoTestWarehouse {
+			t.Errorf("DefaultConnection = %q, want %q", mc.DefaultConnection, trinoTestWarehouse)
 		}
 		if len(mc.Instances) != 2 {
 			t.Fatalf("expected 2 instances, got %d", len(mc.Instances))
 		}
 
-		wh := mc.Instances["warehouse"]
+		wh := mc.Instances[trinoTestWarehouse]
 		if wh.Host != "warehouse.example.com" {
 			t.Errorf("warehouse.Host = %q", wh.Host)
 		}
-		if wh.ConnectionName != "warehouse" {
-			t.Errorf("warehouse.ConnectionName = %q, want 'warehouse'", wh.ConnectionName)
+		if wh.ConnectionName != trinoTestWarehouse {
+			t.Errorf("warehouse.ConnectionName = %q, want %q", wh.ConnectionName, trinoTestWarehouse)
 		}
 
 		es := mc.Instances["elasticsearch"]

@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -46,6 +47,7 @@ type Config struct {
 	MaxLimit       int                         `yaml:"max_limit"`
 	ReadOnly       bool                        `yaml:"read_only"`
 	ConnectionName string                      `yaml:"connection_name"`
+	Description    string                      `yaml:"description"` // Human-readable description of this connection's purpose
 	Descriptions   map[string]string           `yaml:"descriptions"`
 	Annotations    map[string]AnnotationConfig `yaml:"annotations"`
 
@@ -94,6 +96,9 @@ type Toolkit struct {
 
 	// elicitation holds the middleware so providers can be propagated after init.
 	elicitation *ElicitationMiddleware
+
+	// connectionDescriptions maps connection name → description (multi-connection mode).
+	connectionDescriptions map[string]string
 }
 
 // New creates a new Trino toolkit.
@@ -168,19 +173,43 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 	// Use the default instance config for toolkit-level settings.
 	defaultCfg = applyDefaults(defaultName, defaultCfg)
 
-	t := &Toolkit{
-		name:    defaultName,
-		config:  defaultCfg,
-		manager: mgr,
+	descs := make(map[string]string, len(cfg.Instances))
+	for name, instCfg := range cfg.Instances {
+		descs[name] = instCfg.Description
 	}
 
-	opts := buildToolkitOptions(defaultCfg, nil) // elicitation not supported in multi-mode yet
+	t := &Toolkit{
+		name:                   defaultName,
+		config:                 defaultCfg,
+		manager:                mgr,
+		connectionDescriptions: descs,
+	}
+
+	connRequired := buildConnectionRequired(defaultName, cfg.Instances)
+	opts := buildToolkitOptions(defaultCfg, nil, connRequired) // elicitation not supported in multi-mode yet
 	t.trinoToolkit = trinotools.NewToolkitWithManager(mgr, trinotools.Config{
 		DefaultLimit: defaultCfg.DefaultLimit,
 		MaxLimit:     defaultCfg.MaxLimit,
 	}, opts...)
 
 	return t, nil
+}
+
+// buildConnectionRequired creates a ConnectionRequiredMiddleware when multiple
+// instances are configured. Returns nil for single-instance deployments.
+func buildConnectionRequired(defaultName string, instances map[string]Config) *ConnectionRequiredMiddleware {
+	if len(instances) <= 1 {
+		return nil
+	}
+	connDescs := make([]ConnectionDescription, 0, len(instances))
+	for name, instCfg := range instances {
+		connDescs = append(connDescs, ConnectionDescription{
+			Name:        name,
+			Description: instCfg.Description,
+			IsDefault:   name == defaultName,
+		})
+	}
+	return NewConnectionRequiredMiddleware(connDescs)
 }
 
 // buildMultiserverConfig constructs a multiserver.Config from instance configs.
@@ -241,7 +270,7 @@ func buildMultiserverConfig(
 }
 
 // buildToolkitOptions constructs toolkit options from config.
-func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware) []trinotools.ToolkitOption {
+func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired *ConnectionRequiredMiddleware) []trinotools.ToolkitOption {
 	var opts []trinotools.ToolkitOption
 
 	if cfg.ReadOnly {
@@ -252,6 +281,9 @@ func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware) []trinotools
 	}
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, trinotools.WithAnnotations(toTrinoAnnotations(cfg.Annotations)))
+	}
+	if connRequired != nil {
+		opts = append(opts, trinotools.WithMiddleware(connRequired))
 	}
 	if cfg.ProgressEnabled {
 		opts = append(opts, trinotools.WithMiddleware(&ProgressInjector{}))
@@ -338,7 +370,7 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 
 // createToolkit creates the mcp-trino toolkit with appropriate options.
 func createToolkit(client *trinoclient.Client, cfg Config, elicit *ElicitationMiddleware) *trinotools.Toolkit {
-	opts := buildToolkitOptions(cfg, elicit)
+	opts := buildToolkitOptions(cfg, elicit, nil)
 	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
@@ -433,6 +465,30 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 	t.queryProvider = provider
 }
 
+// ListConnections returns details for all connections managed by this toolkit.
+// Implements toolkit.ConnectionLister.
+func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
+	if t.manager == nil {
+		// Single-client mode: one connection.
+		return []toolkit.ConnectionDetail{{
+			Name:        t.name,
+			Description: t.config.Description,
+			IsDefault:   true,
+		}}
+	}
+
+	infos := t.manager.ConnectionInfos()
+	details := make([]toolkit.ConnectionDetail, len(infos))
+	for i, info := range infos {
+		details[i] = toolkit.ConnectionDetail{
+			Name:        info.Name,
+			Description: t.connectionDescriptions[info.Name],
+			IsDefault:   info.IsDefault,
+		}
+	}
+	return details
+}
+
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.manager != nil {
@@ -460,13 +516,16 @@ func (t *Toolkit) Config() Config {
 }
 
 // Verify interface compliance.
-var _ interface {
-	Kind() string
-	Name() string
-	Connection() string
-	RegisterTools(s *mcp.Server)
-	Tools() []string
-	SetSemanticProvider(provider semantic.Provider)
-	SetQueryProvider(provider query.Provider)
-	Close() error
-} = (*Toolkit)(nil)
+var (
+	_ interface {
+		Kind() string
+		Name() string
+		Connection() string
+		RegisterTools(s *mcp.Server)
+		Tools() []string
+		SetSemanticProvider(provider semantic.Provider)
+		SetQueryProvider(provider query.Provider)
+		Close() error
+	} = (*Toolkit)(nil)
+	_ toolkit.ConnectionLister = (*Toolkit)(nil)
+)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -763,6 +764,82 @@ func TestNewMulti(t *testing.T) {
 	})
 }
 
+func TestListConnections_SingleMode(t *testing.T) {
+	tk := &Toolkit{
+		name: "prod-trino",
+		config: Config{
+			Description: "Production data warehouse",
+		},
+	}
+	conns := tk.ListConnections()
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if conns[0].Name != "prod-trino" {
+		t.Errorf("Name = %q, want 'prod-trino'", conns[0].Name)
+	}
+	if conns[0].Description != "Production data warehouse" {
+		t.Errorf("Description = %q", conns[0].Description)
+	}
+	if !conns[0].IsDefault {
+		t.Error("expected IsDefault=true for single connection")
+	}
+}
+
+func TestListConnections_MultiMode(t *testing.T) {
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: trinoTestWarehouse,
+		Instances: map[string]Config{
+			"warehouse":     {Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Analytics warehouse"},
+			"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Sales data"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewMulti error: %v", err)
+	}
+
+	conns := tk.ListConnections()
+	if len(conns) != 2 {
+		t.Fatalf("expected 2 connections, got %d", len(conns))
+	}
+
+	byName := make(map[string]toolkit.ConnectionDetail, len(conns))
+	for _, c := range conns {
+		byName[c.Name] = c
+	}
+
+	wh, ok := byName["warehouse"]
+	if !ok {
+		t.Fatal("missing warehouse connection")
+	}
+	if wh.Description != "Analytics warehouse" {
+		t.Errorf("warehouse.Description = %q", wh.Description)
+	}
+	if !wh.IsDefault {
+		t.Error("warehouse should be default")
+	}
+
+	es, ok := byName["elasticsearch"]
+	if !ok {
+		t.Fatal("missing elasticsearch connection")
+	}
+	if es.Description != "Sales data" {
+		t.Errorf("elasticsearch.Description = %q", es.Description)
+	}
+	if es.IsDefault {
+		t.Error("elasticsearch should not be default")
+	}
+}
+
+func TestListConnections_ImplementsConnectionLister(t *testing.T) {
+	tk := &Toolkit{name: "test"}
+	var _ toolkit.ConnectionLister = tk // compile-time check
+	conns := tk.ListConnections()
+	if len(conns) != 1 {
+		t.Errorf("expected 1 connection, got %d", len(conns))
+	}
+}
+
 func TestBuildMultiserverConfig(t *testing.T) {
 	instances := map[string]Config{
 		"warehouse": {
@@ -825,14 +902,14 @@ func TestBuildMultiserverConfig(t *testing.T) {
 
 func TestBuildToolkitOptions(t *testing.T) {
 	t.Run("empty config produces no options", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{}, nil)
+		opts := buildToolkitOptions(Config{}, nil, nil)
 		if len(opts) != 0 {
 			t.Errorf("expected 0 options, got %d", len(opts))
 		}
 	})
 
 	t.Run("read-only adds interceptor", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{ReadOnly: true}, nil)
+		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil)
 		if len(opts) != 1 {
 			t.Errorf("expected 1 option, got %d", len(opts))
 		}
@@ -842,14 +919,24 @@ func TestBuildToolkitOptions(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Descriptions: map[string]string{"trino_query": "custom"},
 			Annotations:  map[string]AnnotationConfig{"trino_query": {}},
-		}, nil)
+		}, nil, nil)
 		if len(opts) != 2 {
 			t.Errorf("expected 2 options, got %d", len(opts))
 		}
 	})
 
 	t.Run("progress adds middleware", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil)
+		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil)
+		if len(opts) != 1 {
+			t.Errorf("expected 1 option, got %d", len(opts))
+		}
+	})
+
+	t.Run("connection required adds middleware", func(t *testing.T) {
+		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a"}, {Name: "b"},
+		})
+		opts := buildToolkitOptions(Config{}, nil, cr)
 		if len(opts) != 1 {
 			t.Errorf("expected 1 option, got %d", len(opts))
 		}
@@ -857,14 +944,17 @@ func TestBuildToolkitOptions(t *testing.T) {
 
 	t.Run("all features combined", func(t *testing.T) {
 		em := &ElicitationMiddleware{}
+		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a"}, {Name: "b"},
+		})
 		opts := buildToolkitOptions(Config{
 			ReadOnly:        true,
 			Descriptions:    map[string]string{"a": "b"},
 			Annotations:     map[string]AnnotationConfig{"a": {}},
 			ProgressEnabled: true,
-		}, em)
-		if len(opts) != 5 { //nolint:mnd // 5 option types
-			t.Errorf("expected 5 options, got %d", len(opts))
+		}, em, cr)
+		if len(opts) != 6 { //nolint:mnd // 6 option types: readonly + descs + annots + connRequired + progress + elicit
+			t.Errorf("expected 6 options, got %d", len(opts))
 		}
 	})
 }
