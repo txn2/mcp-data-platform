@@ -5,6 +5,7 @@ import {
   useUpdateInsightStatus,
   useChangesets,
   useRollbackChangeset,
+  useAuditFilters,
 } from "@/api/hooks";
 import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
@@ -474,6 +475,8 @@ function InsightsTab() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [confidenceFilter, setConfidenceFilter] = useState("");
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+  const { data: filters } = useAuditFilters();
+  const ul = filters?.user_labels ?? {};
 
   const params = useMemo(
     () => ({
@@ -609,7 +612,7 @@ function InsightsTab() {
                 <td className="px-3 py-2 text-xs">
                   {new Date(insight.created_at).toLocaleString()}
                 </td>
-                <td className="px-3 py-2 text-xs" title={insight.captured_by}>{formatUser(insight.captured_by)}</td>
+                <td className="px-3 py-2 text-xs" title={insight.captured_by}>{formatUser(insight.captured_by, ul[insight.captured_by])}</td>
                 <td className="px-3 py-2 text-xs">
                   {formatCategory(insight.category)}
                 </td>
@@ -682,6 +685,7 @@ function InsightsTab() {
         <InsightDrawer
           insight={selectedInsight}
           onClose={() => setSelectedInsight(null)}
+          userLabels={ul}
         />
       )}
     </>
@@ -695,9 +699,11 @@ function InsightsTab() {
 function InsightDrawer({
   insight,
   onClose,
+  userLabels,
 }: {
   insight: Insight;
   onClose: () => void;
+  userLabels: Record<string, string>;
 }) {
   const [reviewNotes, setReviewNotes] = useState(insight.review_notes ?? "");
   const updateStatus = useUpdateInsightStatus();
@@ -739,7 +745,7 @@ function InsightDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Captured By</p>
-              <p title={insight.captured_by}>{formatUser(insight.captured_by)}</p>
+              <p title={insight.captured_by}>{formatUser(insight.captured_by, userLabels[insight.captured_by])}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Persona</p>
@@ -870,7 +876,7 @@ function InsightDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Reviewed By</p>
-                <p title={insight.reviewed_by}>{formatUser(insight.reviewed_by!)}</p>
+                <p title={insight.reviewed_by}>{formatUser(insight.reviewed_by!, userLabels[insight.reviewed_by!])}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Reviewed At</p>
@@ -887,7 +893,7 @@ function InsightDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Applied By</p>
-                <p title={insight.applied_by}>{formatUser(insight.applied_by!)}</p>
+                <p title={insight.applied_by}>{formatUser(insight.applied_by!, userLabels[insight.applied_by!])}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Applied At</p>
@@ -954,6 +960,8 @@ function ChangesetsTab() {
   const [selectedChangeset, setSelectedChangeset] = useState<Changeset | null>(
     null,
   );
+  const { data: filters } = useAuditFilters();
+  const ul = filters?.user_labels ?? {};
 
   const params = useMemo(
     () => ({
@@ -1034,7 +1042,7 @@ function ChangesetsTab() {
                 <td className="px-3 py-2 text-xs">
                   {formatCategory(changeset.change_type)}
                 </td>
-                <td className="px-3 py-2 text-xs" title={changeset.applied_by}>{formatUser(changeset.applied_by)}</td>
+                <td className="px-3 py-2 text-xs" title={changeset.applied_by}>{formatUser(changeset.applied_by, ul[changeset.applied_by])}</td>
                 <td className="px-3 py-2 text-center">
                   <StatusBadge
                     variant={changeset.rolled_back ? "error" : "success"}
@@ -1090,6 +1098,7 @@ function ChangesetsTab() {
         <ChangesetDrawer
           changeset={selectedChangeset}
           onClose={() => setSelectedChangeset(null)}
+          userLabels={ul}
         />
       )}
     </>
@@ -1103,9 +1112,11 @@ function ChangesetsTab() {
 function ChangesetDrawer({
   changeset,
   onClose,
+  userLabels,
 }: {
   changeset: Changeset;
   onClose: () => void;
+  userLabels: Record<string, string>;
 }) {
   const rollback = useRollbackChangeset();
 
@@ -1158,11 +1169,11 @@ function ChangesetDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Approved By</p>
-              <p title={changeset.approved_by}>{formatUser(changeset.approved_by)}</p>
+              <p title={changeset.approved_by}>{formatUser(changeset.approved_by, userLabels[changeset.approved_by])}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Applied By</p>
-              <p title={changeset.applied_by}>{formatUser(changeset.applied_by)}</p>
+              <p title={changeset.applied_by}>{formatUser(changeset.applied_by, userLabels[changeset.applied_by])}</p>
             </div>
           </div>
 
@@ -1205,7 +1216,7 @@ function ChangesetDrawer({
             <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Rolled Back By</p>
-                <p title={changeset.rolled_back_by}>{formatUser(changeset.rolled_back_by ?? "")}</p>
+                <p title={changeset.rolled_back_by}>{formatUser(changeset.rolled_back_by ?? "", userLabels[changeset.rolled_back_by ?? ""])}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Rolled Back At</p>
