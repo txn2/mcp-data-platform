@@ -39,6 +39,11 @@ type Toolkit interface {
 // ToolkitFactory creates a toolkit from configuration.
 type ToolkitFactory func(name string, config map[string]any) (Toolkit, error)
 
+// AggregateToolkitFactory creates a single toolkit from multiple instance configs.
+// Used for toolkit kinds that support multi-connection routing internally
+// (e.g., Trino with multiserver.Manager).
+type AggregateToolkitFactory func(defaultName string, instances map[string]map[string]any) (Toolkit, error)
+
 // ToolkitConfig holds configuration for a toolkit instance.
 type ToolkitConfig struct {
 	Kind    string

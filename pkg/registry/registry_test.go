@@ -226,16 +226,10 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 	reg := NewRegistry()
 	RegisterBuiltinFactories(reg)
 
-	// Verify all three factories are registered by trying to create with invalid config
-	t.Run("trino factory registered", func(t *testing.T) {
-		// Should fail with invalid config (missing host)
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   regTestTrino,
-			Name:   regTestTest,
-			Config: map[string]any{},
-		})
-		if err == nil {
-			t.Error("expected error for missing trino config")
+	t.Run("trino aggregate factory registered", func(t *testing.T) {
+		_, ok := reg.GetAggregateFactory(regTestTrino)
+		if !ok {
+			t.Error("expected trino aggregate factory to be registered")
 		}
 	})
 
@@ -268,6 +262,98 @@ func TestTrinoFactory(t *testing.T) {
 	if err == nil {
 		t.Error("TrinoFactory() expected error for missing host")
 	}
+}
+
+func TestRegisterAggregateFactory(t *testing.T) {
+	reg := NewRegistry()
+
+	called := false
+	factory := func(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+		called = true
+		if defaultName != "primary" {
+			t.Errorf("defaultName = %q, want 'primary'", defaultName)
+		}
+		if len(instances) != 2 {
+			t.Errorf("expected 2 instances, got %d", len(instances))
+		}
+		return &mockToolkit{kind: "agg", name: defaultName, tools: []string{"agg_tool"}}, nil
+	}
+
+	reg.RegisterAggregateFactory("agg", factory)
+
+	got, ok := reg.GetAggregateFactory("agg")
+	if !ok {
+		t.Fatal("expected aggregate factory to be registered")
+	}
+
+	tk, err := got("primary", map[string]map[string]any{
+		"primary":   {"host": "a"},
+		"secondary": {"host": "b"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("factory was not called")
+	}
+	if tk.Name() != "primary" {
+		t.Errorf("Name() = %q, want 'primary'", tk.Name())
+	}
+}
+
+func TestGetAggregateFactory_NotFound(t *testing.T) {
+	reg := NewRegistry()
+	_, ok := reg.GetAggregateFactory("nonexistent")
+	if ok {
+		t.Error("expected false for unregistered aggregate factory")
+	}
+}
+
+func TestTrinoAggregateFactory(t *testing.T) {
+	t.Run("valid multi-instance config", func(t *testing.T) {
+		tk, err := TrinoAggregateFactory("warehouse", map[string]map[string]any{
+			"warehouse": {
+				"host": "warehouse.example.com",
+				"user": "trino",
+				"port": 8080,
+			},
+			"elasticsearch": {
+				"host": "es.example.com",
+				"user": "trino",
+				"port": 8080,
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tk.Kind() != "trino" {
+			t.Errorf("Kind() = %q, want 'trino'", tk.Kind())
+		}
+		if tk.Name() != "warehouse" {
+			t.Errorf("Name() = %q, want 'warehouse'", tk.Name())
+		}
+		if tk.Connection() != "warehouse" {
+			t.Errorf("Connection() = %q, want 'warehouse'", tk.Connection())
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		_, err := TrinoAggregateFactory("bad", map[string]map[string]any{
+			"bad": {"timeout": "invalid-duration"},
+		})
+		if err == nil {
+			t.Error("expected error for invalid config")
+		}
+	})
+
+	t.Run("missing host returns error", func(t *testing.T) {
+		_, err := TrinoAggregateFactory("empty", map[string]map[string]any{
+			"empty": {},
+		})
+		if err == nil {
+			t.Error("expected error for missing host")
+		}
+	})
 }
 
 func TestDataHubFactory(t *testing.T) {

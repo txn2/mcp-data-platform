@@ -5,6 +5,34 @@ import (
 	"time"
 )
 
+// MultiConfig holds configuration for a multi-connection Trino toolkit.
+type MultiConfig struct {
+	// DefaultConnection is the name of the default connection.
+	DefaultConnection string
+
+	// Instances maps connection names to their parsed configurations.
+	Instances map[string]Config
+}
+
+// ParseMultiConfig builds a MultiConfig from the aggregate factory's instance map.
+func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (MultiConfig, error) {
+	mc := MultiConfig{
+		DefaultConnection: defaultName,
+		Instances:         make(map[string]Config, len(instances)),
+	}
+	for name, raw := range instances {
+		cfg, err := ParseConfig(raw)
+		if err != nil {
+			return mc, fmt.Errorf("instance %s: %w", name, err)
+		}
+		if cfg.ConnectionName == "" {
+			cfg.ConnectionName = name
+		}
+		mc.Instances[name] = cfg
+	}
+	return mc, nil
+}
+
 // ParseConfig parses a Trino toolkit configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{

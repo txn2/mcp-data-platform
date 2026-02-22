@@ -434,6 +434,91 @@ func TestParseConfig_NoAnnotations(t *testing.T) {
 	}
 }
 
+func TestParseMultiConfig(t *testing.T) {
+	t.Run("multiple instances", func(t *testing.T) {
+		instances := map[string]map[string]any{
+			"warehouse": {
+				"host": "warehouse.example.com",
+				"user": "trino",
+				"port": trinoTestPort8080,
+			},
+			"elasticsearch": {
+				"host": "es.example.com",
+				"user": "es-user",
+			},
+		}
+
+		mc, err := ParseMultiConfig("warehouse", instances)
+		if err != nil {
+			t.Fatalf(trinoCfgTestUnexpectedErr, err)
+		}
+
+		if mc.DefaultConnection != "warehouse" {
+			t.Errorf("DefaultConnection = %q, want 'warehouse'", mc.DefaultConnection)
+		}
+		if len(mc.Instances) != 2 {
+			t.Fatalf("expected 2 instances, got %d", len(mc.Instances))
+		}
+
+		wh := mc.Instances["warehouse"]
+		if wh.Host != "warehouse.example.com" {
+			t.Errorf("warehouse.Host = %q", wh.Host)
+		}
+		if wh.ConnectionName != "warehouse" {
+			t.Errorf("warehouse.ConnectionName = %q, want 'warehouse'", wh.ConnectionName)
+		}
+
+		es := mc.Instances["elasticsearch"]
+		if es.Host != "es.example.com" {
+			t.Errorf("es.Host = %q", es.Host)
+		}
+		if es.ConnectionName != "elasticsearch" {
+			t.Errorf("es.ConnectionName = %q, want 'elasticsearch'", es.ConnectionName)
+		}
+	})
+
+	t.Run("preserves explicit connection name", func(t *testing.T) {
+		instances := map[string]map[string]any{
+			"main": {
+				"host":            "trino.example.com",
+				"user":            "trino",
+				"connection_name": "custom-name",
+			},
+		}
+
+		mc, err := ParseMultiConfig("main", instances)
+		if err != nil {
+			t.Fatalf(trinoCfgTestUnexpectedErr, err)
+		}
+		if mc.Instances["main"].ConnectionName != "custom-name" {
+			t.Errorf("ConnectionName = %q, want 'custom-name'", mc.Instances["main"].ConnectionName)
+		}
+	})
+
+	t.Run("error in instance config", func(t *testing.T) {
+		instances := map[string]map[string]any{
+			"good": {"host": "good.example.com"},
+			"bad":  {"timeout": "not-a-duration"},
+		}
+
+		_, err := ParseMultiConfig("good", instances)
+		if err == nil {
+			t.Error("expected error for invalid instance config")
+		}
+	})
+
+	t.Run("missing host returns error", func(t *testing.T) {
+		instances := map[string]map[string]any{
+			"missing-host": {"user": "testuser"},
+		}
+
+		_, err := ParseMultiConfig("missing-host", instances)
+		if err == nil {
+			t.Error("expected error for missing host")
+		}
+	})
+}
+
 func TestGetDuration(t *testing.T) {
 	cfg := map[string]any{
 		trinoCfgTestString:  "5m",
