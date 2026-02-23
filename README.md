@@ -98,6 +98,9 @@ Every data query includes business context from DataHub. Table descriptions, col
 ### Bidirectional Cross-Injection
 Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
 
+### Workflow Gating
+LLM agents tend to skip DataHub discovery and jump straight to SQL. Session-aware workflow gating detects this and annotates query results with warnings when no discovery has occurred. Warnings escalate after repeated violations. Built-in description overrides on `trino_query` and `trino_execute` also guide agents to call `datahub_search` first. See the [Middleware Reference](https://txn2.github.io/mcp-data-platform/reference/middleware/) for details.
+
 ### Enterprise Security
 Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
 

@@ -279,14 +279,47 @@ tools:
     - "datahub_*"
   deny:
     - "*_delete_*"
+  description_overrides:
+    trino_query: "Custom description for trino_query..."
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
 | `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+| `tools.description_overrides` | map | `{}` | Override tool descriptions in `tools/list` responses. Config overrides take precedence over built-in defaults. |
 
 No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
+
+### Built-in Description Overrides
+
+The platform ships with built-in description overrides for `trino_query` and `trino_execute` that instruct agents to call `datahub_search` first for business context. These are always active and require no configuration. Use `tools.description_overrides` to customize or add more overrides; config entries take precedence over built-in defaults.
+
+## Workflow Gating Configuration
+
+Session-aware enforcement that agents call DataHub discovery tools before running Trino queries. When enabled, query results are annotated with warnings if no discovery has occurred in the current session. Warnings escalate after a configurable number of repeated violations.
+
+```yaml
+workflow:
+  require_discovery_before_query: true
+  # discovery_tools: []           # Defaults to all datahub_* tools
+  # query_tools: []               # Defaults to trino_query, trino_execute
+  # warning_message: ""           # Custom warning (default: built-in REQUIRED message)
+  escalation:
+    after_warnings: 3             # Switch to escalated message after N warnings
+    # escalation_message: ""      # Custom escalation (use {count} for warning number)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `workflow.require_discovery_before_query` | bool | `false` | Enable session-aware workflow gating |
+| `workflow.discovery_tools` | array | all `datahub_*` tools | Tool names that satisfy the discovery requirement |
+| `workflow.query_tools` | array | `trino_query`, `trino_execute` | Tool names that trigger the discovery check |
+| `workflow.warning_message` | string | built-in message | Custom warning prepended to query results |
+| `workflow.escalation.after_warnings` | int | `3` | Number of warnings before escalation |
+| `workflow.escalation.escalation_message` | string | built-in message | Custom escalation message (`{count}` placeholder for warning number) |
+
+When `workflow.require_discovery_before_query` is disabled (default), the platform falls back to the static `tuning.rules.require_datahub_check` hint which fires on every query. The session-aware path is strictly better: it only warns when discovery hasn't happened and resets after any discovery tool call.
 
 ## Admin API Configuration
 
@@ -581,13 +614,15 @@ Sensitive parameter keys are replaced with `[REDACTED]`: `password`, `secret`, `
 
 ## Middleware Chain
 
-The audit middleware sits inside the auth middleware in the execution chain:
+The middleware sits in a layered execution chain:
 
 ```
-Auth/Authz → Audit → Rules → Enrichment → Tool Handler
+Icons → DescOverrides → Visibility → Apps Metadata → Auth/Authz → Audit → Rules → Client Logging → Enrichment → Tool Handler
 ```
 
-Auth creates the `PlatformContext` (user identity, persona, toolkit metadata). Audit reads it to build the audit event. Unauthorized requests are rejected before reaching audit, so only authenticated tool calls appear in audit logs.
+For `tools/call` requests: Auth creates the `PlatformContext` (user identity, persona, toolkit metadata) and records tool calls for workflow tracking. Audit reads it to build the audit event. Rules checks session workflow state and prepends warnings when needed. Enrichment adds cross-service context and optional discovery notes. Unauthorized requests are rejected before reaching audit, so only authenticated tool calls appear in audit logs.
+
+For `tools/list` responses: Icons, DescOverrides, and Visibility modify tool metadata and filter the tool list.
 
 Audit events are written **asynchronously** in a goroutine to avoid blocking tool responses. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
 
