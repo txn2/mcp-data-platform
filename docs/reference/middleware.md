@@ -7,26 +7,28 @@ Middleware processes requests and responses at the MCP protocol level. Each midd
 ```mermaid
 graph LR
     Request --> Icons
-    Icons --> ToolVisibility
+    Icons --> DescOverrides
+    DescOverrides --> ToolVisibility
     ToolVisibility --> AppsMetadata
     AppsMetadata --> MCPToolCall
     MCPToolCall --> MCPAudit
-    MCPAudit --> ClientLogging
-    ClientLogging --> MCPRules
-    MCPRules --> MCPEnrichment
+    MCPAudit --> MCPRules
+    MCPRules --> ClientLogging
+    ClientLogging --> MCPEnrichment
     MCPEnrichment --> Handler
     Handler --> MCPEnrichment
-    MCPEnrichment --> MCPRules
-    MCPRules --> ClientLogging
-    ClientLogging --> MCPAudit
+    MCPEnrichment --> ClientLogging
+    ClientLogging --> MCPRules
+    MCPRules --> MCPAudit
     MCPAudit --> MCPToolCall
     MCPToolCall --> AppsMetadata
     AppsMetadata --> ToolVisibility
-    ToolVisibility --> Icons
+    ToolVisibility --> DescOverrides
+    DescOverrides --> Icons
     Icons --> Response
 ```
 
-The platform registers up to eight middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
+The platform registers up to nine middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
 
 ## MCP Middleware Interface
 
@@ -143,21 +145,33 @@ If PlatformContext is `nil` (auth middleware didn't run or middleware is misorde
 
 ### MCPRuleEnforcementMiddleware
 
-Adds operational guidance and warnings to tool responses based on configured rules.
+Adds operational guidance and warnings to tool responses based on configured rules and session-aware workflow gating.
 
 ```go
-func MCPRuleEnforcementMiddleware(
-    engine *tuning.RuleEngine,
-    hints *tuning.HintManager,
-) mcp.Middleware
+func MCPRuleEnforcementMiddleware(cfg RuleEnforcementConfig) mcp.Middleware
 ```
 
 **Behavior:**
 
 1. Only intercepts `tools/call` requests
-2. Calls next handler to get result
-3. Evaluates rules (e.g., require DataHub check, warn on deprecated tables)
-4. Appends rule messages and tool hints to result content
+2. **Session-aware path** (when `WorkflowTracker` is configured): checks if the session has called a discovery tool before a query tool. If not, prepends a warning. After the escalation threshold, the message becomes more urgent.
+3. **Static fallback path** (no tracker): uses `engine.ShouldRequireDataHubCheck()` to prepend a static hint to every query tool call — the original behavior.
+4. Calls next handler to get result
+5. Appends collected hints/warnings to result content
+
+### MCPDescriptionOverrideMiddleware
+
+Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call datahub_search first"). Built-in overrides for `trino_query` and `trino_execute` are always active; config overrides take precedence.
+
+```go
+func MCPDescriptionOverrideMiddleware(overrides map[string]string) mcp.Middleware
+```
+
+**Behavior:**
+
+1. Only intercepts `tools/list` responses
+2. For each tool in the response, replaces its description if a matching override exists
+3. Non-matching tools are unchanged
 
 ### MCPSemanticEnrichmentMiddleware
 
@@ -269,10 +283,15 @@ if needsEnrichment {
     )
 }
 
-// 2. Rule enforcement - adds operational guidance
+// 2. Rule enforcement - adds operational guidance (session-aware workflow gating)
 if p.ruleEngine != nil {
+    ruleCfg := middleware.RuleEnforcementConfig{
+        Engine:          p.ruleEngine,
+        WorkflowTracker: p.workflowTracker, // nil = static fallback
+        WorkflowConfig:  middleware.WorkflowRulesConfig{...},
+    }
     p.mcpServer.AddReceivingMiddleware(
-        middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
+        middleware.MCPRuleEnforcementMiddleware(ruleCfg),
     )
 }
 

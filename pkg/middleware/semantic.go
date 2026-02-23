@@ -84,6 +84,11 @@ type EnrichmentConfig struct {
 	// SchemaPreviewMaxColumns caps how many columns appear per entity
 	// in the schema preview. Zero disables the preview.
 	SchemaPreviewMaxColumns int
+
+	// WorkflowTracker enables a soft discovery note appended to enriched
+	// results when the session has not yet called any discovery tool.
+	// If nil, no discovery note is appended.
+	WorkflowTracker *SessionWorkflowTracker
 }
 
 // schemaPreviewColumn is a minimal column entry for search result schema previews.

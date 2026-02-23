@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -10,17 +11,63 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
+// DefaultWarningMessage is the default message prepended to query results
+// when no discovery has been performed in the session.
+const DefaultWarningMessage = "⚠️ REQUIRED: You must call datahub_search first to discover the table's " +
+	"business context (descriptions, owners, tags, glossary terms) before running queries. " +
+	"This ensures you understand the data semantics and any access restrictions."
+
+// DefaultEscalationMessage is the default message after repeated warnings.
+// The placeholder {count} is replaced with the current warning count.
+const DefaultEscalationMessage = "🚫 MANDATORY — datahub_search has not been called yet ({count} queries without discovery). " +
+	"Call datahub_search NOW before issuing any more SQL. " +
+	"Querying without understanding the data context risks incorrect results and policy violations."
+
+// RuleEnforcementConfig configures the rule enforcement middleware.
+type RuleEnforcementConfig struct {
+	// Engine is the tuning rule engine for static rules (backward compat).
+	Engine *tuning.RuleEngine
+
+	// WorkflowTracker enables session-aware workflow gating. If nil, the
+	// middleware falls back to the static engine.ShouldRequireDataHubCheck().
+	WorkflowTracker *SessionWorkflowTracker
+
+	// WorkflowConfig configures session-aware workflow behavior.
+	WorkflowConfig WorkflowRulesConfig
+}
+
+// WorkflowRulesConfig configures session-aware workflow gating behavior.
+type WorkflowRulesConfig struct {
+	// RequireDiscoveryBeforeQuery enables session-aware gating.
+	RequireDiscoveryBeforeQuery bool
+
+	// WarningMessage is prepended to query results when no discovery has occurred.
+	// Defaults to DefaultWarningMessage.
+	WarningMessage string
+
+	// EscalationAfterWarnings is the number of standard warnings before escalation.
+	// Defaults to 3.
+	EscalationAfterWarnings int
+
+	// EscalationMessage replaces the standard warning after the threshold.
+	// The placeholder {count} is replaced with the current warning count.
+	// Defaults to DefaultEscalationMessage.
+	EscalationMessage string
+}
+
 // MCPRuleEnforcementMiddleware creates MCP protocol-level middleware that enforces
 // operational rules and adds guidance to tool responses.
 //
-// This middleware intercepts tools/call responses and:
-// 1. Checks if the tool is a query tool that should have DataHub context first
-// 2. Adds warnings for rule violations to the response
-// 3. Does NOT block requests - it only adds informational guidance.
-func MCPRuleEnforcementMiddleware(engine *tuning.RuleEngine, _ *tuning.HintManager) mcp.Middleware {
+// When a WorkflowTracker is provided and RequireDiscoveryBeforeQuery is true,
+// the middleware uses session-aware gating: it only warns when the current
+// session has not yet called any discovery tool, and escalates after repeated
+// warnings.
+//
+// Without a tracker, it falls back to the static RequireDataHubCheck rule
+// (backward compatible).
+func MCPRuleEnforcementMiddleware(cfg RuleEnforcementConfig) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			// Only intercept tools/call requests
 			if method != "tools/call" {
 				return next(ctx, method, req)
 			}
@@ -30,20 +77,10 @@ func MCPRuleEnforcementMiddleware(engine *tuning.RuleEngine, _ *tuning.HintManag
 				return next(ctx, method, req)
 			}
 
-			// Collect hints/warnings to prepend
-			var hints []string
+			hints := collectRuleHints(pc, cfg)
 
-			// Check if DataHub should be checked first for query tools
-			if engine.ShouldRequireDataHubCheck() && isQueryTool(pc.ToolName) {
-				hints = append(hints,
-					"💡 Tip: Consider using datahub_search or datahub_get_entity first "+
-						"to understand the data context before querying.")
-			}
-
-			// Execute the actual tool
 			result, err := next(ctx, method, req)
 
-			// If there are hints and the result is successful, prepend them
 			if len(hints) > 0 && err == nil {
 				result = prependHintsToResult(result, hints)
 			}
@@ -51,6 +88,57 @@ func MCPRuleEnforcementMiddleware(engine *tuning.RuleEngine, _ *tuning.HintManag
 			return result, err
 		}
 	}
+}
+
+// collectRuleHints determines which hints/warnings to prepend based on
+// the current workflow state.
+func collectRuleHints(pc *PlatformContext, cfg RuleEnforcementConfig) []string {
+	var hints []string
+
+	// Session-aware path: tracker is configured and enabled
+	if cfg.WorkflowTracker != nil && cfg.WorkflowConfig.RequireDiscoveryBeforeQuery {
+		if cfg.WorkflowTracker.IsQueryTool(pc.ToolName) && !cfg.WorkflowTracker.HasPerformedDiscovery(pc.SessionID) {
+			count := cfg.WorkflowTracker.IncrementWarningCount(pc.SessionID)
+			threshold := cfg.WorkflowConfig.EscalationAfterWarnings
+			if threshold > 0 && count > threshold {
+				msg := effectiveEscalationMessage(cfg.WorkflowConfig)
+				hints = append(hints, formatEscalationMessage(msg, count))
+			} else {
+				hints = append(hints, effectiveWarningMessage(cfg.WorkflowConfig))
+			}
+		}
+		return hints
+	}
+
+	// Static fallback path: use the old RequireDataHubCheck rule
+	if cfg.Engine != nil && cfg.Engine.ShouldRequireDataHubCheck() && isQueryTool(pc.ToolName) {
+		hints = append(hints,
+			"💡 Tip: Consider using datahub_search or datahub_get_entity first "+
+				"to understand the data context before querying.")
+	}
+
+	return hints
+}
+
+// effectiveWarningMessage returns the configured warning or the default.
+func effectiveWarningMessage(cfg WorkflowRulesConfig) string {
+	if cfg.WarningMessage != "" {
+		return cfg.WarningMessage
+	}
+	return DefaultWarningMessage
+}
+
+// effectiveEscalationMessage returns the configured escalation message or the default.
+func effectiveEscalationMessage(cfg WorkflowRulesConfig) string {
+	if cfg.EscalationMessage != "" {
+		return cfg.EscalationMessage
+	}
+	return DefaultEscalationMessage
+}
+
+// formatEscalationMessage replaces the {count} placeholder in the escalation message.
+func formatEscalationMessage(template string, count int) string {
+	return strings.ReplaceAll(template, "{count}", fmt.Sprintf("%d", count))
 }
 
 // isQueryTool returns true if the tool name indicates a query/write operation.

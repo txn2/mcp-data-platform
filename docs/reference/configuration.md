@@ -485,8 +485,11 @@ tools:
 |--------|------|---------|-------------|
 | `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
 | `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+| `tools.description_overrides` | map | `{}` | Override tool descriptions in `tools/list` (config wins over built-in defaults) |
 
 No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
+
+**Description Overrides**: Built-in overrides for `trino_query` and `trino_execute` guide agents to call `datahub_search` before writing SQL. Use `description_overrides` to customize these or add overrides for other tools. Config values take precedence over built-in defaults.
 
 ## Elicitation Configuration
 
@@ -631,10 +634,38 @@ tuning:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `tuning.rules.require_datahub_check` | bool | `false` | Require DataHub lookup before query |
+| `tuning.rules.require_datahub_check` | bool | `false` | Static hint for query tools (superseded by workflow gating) |
 | `tuning.rules.warn_on_deprecated` | bool | `false` | Warn on deprecated tables |
 | `tuning.rules.quality_threshold` | float | `0.7` | Minimum quality score |
 | `tuning.prompts_dir` | string | - | Directory for prompt resources |
+
+## Workflow Gating Configuration
+
+Session-aware enforcement that agents call DataHub discovery tools before running Trino queries. Unlike the static `require_datahub_check` rule (which fires on every query), workflow gating tracks discovery per session and only warns when discovery hasn't occurred.
+
+```yaml
+workflow:
+  require_discovery_before_query: true
+  # discovery_tools: []             # Defaults to all datahub_* tools
+  # query_tools: []                 # Defaults to trino_query, trino_execute
+  # warning_message: ""             # Custom warning (default: built-in REQUIRED message)
+  escalation:
+    after_warnings: 3               # Switch to escalated message after N warnings
+    # escalation_message: ""        # Custom escalation (use {count} for warning number)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `workflow.require_discovery_before_query` | bool | `false` | Enable session-aware workflow gating |
+| `workflow.discovery_tools` | array | all `datahub_*` tools | Tool names that count as discovery |
+| `workflow.query_tools` | array | `trino_query`, `trino_execute` | Tool names gated by discovery |
+| `workflow.warning_message` | string | built-in | Message prepended to query results when no discovery has occurred |
+| `workflow.escalation.after_warnings` | int | `3` | Number of standard warnings before escalation |
+| `workflow.escalation.escalation_message` | string | built-in | Escalated message (supports `{count}` placeholder) |
+
+When enabled, a standard warning is prepended to the first N query results (where N = `after_warnings`). After the threshold, an escalated message replaces the standard warning. Once any discovery tool is called, warnings reset and stop until the next session.
+
+Built-in description overrides for `trino_query` and `trino_execute` (in `tools/list`) complement workflow gating by guiding agents to call `datahub_search` at tool-discovery time.
 
 ## Audit Configuration
 
@@ -781,6 +812,11 @@ injection:
 
 resources:
   enabled: true
+
+workflow:
+  require_discovery_before_query: true
+  escalation:
+    after_warnings: 3
 
 elicitation:
   enabled: true

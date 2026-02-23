@@ -119,7 +119,7 @@ personas:
     user_personas:
       "admin@example.com": "admin"
 
-# Tool visibility filter
+# Tool visibility filter and description overrides
 # Reduces token usage by hiding tools from tools/list responses.
 # This is a visibility filter, not a security boundary — persona auth
 # continues to gate tools/call independently.
@@ -129,6 +129,13 @@ personas:
 #     - "datahub_*"
 #   deny:
 #     - "*_delete_*"
+#
+#   # Override tool descriptions in tools/list to guide agent behavior.
+#   # Built-in overrides for trino_query and trino_execute already encourage
+#   # calling datahub_search first. Use this to customize or add more.
+#   description_overrides:
+#     trino_query: "Custom description for trino_query..."
+#     my_custom_tool: "Explain what this tool does"
 
 # Toolkit instances
 toolkits:
@@ -270,6 +277,19 @@ injection:
     mode: reference             # reference (default), summary, none
     # entry_ttl: 5m             # How long a table stays "already sent" (defaults to semantic.cache.ttl)
     # session_timeout: 30m      # Idle session cleanup (defaults to server.streamable.session_timeout)
+
+# Workflow gating
+# Session-aware enforcement that agents call DataHub discovery tools before
+# running Trino queries. When enabled, query results are annotated with
+# warnings if no discovery has occurred in the current session.
+# workflow:
+#   require_discovery_before_query: true
+#   # discovery_tools: []           # Defaults to all datahub_* tools
+#   # query_tools: []               # Defaults to trino_query, trino_execute
+#   # warning_message: ""           # Custom warning (default: built-in REQUIRED message)
+#   escalation:
+#     after_warnings: 3             # Switch to escalated message after N warnings
+#     # escalation_message: ""      # Custom escalation (use {count} for warning number)
 
 # Tuning
 tuning:
