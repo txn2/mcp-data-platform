@@ -76,6 +76,7 @@ type Config struct {
 	ClientLogging ClientLoggingConfig `yaml:"client_logging"`
 	Icons         IconsConfig         `yaml:"icons"`
 	Elicitation   ElicitationConfig   `yaml:"elicitation"`
+	Workflow      WorkflowConfig      `yaml:"workflow"`
 }
 
 // AdminConfig configures the admin REST API.
@@ -243,8 +244,9 @@ type PersonaDef struct {
 // This is a visibility filter to reduce token usage — not a security boundary.
 // Persona auth continues to gate tools/call independently.
 type ToolsConfig struct {
-	Allow []string `yaml:"allow"`
-	Deny  []string `yaml:"deny"`
+	Allow                []string          `yaml:"allow"`
+	Deny                 []string          `yaml:"deny"`
+	DescriptionOverrides map[string]string `yaml:"description_overrides"`
 }
 
 // ToolRulesDef defines tool access rules.
@@ -535,6 +537,43 @@ type PIIConsentConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// WorkflowConfig configures session-aware workflow gating that encourages
+// agents to perform DataHub discovery before running Trino queries.
+type WorkflowConfig struct {
+	// RequireDiscoveryBeforeQuery enables session-aware gating.
+	// When true, query tools get a warning if no discovery tool has been
+	// called in the current session.
+	RequireDiscoveryBeforeQuery bool `yaml:"require_discovery_before_query"`
+
+	// DiscoveryTools lists tool names that count as discovery.
+	// Defaults to all datahub_* tools.
+	DiscoveryTools []string `yaml:"discovery_tools"`
+
+	// QueryTools lists tool names that are gated by discovery.
+	// Defaults to trino_query and trino_execute.
+	QueryTools []string `yaml:"query_tools"`
+
+	// WarningMessage is prepended to query results when discovery hasn't occurred.
+	WarningMessage string `yaml:"warning_message"`
+
+	// Escalation configures progressive escalation after repeated warnings.
+	Escalation EscalationConfig `yaml:"escalation"`
+}
+
+// EscalationConfig configures progressive escalation for workflow gating.
+type EscalationConfig struct {
+	// AfterWarnings is the number of standard warnings before escalation.
+	// Defaults to 3.
+	AfterWarnings int `yaml:"after_warnings"`
+
+	// EscalationMessage replaces the standard warning after the threshold.
+	// The placeholder {count} is replaced with the current warning count.
+	EscalationMessage string `yaml:"escalation_message"`
+}
+
+// defaultEscalationAfterWarnings is the default number of warnings before escalation.
+const defaultEscalationAfterWarnings = 3
+
 // SessionsConfig configures session externalization.
 type SessionsConfig struct {
 	// Store selects the session storage backend: "memory" (default) or "database".
@@ -624,12 +663,20 @@ func applyDefaults(cfg *Config) {
 	applySessionDefaults(cfg)
 	applyAdminDefaults(cfg)
 	applyElicitationDefaults(cfg)
+	applyWorkflowDefaults(cfg)
 }
 
 // applyElicitationDefaults sets defaults for elicitation config.
 func applyElicitationDefaults(cfg *Config) {
 	if cfg.Elicitation.CostEstimation.RowThreshold == 0 {
 		cfg.Elicitation.CostEstimation.RowThreshold = defaultElicitRowThreshold
+	}
+}
+
+// applyWorkflowDefaults sets defaults for workflow gating config.
+func applyWorkflowDefaults(cfg *Config) {
+	if cfg.Workflow.Escalation.AfterWarnings == 0 {
+		cfg.Workflow.Escalation.AfterWarnings = defaultEscalationAfterWarnings
 	}
 }
 

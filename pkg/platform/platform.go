@@ -108,6 +108,9 @@ type Platform struct {
 	knowledgeChangesetStore knowledgekit.ChangesetStore
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
+	// Workflow gating
+	workflowTracker *middleware.SessionWorkflowTracker
+
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 }
@@ -166,6 +169,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	p.initTuning(opts)
+	p.initWorkflow()
 	if err := p.initExtensions(); err != nil {
 		return err
 	}
@@ -587,6 +591,31 @@ func (p *Platform) initTuning(opts *Options) {
 	}
 }
 
+// initWorkflow initializes the session workflow tracker if configured.
+func (p *Platform) initWorkflow() {
+	if !p.config.Workflow.RequireDiscoveryBeforeQuery {
+		return
+	}
+
+	sessionTimeout := p.config.Server.Streamable.SessionTimeout
+	if sessionTimeout == 0 {
+		sessionTimeout = defaultSessionTimeout
+	}
+
+	p.workflowTracker = middleware.NewSessionWorkflowTracker(
+		p.config.Workflow.DiscoveryTools,
+		p.config.Workflow.QueryTools,
+		sessionTimeout,
+	)
+	p.workflowTracker.StartCleanup(1 * time.Minute)
+
+	slog.Info("workflow gating enabled",
+		"discovery_tools", len(p.workflowTracker.DiscoveryToolNames()),
+		"query_tools", len(p.workflowTracker.QueryToolNames()),
+		"escalation_after", p.config.Workflow.Escalation.AfterWarnings,
+	)
+}
+
 // initKnowledge initializes the knowledge capture toolkit if enabled.
 // Knowledge tools require database persistence — without a database the
 // toolkit is not registered and its tools won't appear in tools/list.
@@ -775,6 +804,7 @@ func (p *Platform) finalizeSetup() {
 
 	if needsEnrichment {
 		enrichCfg := p.buildEnrichmentConfig()
+		enrichCfg.WorkflowTracker = p.workflowTracker
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPSemanticEnrichmentMiddleware(
 				p.semanticProvider,
@@ -796,8 +826,18 @@ func (p *Platform) finalizeSetup() {
 
 	// 3. Rule enforcement - adds operational guidance to responses
 	if p.ruleEngine != nil {
+		ruleCfg := middleware.RuleEnforcementConfig{
+			Engine:          p.ruleEngine,
+			WorkflowTracker: p.workflowTracker,
+			WorkflowConfig: middleware.WorkflowRulesConfig{
+				RequireDiscoveryBeforeQuery: p.config.Workflow.RequireDiscoveryBeforeQuery,
+				WarningMessage:              p.config.Workflow.WarningMessage,
+				EscalationAfterWarnings:     p.config.Workflow.Escalation.AfterWarnings,
+				EscalationMessage:           p.config.Workflow.Escalation.EscalationMessage,
+			},
+		}
 		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPRuleEnforcementMiddleware(p.ruleEngine, p.hintManager),
+			middleware.MCPRuleEnforcementMiddleware(ruleCfg),
 		)
 	}
 
@@ -812,7 +852,7 @@ func (p *Platform) finalizeSetup() {
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport),
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport, p.workflowTracker),
 	)
 
 	// 6. MCP Apps metadata - injects _meta.ui into tools/list
@@ -820,6 +860,9 @@ func (p *Platform) finalizeSetup() {
 
 	// 7. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
+
+	// 7.5 Description overrides - replaces tool descriptions with workflow guidance
+	p.addDescriptionOverrideMiddleware()
 
 	// 8. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
@@ -845,6 +888,17 @@ func (p *Platform) addToolVisibilityMiddleware() {
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolVisibilityMiddleware(p.config.Tools.Allow, p.config.Tools.Deny),
 	)
+}
+
+// addDescriptionOverrideMiddleware registers description override middleware.
+// Built-in overrides guide agents toward DataHub discovery; config overrides
+// can customize or extend them.
+func (p *Platform) addDescriptionOverrideMiddleware() {
+	overrides := middleware.MergedDescriptionOverrides(p.config.Tools.DescriptionOverrides)
+	if len(overrides) == 0 {
+		return
+	}
+	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddleware(overrides))
 }
 
 // addIconMiddleware registers icon injection middleware when icons are configured.
@@ -1567,6 +1621,12 @@ func closeResource(errs *[]error, closer Closer) {
 //  4. Close database connection (last — nothing else needs it)
 func (p *Platform) Close() error {
 	var errs []error
+
+	// Phase 0: stop workflow tracker goroutine
+	if p.workflowTracker != nil {
+		slog.Debug("shutdown: stopping workflow tracker")
+		p.workflowTracker.Stop()
+	}
 
 	// Phase 1a: flush enrichment dedup state to session store
 	p.flushEnrichmentState()

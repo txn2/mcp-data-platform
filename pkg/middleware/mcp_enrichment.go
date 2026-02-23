@@ -75,6 +75,12 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 	return applyEnrichment(ctx, enricher, req, callResult, pc)
 }
 
+// discoveryNoteMessage is the soft note appended to enriched results when the
+// session has not yet performed DataHub discovery.
+const discoveryNoteMessage = "Note: No DataHub discovery has been performed in this session yet. " +
+	"Call datahub_search to understand the business context, ownership, and data quality " +
+	"of the tables you are querying."
+
 // applyEnrichment enriches the result and tracks whether enrichment was applied on the PlatformContext.
 func applyEnrichment(
 	ctx context.Context,
@@ -93,7 +99,29 @@ func applyEnrichment(
 			pc.EnrichmentMode = EnrichmentModeFull
 		}
 	}
+
+	appendDiscoveryNoteIfNeeded(enrichedResult, pc, enricher.cfg.WorkflowTracker)
+
 	return enrichedResult, nil
+}
+
+// appendDiscoveryNoteIfNeeded appends a soft discovery note to enriched results
+// when the session has not yet performed DataHub discovery.
+func appendDiscoveryNoteIfNeeded(result *mcp.CallToolResult, pc *PlatformContext, tracker *SessionWorkflowTracker) {
+	if tracker == nil || !pc.EnrichmentApplied {
+		return
+	}
+	if tracker.HasPerformedDiscovery(pc.SessionID) {
+		return
+	}
+
+	noteJSON, err := json.Marshal(map[string]string{
+		"discovery_note": discoveryNoteMessage,
+	})
+	if err != nil {
+		return
+	}
+	result.Content = append(result.Content, &mcp.TextContent{Text: string(noteJSON)})
 }
 
 // inferToolkitKind determines the toolkit kind from a tool name prefix.
