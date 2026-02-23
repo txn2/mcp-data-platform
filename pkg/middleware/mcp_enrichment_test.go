@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -364,6 +365,69 @@ func TestMCPSemanticEnrichmentMiddleware_NoEnrichmentAppliedForUnknownTool(t *te
 	require.NoError(t, err)
 
 	assert.False(t, pc.EnrichmentApplied, "EnrichmentApplied should be false for non-enrichable tool")
+}
+
+func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
+	t.Run("no discovery appends note", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		pc := NewPlatformContext("req")
+		pc.SessionID = "s1"
+		pc.EnrichmentApplied = true
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
+		}
+		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+
+		require.Len(t, result.Content, 2)
+		tc, ok := result.Content[1].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, tc.Text, "discovery_note")
+		assert.Contains(t, tc.Text, "datahub_search")
+	})
+
+	t.Run("discovery done skips note", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		tracker.RecordToolCall("s1", "datahub_search")
+
+		pc := NewPlatformContext("req")
+		pc.SessionID = "s1"
+		pc.EnrichmentApplied = true
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
+		}
+		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+
+		assert.Len(t, result.Content, 1, "no note after discovery")
+	})
+
+	t.Run("no enrichment applied skips note", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		pc := NewPlatformContext("req")
+		pc.SessionID = "s1"
+		pc.EnrichmentApplied = false
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
+		}
+		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+
+		assert.Len(t, result.Content, 1, "no note when enrichment not applied")
+	})
+
+	t.Run("nil tracker is no-op", func(t *testing.T) {
+		pc := NewPlatformContext("req")
+		pc.SessionID = "s1"
+		pc.EnrichmentApplied = true
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
+		}
+		appendDiscoveryNoteIfNeeded(result, pc, nil)
+
+		assert.Len(t, result.Content, 1, "no note with nil tracker")
+	})
 }
 
 // Helper to create ServerRequest for testing.

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ const (
 	rulesTestToolTrinoQuery  = "trino_query"
 )
 
-func TestMCPRuleEnforcementMiddleware(t *testing.T) {
+func TestMCPRuleEnforcementMiddleware_StaticFallback(t *testing.T) {
 	tests := []struct {
 		name           string
 		method         string
@@ -77,24 +78,20 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create rule engine
 			rules := &tuning.Rules{
 				RequireDataHubCheck: tt.requireCheck,
 			}
 			engine := tuning.NewRuleEngine(rules)
-			hints := tuning.NewHintManager()
 
-			// Track if next was called
 			nextCalled := false
 
-			// Create middleware
-			mw := MCPRuleEnforcementMiddleware(engine, hints)
+			cfg := RuleEnforcementConfig{Engine: engine}
+			mw := MCPRuleEnforcementMiddleware(cfg)
 			handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 				nextCalled = true
 				return tt.nextResult, tt.nextErr
 			})
 
-			// Create context with platform context
 			ctx := context.Background()
 			if tt.toolName != "" {
 				pc := NewPlatformContext("test-req")
@@ -102,10 +99,8 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 				ctx = WithPlatformContext(ctx, pc)
 			}
 
-			// Execute
 			result, err := handler(ctx, tt.method, nil)
 
-			// Assertions
 			assert.Equal(t, tt.expectNextCall, nextCalled, "next handler call mismatch")
 			assert.Equal(t, tt.nextErr, err)
 
@@ -119,6 +114,190 @@ func TestMCPRuleEnforcementMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMCPRuleEnforcementMiddleware_SessionAware(t *testing.T) {
+	t.Run("query without discovery gets warning", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+
+		cfg := RuleEnforcementConfig{
+			WorkflowTracker: tracker,
+			WorkflowConfig: WorkflowRulesConfig{
+				RequireDiscoveryBeforeQuery: true,
+			},
+		}
+		mw := MCPRuleEnforcementMiddleware(cfg)
+		handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+		})
+
+		pc := NewPlatformContext("test-req")
+		pc.ToolName = rulesTestToolTrinoQuery
+		pc.SessionID = "s1"
+		ctx := WithPlatformContext(context.Background(), pc)
+
+		result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+		require.NoError(t, err)
+
+		callResult, ok := result.(*mcp.CallToolResult)
+		require.True(t, ok)
+		require.GreaterOrEqual(t, len(callResult.Content), 2)
+		textContent, ok := callResult.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, textContent.Text, "datahub_search")
+	})
+
+	t.Run("query after discovery gets no warning", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		tracker.RecordToolCall("s1", "datahub_search")
+
+		cfg := RuleEnforcementConfig{
+			WorkflowTracker: tracker,
+			WorkflowConfig: WorkflowRulesConfig{
+				RequireDiscoveryBeforeQuery: true,
+			},
+		}
+		mw := MCPRuleEnforcementMiddleware(cfg)
+		handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+		})
+
+		pc := NewPlatformContext("test-req")
+		pc.ToolName = rulesTestToolTrinoQuery
+		pc.SessionID = "s1"
+		ctx := WithPlatformContext(context.Background(), pc)
+
+		result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+		require.NoError(t, err)
+
+		callResult, ok := result.(*mcp.CallToolResult)
+		require.True(t, ok)
+		assert.Len(t, callResult.Content, 1, "no hint should be prepended after discovery")
+	})
+
+	t.Run("escalation after threshold", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+
+		cfg := RuleEnforcementConfig{
+			WorkflowTracker: tracker,
+			WorkflowConfig: WorkflowRulesConfig{
+				RequireDiscoveryBeforeQuery: true,
+				EscalationAfterWarnings:     2, // escalate after 2
+			},
+		}
+		mw := MCPRuleEnforcementMiddleware(cfg)
+		handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+		})
+
+		// First 2 calls get standard warning
+		for i := range 2 {
+			pc := NewPlatformContext("test-req")
+			pc.ToolName = rulesTestToolTrinoQuery
+			pc.SessionID = "s1"
+			ctx := WithPlatformContext(context.Background(), pc)
+
+			result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+			require.NoError(t, err)
+
+			callResult, ok := result.(*mcp.CallToolResult)
+			require.True(t, ok)
+			textContent, ok := callResult.Content[0].(*mcp.TextContent)
+			require.True(t, ok)
+			assert.Contains(t, textContent.Text, "REQUIRED", "call %d should have standard warning", i+1)
+			assert.NotContains(t, textContent.Text, "MANDATORY", "call %d should not have escalation", i+1)
+		}
+
+		// 3rd call gets escalated message
+		pc := NewPlatformContext("test-req")
+		pc.ToolName = rulesTestToolTrinoQuery
+		pc.SessionID = "s1"
+		ctx := WithPlatformContext(context.Background(), pc)
+
+		result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+		require.NoError(t, err)
+
+		callResult, ok := result.(*mcp.CallToolResult)
+		require.True(t, ok)
+		textContent, ok := callResult.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, textContent.Text, "MANDATORY")
+		assert.Contains(t, textContent.Text, "3") // warning count
+	})
+
+	t.Run("nil tracker falls back to static", func(t *testing.T) {
+		rules := &tuning.Rules{RequireDataHubCheck: true}
+		engine := tuning.NewRuleEngine(rules)
+
+		cfg := RuleEnforcementConfig{
+			Engine:          engine,
+			WorkflowTracker: nil,
+		}
+		mw := MCPRuleEnforcementMiddleware(cfg)
+		handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+		})
+
+		pc := NewPlatformContext("test-req")
+		pc.ToolName = rulesTestToolTrinoQuery
+		ctx := WithPlatformContext(context.Background(), pc)
+
+		result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+		require.NoError(t, err)
+
+		callResult, ok := result.(*mcp.CallToolResult)
+		require.True(t, ok)
+		require.GreaterOrEqual(t, len(callResult.Content), 2)
+		textContent, ok := callResult.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, textContent.Text, "datahub_search")
+	})
+
+	t.Run("custom warning message", func(t *testing.T) {
+		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+
+		cfg := RuleEnforcementConfig{
+			WorkflowTracker: tracker,
+			WorkflowConfig: WorkflowRulesConfig{
+				RequireDiscoveryBeforeQuery: true,
+				WarningMessage:              "Custom warning: discover first!",
+			},
+		}
+		mw := MCPRuleEnforcementMiddleware(cfg)
+		handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+		})
+
+		pc := NewPlatformContext("test-req")
+		pc.ToolName = rulesTestToolTrinoQuery
+		pc.SessionID = "s1"
+		ctx := WithPlatformContext(context.Background(), pc)
+
+		result, err := handler(ctx, rulesTestMethodToolsCall, nil)
+		require.NoError(t, err)
+
+		callResult, ok := result.(*mcp.CallToolResult)
+		require.True(t, ok)
+		textContent, ok := callResult.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, textContent.Text, "Custom warning: discover first!")
+	})
+}
+
+func TestFormatEscalationMessage(t *testing.T) {
+	msg := formatEscalationMessage("Warning #{count}: stop now! ({count} queries)", 5)
+	assert.Equal(t, "Warning #5: stop now! (5 queries)", msg)
+}
+
+func TestEffectiveEscalationMessage(t *testing.T) {
+	t.Run("custom message", func(t *testing.T) {
+		cfg := WorkflowRulesConfig{EscalationMessage: "custom escalation"}
+		assert.Equal(t, "custom escalation", effectiveEscalationMessage(cfg))
+	})
+	t.Run("default message", func(t *testing.T) {
+		cfg := WorkflowRulesConfig{}
+		assert.Equal(t, DefaultEscalationMessage, effectiveEscalationMessage(cfg))
+	})
 }
 
 func TestIsQueryTool(t *testing.T) {
