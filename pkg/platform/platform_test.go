@@ -3470,3 +3470,59 @@ func TestInjectToolkitPlatformConfig_Elicitation(t *testing.T) {
 		}
 	})
 }
+
+func TestNew_WorkflowGatingEnabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Workflow: WorkflowConfig{
+			RequireDiscoveryBeforeQuery: true,
+			Escalation: EscalationConfig{
+				AfterWarnings: 5,
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.workflowTracker == nil {
+		t.Fatal("workflowTracker should be initialized when workflow gating is enabled")
+	}
+
+	// Verify tracker has default tools configured
+	discoveryNames := p.workflowTracker.DiscoveryToolNames()
+	if len(discoveryNames) == 0 {
+		t.Error("discovery tools should be populated with defaults")
+	}
+
+	queryNames := p.workflowTracker.QueryToolNames()
+	if len(queryNames) == 0 {
+		t.Error("query tools should be populated with defaults")
+	}
+}
+
+func TestNew_WorkflowGatingDisabled(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		// Workflow not set — disabled by default
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.workflowTracker != nil {
+		t.Error("workflowTracker should be nil when workflow gating is disabled")
+	}
+}

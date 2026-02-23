@@ -56,7 +56,11 @@ func (e *PlatformError) ErrorCategory() string { return e.Category }
 //
 // The transport parameter identifies the server transport ("stdio" or "http").
 // The toolkitLookup parameter is optional; if nil, toolkit metadata won't be populated.
-func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup, transport string) mcp.Middleware {
+func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup, transport string, workflowTracker ...*SessionWorkflowTracker) mcp.Middleware {
+	var tracker *SessionWorkflowTracker
+	if len(workflowTracker) > 0 {
+		tracker = workflowTracker[0]
+	}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
@@ -80,10 +84,11 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 
 			// Authenticate and authorize
 			return authenticateAndAuthorize(ctx, method, req, next, authParams{
-				authenticator: authenticator,
-				authorizer:    authorizer,
-				pc:            pc,
-				toolName:      toolName,
+				authenticator:   authenticator,
+				authorizer:      authorizer,
+				pc:              pc,
+				toolName:        toolName,
+				workflowTracker: tracker,
 			})
 		}
 	}
@@ -156,10 +161,11 @@ func bridgeAuthToken(ctx context.Context, req mcp.Request) context.Context {
 
 // authParams groups authentication and authorization parameters.
 type authParams struct {
-	authenticator Authenticator
-	authorizer    Authorizer
-	pc            *PlatformContext
-	toolName      string
+	authenticator   Authenticator
+	authorizer      Authorizer
+	pc              *PlatformContext
+	toolName        string
+	workflowTracker *SessionWorkflowTracker
 }
 
 // authenticateAndAuthorize runs authentication and authorization, returning
@@ -216,6 +222,11 @@ func authenticateAndAuthorize(
 		"auth_type", authType,
 		"request_id", params.pc.RequestID,
 	)
+
+	// Record tool call for workflow tracking (after successful auth)
+	if params.workflowTracker != nil {
+		params.workflowTracker.RecordToolCall(params.pc.SessionID, params.toolName)
+	}
 
 	return next(ctx, method, req)
 }
