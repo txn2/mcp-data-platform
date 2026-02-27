@@ -50,7 +50,7 @@
     "globals": "^16.1.0",
     "jsdom": "^26.1.0",
     "msw": "^2.8.4",
-    "storybook": "^8.6.14",
+    "storybook": "^8.6.17",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.33.0",
