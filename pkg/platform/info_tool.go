@@ -8,19 +8,22 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 // Info contains information about the platform deployment.
 type Info struct {
-	Name              string            `json:"name"`
-	Version           string            `json:"version"`
-	Description       string            `json:"description,omitempty"`
-	Tags              []string          `json:"tags,omitempty"`
-	AgentInstructions string            `json:"agent_instructions,omitempty"`
-	Toolkits          []string          `json:"toolkits"`
-	Personas          []PersonaInfo     `json:"personas,omitempty"`
-	Features          Features          `json:"features"`
-	ConfigVersion     ConfigVersionInfo `json:"config_version"`
+	Name                 string            `json:"name"`
+	Version              string            `json:"version"`
+	Description          string            `json:"description,omitempty"`
+	Tags                 []string          `json:"tags,omitempty"`
+	AgentInstructions    string            `json:"agent_instructions,omitempty"`
+	Toolkits             []string          `json:"toolkits"`
+	ToolkitDescriptions  map[string]string `json:"toolkit_descriptions,omitempty"`
+	Persona              *PersonaInfo      `json:"persona,omitempty"`
+	Features             Features          `json:"features"`
+	ConfigVersion        ConfigVersionInfo `json:"config_version"`
 }
 
 // ConfigVersionInfo provides information about the config API version.
@@ -73,6 +76,34 @@ func (p *Platform) buildFeatures() Features {
 	return f
 }
 
+// resolveCallerPersona returns a PersonaInfo for the calling user.
+// It reads the persona name from PlatformContext (set by auth middleware) and
+// looks it up in the registry. If no persona is found in context, it falls back
+// to the configured default persona. Returns nil when no persona applies.
+func (p *Platform) resolveCallerPersona(ctx context.Context) *PersonaInfo {
+	name := ""
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		name = pc.PersonaName
+	}
+	if name == "" {
+		if def, ok := p.personaRegistry.GetDefault(); ok {
+			name = def.Name
+		}
+	}
+	if name == "" {
+		return nil
+	}
+	pers, ok := p.personaRegistry.Get(name)
+	if !ok {
+		return nil
+	}
+	return &PersonaInfo{
+		Name:        pers.Name,
+		DisplayName: pers.DisplayName,
+		Description: pers.Description,
+	}
+}
+
 // platformInfoInput is empty since this tool has no parameters.
 type platformInfoInput struct{}
 
@@ -80,10 +111,21 @@ type platformInfoInput struct{}
 func (p *Platform) registerInfoTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
 		Name:        "platform_info",
+		Title:       p.buildInfoToolTitle(),
 		Description: p.buildInfoToolDescription(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
 		return p.handleInfo(ctx, req)
 	})
+}
+
+// buildInfoToolTitle returns a human-readable display name for the platform_info tool.
+// When server.name is set to a custom value, it is used as the title so that
+// Claude Desktop shows e.g. "ACME Data Platform" instead of "platform_info".
+func (p *Platform) buildInfoToolTitle() string {
+	if p.config.Server.Name != "" && p.config.Server.Name != "mcp-data-platform" {
+		return p.config.Server.Name
+	}
+	return "Platform Info"
 }
 
 // buildInfoToolDescription builds a dynamic tool description based on configuration.
@@ -100,36 +142,39 @@ func (p *Platform) buildInfoToolDescription() string {
 }
 
 // handleInfo handles the platform_info tool call.
-func (p *Platform) handleInfo(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
-	// Collect enabled toolkits
+func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
+	// Collect enabled toolkits and any operator-provided descriptions
 	var toolkits []string
+	var toolkitDescriptions map[string]string
 	if p.config.Toolkits != nil {
-		for kind := range p.config.Toolkits {
+		for kind, cfg := range p.config.Toolkits {
 			toolkits = append(toolkits, kind)
+			if m, ok := cfg.(map[string]any); ok {
+				if desc, ok := m["description"].(string); ok && desc != "" {
+					if toolkitDescriptions == nil {
+						toolkitDescriptions = make(map[string]string)
+					}
+					toolkitDescriptions[kind] = desc
+				}
+			}
 		}
 	}
 
-	// Collect persona information
-	allPersonas := p.personaRegistry.All()
-	personas := make([]PersonaInfo, 0, len(allPersonas))
-	for _, pers := range allPersonas {
-		personas = append(personas, PersonaInfo{
-			Name:        pers.Name,
-			DisplayName: pers.DisplayName,
-			Description: pers.Description,
-		})
-	}
+	// Resolve the caller's persona: prefer the one set by auth middleware,
+	// fall back to the configured default.
+	persona := p.resolveCallerPersona(ctx)
 
 	reg := DefaultRegistry()
 	info := Info{
-		Name:              p.config.Server.Name,
-		Version:           p.config.Server.Version,
-		Description:       p.config.Server.Description,
-		Tags:              p.config.Server.Tags,
-		AgentInstructions: p.config.Server.AgentInstructions,
-		Toolkits:          toolkits,
-		Personas:          personas,
-		Features:          p.buildFeatures(),
+		Name:                p.config.Server.Name,
+		Version:             p.config.Server.Version,
+		Description:         p.config.Server.Description,
+		Tags:                p.config.Server.Tags,
+		AgentInstructions:   p.config.Server.AgentInstructions,
+		Toolkits:            toolkits,
+		ToolkitDescriptions: toolkitDescriptions,
+		Persona:             persona,
+		Features:            p.buildFeatures(),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
 			SupportedVersions: reg.ListSupported(),

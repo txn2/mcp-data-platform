@@ -4,351 +4,829 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Platform Info</title>
+    <script id="app-config" type="application/json">{"brand_name":"","logo_svg":"","brand_url":""}</script>
     <style>
         :root {
-            --bg-color: #ffffff;
-            --text-color: #1a1a1a;
-            --text-muted: #6b7280;
-            --border-color: #e5e7eb;
-            --header-bg: #f9fafb;
-            --accent-color: #3b82f6;
-            --success-color: #10b981;
-            --badge-bg: #eff6ff;
-            --badge-text: #1e40af;
+            --bg: #0d1117;
+            --surface-2: #21262d;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-secondary: #c9d1d9;
+            --muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-bg: rgba(88,166,255,0.08);
+            --accent-border: rgba(88,166,255,0.18);
+            --success: #3fb950;
+            --success-bg: rgba(63,185,80,0.1);
+            --font-mono: 'SFMono-Regular','Cascadia Code','Fira Code',Consolas,monospace;
         }
 
-        @media (prefers-color-scheme: dark) {
+        @media (prefers-color-scheme: light) {
             :root {
-                --bg-color: #111827;
-                --text-color: #f9fafb;
-                --text-muted: #9ca3af;
-                --border-color: #374151;
-                --header-bg: #1f2937;
-                --accent-color: #60a5fa;
-                --success-color: #34d399;
-                --badge-bg: #1e3a5f;
-                --badge-text: #93c5fd;
+                --bg: #f6f8fa;
+                --surface-2: #f6f8fa;
+                --border: #d0d7de;
+                --text: #1f2328;
+                --text-secondary: #24292f;
+                --muted: #636c76;
+                --accent: #0969da;
+                --accent-bg: rgba(9,105,218,0.07);
+                --accent-border: rgba(9,105,218,0.18);
+                --success: #1a7f37;
+                --success-bg: rgba(26,127,55,0.07);
             }
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
+                         Helvetica, Arial, sans-serif;
             font-size: 14px;
             line-height: 1.5;
-            color: var(--text-color);
-            background: var(--bg-color);
-            padding: 20px;
+            color: var(--text);
+            background: var(--bg);
+            padding: 0;
+            margin: 0;
+            width: 100%;
         }
 
-        .container { max-width: 600px; }
-
+        /* Loading */
         .loading {
-            text-align: center;
-            padding: 40px 24px;
-            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 36px 20px;
+            color: var(--muted);
+            font-size: 13px;
         }
 
-        .platform-card {
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
+        .dot {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: var(--muted);
+            animation: bounce 1.2s ease-in-out infinite;
+        }
+        .dot:nth-child(2) { animation-delay: .18s; }
+        .dot:nth-child(3) { animation-delay: .36s; }
+
+        @keyframes bounce {
+            0%,80%,100% { transform: translateY(0); opacity: 0.4; }
+            40%          { transform: translateY(-4px); opacity: 1; }
+        }
+
+        /* Hero */
+        .hero {
+            position: relative;
+            padding: 20px 20px 18px;
+            border-bottom: 1px solid var(--border);
             overflow: hidden;
         }
 
-        .platform-header {
-            padding: 20px;
-            background: var(--header-bg);
-            border-bottom: 1px solid var(--border-color);
+        .hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(circle, rgba(88,166,255,0.07) 1px, transparent 1px);
+            background-size: 22px 22px;
+            mask-image: radial-gradient(ellipse 80% 80% at 100% 0%, black 20%, transparent 70%);
+            -webkit-mask-image: radial-gradient(ellipse 80% 80% at 100% 0%, black 20%, transparent 70%);
+            pointer-events: none;
         }
 
-        .platform-title {
+        @media (prefers-color-scheme: light) {
+            .hero::before {
+                background-image: radial-gradient(circle, rgba(9,105,218,0.06) 1px, transparent 1px);
+            }
+        }
+
+        .hero-row {
             display: flex;
+            align-items: flex-start;
             justify-content: space-between;
+            gap: 12px;
+            position: relative;
+        }
+
+        .hero-id {
+            display: flex;
             align-items: center;
-            margin-bottom: 8px;
+            gap: 13px;
+            min-width: 0;
         }
 
-        .platform-name {
-            font-size: 18px;
-            font-weight: 600;
+        .logo {
+            width: 53px; height: 53px;
+            flex-shrink: 0;
+            color: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .logo svg { width: 53px; height: 53px; display: block; }
+        .logo a {
+            display: flex; align-items: center; justify-content: center;
+            color: inherit; text-decoration: none;
         }
 
-        .platform-version {
-            font-size: 13px;
-            color: var(--text-muted);
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            background: var(--bg-color);
-            padding: 4px 10px;
-            border-radius: 6px;
-            border: 1px solid var(--border-color);
+        .names { min-width: 0; }
+
+        .brand {
+            font-size: 20px;
+            font-weight: 650;
+            color: var(--text);
+            line-height: 1.25;
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .brand a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .brand a:hover {
+            text-decoration: underline;
+            text-underline-offset: 3px;
         }
 
-        .platform-description {
-            color: var(--text-muted);
+        .impl-name {
+            font-family: var(--font-mono);
             font-size: 14px;
+            color: var(--muted);
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .platform-header .badge-list {
-            margin: 8px 0;
+        .vpill {
+            flex-shrink: 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--muted);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 3px 8px;
+            white-space: nowrap;
+            align-self: flex-start;
+            margin-top: 2px;
         }
 
-        .platform-header .badge {
-            font-size: 12px;
-            padding: 4px 8px;
-        }
-
-        .section {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .section:last-child {
-            border-bottom: none;
-        }
-
-        .section-title {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-            margin-bottom: 12px;
-        }
-
-        .badge-list {
+        .tags {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 5px;
+            margin-top: 12px;
+            position: relative;
         }
 
-        .badge {
-            display: inline-block;
-            padding: 6px 12px;
-            background: var(--badge-bg);
-            color: var(--badge-text);
-            border-radius: 6px;
-            font-size: 13px;
+        .tag {
+            font-size: 9.5px;
             font-weight: 500;
+            color: var(--accent);
+            background: var(--accent-bg);
+            border: 1px solid var(--accent-border);
+            border-radius: 20px;
+            padding: 2px 7px;
         }
 
-        .feature-list {
+        /* Sections */
+        .sec {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            width: 100%;
+        }
+        .sec:last-child { border-bottom: none; }
+
+        /* Tabs */
+        .tab-bar {
             display: flex;
-            flex-direction: column;
-            gap: 8px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 14px;
         }
 
-        .feature-item {
+        .tab-btn {
+            padding: 7px 14px;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--muted);
+            border: none;
+            background: transparent;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            margin-bottom: -1px;
+            transition: color .15s, border-color .15s;
+        }
+        .tab-btn.active {
+            color: var(--text);
+            border-bottom-color: var(--accent);
+        }
+        .tab-btn:hover:not(.active) { color: var(--text-secondary); }
+
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* Description / welcome text */
+        .desc-text {
+            font-size: 13.5px;
+            color: var(--text-secondary);
+            line-height: 1.72;
+            max-width: 640px;
+        }
+        .desc-text p { margin: 0 0 10px; }
+        .desc-text p:last-child { margin-bottom: 0; }
+        .desc-text strong { color: var(--text); font-weight: 600; }
+        .desc-text em { font-style: italic; }
+        .desc-text code {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 1px 5px;
+            color: var(--text);
+        }
+        .desc-text a { color: var(--accent); text-underline-offset: 2px; }
+
+        /* Headings — # → h3, ## → h4, ### → h5 */
+        .desc-text h3 {
+            font-size: 15px; font-weight: 700; color: var(--text);
+            margin: 22px 0 8px; padding-bottom: 7px;
+            border-bottom: 1px solid var(--border);
+            letter-spacing: -0.015em; line-height: 1.3;
+        }
+        .desc-text h3:first-child { margin-top: 0; }
+        .desc-text h4 {
+            font-size: 13px; font-weight: 600; color: var(--text);
+            margin: 18px 0 5px; line-height: 1.4;
+        }
+        .desc-text h5 {
+            font-size: 10.5px; font-weight: 700; color: var(--muted);
+            margin: 14px 0 5px;
+            text-transform: uppercase; letter-spacing: 0.07em;
+        }
+
+        /* Lists */
+        .desc-text ul, .desc-text ol { padding-left: 20px; margin: 4px 0 10px; }
+        .desc-text li { margin: 4px 0; line-height: 1.6; }
+        .desc-text li + li { margin-top: 2px; }
+
+        /* Tables */
+        .desc-text .tbl-wrap { overflow-x: auto; margin: 10px 0 14px; border-radius: 6px; border: 1px solid var(--border); }
+        .desc-text table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        .desc-text th {
+            padding: 7px 12px; background: var(--surface-2);
+            font-weight: 600; font-size: 11px; text-align: left;
+            color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+        .desc-text td {
+            padding: 6px 12px; border-bottom: 1px solid var(--border);
+            vertical-align: top; color: var(--text-secondary);
+        }
+        .desc-text tr:last-child td { border-bottom: none; }
+
+        /* Code blocks */
+        .desc-text pre {
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 13px 15px; overflow-x: auto;
+            margin: 8px 0 14px; font-family: var(--font-mono);
+            font-size: 11.5px; line-height: 1.6;
+        }
+        .desc-text pre code { background: none; border: none; padding: 0; font-size: inherit; }
+
+        /* HR */
+        .desc-text hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+        .sec-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 11px;
+        }
+
+        /* Toolkits tab */
+        .tk-entry {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border);
+            max-width: 640px;
+        }
+        .tk-entry:first-child { padding-top: 2px; }
+        .tk-entry:last-child { border-bottom: none; }
+
+        .tk-entry-icon {
+            width: 36px; height: 36px;
+            flex-shrink: 0;
+            color: var(--accent);
+            background: var(--accent-bg);
+            border: 1px solid var(--accent-border);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .tk-entry-icon svg { width: 20px; height: 20px; display: block; }
+
+        .tk-entry-body { min-width: 0; padding-top: 1px; }
+
+        .tk-entry-name {
+            font-size: 13.5px;
+            font-weight: 650;
+            color: var(--text);
+            margin-bottom: 4px;
+            letter-spacing: -0.01em;
+        }
+
+        .tk-entry-desc {
+            font-size: 12.5px;
+            color: var(--muted);
+            line-height: 1.65;
+        }
+
+        /* Capabilities */
+        #feat-list { max-width: 640px; }
+
+        .feat-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .feat-item:last-child { border-bottom: none; }
+
+        .feat-dot-wrap { padding-top: 3px; flex-shrink: 0; }
+
+        .feat-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+        }
+        .feat-dot.on {
+            background: var(--success);
+            box-shadow: 0 0 0 3px var(--success-bg);
+        }
+        .feat-dot.off {
+            background: transparent;
+            border: 1.5px solid var(--border);
+        }
+
+        .feat-detail { min-width: 0; }
+
+        .feat-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 2px;
+        }
+        .feat-title.off { color: var(--muted); }
+
+        .feat-desc {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        /* Personas */
+        .persona-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+        }
+
+        .persona {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 14px;
+            gap: 7px;
+            padding: 5px 12px 5px 9px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
         }
 
-        .feature-icon {
-            width: 20px;
-            height: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-        }
-
-        .feature-enabled .feature-icon {
-            color: var(--success-color);
-        }
-
-        .feature-disabled .feature-icon {
-            color: var(--text-muted);
-        }
-
-        .feature-disabled .feature-name {
-            color: var(--text-muted);
+        .persona-icon {
+            width: 15px; height: 15px;
+            color: var(--muted);
+            flex-shrink: 0;
         }
 
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div id="loading" class="loading">Loading platform info...</div>
+    <div id="loading" class="loading">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>Loading platform info…</span>
+    </div>
 
-        <div id="content" class="platform-card hidden">
-            <div class="platform-header">
-                <div class="platform-title">
-                    <span id="platform-name" class="platform-name">—</span>
-                    <span id="platform-version" class="platform-version">—</span>
+    <div id="content" class="hidden">
+        <!-- Hero: three-tier identity -->
+        <div class="hero">
+            <div class="hero-row">
+                <div class="hero-id">
+                    <div id="logo" class="logo"></div>
+                    <div class="names">
+                        <div id="brand" class="brand"></div>
+                        <div id="impl-name" class="impl-name"></div>
+                    </div>
                 </div>
-                <div id="platform-tags" class="badge-list hidden"></div>
-                <div id="platform-description" class="platform-description">—</div>
+                <div id="vpill" class="vpill">—</div>
             </div>
+            <div id="tags" class="tags hidden"></div>
+        </div>
 
-            <div class="section">
-                <div class="section-title">Toolkits</div>
-                <div id="toolkits" class="badge-list"></div>
+        <!-- Tabs: Overview / Toolkits / Capabilities / Agent Instructions -->
+        <div class="sec">
+            <div id="tab-bar" class="tab-bar">
+                <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
+                <button class="tab-btn" data-tab="toolkits" onclick="showTab('toolkits')">Toolkits</button>
+                <button class="tab-btn" data-tab="capabilities" onclick="showTab('capabilities')">Capabilities</button>
+                <button class="tab-btn hidden" id="tab-btn-agent-instructions" data-tab="agent-instructions" onclick="showTab('agent-instructions')">Agent Instructions</button>
             </div>
+            <div id="tab-overview" class="tab-pane active">
+                <div id="desc" class="desc-text"></div>
+            </div>
+            <div id="tab-toolkits" class="tab-pane">
+                <div id="tk-list"></div>
+            </div>
+            <div id="tab-capabilities" class="tab-pane">
+                <div id="feat-list"></div>
+            </div>
+            <div id="tab-agent-instructions" class="tab-pane">
+                <div id="agent-instructions" class="desc-text"></div>
+            </div>
+        </div>
 
-            <div class="section">
-                <div class="section-title">Features</div>
-                <div id="features" class="feature-list"></div>
-            </div>
+        <!-- Personas -->
+        <div id="personas-sec" class="sec hidden">
+            <div class="sec-label">Personas</div>
+            <div id="persona-row" class="persona-row"></div>
         </div>
     </div>
 
-    <script>
-        // MCP Apps Protocol Implementation
-        let requestId = 1;
+<script>
+    // Config injected server-side (or dev defaults)
+    var CFG = (function() {
+        try { return JSON.parse(document.getElementById('app-config').textContent); }
+        catch (e) { return {}; }
+    }());
 
-        function sendToHost(message) {
-            window.parent.postMessage(message, '*');
+    // Default logo SVG: abstract data-graph mark
+    var DEFAULT_LOGO = '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        + '<circle cx="20" cy="20" r="4.5" fill="currentColor" opacity=".95"/>'
+        + '<circle cx="6"  cy="11" r="3"   fill="currentColor" opacity=".65"/>'
+        + '<circle cx="34" cy="11" r="3"   fill="currentColor" opacity=".65"/>'
+        + '<circle cx="6"  cy="29" r="3"   fill="currentColor" opacity=".45"/>'
+        + '<circle cx="34" cy="29" r="3"   fill="currentColor" opacity=".45"/>'
+        + '<circle cx="20" cy="4"  r="2.2" fill="currentColor" opacity=".55"/>'
+        + '<circle cx="20" cy="36" r="2.2" fill="currentColor" opacity=".35"/>'
+        + '<line x1="20" y1="20" x2="6"  y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>'
+        + '<line x1="20" y1="20" x2="34" y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>'
+        + '<line x1="20" y1="20" x2="6"  y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>'
+        + '<line x1="20" y1="20" x2="34" y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>'
+        + '<line x1="20" y1="20" x2="20" y2="4"  stroke="currentColor" stroke-width="1.4" opacity=".28"/>'
+        + '<line x1="20" y1="20" x2="20" y2="36" stroke="currentColor" stroke-width="1.4" opacity=".18"/>'
+        + '</svg>';
+
+    // Toolkit icons (18×18)
+    var TK_ICONS = {
+        trino: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            + '<ellipse cx="9" cy="4.5" rx="6" ry="2.2" stroke="currentColor" stroke-width="1.3"/>'
+            + '<path d="M3 4.5v4.5c0 1.2 2.69 2.2 6 2.2s6-1 6-2.2V4.5" stroke="currentColor" stroke-width="1.3"/>'
+            + '<path d="M3 9v4.5c0 1.2 2.69 2.2 6 2.2s6-1 6-2.2V9" stroke="currentColor" stroke-width="1.3"/>'
+            + '</svg>',
+        datahub: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            + '<circle cx="3.5"  cy="9"  r="2.2" stroke="currentColor" stroke-width="1.3"/>'
+            + '<circle cx="14.5" cy="4"  r="2.2" stroke="currentColor" stroke-width="1.3"/>'
+            + '<circle cx="14.5" cy="14" r="2.2" stroke="currentColor" stroke-width="1.3"/>'
+            + '<circle cx="9" cy="9" r="1.5" fill="currentColor" opacity=".5"/>'
+            + '<line x1="5.6"  y1="9"   x2="7.5"  y2="9"   stroke="currentColor" stroke-width="1.3"/>'
+            + '<line x1="10.3" y1="8.1" x2="12.4" y2="5.5"  stroke="currentColor" stroke-width="1.3"/>'
+            + '<line x1="10.3" y1="9.9" x2="12.4" y2="12.5" stroke="currentColor" stroke-width="1.3"/>'
+            + '</svg>',
+        s3: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            + '<path d="M9 2L16 5.5v7L9 16 2 12.5v-7L9 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+            + '<path d="M2 5.5L9 9l7-3.5" stroke="currentColor" stroke-width="1.3"/>'
+            + '<line x1="9" y1="9" x2="9" y2="16" stroke="currentColor" stroke-width="1.3"/>'
+            + '</svg>',
+        'default': '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            + '<rect x="2.5" y="2.5" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.3"/>'
+            + '<line x1="2.5" y1="7" x2="15.5" y2="7"  stroke="currentColor" stroke-width="1.3"/>'
+            + '<line x1="7"   y1="7" x2="7"    y2="15.5" stroke="currentColor" stroke-width="1.3"/>'
+            + '</svg>'
+    };
+
+    // Default toolkit descriptions — dry technical facts.
+    // Override per-toolkit via config: toolkits.<name>.description
+    var TK_DEFAULTS = {
+        trino:      'Distributed SQL query engine. Federated queries across catalogs via ANSI SQL. Supports catalog/schema/table addressing.',
+        datahub:    'Metadata platform. Provides dataset search, schema inspection, ownership, tags, glossary terms, lineage, and quality scores.',
+        s3:         'S3-compatible object storage. Supports bucket and object listing, retrieval, metadata inspection, and presigned URL generation.',
+        opensearch: 'Distributed search and analytics engine. Supports full-text search and aggregations via SQL and JSON query DSL.',
+        knowledge:  'Insight capture and catalog write-back. Records domain knowledge observations and applies them to the metadata layer.'
+    };
+
+    var FEAT_DESCRIPTIONS = {
+        semantic_enrichment: 'Enriches Trino query results with business context from the data catalog — owners, tags, glossary terms, and deprecation warnings.',
+        query_enrichment: 'Adds query availability, row counts, and example SQL to catalog search results so you can go from discovery to querying in one step.',
+        storage_enrichment: 'Enriches S3 object listings and results with catalog metadata and lineage context.',
+        audit_logging: 'Records every tool call with user identity, duration, and result status for compliance tracking and debugging.',
+        knowledge_capture: 'Allows agents and users to capture and persist data insights directly back to the catalog during a session.'
+    };
+
+    var PERSON_ICON = '<svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        + '<circle cx="7.5" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.2"/>'
+        + '<path d="M1.5 13c0-3.31 2.69-6 6-6s6 2.69 6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
+        + '</svg>';
+
+    // MCP Protocol
+    var rid = 1;
+    var ready = false;
+
+    function send(msg) { window.parent.postMessage(msg, '*'); }
+
+    window.addEventListener('message', function(e) {
+        var m = e.data;
+        if (!m || typeof m !== 'object') { return; }
+        if (m.id === 1 && m.result !== undefined) {
+            send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+            if (!ready) { ready = true; callTool(); }
+            return;
         }
+        if (m.method === 'ui/notifications/tool-result' && m.params) {
+            onResult(m.params);
+        }
+    });
 
-        function handleMessage(msg) {
-            try {
-                if (!msg || typeof msg !== 'object') return;
+    send({
+        jsonrpc: '2.0', id: rid++, method: 'ui/initialize',
+        params: {
+            protocolVersion: '2025-01-09',
+            appInfo: { name: 'Platform Info', version: '2.0.0' },
+            appCapabilities: { availableDisplayModes: ['inline', 'pip'] }
+        }
+    });
 
-                // Handle initialization response
-                if (msg.id && msg.result !== undefined) {
-                    if (msg.id === 1) {
-                        sendToHost({
-                            jsonrpc: '2.0',
-                            method: 'ui/notifications/initialized',
-                            params: {}
-                        });
-                    }
-                    return;
+    function callTool() {
+        send({ jsonrpc: '2.0', id: rid++, method: 'ui/call-tool',
+               params: { name: 'platform_info', arguments: {} } });
+    }
+
+    function onResult(result) {
+        try {
+            var text = result.content && result.content[0] && result.content[0].text;
+            if (!text) { showErr('No data received'); return; }
+            renderInfo(JSON.parse(text));
+        } catch (e) {
+            console.error('[MCP-APP] parse error:', e);
+            showErr('Failed to parse platform info');
+        }
+    }
+
+    // Markdown renderer: headings, lists, tables, code blocks, inline formatting
+    function renderMd(text) {
+        if (!text) { return ''; }
+
+        // Apply inline formatting to already-escaped text
+        function fmt(s) {
+            return s
+                .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+                .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+                .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+                .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+                .replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g,
+                    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        }
+        function inline(s) { return fmt(esc(s)); }
+
+        var lines = text.split('\n');
+        var out = [];
+        var i = 0;
+        while (i < lines.length) {
+            var line = lines[i];
+
+            // Fenced code block
+            if (/^```/.test(line)) {
+                var code = [];
+                i++;
+                while (i < lines.length && !/^```/.test(lines[i])) {
+                    code.push(esc(lines[i]));
+                    i++;
                 }
+                out.push('<pre><code>' + code.join('\n') + '</code></pre>');
+                i++;
+                continue;
+            }
 
-                // Handle tool result
-                if (msg.method === 'ui/notifications/tool-result' && msg.params) {
-                    handleToolResult(msg.params);
+            // Horizontal rule
+            if (/^---+\s*$/.test(line)) {
+                out.push('<hr>');
+                i++;
+                continue;
+            }
+
+            // Headings (#→h3, ##→h4, ###→h5)
+            var hm = line.match(/^(#{1,3})\s+(.+)/);
+            if (hm) {
+                var lvl = hm[1].length + 2;
+                out.push('<h' + lvl + '>' + inline(hm[2]) + '</h' + lvl + '>');
+                i++;
+                continue;
+            }
+
+            // Table (needs separator row on next line)
+            if (/^\|/.test(line) && i + 1 < lines.length && /^\|[-| :]+\|/.test(lines[i + 1])) {
+                var headers = line.split('|').slice(1, -1);
+                i += 2;
+                var rows = [];
+                while (i < lines.length && /^\|/.test(lines[i])) {
+                    var cells = lines[i].split('|').slice(1, -1);
+                    rows.push('<tr>' + cells.map(function(c) {
+                        return '<td>' + inline(c.trim()) + '</td>';
+                    }).join('') + '</tr>');
+                    i++;
                 }
-            } catch (e) {
-                console.error('[MCP-APP] Message handling error:', e);
+                out.push('<div class="tbl-wrap"><table><thead><tr>'
+                    + headers.map(function(h) { return '<th>' + inline(h.trim()) + '</th>'; }).join('')
+                    + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>');
+                continue;
             }
-        }
 
-        window.addEventListener('message', (event) => {
-            if (event.data) handleMessage(event.data);
-        });
-
-        // Send initialization request
-        sendToHost({
-            jsonrpc: '2.0',
-            id: requestId++,
-            method: 'ui/initialize',
-            params: {
-                protocolVersion: '2025-01-09',
-                appInfo: { name: 'Platform Info', version: '1.0.0' },
-                appCapabilities: {
-                    availableDisplayModes: ['inline', 'pip']
+            // Unordered list
+            if (/^[-*] /.test(line)) {
+                var ul = [];
+                while (i < lines.length && /^[-*] /.test(lines[i])) {
+                    ul.push('<li>' + inline(lines[i].replace(/^[-*] /, '')) + '</li>');
+                    i++;
                 }
+                out.push('<ul>' + ul.join('') + '</ul>');
+                continue;
             }
-        });
 
-        // DOM elements
-        const loadingEl = document.getElementById('loading');
-        const contentEl = document.getElementById('content');
-        const platformNameEl = document.getElementById('platform-name');
-        const platformVersionEl = document.getElementById('platform-version');
-        const platformTagsEl = document.getElementById('platform-tags');
-        const platformDescriptionEl = document.getElementById('platform-description');
-        const toolkitsEl = document.getElementById('toolkits');
-        const featuresEl = document.getElementById('features');
-
-        function handleToolResult(result) {
-            try {
-                const text = result.content?.[0]?.text;
-                if (!text) {
-                    showError('No data received');
-                    return;
+            // Ordered list
+            if (/^\d+\. /.test(line)) {
+                var ol = [];
+                while (i < lines.length && /^\d+\. /.test(lines[i])) {
+                    ol.push('<li>' + inline(lines[i].replace(/^\d+\. /, '')) + '</li>');
+                    i++;
                 }
-                const data = JSON.parse(text);
-                displayPlatformInfo(data);
-            } catch (e) {
-                console.error('[MCP-APP] Error parsing tool result:', e);
-                showError('Failed to parse platform info');
-            }
-        }
-
-        function displayPlatformInfo(data) {
-            loadingEl.classList.add('hidden');
-
-            // Platform header
-            platformNameEl.textContent = data.name || 'Unknown Platform';
-            platformVersionEl.textContent = data.version ? `v${data.version}` : '—';
-
-            // Platform tags
-            if (data.tags && data.tags.length > 0) {
-                platformTagsEl.innerHTML = data.tags
-                    .map(tag => `<span class="badge">${escapeHtml(tag)}</span>`)
-                    .join('');
-                platformTagsEl.classList.remove('hidden');
-            } else {
-                platformTagsEl.classList.add('hidden');
+                out.push('<ol>' + ol.join('') + '</ol>');
+                continue;
             }
 
-            platformDescriptionEl.textContent = data.description || '';
+            // Empty line
+            if (line.trim() === '') { i++; continue; }
 
-            // Toolkits
-            if (data.toolkits && Array.isArray(data.toolkits)) {
-                toolkitsEl.innerHTML = data.toolkits
-                    .map(toolkit => `<span class="badge">${escapeHtml(toolkit)}</span>`)
-                    .join('');
-            } else {
-                toolkitsEl.innerHTML = '<span class="badge">none</span>';
+            // Paragraph (gather consecutive non-special lines)
+            var para = [];
+            while (i < lines.length && lines[i].trim() !== ''
+                && !/^[#`|]/.test(lines[i]) && !/^---/.test(lines[i])
+                && !/^[-*] /.test(lines[i]) && !/^\d+\. /.test(lines[i])) {
+                para.push(lines[i]);
+                i++;
             }
-
-            // Features
-            if (data.features && typeof data.features === 'object') {
-                featuresEl.innerHTML = Object.entries(data.features)
-                    .map(([name, enabled]) => {
-                        const displayName = formatFeatureName(name);
-                        const icon = enabled ? '&#10003;' : '&#10005;';
-                        const stateClass = enabled ? 'feature-enabled' : 'feature-disabled';
-                        return `
-                            <div class="feature-item ${stateClass}">
-                                <span class="feature-icon">${icon}</span>
-                                <span class="feature-name">${escapeHtml(displayName)}</span>
-                            </div>
-                        `;
-                    })
-                    .join('');
-            } else {
-                featuresEl.innerHTML = '<div class="feature-item">No features configured</div>';
+            if (para.length) {
+                out.push('<p>' + inline(para.join('\n')).replace(/\n/g, '<br>') + '</p>');
             }
+        }
+        return out.join('');
+    }
 
-            contentEl.classList.remove('hidden');
-            notifySizeChanged();
+    // Tab switching
+    function showTab(name) {
+        document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+        document.querySelectorAll('.tab-btn').forEach(function(t) { t.classList.remove('active'); });
+        var pane = document.getElementById('tab-' + name);
+        if (pane) { pane.classList.add('active'); }
+        var btn = document.querySelector('[data-tab="' + name + '"]');
+        if (btn) { btn.classList.add('active'); }
+    }
+
+    function renderInfo(d) {
+        var brandUrl  = CFG.brand_url  || '';
+        var brandName = CFG.brand_name || 'MCP Data Platform';
+        var logoSvg   = CFG.logo_svg   || DEFAULT_LOGO;
+
+        // Logo — wrapped in link if brand_url is set
+        var logoEl = document.getElementById('logo');
+        if (brandUrl) {
+            logoEl.innerHTML = '<a href="' + esc(brandUrl) + '" target="_blank" rel="noopener noreferrer">'
+                + logoSvg + '</a>';
+        } else {
+            logoEl.innerHTML = logoSvg;
         }
 
-        function formatFeatureName(name) {
-            return name
-                .replace(/_/g, ' ')
-                .replace(/([a-z])([A-Z])/g, '$1 $2')
-                .replace(/\b\w/g, c => c.toUpperCase());
+        // Brand name — wrapped in link if brand_url is set
+        var brandEl = document.getElementById('brand');
+        if (brandUrl) {
+            brandEl.innerHTML = '<a href="' + esc(brandUrl) + '" target="_blank" rel="noopener noreferrer">'
+                + esc(brandName) + '</a>';
+        } else {
+            brandEl.textContent = brandName;
         }
 
-        function showError(message) {
-            loadingEl.textContent = message;
+        // Implementation name: operator's server.name, always shown
+        document.getElementById('impl-name').textContent = d.name || '';
+
+        // Version pill
+        document.getElementById('vpill').textContent = d.version ? ('v' + d.version) : '—';
+
+        // Tags
+        if (d.tags && d.tags.length) {
+            var tagEl = document.getElementById('tags');
+            tagEl.innerHTML = d.tags.map(function(t) {
+                return '<span class="tag">' + esc(t) + '</span>';
+            }).join('');
+            tagEl.classList.remove('hidden');
         }
 
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
+        // Description rendered as Markdown
+        document.getElementById('desc').innerHTML = renderMd(d.description || '');
+
+        // Agent Instructions tab — only shown when field is present
+        if (d.agent_instructions) {
+            document.getElementById('agent-instructions').innerHTML = renderMd(d.agent_instructions);
+            document.getElementById('tab-btn-agent-instructions').classList.remove('hidden');
         }
 
-        function notifySizeChanged() {
-            sendToHost({
-                jsonrpc: '2.0',
-                method: 'ui/notifications/size-changed',
-                params: {
-                    width: document.body.scrollWidth,
-                    height: document.body.scrollHeight
-                }
-            });
+        // Toolkits (rendered into tab)
+        var tkEl = document.getElementById('tk-list');
+        if (d.toolkits && d.toolkits.length) {
+            var descMap = d.toolkit_descriptions || {};
+            tkEl.innerHTML = d.toolkits.map(function(tk) {
+                var key = tk.toLowerCase();
+                var ic = TK_ICONS[key] || TK_ICONS['default'];
+                var label = tk.charAt(0).toUpperCase() + tk.slice(1);
+                var desc = descMap[key] || descMap[tk] || TK_DEFAULTS[key] || '';
+                return '<div class="tk-entry">'
+                    + '<div class="tk-entry-icon">' + ic + '</div>'
+                    + '<div class="tk-entry-body">'
+                    + '<div class="tk-entry-name">' + esc(label) + '</div>'
+                    + (desc ? '<div class="tk-entry-desc">' + esc(desc) + '</div>' : '')
+                    + '</div>'
+                    + '</div>';
+            }).join('');
+        } else {
+            tkEl.innerHTML = '<span style="color:var(--muted);font-size:13px">None configured</span>';
         }
-    </script>
+
+        // Capabilities (rendered into tab)
+        var fEl = document.getElementById('feat-list');
+        if (d.features && typeof d.features === 'object') {
+            fEl.innerHTML = Object.keys(d.features).map(function(k) {
+                var on = d.features[k];
+                var label = k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                var desc = FEAT_DESCRIPTIONS[k] || '';
+                return '<div class="feat-item">'
+                    + '<div class="feat-dot-wrap"><div class="feat-dot ' + (on ? 'on' : 'off') + '"></div></div>'
+                    + '<div class="feat-detail">'
+                    + '<div class="feat-title ' + (on ? '' : 'off') + '">' + esc(label) + '</div>'
+                    + (desc ? '<div class="feat-desc">' + esc(desc) + '</div>' : '')
+                    + '</div>'
+                    + '</div>';
+            }).join('');
+        } else {
+            fEl.innerHTML = '<span style="color:var(--muted);font-size:13px">None configured</span>';
+        }
+
+        // Personas
+        if (d.personas && typeof d.personas === 'object' && Object.keys(d.personas).length) {
+            var pEl = document.getElementById('persona-row');
+            pEl.innerHTML = Object.keys(d.personas).map(function(k) {
+                var p = d.personas[k];
+                var label = (p && p.display_name)
+                    ? p.display_name
+                    : k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                return '<div class="persona">'
+                    + '<span class="persona-icon">' + PERSON_ICON + '</span>'
+                    + '<span>' + esc(label) + '</span>'
+                    + '</div>';
+            }).join('');
+            document.getElementById('personas-sec').classList.remove('hidden');
+        }
+
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+
+        send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
+               params: { width: document.body.scrollWidth, height: document.body.scrollHeight } });
+    }
+
+    function showErr(msg) {
+        document.getElementById('loading').innerHTML =
+            '<span style="color:var(--muted)">' + esc(msg) + '</span>';
+    }
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+</script>
 </body>
 </html>

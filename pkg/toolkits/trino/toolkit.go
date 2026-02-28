@@ -48,6 +48,7 @@ type Config struct {
 	ReadOnly       bool                        `yaml:"read_only"`
 	ConnectionName string                      `yaml:"connection_name"`
 	Description    string                      `yaml:"description"` // Human-readable description of this connection's purpose
+	Titles         map[string]string           `yaml:"titles"`
 	Descriptions   map[string]string           `yaml:"descriptions"`
 	Annotations    map[string]AnnotationConfig `yaml:"annotations"`
 
@@ -275,6 +276,9 @@ func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired
 
 	if cfg.ReadOnly {
 		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
+	}
+	if len(cfg.Titles) > 0 {
+		opts = append(opts, trinotools.WithTitles(toTrinoToolNames(cfg.Titles)))
 	}
 	if len(cfg.Descriptions) > 0 {
 		opts = append(opts, trinotools.WithDescriptions(toTrinoToolNames(cfg.Descriptions)))

@@ -915,6 +915,15 @@ func TestBuildToolkitOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("titles adds option", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{
+			Titles: map[string]string{"trino_query": "Run Query"},
+		}, nil, nil)
+		if len(opts) != 1 {
+			t.Errorf("expected 1 option, got %d", len(opts))
+		}
+	})
+
 	t.Run("descriptions and annotations add options", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Descriptions: map[string]string{"trino_query": "custom"},
@@ -949,12 +958,13 @@ func TestBuildToolkitOptions(t *testing.T) {
 		})
 		opts := buildToolkitOptions(Config{
 			ReadOnly:        true,
+			Titles:          map[string]string{"a": "Title A"},
 			Descriptions:    map[string]string{"a": "b"},
 			Annotations:     map[string]AnnotationConfig{"a": {}},
 			ProgressEnabled: true,
 		}, em, cr)
-		if len(opts) != 6 { //nolint:mnd // 6 option types: readonly + descs + annots + connRequired + progress + elicit
-			t.Errorf("expected 6 options, got %d", len(opts))
+		if len(opts) != 7 { //nolint:mnd // 7 option types: readonly + titles + descs + annots + connRequired + progress + elicit
+			t.Errorf("expected 7 options, got %d", len(opts))
 		}
 	})
 }

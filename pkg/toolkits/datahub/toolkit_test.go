@@ -441,6 +441,19 @@ func TestAnnotationConfigToMCP(t *testing.T) {
 	})
 }
 
+func TestCreateToolkit_WithTitles(t *testing.T) {
+	cfg := Config{
+		URL:          dhTestLocalhostURL,
+		DefaultLimit: dhTestDefLimit,
+		MaxLimit:     dhTestDefMaxLimit,
+		Titles:       map[string]string{"datahub_search": "Search Catalog"},
+	}
+	tk := createToolkit(nil, cfg)
+	if tk == nil {
+		t.Fatal("expected non-nil toolkit")
+	}
+}
+
 func TestToolkit_RegisterTools(_ *testing.T) {
 	tk := newTestDatahubToolkit()
 	// Should not panic with nil server

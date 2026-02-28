@@ -203,8 +203,8 @@ func TestApplyDefaults(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)
 
-	if cfg.Server.Name != "mcp-data-platform" {
-		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "mcp-data-platform")
+	if cfg.Server.Name != defaultServerName {
+		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, defaultServerName)
 	}
 	if cfg.Server.Transport != "stdio" {
 		t.Errorf("Server.Transport = %q, want %q", cfg.Server.Transport, "stdio")
