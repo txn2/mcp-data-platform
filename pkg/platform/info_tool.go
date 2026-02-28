@@ -14,16 +14,16 @@ import (
 
 // Info contains information about the platform deployment.
 type Info struct {
-	Name                 string            `json:"name"`
-	Version              string            `json:"version"`
-	Description          string            `json:"description,omitempty"`
-	Tags                 []string          `json:"tags,omitempty"`
-	AgentInstructions    string            `json:"agent_instructions,omitempty"`
-	Toolkits             []string          `json:"toolkits"`
-	ToolkitDescriptions  map[string]string `json:"toolkit_descriptions,omitempty"`
-	Persona              *PersonaInfo      `json:"persona,omitempty"`
-	Features             Features          `json:"features"`
-	ConfigVersion        ConfigVersionInfo `json:"config_version"`
+	Name                string            `json:"name"`
+	Version             string            `json:"version"`
+	Description         string            `json:"description,omitempty"`
+	Tags                []string          `json:"tags,omitempty"`
+	AgentInstructions   string            `json:"agent_instructions,omitempty"`
+	Toolkits            []string          `json:"toolkits"`
+	ToolkitDescriptions map[string]string `json:"toolkit_descriptions,omitempty"`
+	Persona             *PersonaInfo      `json:"persona,omitempty"`
+	Features            Features          `json:"features"`
+	ConfigVersion       ConfigVersionInfo `json:"config_version"`
 }
 
 // ConfigVersionInfo provides information about the config API version.
@@ -141,24 +141,30 @@ func (p *Platform) buildInfoToolDescription() string {
 		"Call this first to understand what data and capabilities are available."
 }
 
+// collectToolkits returns the list of enabled toolkit names and any
+// operator-provided descriptions extracted from the toolkit config map.
+func (p *Platform) collectToolkits() (names []string, descriptions map[string]string) {
+	for kind, cfg := range p.config.Toolkits {
+		names = append(names, kind)
+		m, ok := cfg.(map[string]any)
+		if !ok {
+			continue
+		}
+		desc, ok := m["description"].(string)
+		if !ok || desc == "" {
+			continue
+		}
+		if descriptions == nil {
+			descriptions = make(map[string]string)
+		}
+		descriptions[kind] = desc
+	}
+	return names, descriptions
+}
+
 // handleInfo handles the platform_info tool call.
 func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
-	// Collect enabled toolkits and any operator-provided descriptions
-	var toolkits []string
-	var toolkitDescriptions map[string]string
-	if p.config.Toolkits != nil {
-		for kind, cfg := range p.config.Toolkits {
-			toolkits = append(toolkits, kind)
-			if m, ok := cfg.(map[string]any); ok {
-				if desc, ok := m["description"].(string); ok && desc != "" {
-					if toolkitDescriptions == nil {
-						toolkitDescriptions = make(map[string]string)
-					}
-					toolkitDescriptions[kind] = desc
-				}
-			}
-		}
-	}
+	toolkits, toolkitDescriptions := p.collectToolkits()
 
 	// Resolve the caller's persona: prefer the one set by auth middleware,
 	// fall back to the configured default.
