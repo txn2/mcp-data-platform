@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,8 +149,18 @@ func extractPath(requestURI, baseURI string) string {
 	return strings.TrimPrefix(requestURI, baseURI)
 }
 
-// readAsset reads a file from the app's filesystem assets with path traversal protection.
+// readAsset reads a file from the app's assets with path traversal protection.
+// When app.Content is set, assets are served from the embedded filesystem.
+// Otherwise, assets are served from app.AssetsPath on the local filesystem.
 func readAsset(app *AppDefinition, filename string) ([]byte, error) {
+	if app.Content != nil {
+		data, err := fs.ReadFile(app.Content, filename)
+		if err != nil {
+			return nil, ErrAssetNotFound
+		}
+		return data, nil
+	}
+
 	// Build the full path
 	fullPath := filepath.Join(app.AssetsPath, filename)
 

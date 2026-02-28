@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 // testdataDir returns the absolute path to the testdata directory.
@@ -89,6 +90,17 @@ func TestAppDefinition_Validate(t *testing.T) {
 			wantErr: ErrMissingAssetsPath,
 		},
 		{
+			name: "content FS satisfies assets path requirement",
+			app: &AppDefinition{
+				Name:        regTestAppName,
+				ResourceURI: regTestResourceURI,
+				ToolNames:   []string{regTestToolName},
+				Content:     fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
+				EntryPoint:  regTestEntryPoint,
+			},
+			wantErr: nil,
+		},
+		{
 			name: "missing entry point",
 			app: &AppDefinition{
 				Name:        regTestAppName,
@@ -122,6 +134,14 @@ func TestAppDefinition_ValidateAssets(t *testing.T) {
 			name: "valid assets",
 			app: &AppDefinition{
 				AssetsPath: testdata,
+				EntryPoint: regTestEntryPoint,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "content FS skips filesystem checks",
+			app: &AppDefinition{
+				Content:    fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
 				EntryPoint: regTestEntryPoint,
 			},
 			wantErr: nil,
