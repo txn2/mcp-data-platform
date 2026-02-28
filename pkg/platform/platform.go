@@ -50,6 +50,9 @@ const toolkitKindTrino = "trino"
 // minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
 const minSigningKeyLength = 32
 
+// builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
+const builtinPlatformInfoName = "platform-info"
+
 // defaultTrinoPort is the default port for Trino connections.
 const defaultTrinoPort = 8080
 
@@ -709,7 +712,7 @@ func (p *Platform) initMCPApps() error {
 	}
 
 	for appName, appCfg := range p.config.MCPApps.Apps {
-		if appName == "platform-info" {
+		if appName == builtinPlatformInfoName {
 			// Already registered as built-in (possibly with operator branding applied).
 			continue
 		}
@@ -725,16 +728,16 @@ func (p *Platform) initMCPApps() error {
 }
 
 // registerBuiltinPlatformInfo registers the embedded platform-info app.
-// If the operator has a "platform-info" entry in config, branding config is
+// If the operator has a builtinPlatformInfoName entry in config, branding config is
 // merged in; an explicit assets_path overrides the embedded HTML entirely.
 func (p *Platform) registerBuiltinPlatformInfo() error {
-	subFS, err := fs.Sub(apps.PlatformInfo, "platform-info")
+	subFS, err := fs.Sub(apps.PlatformInfo, builtinPlatformInfoName)
 	if err != nil {
-		return fmt.Errorf("platform-info embed: %w", err)
+		return fmt.Errorf("embed %s: %w", builtinPlatformInfoName, err)
 	}
 
 	app := &mcpapps.AppDefinition{
-		Name:        "platform-info",
+		Name:        builtinPlatformInfoName,
 		ToolNames:   []string{"platform_info"},
 		Content:     subFS,
 		EntryPoint:  "index.html",
@@ -742,7 +745,7 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 	}
 
 	// Merge operator config (branding) if present.
-	if cfg, ok := p.config.MCPApps.Apps["platform-info"]; ok {
+	if cfg, ok := p.config.MCPApps.Apps[builtinPlatformInfoName]; ok {
 		if cfg.Config != nil {
 			app.Config = cfg.Config
 		}
@@ -755,15 +758,15 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 
 	if app.AssetsPath != "" {
 		if err := app.ValidateAssets(); err != nil {
-			return fmt.Errorf("app platform-info: %w", err)
+			return fmt.Errorf("app %s: %w", builtinPlatformInfoName, err)
 		}
 	}
 
 	if err := p.mcpAppsRegistry.Register(app); err != nil {
-		return fmt.Errorf("registering platform-info app: %w", err)
+		return fmt.Errorf("registering %s app: %w", builtinPlatformInfoName, err)
 	}
 
-	slog.Info("registered MCP app", "app", "platform-info", "resource_uri", app.ResourceURI)
+	slog.Info("registered MCP app", "app", builtinPlatformInfoName, "resource_uri", app.ResourceURI)
 	return nil
 }
 

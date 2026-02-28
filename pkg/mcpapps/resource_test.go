@@ -549,7 +549,7 @@ func TestReadAsset_EmbeddedFS(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readAsset returned error: %v", err)
 		}
-		if string(content) != string(embeddedContent) {
+		if !bytes.Equal(content, embeddedContent) {
 			t.Errorf("content mismatch: got %q, want %q", content, embeddedContent)
 		}
 	})

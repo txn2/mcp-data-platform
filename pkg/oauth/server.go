@@ -20,6 +20,9 @@ import (
 
 // Token and crypto size constants.
 const (
+	// maxTokenRequestBytes caps the token-endpoint request body to prevent memory exhaustion.
+	maxTokenRequestBytes = 65536 // 64 KB
+
 	// tokenByteLength is the byte length for secure tokens (auth codes, access tokens, refresh tokens).
 	tokenByteLength = 32
 
@@ -493,6 +496,7 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBytes)
 	if err := r.ParseForm(); err != nil {
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "could not parse form")
 		return

@@ -66,7 +66,7 @@ func parseFlags() serverOptions {
 }
 
 func setupSignalHandler() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- root process context; cancel is called in the goroutine below
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -344,7 +344,7 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		preDelay = fallbackPreShutdownDelay
 	}
 
-	go func() {
+	go func() { // #nosec G118 -- ctx is the application-level shutdown context, not a request-scoped context
 		<-ctx.Done()
 
 		// Mark not-ready so K8s load balancer stops sending traffic.

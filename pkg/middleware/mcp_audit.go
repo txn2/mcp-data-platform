@@ -50,8 +50,9 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 				Duration:  duration,
 			})
 
-			// Log asynchronously to not block the response
-			go func() {
+			// Log asynchronously to not block the response; context.Background is
+			// intentional — the audit write must not be canceled when the request ends.
+			go func() { // #nosec G118 -- detached context is required for fire-and-forget audit logging
 				if err := logger.Log(context.Background(), event); err != nil {
 					slog.Error("failed to log audit event",
 						"error", err,
