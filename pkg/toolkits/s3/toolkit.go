@@ -30,6 +30,7 @@ type Config struct {
 	MaxPutSize      int64                       `yaml:"max_put_size"`
 	ConnectionName  string                      `yaml:"connection_name"`
 	BucketPrefix    string                      `yaml:"bucket_prefix"`
+	Titles          map[string]string           `yaml:"titles"`
 	Descriptions    map[string]string           `yaml:"descriptions"`
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
@@ -116,6 +117,9 @@ func createToolkit(client *s3client.Client, cfg Config) *s3tools.Toolkit {
 	}
 	if cfg.MaxPutSize > 0 {
 		opts = append(opts, s3tools.WithMaxPutSize(cfg.MaxPutSize))
+	}
+	if len(cfg.Titles) > 0 {
+		opts = append(opts, s3tools.WithTitles(toS3ToolNames(cfg.Titles)))
 	}
 	if len(cfg.Descriptions) > 0 {
 		opts = append(opts, s3tools.WithDescriptions(toS3ToolNames(cfg.Descriptions)))

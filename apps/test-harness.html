@@ -39,6 +39,11 @@
             font-weight: 500;
         }
         .toolbar button:hover { background: #ff6b6b; }
+        .toolbar button.secondary {
+            background: #0f3460;
+            border-color: #0f3460;
+        }
+        .toolbar button.secondary:hover { background: #1a4a7a; }
         .main {
             flex: 1;
             display: flex;
@@ -50,13 +55,33 @@
             border-right: 1px solid #0f3460;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
-        .editor-panel h3 {
-            padding: 12px;
+        .panel-tabs {
+            display: flex;
             background: #0f3460;
-            font-size: 14px;
+            border-bottom: 1px solid #0f3460;
         }
-        .editor-panel textarea {
+        .panel-tab {
+            padding: 10px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            color: #aaa;
+            border-bottom: 2px solid transparent;
+            transition: color .15s;
+        }
+        .panel-tab.active {
+            color: #eee;
+            border-bottom-color: #e94560;
+        }
+        .panel-content {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-content.active { display: flex; }
+        .panel-content textarea {
             flex: 1;
             padding: 12px;
             background: #1a1a2e;
@@ -65,7 +90,71 @@
             font-family: 'Monaco', 'Menlo', monospace;
             font-size: 12px;
             resize: none;
+            outline: none;
         }
+        /* Branding panel */
+        .branding-form {
+            flex: 1;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #aaa;
+        }
+        .form-group input, .form-group textarea {
+            padding: 8px 10px;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            color: #eee;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        .form-group textarea { min-height: 140px; }
+        .form-hint {
+            font-size: 11px;
+            color: #666;
+            line-height: 1.5;
+        }
+        .branding-actions {
+            display: flex;
+            gap: 8px;
+            padding: 10px 14px;
+            border-top: 1px solid #0f3460;
+        }
+        .branding-actions button {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .btn-apply {
+            background: #e94560;
+            color: #fff;
+        }
+        .btn-apply:hover { background: #ff6b6b; }
+        .btn-reset {
+            background: #0f3460;
+            color: #eee;
+        }
+        .btn-reset:hover { background: #1a4a7a; }
+        /* Preview panel */
         .preview-panel {
             flex: 1;
             display: flex;
@@ -78,10 +167,6 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-        }
-        .preview-panel h3 button {
-            padding: 4px 8px;
-            font-size: 12px;
         }
         .iframe-container {
             flex: 1;
@@ -110,17 +195,58 @@
             <option value="platform-info">platform-info</option>
         </select>
         <button onclick="sendTestData()">Send Test Data</button>
-        <button onclick="reloadApp()">Reload App</button>
+        <button class="secondary" onclick="reloadApp()">Reload App</button>
     </div>
     <div class="main">
         <div class="editor-panel">
-            <h3>Test Data (JSON) - Edit and click "Send Test Data"</h3>
-            <textarea id="testData"></textarea>
+            <div class="panel-tabs">
+                <div class="panel-tab active" onclick="switchTab('data')">Test Data</div>
+                <div class="panel-tab" id="branding-tab" onclick="switchTab('branding')">Branding</div>
+            </div>
+
+            <!-- Test data tab -->
+            <div class="panel-content active" id="tab-data">
+                <textarea id="testData"></textarea>
+            </div>
+
+            <!-- Branding tab (platform-info only) -->
+            <div class="panel-content" id="tab-branding">
+                <div class="branding-form">
+                    <div class="form-group">
+                        <label>Brand Name</label>
+                        <input type="text" id="brandName" placeholder="e.g. Plexara" />
+                        <span class="form-hint">
+                            Replaces the default brand in the logo area. The MCP server name
+                            always appears as a secondary line below.
+                        </span>
+                    </div>
+                    <div class="form-group">
+                        <label>Brand URL</label>
+                        <input type="text" id="brandUrl" placeholder="e.g. https://plexara.io" />
+                        <span class="form-hint">
+                            Optional URL. When set, the logo and brand name become clickable
+                            links that open in a new tab.
+                        </span>
+                    </div>
+                    <div class="form-group">
+                        <label>Logo SVG</label>
+                        <textarea id="logoSvg" placeholder='<svg viewBox="0 0 40 40">...</svg>'></textarea>
+                        <span class="form-hint">
+                            Inline SVG string. Must include a viewBox. The SVG is rendered
+                            at 40×40px and inherits <code>currentColor</code> for the accent
+                            color. Leave empty to use the default data-graph mark.
+                        </span>
+                    </div>
+                </div>
+                <div class="branding-actions">
+                    <button class="btn-apply" onclick="applyBranding()">Apply Branding</button>
+                    <button class="btn-reset" onclick="resetBranding()">Reset</button>
+                </div>
+            </div>
         </div>
+
         <div class="preview-panel">
-            <h3>
-                App Preview
-            </h3>
+            <h3>App Preview</h3>
             <div class="iframe-container">
                 <iframe id="appFrame" src="/query-results/index.html"></iframe>
             </div>
@@ -129,13 +255,13 @@
     </div>
 
     <script>
-        const appFrame = document.getElementById('appFrame');
-        const testDataEl = document.getElementById('testData');
-        const statusEl = document.getElementById('status');
-        const appSelectEl = document.getElementById('appSelect');
+        var appFrame = document.getElementById('appFrame');
+        var testDataEl = document.getElementById('testData');
+        var statusEl = document.getElementById('status');
+        var appSelectEl = document.getElementById('appSelect');
 
         // Default test data for each app type
-        const appTestData = {
+        var appTestData = {
             'query-results': {
                 toolName: 'trino_query',
                 data: {
@@ -148,7 +274,7 @@
                     rows: [
                         { id: 1, name: 'Product A', revenue: 15000.50, region: 'North' },
                         { id: 2, name: 'Product B', revenue: 23000.75, region: 'South' },
-                        { id: 3, name: 'Product C', revenue: 8500.00, region: 'East' },
+                        { id: 3, name: 'Product C', revenue: 8500.00,  region: 'East' },
                         { id: 4, name: 'Product D', revenue: 42000.00, region: 'West' },
                         { id: 5, name: 'Product E', revenue: 31500.25, region: 'North' }
                     ],
@@ -163,77 +289,201 @@
                 toolName: 'platform_info',
                 data: {
                     name: 'mcp-data-platform',
-                    version: '1.0.0',
-                    description: 'Semantic data platform MCP server with bidirectional cross-injection',
+                    version: '1.2.0',
+                    description: 'Semantic data platform MCP server with bidirectional cross-injection between Trino, DataHub, and S3 toolkits.',
+                    agent_instructions: 'Use the data tools to query, explore, and understand your organization\'s data assets. Ask me to run queries, describe tables, search the catalog, or explain data lineage.',
+                    tags: ['semantic', 'data-platform', 'mcp'],
                     toolkits: ['trino', 'datahub', 's3'],
                     features: {
                         semantic_enrichment: true,
                         query_enrichment: true,
-                        storage_enrichment: true,
-                        audit_logging: true
+                        audit_logging: true,
+                        storage_enrichment: false
+                    },
+                    personas: {
+                        analyst: { display_name: 'Data Analyst' },
+                        engineer: { display_name: 'Data Engineer' },
+                        admin: { display_name: 'Administrator' }
                     }
                 }
             }
         };
 
-        function log(msg, type = '') {
+        function log(msg, type) {
             statusEl.textContent = msg;
-            statusEl.className = 'status ' + type;
+            statusEl.className = 'status ' + (type || '');
         }
 
         function loadTestData(appName) {
-            const appConfig = appTestData[appName] || appTestData['query-results'];
-            testDataEl.value = JSON.stringify(appConfig.data, null, 2);
+            var cfg = appTestData[appName] || appTestData['query-results'];
+            testDataEl.value = JSON.stringify(cfg.data, null, 2);
         }
 
         function reloadApp() {
-            const app = appSelectEl.value;
-            appFrame.src = `/${app}/index.html?t=${Date.now()}`;
+            var app = appSelectEl.value;
+            appFrame.src = '/' + app + '/index.html?t=' + Date.now();
+            appFrame.removeAttribute('srcdoc');
             loadTestData(app);
             log('Reloading app...');
         }
 
         function sendTestData() {
             try {
-                const app = appSelectEl.value;
-                const appConfig = appTestData[app] || appTestData['query-results'];
-                const data = JSON.parse(testDataEl.value);
-                const message = {
+                var app = appSelectEl.value;
+                var cfg = appTestData[app] || appTestData['query-results'];
+                var data = JSON.parse(testDataEl.value);
+                var message = {
                     jsonrpc: '2.0',
                     method: 'ui/notifications/tool-result',
                     params: {
-                        toolName: appConfig.toolName,
+                        toolName: cfg.toolName,
                         content: [{ type: 'text', text: JSON.stringify(data) }]
                     }
                 };
                 appFrame.contentWindow.postMessage(message, '*');
                 log('Test data sent to app', 'success');
             } catch (e) {
-                log(`Error: ${e.message}`, 'error');
+                log('Error: ' + e.message, 'error');
+            }
+        }
+
+        // ── Branding panel ───────────────────────────────────────────────────
+        // Simulates server-side config injection by fetching the app HTML,
+        // replacing the <script id="app-config"> tag, and setting iframe.srcdoc.
+        // This mirrors exactly what pkg/mcpapps/resource.go does at serve time.
+
+        function applyBranding() {
+            var app = appSelectEl.value;
+            if (app !== 'platform-info') {
+                log('Branding only applies to platform-info', 'error');
+                return;
+            }
+            var brandName = document.getElementById('brandName').value.trim();
+            var brandUrl  = document.getElementById('brandUrl').value.trim();
+            var logoSvg   = document.getElementById('logoSvg').value.trim();
+
+            log('Applying branding...');
+            fetch('/' + app + '/index.html?t=' + Date.now())
+                .then(function(r) { return r.text(); })
+                .then(function(html) {
+                    var config = JSON.stringify({ brand_name: brandName, brand_url: brandUrl, logo_svg: logoSvg });
+                    var injected = html.replace(
+                        /<script id="app-config" type="application\/json">[\s\S]*?<\/script>/,
+                        '<script id="app-config" type="application/json">' + config + '<\/script>'
+                    );
+                    // Deliver via srcdoc so the config is baked in before the app reads it
+                    appFrame.srcdoc = injected;
+                    log('Branding applied', 'success');
+                })
+                .catch(function(e) {
+                    log('Failed to fetch app: ' + e.message, 'error');
+                });
+        }
+
+        function resetBranding() {
+            document.getElementById('brandName').value = '';
+            document.getElementById('brandUrl').value = '';
+            document.getElementById('logoSvg').value = '';
+            reloadApp();
+            log('Branding reset', 'success');
+        }
+
+        // ── Tab switching ────────────────────────────────────────────────────
+        function switchTab(name) {
+            document.querySelectorAll('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
+            document.querySelectorAll('.panel-content').forEach(function(c) { c.classList.remove('active'); });
+            var idx = name === 'branding' ? 1 : 0;
+            document.querySelectorAll('.panel-tab')[idx].classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+        }
+
+        // Show/hide branding tab based on selected app
+        function updateBrandingTabVisibility() {
+            var tab = document.getElementById('branding-tab');
+            if (appSelectEl.value === 'platform-info') {
+                tab.style.display = '';
+            } else {
+                tab.style.display = 'none';
+                if (document.querySelector('.panel-tab.active') === tab) {
+                    switchTab('data');
+                }
             }
         }
 
         // Listen for messages from the app
-        window.addEventListener('message', (e) => {
-            if (e.data?.method === 'ui/initialize') {
-                log('App ready - click "Send Test Data"', 'success');
+        window.addEventListener('message', function(e) {
+            var m = e.data;
+            if (!m || typeof m !== 'object') { return; }
+
+            // Respond to ui/initialize so the app proceeds past init
+            if (m.method === 'ui/initialize' && m.id !== undefined) {
+                e.source.postMessage({
+                    jsonrpc: '2.0',
+                    id: m.id,
+                    result: { protocolVersion: '2025-01-09' }
+                }, '*');
+                return;
+            }
+
+            // Auto-respond to ui/call-tool with the current test data
+            if (m.method === 'ui/call-tool') {
+                var app = appSelectEl.value;
+                var cfg = appTestData[app] || appTestData['query-results'];
+                try {
+                    var data = JSON.parse(testDataEl.value);
+                    e.source.postMessage({
+                        jsonrpc: '2.0',
+                        method: 'ui/notifications/tool-result',
+                        params: {
+                            toolName: cfg.toolName,
+                            content: [{ type: 'text', text: JSON.stringify(data) }]
+                        }
+                    }, '*');
+                    log('Rendered', 'success');
+                } catch (err) {
+                    log('Bad test data JSON: ' + err.message, 'error');
+                }
             }
         });
 
-        // Update iframe and test data when app selection changes
-        appSelectEl.addEventListener('change', reloadApp);
-
-        // Initial load status
-        appFrame.addEventListener('load', () => {
-            log('App loaded - click "Send Test Data"', 'success');
+        appSelectEl.addEventListener('change', function() {
+            updateBrandingTabVisibility();
+            reloadApp();
         });
 
-        appFrame.addEventListener('error', () => {
+        appFrame.addEventListener('load', function() {
+            log('App loaded — click "Send Test Data"', 'success');
+        });
+
+        appFrame.addEventListener('error', function() {
             log('Failed to load app', 'error');
         });
 
-        // Initialize test data for default app
+        // Initialize
+        updateBrandingTabVisibility();
         loadTestData(appSelectEl.value);
+
+        // Auto-load preview-data.json if generated by make preview-platform-info
+        fetch('preview-data.json')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(preview) {
+                if (!preview || !preview.tool_result) { return; }
+                appTestData['platform-info'].data = preview.tool_result;
+                appSelectEl.value = 'platform-info';
+                updateBrandingTabVisibility();
+                loadTestData('platform-info');
+                var b = preview.branding || {};
+                document.getElementById('brandName').value = b.brand_name || '';
+                document.getElementById('brandUrl').value  = b.brand_url  || '';
+                document.getElementById('logoSvg').value   = b.logo_svg   || '';
+                if (b.brand_name || b.logo_svg) {
+                    applyBranding();
+                } else {
+                    reloadApp();
+                }
+                log('Loaded preview-data.json', 'success');
+            })
+            .catch(function() {}); // silently ignore if file not found
     </script>
 </body>
 </html>

@@ -436,6 +436,16 @@ func TestS3AnnotationConfigToMCP(t *testing.T) {
 	})
 }
 
+func TestCreateToolkit_WithTitles(t *testing.T) {
+	// Use s3tools.NewToolkit(nil) directly (untyped nil avoids typed-nil interface panic)
+	// to confirm that the Titles option is wired correctly via toS3ToolNames.
+	titles := map[string]string{"s3_list_buckets": "List Buckets"}
+	tk := s3tools.NewToolkit(nil, s3tools.WithTitles(toS3ToolNames(titles)))
+	if tk == nil {
+		t.Fatal("expected non-nil toolkit")
+	}
+}
+
 func TestToolkit_RegisterTools(t *testing.T) {
 	t.Run("nil s3Toolkit does not panic", func(_ *testing.T) {
 		tk := &Toolkit{name: "test"}

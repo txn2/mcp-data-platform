@@ -37,6 +37,7 @@ type Config struct {
 	MaxLineageDepth int                         `yaml:"max_lineage_depth"`
 	ConnectionName  string                      `yaml:"connection_name"`
 	Debug           bool                        `yaml:"debug"` // Enable debug logging
+	Titles          map[string]string           `yaml:"titles"`
 	Descriptions    map[string]string           `yaml:"descriptions"`
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
@@ -136,6 +137,9 @@ func toDataHubToolNames(m map[string]string) map[dhtools.ToolName]string {
 // createToolkit creates the mcp-datahub toolkit.
 func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 	var opts []dhtools.ToolkitOption
+	if len(cfg.Titles) > 0 {
+		opts = append(opts, dhtools.WithTitles(toDataHubToolNames(cfg.Titles)))
+	}
 	if len(cfg.Descriptions) > 0 {
 		opts = append(opts, dhtools.WithDescriptions(toDataHubToolNames(cfg.Descriptions)))
 	}

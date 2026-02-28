@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
@@ -179,6 +180,45 @@ func TestInfoConfigVersion(t *testing.T) {
 	assert.Contains(t, info.ConfigVersion.SupportedVersions, testInfoVersionV1)
 }
 
+func TestBuildInfoToolTitle(t *testing.T) {
+	tests := []struct {
+		name       string
+		serverName string
+		wantTitle  string
+	}{
+		{
+			name:       "custom name is used as title",
+			serverName: "ACME Data Platform",
+			wantTitle:  "ACME Data Platform",
+		},
+		{
+			name:       "default name returns Platform Info",
+			serverName: "mcp-data-platform",
+			wantTitle:  "Platform Info",
+		},
+		{
+			name:       "empty name returns Platform Info",
+			serverName: "",
+			wantTitle:  "Platform Info",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Platform{
+				config: &Config{
+					Server: ServerConfig{
+						Name: tt.serverName,
+					},
+				},
+			}
+
+			title := p.buildInfoToolTitle()
+			assert.Equal(t, tt.wantTitle, title)
+		})
+	}
+}
+
 func TestBuildInfoToolDescription(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -244,6 +284,45 @@ func TestBuildInfoToolDescription(t *testing.T) {
 	}
 }
 
+func TestInfoToolkitDescriptions(t *testing.T) {
+	config := Config{
+		Server: ServerConfig{Name: "desc-test", Version: testInfoVersion},
+		Toolkits: map[string]any{
+			"trino":   map[string]any{"description": "Run SQL queries against rdbms and opensearch catalogs"},
+			"datahub": map[string]any{"description": "Browse the ACME data catalog"},
+			"s3":      map[string]any{}, // no description — should be omitted
+		},
+	}
+
+	p := &Platform{config: &config, personaRegistry: persona.NewRegistry()}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	require.NotNil(t, info.ToolkitDescriptions)
+	assert.Equal(t, "Run SQL queries against rdbms and opensearch catalogs", info.ToolkitDescriptions["trino"])
+	assert.Equal(t, "Browse the ACME data catalog", info.ToolkitDescriptions["datahub"])
+	assert.NotContains(t, info.ToolkitDescriptions, "s3", "empty description should be omitted")
+}
+
+func TestInfoToolkitDescriptionsNilWhenNone(t *testing.T) {
+	config := Config{
+		Server: ServerConfig{Name: "no-desc-test", Version: testInfoVersion},
+		Toolkits: map[string]any{
+			"trino": map[string]any{},
+		},
+	}
+
+	p := &Platform{config: &config, personaRegistry: persona.NewRegistry()}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.Nil(t, info.ToolkitDescriptions, "should be nil when no descriptions are configured")
+}
+
 func TestInfoToolkits(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
@@ -272,45 +351,87 @@ func TestInfoToolkits(t *testing.T) {
 	assert.Contains(t, info.Toolkits, "s3")
 }
 
-func TestInfoPersonas(t *testing.T) {
-	config := Config{
-		Server: ServerConfig{
-			Name:    "persona-test",
-			Version: testInfoVersion,
-		},
-	}
-
-	registry := persona.NewRegistry()
-	_ = registry.Register(&persona.Persona{
+func newPersonaRegistry(t *testing.T) *persona.Registry {
+	t.Helper()
+	reg := persona.NewRegistry()
+	_ = reg.Register(&persona.Persona{
 		Name:        "analyst",
 		DisplayName: "Data Analyst",
 		Description: "Analyze data and run queries",
 	})
-	_ = registry.Register(&persona.Persona{
+	_ = reg.Register(&persona.Persona{
 		Name:        "admin",
 		DisplayName: "Administrator",
 		Description: "Full access to all features",
 	})
+	return reg
+}
 
-	p := &Platform{
-		config:          &config,
-		personaRegistry: registry,
+func TestInfoPersona(t *testing.T) {
+	cfg := Config{
+		Server: ServerConfig{Name: "persona-test", Version: testInfoVersion},
 	}
-	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
-	require.NoError(t, err)
-	info := requireInfoFromResult(t, result)
+	t.Run("shows caller's persona from context", func(t *testing.T) {
+		reg := newPersonaRegistry(t)
+		p := &Platform{config: &cfg, personaRegistry: reg}
 
-	assert.Len(t, info.Personas, 2)
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			PersonaName: "analyst",
+		})
+		result, _, err := p.handleInfo(ctx, &mcp.CallToolRequest{})
 
-	// Find analyst persona
-	var foundAnalyst bool
-	for _, p := range info.Personas {
-		if p.Name == "analyst" {
-			foundAnalyst = true
-			assert.Equal(t, "Data Analyst", p.DisplayName)
-			assert.Equal(t, "Analyze data and run queries", p.Description)
-		}
-	}
-	assert.True(t, foundAnalyst, "expected analyst persona in output")
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+
+		require.NotNil(t, info.Persona)
+		assert.Equal(t, "analyst", info.Persona.Name)
+		assert.Equal(t, "Data Analyst", info.Persona.DisplayName)
+		assert.Equal(t, "Analyze data and run queries", info.Persona.Description)
+	})
+
+	t.Run("falls back to default persona when no context", func(t *testing.T) {
+		reg := newPersonaRegistry(t)
+		reg.SetDefault("admin")
+		p := &Platform{config: &cfg, personaRegistry: reg}
+
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+
+		require.NotNil(t, info.Persona)
+		assert.Equal(t, "admin", info.Persona.Name)
+	})
+
+	t.Run("no persona when no context and no default", func(t *testing.T) {
+		reg := newPersonaRegistry(t)
+		p := &Platform{config: &cfg, personaRegistry: reg}
+
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+
+		assert.Nil(t, info.Persona)
+	})
+}
+
+func TestResolveCallerPersona(t *testing.T) {
+	cfg := Config{Server: ServerConfig{Name: "test"}}
+
+	t.Run("returns nil when registry is empty and no context", func(t *testing.T) {
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		result := p.resolveCallerPersona(context.Background())
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil when persona name not found in registry", func(t *testing.T) {
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			PersonaName: "nonexistent",
+		})
+		result := p.resolveCallerPersona(ctx)
+		assert.Nil(t, result)
+	})
 }

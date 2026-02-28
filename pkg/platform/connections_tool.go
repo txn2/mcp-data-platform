@@ -31,6 +31,7 @@ type listConnectionsInput struct{}
 func (p *Platform) registerConnectionsTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
 		Name:        "list_connections",
+		Title:       "List Connections",
 		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.).",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listConnectionsInput) (*mcp.CallToolResult, any, error) {

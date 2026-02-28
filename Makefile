@@ -31,7 +31,7 @@ GOLINT := golangci-lint
 	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
-	dev-up dev-down
+	dev-up dev-down preview-apps preview-platform-info
 
 ## all: Build and test
 all: build test lint
@@ -424,3 +424,21 @@ dev-down:
 	@echo "Stopping ACME dev environment..."
 	$(DEV_COMPOSE) down -v
 	@echo "ACME dev environment stopped."
+
+## preview-apps: Serve MCP apps locally at http://localhost:8000/test-harness.html (no server needed)
+preview-apps:
+	@echo "→ Open http://localhost:8000/test-harness.html"
+	@cd apps && python3 -m http.server 8000 --bind 127.0.0.1
+
+## preview-platform-info: Preview platform_info app with data from a real config file.
+## Accepts a Kubernetes ConfigMap YAML or direct platform YAML.
+## Usage: make preview-platform-info CONFIG=/path/to/config.yaml
+## Requires Python 3 + PyYAML: pip3 install pyyaml
+preview-platform-info:
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "Usage: make preview-platform-info CONFIG=/path/to/config.yaml"; \
+		exit 1; \
+	fi
+	@echo "→ Extracting preview data from $(CONFIG)"
+	@python3 scripts/extract-preview-data.py "$(CONFIG)" apps/preview-data.json
+	@$(MAKE) preview-apps

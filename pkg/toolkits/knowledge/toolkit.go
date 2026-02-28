@@ -128,7 +128,8 @@ func (*Toolkit) Connection() string {
 // RegisterTools registers the capture_insight tool with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: toolName,
+		Name:  toolName,
+		Title: "Capture Insight",
 		Description: "Records domain knowledge shared during a session for later admin review and catalog integration. " +
 			"Use this when you discover corrections to metadata, business context about data meaning, " +
 			"data quality observations, usage tips, or relationships between datasets. " +
@@ -139,7 +140,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 
 	if t.applyEnabled {
 		mcp.AddTool(s, &mcp.Tool{
-			Name: applyToolName,
+			Name:  applyToolName,
+			Title: "Apply Knowledge",
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. " +

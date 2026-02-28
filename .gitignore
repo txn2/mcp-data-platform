@@ -55,6 +55,9 @@ codeql-results.sarif
 # MCP Apps test host
 ext-apps/
 
+# Generated preview data (contains client config — never commit)
+apps/preview-data.json
+
 # Admin UI
 admin-ui/node_modules/
 admin-ui/dist/
