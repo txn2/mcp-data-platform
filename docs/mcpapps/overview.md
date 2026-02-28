@@ -31,50 +31,41 @@ flowchart LR
 - Protocol handling between host and apps
 - Security controls (path traversal protection, sandboxing)
 
-**You provide:**
+**You provide (for custom apps):**
 
 - The actual HTML/JS/CSS apps
 - Configuration mapping tools to apps
 
-The platform does not include any apps by default. You must configure and mount your own apps, or use the examples from the repository.
+## Built-in App: platform-info
+
+The platform ships with `platform-info` embedded in the binary. It registers automatically with zero configuration — no volume mounts, no `assets_path`, no `enabled: true` required.
+
+`platform-info` renders an interactive panel for the `platform_info` tool showing:
+
+- Platform name, version, and description
+- Connected toolkits with icons
+- Feature flags (enabled / disabled)
+- Active personas
+
+### Branding
+
+Operators can inject custom branding via config without touching any HTML:
+
+```yaml
+mcpapps:
+  apps:
+    platform-info:
+      config:
+        brand_name: "ACME Data Platform"
+        brand_url: "https://data.acme.com"
+        logo_svg: "<svg ...>"
+```
+
+All branding fields are optional. When unset the app falls back to the server name and a default data-graph logo.
 
 ## Example App: query-results
 
-The repository includes an example app at `apps/query-results/` that demonstrates:
-
-- Sortable table with column headers
-- Search/filter across all columns
-- Chart visualizations (bar, line, pie, doughnut)
-- Number formatting with thousands separators
-- Dark mode support (respects system preference)
-- Stats bar showing query time, row count, query ID
-
-This example is designed for `trino_query` and `trino_execute` tool output. You can use it as-is, customize it, or write your own apps from scratch.
-
-### Expected Data Format
-
-The query-results example expects JSON with this structure:
-
-```json
-{
-  "columns": [
-    {"name": "id", "type": "integer"},
-    {"name": "product", "type": "varchar"},
-    {"name": "revenue", "type": "double"}
-  ],
-  "rows": [
-    {"id": 1, "product": "Widget A", "revenue": 15000.50},
-    {"id": 2, "product": "Widget B", "revenue": 23000.75}
-  ],
-  "stats": {
-    "row_count": 2,
-    "duration_ms": 127,
-    "query_id": "20260131_abc123"
-  }
-}
-```
-
-This format is automatically produced by the `trino_query` tool.
+The repository includes a community example app at `apps/query-results/` that demonstrates sortable tables, charts, search/filter, and dark mode for `trino_query` output. It is not built into the binary — operators deploy it as a custom app by mounting the assets directory. See [Configuration](configuration.md) for details.
 
 ## Next Steps
 

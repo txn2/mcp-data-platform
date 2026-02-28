@@ -1512,21 +1512,45 @@ Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platfor
 
 # MCP Apps
 
-MCP Apps provide interactive UI components that enhance tool results. Instead of raw JSON, users see sortable tables, charts, and filters. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
+MCP Apps provide interactive UI panels that enhance tool results. Instead of raw JSON, users see rich interactive UI rendered inline in the MCP host. The platform ships the `platform-info` app embedded in the binary — it registers automatically with zero configuration.
 
 ## Overview
 
-1. User calls a tool (e.g., `trino_query`)
+1. User calls a tool (e.g., `platform_info`, `trino_query`)
 2. MCP server returns results with a UI resource reference
 3. Host fetches the HTML app and renders it in an iframe
 4. App receives tool results via `postMessage` and displays interactive UI
+
+## Built-in App: platform-info
+
+`platform-info` is embedded in the binary and registers at startup automatically. No `assets_path`, volume mount, or `enabled: true` is required.
+
+Minimal branding override (all fields optional):
+
+```yaml
+mcpapps:
+  apps:
+    platform-info:
+      config:
+        brand_name: "ACME Data Platform"
+        brand_url: "https://data.acme.com"
+        logo_svg: "<svg ...>"
+```
+
+To replace the embedded HTML entirely: set `assets_path` pointing to your custom directory.
 
 ## Configuration
 
 ```yaml
 mcpapps:
-  enabled: true
+  # enabled defaults to true
   apps:
+    # platform-info is built-in; only branding config is needed
+    platform-info:
+      config:
+        brand_name: "ACME"
+
+    # Custom app example
     query_results:
       enabled: true
       assets_path: "/etc/mcp-apps/query-results"
@@ -1540,14 +1564,15 @@ mcpapps:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `enabled` | bool | No | Enable MCP Apps infrastructure (default: false) |
-| `apps.<name>.assets_path` | string | Yes | Absolute path to app directory |
+| `enabled` | bool | No | Enable MCP Apps infrastructure (default: `true`) |
+| `apps.<name>.assets_path` | string | No* | Absolute path to app directory. *Required for custom apps; optional for `platform-info` |
 | `apps.<name>.tools` | array | Yes | Tools this app enhances |
 | `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins |
+| `apps.<name>.config` | object | No | Config injected as `<script id="app-config">` JSON |
 
-## Example App
+## Example App: query-results
 
-The repository includes an example app at `apps/query-results/` demonstrating sortable tables, charts, dark mode, and search/filter. Use it as-is, customize it, or write your own.
+The repository includes a community example app at `apps/query-results/` demonstrating sortable tables, charts, dark mode, and search/filter for `trino_query` output. It is not built into the binary — deploy it as a custom app by mounting the assets directory.
 
 ## Development
 
@@ -1559,9 +1584,11 @@ docker compose -f docker-compose.dev.yml up
 
 This starts: Test Harness (localhost:8000), MCP Server (localhost:3001), MCP Inspector (localhost:6274), Trino (localhost:8090).
 
+The dev config (`configs/mcpapps-dev.yaml`) uses `assets_path` to override the embedded `platform-info` HTML, enabling live editing without rebuilding the binary.
+
 Workflow:
 1. Open http://localhost:8000/test-harness.html
-2. Edit `./apps/query-results/index.html`
+2. Edit `./apps/platform-info/index.html` (or `./apps/query-results/index.html`)
 3. Click Reload App, then Send Test Data
 4. Changes appear immediately
 

@@ -39,12 +39,12 @@ The test harness provides:
 
 ### 2. Edit and Test
 
-1. Edit `./apps/query-results/index.html`
+1. Edit `./apps/platform-info/index.html` (or `./apps/query-results/index.html` for that app)
 2. Click **Reload App** in the test harness
 3. Click **Send Test Data**
 4. See changes immediately
 
-Changes are served instantly - no restart needed.
+Changes are served instantly — no restart needed. The dev config (`configs/mcpapps-dev.yaml`) uses `assets_path` to point at the local source directory, overriding the embedded HTML so edits are reflected without rebuilding the binary.
 
 ### 3. Test with Real Queries
 
@@ -127,12 +127,13 @@ window.addEventListener('message', (event) => {
 1. Create your app directory under `apps/`:
    ```
    apps/
+   ├── platform-info/
    ├── query-results/
    └── my-new-app/
        └── index.html
    ```
 
-2. Add configuration to `configs/dev-mcpapps.yaml`:
+2. Add configuration to `configs/mcpapps-dev.yaml`:
    ```yaml
    mcpapps:
      apps:
