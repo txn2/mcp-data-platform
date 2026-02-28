@@ -72,6 +72,9 @@ const (
 	testCfgKeyToken         = "token"
 )
 
+// boolPtr returns a pointer to the given bool value.
+func boolPtr(v bool) *bool { return &v }
+
 // newTestPlatform creates a Platform with noop providers for testing.
 func newTestPlatform(t *testing.T, opts ...Option) *Platform {
 	t.Helper()
@@ -1609,10 +1612,32 @@ func TestConvertCSP_FullConfig(t *testing.T) {
 	}
 }
 
-func TestInitMCPApps_DisabledByDefault(t *testing.T) {
+func TestInitMCPApps_EnabledByDefault(t *testing.T) {
 	p := newTestPlatform(t)
+	if p.mcpAppsRegistry == nil {
+		t.Fatal("mcpAppsRegistry should not be nil — MCPApps enabled by default")
+	}
+	app := p.mcpAppsRegistry.Get("platform-info")
+	if app == nil {
+		t.Error("built-in platform-info should be registered by default")
+	}
+}
+
+func TestInitMCPApps_DisabledExplicitly(t *testing.T) {
+	disabled := false
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps:  MCPAppsConfig{Enabled: &disabled},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
 	if p.mcpAppsRegistry != nil {
-		t.Error("mcpAppsRegistry should be nil when MCPApps disabled")
+		t.Error("mcpAppsRegistry should be nil when MCPApps explicitly disabled")
 	}
 }
 
@@ -1624,7 +1649,7 @@ func TestInitMCPApps_EnabledWithFilesystemApp(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"query_results": {
 					Enabled:    true,
@@ -1669,7 +1694,7 @@ func TestInitMCPApps_MissingAssets(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"missing_app": {
 					Enabled:    true,
@@ -1695,7 +1720,7 @@ func TestInitMCPApps_DisabledAppNotRegistered(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"query_results": {
 					Enabled:    false,
@@ -1714,8 +1739,14 @@ func TestInitMCPApps_DisabledAppNotRegistered(t *testing.T) {
 	if p.mcpAppsRegistry == nil {
 		t.Fatal("mcpAppsRegistry should not be nil")
 	}
-	if p.mcpAppsRegistry.HasApps() {
-		t.Error("Registry should have no apps when all disabled")
+	if !p.mcpAppsRegistry.HasApps() {
+		t.Error("Registry should have built-in platform-info even when user apps are disabled")
+	}
+	if p.mcpAppsRegistry.Get("query_results") != nil {
+		t.Error("query_results should not be registered when disabled")
+	}
+	if p.mcpAppsRegistry.Get("platform-info") == nil {
+		t.Error("built-in platform-info should always be registered")
 	}
 }
 
@@ -1727,7 +1758,7 @@ func TestInitMCPApps_CSPConfig(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"test_app": {
 					Enabled:    true,
@@ -1774,7 +1805,7 @@ func TestInitMCPApps_CustomResourceURI(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"custom_app": {
 					Enabled:     true,
@@ -1809,7 +1840,7 @@ func TestInitMCPApps_DefaultEntryPoint(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"default_entry": {
 					Enabled:    true,
@@ -1843,7 +1874,7 @@ func TestInitMCPApps_ValidationError(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 			Apps: map[string]AppConfig{
 				"invalid_app": {
 					Enabled:    true,
@@ -1858,6 +1889,124 @@ func TestInitMCPApps_ValidationError(t *testing.T) {
 	_, err := New(WithConfig(cfg))
 	if err == nil {
 		t.Error("New() should fail with empty tools list")
+	}
+}
+
+func TestMCPAppsConfig_IsEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled *bool
+		want    bool
+	}{
+		{"nil defaults to true", nil, true},
+		{"explicit true", boolPtr(true), true},
+		{"explicit false", boolPtr(false), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &MCPAppsConfig{Enabled: tt.enabled}
+			if got := cfg.IsEnabled(); got != tt.want {
+				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInitMCPApps_BuiltinPlatformInfoWithBranding(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Apps: map[string]AppConfig{
+				"platform-info": {
+					Enabled: true,
+					Tools:   []string{"platform_info"},
+					Config: map[string]any{
+						"brand_name": "ACME Corp",
+						"brand_url":  "https://example.com",
+					},
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	app := p.mcpAppsRegistry.Get("platform-info")
+	if app == nil {
+		t.Fatal("platform-info should be registered")
+	}
+	if app.Content == nil {
+		t.Error("platform-info should use embedded content when no assets_path given")
+	}
+	cfgMap, ok := app.Config.(map[string]any)
+	if !ok || cfgMap["brand_name"] != "ACME Corp" {
+		t.Errorf("branding config not merged: %v", app.Config)
+	}
+}
+
+func TestInitMCPApps_BuiltinPlatformInfoWithAssetsPathOverride(t *testing.T) {
+	testAppDir := createTestAppDir(t)
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Apps: map[string]AppConfig{
+				"platform-info": {
+					Enabled:    true,
+					Tools:      []string{"platform_info"},
+					AssetsPath: testAppDir,
+					EntryPoint: "index.html",
+				},
+			},
+		},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	app := p.mcpAppsRegistry.Get("platform-info")
+	if app == nil {
+		t.Fatal("platform-info should be registered")
+	}
+	if app.Content != nil {
+		t.Error("Content should be nil when assets_path override is set")
+	}
+	if app.AssetsPath != testAppDir {
+		t.Errorf("AssetsPath = %q, want %q", app.AssetsPath, testAppDir)
+	}
+}
+
+func TestInitMCPApps_BuiltinPlatformInfoWithInvalidAssetsPath(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Apps: map[string]AppConfig{
+				"platform-info": {
+					Enabled:    true,
+					Tools:      []string{"platform_info"},
+					AssetsPath: "/nonexistent/platform-info",
+					EntryPoint: "index.html",
+				},
+			},
+		},
+	}
+
+	_, err := New(WithConfig(cfg))
+	if err == nil {
+		t.Fatal("New() should fail when platform-info assets_path is invalid")
 	}
 }
 

@@ -61,10 +61,10 @@
 
 ## MCP Apps
 
-- [Overview](mcpapps/overview.md): Interactive UI components for tool results. Platform provides infrastructure, you provide HTML/JS/CSS apps.
-- [Configuration](mcpapps/configuration.md): Enable MCP Apps, configure apps with assets paths and CSP settings, Kubernetes deployment
-- [Development](mcpapps/development.md): Docker-based development with test harness, creating new apps, MCP Apps protocol
-- [Tutorial](mcpapps/tutorial.md): Step-by-step guide building a platform-info app. Covers MCP Apps protocol, message handling, tool result parsing, test harness workflow, dark mode support
+- [Overview](mcpapps/overview.md): Interactive UI panels rendered inline in the MCP host. Built-in `platform-info` app embedded in the binary and auto-registers with zero config. Branding (brand_name, brand_url, logo_svg) via config. Custom apps still supported with assets_path.
+- [Configuration](mcpapps/configuration.md): MCP Apps enabled by default. platform-info built-in (no assets_path needed). Branding overrides via config block. Custom app registration with assets_path, CSP settings, and config injection. Disable with `mcpapps.enabled: false`.
+- [Development](mcpapps/development.md): Docker-based development with test harness. mcpapps-dev.yaml uses assets_path to override embedded HTML for live editing. Creating new apps, MCP Apps protocol.
+- [Tutorial](mcpapps/tutorial.md): Step-by-step guide building a platform-info app. Covers MCP Apps protocol, message handling, tool result parsing, test harness workflow, dark mode support. Deployment section explains built-in vs custom-asset vs override modes.
 
 ## Examples
 

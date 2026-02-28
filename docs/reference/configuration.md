@@ -713,6 +713,50 @@ knowledge:
 !!! note "Prerequisites"
     Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.
 
+## MCP Apps Configuration
+
+MCP Apps provide interactive UI panels rendered in the MCP host alongside tool results. The built-in `platform-info` app is embedded in the binary and registers automatically — no configuration required.
+
+```yaml
+mcpapps:
+  # enabled defaults to true; set false to disable all MCP Apps
+  enabled: true
+  apps:
+    # platform-info is built-in; only branding overrides are needed
+    platform-info:
+      config:
+        brand_name: "ACME Data Platform"
+        brand_url: "https://data.acme.com"
+        logo_svg: "<svg ...>"
+
+    # Custom app example (assets_path required for non-built-in apps)
+    query_results:
+      enabled: true
+      assets_path: "/etc/mcp-apps/query-results"
+      tools:
+        - trino_query
+        - trino_execute
+      csp:
+        resource_domains:
+          - "https://cdn.jsdelivr.net"
+      config:
+        maxRows: 1000
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mcpapps.enabled` | bool | `true` | Master switch; set `false` to disable all MCP Apps |
+| `mcpapps.apps.<name>.enabled` | bool | `true` | Enable/disable this individual app |
+| `mcpapps.apps.<name>.assets_path` | string | - | Absolute path to HTML/JS/CSS directory. Required for custom apps; omit for `platform-info` to use the embedded HTML |
+| `mcpapps.apps.<name>.entry_point` | string | `index.html` | HTML entry point filename |
+| `mcpapps.apps.<name>.resource_uri` | string | `ui://<name>` | MCP resource URI for this app |
+| `mcpapps.apps.<name>.tools` | []string | - | Tool names that cause this app to be surfaced |
+| `mcpapps.apps.<name>.csp.resource_domains` | []string | - | Additional allowed origins for `<script>`/`<link>` |
+| `mcpapps.apps.<name>.csp.connect_domains` | []string | - | Additional allowed `fetch`/XHR origins |
+| `mcpapps.apps.<name>.config` | object | - | Arbitrary config injected into the app as `<script id="app-config">` JSON |
+
+See [MCP Apps Configuration](../mcpapps/configuration.md) for full documentation.
+
 ## Complete Example
 
 ```yaml

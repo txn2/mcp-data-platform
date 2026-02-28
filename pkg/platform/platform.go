@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/apps"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
@@ -47,6 +49,9 @@ const toolkitKindTrino = "trino"
 
 // minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
 const minSigningKeyLength = 32
+
+// builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
+const builtinPlatformInfoName = "platform-info"
 
 // defaultTrinoPort is the default port for Trino connections.
 const defaultTrinoPort = 8080
@@ -696,13 +701,21 @@ func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
 
 // initMCPApps initializes MCP Apps support.
 func (p *Platform) initMCPApps() error {
-	if !p.config.MCPApps.Enabled {
+	if !p.config.MCPApps.IsEnabled() {
 		return nil
 	}
 
 	p.mcpAppsRegistry = mcpapps.NewRegistry()
 
+	if err := p.registerBuiltinPlatformInfo(); err != nil {
+		return err
+	}
+
 	for appName, appCfg := range p.config.MCPApps.Apps {
+		if appName == builtinPlatformInfoName {
+			// Already registered as built-in (possibly with operator branding applied).
+			continue
+		}
 		if !appCfg.Enabled {
 			continue
 		}
@@ -711,6 +724,49 @@ func (p *Platform) initMCPApps() error {
 		}
 	}
 
+	return nil
+}
+
+// registerBuiltinPlatformInfo registers the embedded platform-info app.
+// If the operator has a builtinPlatformInfoName entry in config, branding config is
+// merged in; an explicit assets_path overrides the embedded HTML entirely.
+func (p *Platform) registerBuiltinPlatformInfo() error {
+	subFS, err := fs.Sub(apps.PlatformInfo, builtinPlatformInfoName)
+	if err != nil {
+		return fmt.Errorf("embed %s: %w", builtinPlatformInfoName, err)
+	}
+
+	app := &mcpapps.AppDefinition{
+		Name:        builtinPlatformInfoName,
+		ToolNames:   []string{"platform_info"},
+		Content:     subFS,
+		EntryPoint:  "index.html",
+		ResourceURI: "ui://platform-info",
+	}
+
+	// Merge operator config (branding) if present.
+	if cfg, ok := p.config.MCPApps.Apps[builtinPlatformInfoName]; ok {
+		if cfg.Config != nil {
+			app.Config = cfg.Config
+		}
+		if cfg.AssetsPath != "" {
+			// Operator wants custom HTML — fall back to filesystem.
+			app.Content = nil
+			app.AssetsPath = cfg.AssetsPath
+		}
+	}
+
+	if app.AssetsPath != "" {
+		if err := app.ValidateAssets(); err != nil {
+			return fmt.Errorf("app %s: %w", builtinPlatformInfoName, err)
+		}
+	}
+
+	if err := p.mcpAppsRegistry.Register(app); err != nil {
+		return fmt.Errorf("registering %s app: %w", builtinPlatformInfoName, err)
+	}
+
+	slog.Info("registered MCP app", "app", builtinPlatformInfoName, "resource_uri", app.ResourceURI)
 	return nil
 }
 

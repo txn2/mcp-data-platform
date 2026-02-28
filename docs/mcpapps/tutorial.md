@@ -558,28 +558,56 @@ Test with variations to ensure robustness:
 }
 ```
 
-## Step 7: Add Configuration
+## Step 7: Deployment
 
-Add your app to `configs/mcpapps-container.yaml`:
+### Built-in platform-info
+
+The `platform-info` app is embedded in the binary and registers automatically. **No configuration is required.** The app you built in this tutorial is functionally equivalent to the one that ships with the platform.
+
+To add branding without touching HTML:
 
 ```yaml
 mcpapps:
-  enabled: true
   apps:
-    platform_info:
+    platform-info:
+      config:
+        brand_name: "ACME Data Platform"
+        brand_url: "https://data.acme.com"
+```
+
+### Custom HTML Override
+
+If you want to deploy your own version of the HTML instead of the built-in one:
+
+```yaml
+mcpapps:
+  apps:
+    platform-info:
+      assets_path: "/etc/mcp-apps/platform-info"   # overrides embedded HTML
+      config:
+        brand_name: "ACME Data Platform"
+```
+
+### Deploying a New Custom App
+
+For apps you build yourself (not `platform-info`), `assets_path` is required:
+
+```yaml
+mcpapps:
+  apps:
+    my_new_app:
       enabled: true
-      assets_path: "${MCP_APPS_PATH}/platform-info"
-      entry_point: "index.html"
+      assets_path: "/etc/mcp-apps/my-new-app"
       tools:
-        - platform_info
+        - some_tool
 ```
 
 **Configuration Fields:**
 
 | Field | Description |
 |-------|-------------|
-| `enabled` | Whether this app is active |
-| `assets_path` | Directory containing your app files |
+| `enabled` | Whether this app is active (default: `true`) |
+| `assets_path` | Directory containing your app files (required for custom apps) |
 | `entry_point` | Main HTML file (default: `index.html`) |
 | `tools` | List of tools that trigger this app |
 | `csp` | Content Security Policy settings (for external resources) |

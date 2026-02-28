@@ -1,12 +1,60 @@
 # MCP Apps Configuration
 
-MCP Apps must be explicitly enabled and configured. The platform provides the infrastructure; you provide the apps.
+MCP Apps are **enabled by default**. The built-in `platform-info` app registers automatically at startup — no configuration required.
 
-## Basic Configuration
+## Built-in App: platform-info
+
+`platform-info` is embedded in the binary and requires no `assets_path`, volume mount, or explicit `enabled: true`. It is always available unless MCP Apps are explicitly disabled.
+
+### Branding (optional)
+
+Override branding without replacing any HTML:
 
 ```yaml
 mcpapps:
-  enabled: true
+  apps:
+    platform-info:
+      config:
+        brand_name: "ACME Data Platform"
+        brand_url: "https://data.acme.com"
+        logo_svg: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'>...</svg>"
+```
+
+All fields are optional. When unset, the app falls back to the server name and a default logo.
+
+### Custom HTML Override
+
+To replace the embedded HTML entirely with your own version:
+
+```yaml
+mcpapps:
+  apps:
+    platform-info:
+      assets_path: "/etc/mcp-apps/platform-info"   # overrides embedded content
+      config:
+        brand_name: "ACME Data Platform"
+```
+
+### Disable platform-info
+
+```yaml
+mcpapps:
+  enabled: false   # disables all MCP Apps including platform-info
+```
+
+## Disabling MCP Apps
+
+```yaml
+mcpapps:
+  enabled: false
+```
+
+## Custom Apps
+
+Register additional apps alongside the built-in ones:
+
+```yaml
+mcpapps:
   apps:
     query_results:
       enabled: true
@@ -14,51 +62,26 @@ mcpapps:
       tools:
         - trino_query
         - trino_execute
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `enabled` | bool | No | Enable MCP Apps infrastructure (default: false) |
-| `apps` | map | Yes | Named app configurations |
-
-## App Configuration
-
-Each app requires a unique name and configuration:
-
-```yaml
-mcpapps:
-  apps:
-    my_app:
-      enabled: true
-      assets_path: "/absolute/path/to/app"
-      entry_point: "index.html"
-      resource_uri: "ui://my_app"
-      tools:
-        - trino_query
-        - trino_execute
       csp:
         resource_domains:
           - "https://cdn.jsdelivr.net"
-        connect_domains:
-          - "https://api.example.com"
-      config:
-        maxRows: 1000
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `enabled` | bool | No | Enable this app (default: true) |
-| `assets_path` | string | Yes | Absolute path to app directory |
-| `entry_point` | string | No | HTML entry point (default: index.html) |
-| `resource_uri` | string | No | MCP resource URI (default: ui://<app_name>) |
-| `tools` | array | Yes | Tools this app enhances |
-| `csp.resource_domains` | array | No | Allowed CDN origins for scripts/styles |
-| `csp.connect_domains` | array | No | Allowed fetch/XHR endpoints |
-| `config` | object | No | App-specific config injected as JSON |
+| `enabled` | bool | No | Master switch for all MCP Apps (default: `true`) |
+| `apps.<name>.enabled` | bool | No | Enable this app (default: `true`) |
+| `apps.<name>.assets_path` | string | No* | Absolute path to app HTML/JS/CSS directory. *Required for custom apps; optional for `platform-info` (uses embedded HTML by default) |
+| `apps.<name>.entry_point` | string | No | HTML entry point filename (default: `index.html`) |
+| `apps.<name>.resource_uri` | string | No | MCP resource URI (default: `ui://<app_name>`) |
+| `apps.<name>.tools` | array | Yes | Tools this app enhances |
+| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins for scripts/styles |
+| `apps.<name>.csp.connect_domains` | array | No | Allowed fetch/XHR endpoints |
+| `apps.<name>.config` | object | No | App-specific config injected as `<script id="app-config">` JSON |
 
-## Using the Example App
+## Using the query-results Example App
 
-The repository includes an example app at `apps/query-results/`. To use it:
+The repository includes a community example app at `apps/query-results/`. To use it:
 
 ### Docker
 
@@ -70,7 +93,7 @@ docker run -p 8080:8080 \
   --config /config.yaml
 ```
 
-Your `config.yaml`:
+`config.yaml`:
 
 ```yaml
 server:
@@ -78,7 +101,6 @@ server:
   address: ":8080"
 
 mcpapps:
-  enabled: true
   apps:
     query_results:
       enabled: true
@@ -92,7 +114,7 @@ mcpapps:
 
 ### Kubernetes
 
-Use ConfigMaps to deploy apps:
+Use a ConfigMap to deploy a custom app:
 
 ```yaml
 apiVersion: v1
@@ -102,9 +124,7 @@ metadata:
 data:
   index.html: |
     <!DOCTYPE html>
-    <html>
     <!-- Copy contents from apps/query-results/index.html -->
-    </html>
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -124,12 +144,14 @@ spec:
             name: mcp-app-query-results
 ```
 
+For `platform-info`, no ConfigMap or volume mount is needed — the HTML is embedded in the binary.
+
 ## Config Injection
 
-The `config` object is injected into your app's HTML as a script tag:
+The `config` object is injected into the app's HTML as a script tag:
 
 ```html
-<script id="app-config" type="application/json">{"maxRows":1000}</script>
+<script id="app-config" type="application/json">{"brand_name":"ACME","brand_url":"https://acme.com"}</script>
 ```
 
 Access in JavaScript:
@@ -138,37 +160,15 @@ Access in JavaScript:
 const config = JSON.parse(document.getElementById('app-config').textContent);
 ```
 
-## Multiple Apps
-
-Configure multiple apps for different tools:
-
-```yaml
-mcpapps:
-  enabled: true
-  apps:
-    query_results:
-      enabled: true
-      assets_path: "/etc/mcp-apps/query-results"
-      tools:
-        - trino_query
-
-    s3_browser:
-      enabled: true
-      assets_path: "/etc/mcp-apps/s3-browser"
-      tools:
-        - s3_list_objects
-        - s3_get_object
-```
-
 ## Security
 
 ### Content Security Policy
 
-Apps declare required CSP domains in config. The server enforces these restrictions, preventing apps from loading resources from unauthorized origins.
+Apps declare required CSP domains in config. The server enforces these, preventing apps from loading resources from unauthorized origins.
 
 ### Path Traversal Protection
 
-Asset requests are validated to stay within `assets_path`. Requests like `../../../etc/passwd` are rejected.
+Asset requests are validated to stay within `assets_path`. Requests for `../../../etc/passwd` are rejected. Embedded apps use `fs.FS` which provides the same protection natively.
 
 ### Sandboxing
 
@@ -178,7 +178,8 @@ Apps run in sandboxed iframes controlled by the MCP host. They cannot access the
 
 | Problem | Solution |
 |---------|----------|
-| App not loading | Check `assets_path` is absolute and exists |
+| `platform-info` not appearing | Check that MCP Apps are not explicitly disabled (`mcpapps.enabled: false`) |
+| Custom app not loading | Check `assets_path` is absolute and exists |
 | CSP errors in console | Add required domains to `csp.resource_domains` |
 | Tool not enhanced | Verify tool name matches exactly (e.g., `trino_query`) |
-| Config not injected | Ensure `config` is valid JSON in your YAML |
+| Config not injected | Ensure `config` is valid JSON-serializable YAML |

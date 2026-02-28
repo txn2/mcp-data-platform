@@ -12,10 +12,6 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 ARG TARGETARCH
 COPY linux/${TARGETARCH}/mcp-data-platform /usr/local/bin/mcp-data-platform
 
-# Copy bundled MCP Apps (default apps shipped with the image)
-# Users can override by mounting their own apps to /etc/mcp-apps/
-COPY apps/ /usr/share/mcp-data-platform/apps/
-
 # Run as non-root user (numeric UID — scratch has no adduser/passwd)
 USER 1000:1000
 

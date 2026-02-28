@@ -7,7 +7,8 @@
 #   2. Run server:    go run ./cmd/mcp-data-platform --config configs/mcpapps-dev.yaml
 #   3. Test:          npx @anthropics/mcp-inspector http://localhost:3001
 #
-# Edit apps in ./apps/ directory - changes are served immediately (no restart needed).
+# platform-info is embedded in the binary and registered automatically.
+# Set assets_path to your local checkout to edit HTML without rebuilding.
 
 apiVersion: v1
 
@@ -47,40 +48,14 @@ toolkits:
 
 # MCP Apps Configuration
 #
-# assets_path must be an absolute path to the directory containing app files.
-# For local development, use the full path to your apps/ directory.
-#
-# The path is resolved at startup - edit HTML/JS/CSS and refresh to see changes.
+# platform-info is built into the binary — no assets_path needed for production.
+# For local development, set assets_path to override the embedded HTML so you
+# can edit the file and see changes without rebuilding.
 mcpapps:
-  enabled: true
   apps:
-    query_results:
+    platform-info:
       enabled: true
-      # IMPORTANT: Replace with your actual absolute path
-      # Example paths:
-      #   macOS:   /Users/yourname/workspace/mcp-data-platform/apps/query-results
-      #   Linux:   /home/yourname/workspace/mcp-data-platform/apps/query-results
-      #   Windows: C:/Users/yourname/workspace/mcp-data-platform/apps/query-results
-      assets_path: "${MCP_APPS_PATH}/query-results"
-      entry_point: "index.html"
-      tools:
-        - trino_query
-        - trino_execute
-      csp:
-        resource_domains:
-          - "https://cdn.jsdelivr.net"
-      config:
-        chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
-        defaultChartType: "bar"
-        maxTableRows: 1000
-    platform_info:
-      enabled: true
-      # IMPORTANT: Replace with your actual absolute path
-      # Example paths:
-      #   macOS:   /Users/yourname/workspace/mcp-data-platform/apps/platform-info
-      #   Linux:   /home/yourname/workspace/mcp-data-platform/apps/platform-info
-      assets_path: "${MCP_APPS_PATH}/platform-info"
-      entry_point: "index.html"
+      assets_path: "${MCP_APPS_PATH}/platform-info"   # override embedded for live editing
       tools:
         - platform_info
       # Optional white-label branding — all fields are optional.

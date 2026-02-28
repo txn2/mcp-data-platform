@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -528,6 +529,45 @@ func TestReadAsset(t *testing.T) {
 		_, err := readAsset(app, "subdir/../../errors.go")
 		if !errors.Is(err, ErrPathTraversal) {
 			t.Errorf("Expected ErrPathTraversal, got %v", err)
+		}
+	})
+}
+
+func TestReadAsset_EmbeddedFS(t *testing.T) {
+	embeddedContent := []byte("<html><head></head><body>embedded</body></html>")
+	mockFS := fstest.MapFS{
+		"index.html": {Data: embeddedContent},
+		"style.css":  {Data: []byte("body { color: red; }")},
+	}
+	app := &AppDefinition{
+		Content:    mockFS,
+		EntryPoint: regTestEntryPoint,
+	}
+
+	t.Run("reads entry point from embedded FS", func(t *testing.T) {
+		content, err := readAsset(app, regTestEntryPoint)
+		if err != nil {
+			t.Fatalf("readAsset returned error: %v", err)
+		}
+		if !bytes.Equal(content, embeddedContent) {
+			t.Errorf("content mismatch: got %q, want %q", content, embeddedContent)
+		}
+	})
+
+	t.Run("reads other file from embedded FS", func(t *testing.T) {
+		content, err := readAsset(app, "style.css")
+		if err != nil {
+			t.Fatalf("readAsset returned error: %v", err)
+		}
+		if !strings.Contains(string(content), "color") {
+			t.Error("Expected CSS content")
+		}
+	})
+
+	t.Run("returns ErrAssetNotFound for missing file in embedded FS", func(t *testing.T) {
+		_, err := readAsset(app, "nonexistent.html")
+		if !errors.Is(err, ErrAssetNotFound) {
+			t.Errorf("Expected ErrAssetNotFound, got %v", err)
 		}
 	})
 }

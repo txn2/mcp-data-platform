@@ -8,6 +8,7 @@ package mcpapps
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -27,8 +28,13 @@ type AppDefinition struct {
 	ToolNames []string
 
 	// AssetsPath is the absolute filesystem path to the directory
-	// containing the app's HTML/JS/CSS files.
+	// containing the app's HTML/JS/CSS files. Optional when Content is set.
 	AssetsPath string
+
+	// Content is an optional embedded filesystem. When set, assets are served
+	// from this FS instead of AssetsPath. Path traversal protection is handled
+	// by fs.FS. Either AssetsPath or Content must be provided.
+	Content fs.FS
 
 	// EntryPoint is the main HTML file within AssetsPath (e.g., "index.html").
 	EntryPoint string
@@ -92,7 +98,7 @@ func (a *AppDefinition) Validate() error {
 	if len(a.ToolNames) == 0 {
 		return ErrMissingToolNames
 	}
-	if a.AssetsPath == "" {
+	if a.AssetsPath == "" && a.Content == nil {
 		return ErrMissingAssetsPath
 	}
 	if a.EntryPoint == "" {
@@ -103,7 +109,12 @@ func (a *AppDefinition) Validate() error {
 
 // ValidateAssets verifies that the assets path exists and contains the entry point.
 // This should be called after Validate to ensure the filesystem is ready.
+// When Content is set, filesystem checks are skipped.
 func (a *AppDefinition) ValidateAssets() error {
+	if a.Content != nil {
+		return nil
+	}
+
 	if !filepath.IsAbs(a.AssetsPath) {
 		return ErrAssetsPathNotAbsolute
 	}

@@ -2,6 +2,9 @@
 #
 # Used by Dockerfile.dev and docker-compose.dev.yml
 # Configured for Docker internal networking.
+#
+# platform-info is built into the binary — no assets_path or volume mount needed.
+# Add config: block only if you want to override the default branding.
 
 apiVersion: v1
 
@@ -37,38 +40,15 @@ toolkits:
         default_limit: 100
         max_limit: 1000
 
-# MCP Apps - uses MCP_APPS_PATH env var set in docker-compose.dev.yml
+# MCP Apps — platform-info is registered automatically from the embedded binary.
+# No assets_path required. Uncomment config: to override branding.
 mcpapps:
-  enabled: true
   apps:
-    query_results:
+    platform-info:
       enabled: true
-      assets_path: "${MCP_APPS_PATH}/query-results"
-      entry_point: "index.html"
-      tools:
-        - trino_query
-        - trino_execute
-      csp:
-        resource_domains:
-          - "https://cdn.jsdelivr.net"
-      config:
-        chartCDN: "https://cdn.jsdelivr.net/npm/chart.js"
-        defaultChartType: "bar"
-        maxTableRows: 1000
-    platform_info:
-      enabled: true
-      assets_path: "${MCP_APPS_PATH}/platform-info"
-      entry_point: "index.html"
       tools:
         - platform_info
-      # Optional white-label branding — all fields are optional.
-      # brand_name: replaces the default brand in the hero logo area; the MCP
-      #             server name is always shown as a secondary line below.
-      # brand_url:  optional URL — makes the logo and brand name clickable links.
-      # logo_svg:   inline SVG string rendered at 40×40px; uses currentColor
-      #             for the accent tint. Leave unset to use the default mark.
-      #
       # config:
-      #   brand_name: "Plexara"
-      #   brand_url: "https://plexara.io"
-      #   logo_svg: "<svg viewBox=\"0 0 40 40\">...</svg>"
+      #   brand_name: "My Brand"
+      #   brand_url: "https://example.com"
+      #   logo_svg: "<svg ...>"

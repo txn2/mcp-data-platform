@@ -421,10 +421,18 @@ type AuditConfig struct {
 // MCPAppsConfig configures MCP Apps support for interactive UI components.
 type MCPAppsConfig struct {
 	// Enabled is the master switch for MCP Apps support.
-	Enabled bool `yaml:"enabled"`
+	// Nil (not set) defaults to true — the built-in platform-info app is always registered.
+	// Set to false explicitly to disable all MCP Apps.
+	Enabled *bool `yaml:"enabled"`
 
 	// Apps configures individual MCP Apps.
 	Apps map[string]AppConfig `yaml:"apps"`
+}
+
+// IsEnabled returns whether MCP Apps support is enabled.
+// Defaults to true when not explicitly set.
+func (c *MCPAppsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // AppConfig configures an individual MCP App.
@@ -437,6 +445,7 @@ type AppConfig struct {
 
 	// AssetsPath is the absolute filesystem path to the app's assets directory.
 	// This should point to a directory containing the app's HTML/JS/CSS files.
+	// Optional for built-in apps that use embedded assets; setting it overrides the embedded content.
 	AssetsPath string `yaml:"assets_path"`
 
 	// ResourceURI is the MCP resource URI for this app (e.g., "ui://query-results").

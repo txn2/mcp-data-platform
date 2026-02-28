@@ -122,7 +122,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		// does not do automatically).
 		if extractToken(r) != "" {
 			slog.Info("session: expired, creating replacement",
-				"old_session_id", sessionID)
+				"old_session_id", sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
 			h.handleInitialize(w, r)
 			return
 		}
@@ -137,11 +137,11 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 
 	// Touch with a detached context so the update is not canceled when
 	// the HTTP response completes before the goroutine runs.
-	go func() {
+	go func() { // #nosec G118 -- detached context is required; touch must outlive the HTTP response
 		ctx, cancel := context.WithTimeout(context.Background(), touchTimeout)
 		defer cancel()
 		if err := h.store.Touch(ctx, sessionID); err != nil {
-			slog.Debug("session: touch failed", "session_id", sessionID, slogKeyError, err)
+			slog.Debug("session: touch failed", "session_id", sanitizeLogValue(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
 		}
 	}()
 
