@@ -40,6 +40,18 @@ func assertToolHasUI(t *testing.T, tool *mcp.Tool, expectedURI string) {
 	}
 }
 
+// assertToolUITitle checks that _meta.ui contains the expected title.
+func assertToolUITitle(t *testing.T, tool *mcp.Tool, want string) {
+	t.Helper()
+	uiMap, ok := tool.Meta["ui"].(map[string]string)
+	if !ok {
+		t.Fatalf("tool %q _meta.ui is not map[string]string", tool.Name)
+	}
+	if got := uiMap["title"]; got != want {
+		t.Errorf("_meta.ui.title = %q, want %q", got, want)
+	}
+}
+
 // assertToolNoUI checks that a tool does NOT have UI metadata.
 func assertToolNoUI(t *testing.T, tool *mcp.Tool) {
 	t.Helper()
@@ -96,6 +108,29 @@ func TestToolMetadataMiddleware(t *testing.T) {
 
 		assertToolHasUI(t, testTool, "ui://test-app")
 		assertToolNoUI(t, otherTool)
+	})
+
+	t.Run("injects title into _meta.ui when tool has Title set", func(t *testing.T) {
+		handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			return &mcp.ListToolsResult{
+				Tools: []*mcp.Tool{
+					{Name: "test_tool", Title: "My Platform", Description: "A test tool"},
+				},
+			}, nil
+		}
+
+		wrapped := middleware(handler)
+		result, err := wrapped(context.Background(), "tools/list", nil)
+		if err != nil {
+			t.Fatalf("Middleware returned error: %v", err)
+		}
+		listResult, ok := result.(*mcp.ListToolsResult)
+		if !ok {
+			t.Fatalf("Result is not *mcp.ListToolsResult: %T", result)
+		}
+		testTool := assertToolInList(t, listResult, "test_tool")
+		assertToolHasUI(t, testTool, "ui://test-app")
+		assertToolUITitle(t, testTool, "My Platform")
 	})
 
 	t.Run("passes through non-tools/list methods", func(t *testing.T) {

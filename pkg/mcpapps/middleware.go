@@ -50,10 +50,15 @@ func injectToolMetadata(reg *Registry, method string, result mcp.Result) (mcp.Re
 			tool.Meta = make(mcp.Meta)
 		}
 
-		// Add UI metadata.
-		tool.Meta["ui"] = map[string]string{
+		// Add UI metadata. Include title so MCP hosts display the human-readable
+		// tool name in the app panel header instead of falling back to tool.name.
+		uiMeta := map[string]string{
 			"resourceUri": app.ResourceURI,
 		}
+		if tool.Title != "" {
+			uiMeta["title"] = tool.Title
+		}
+		tool.Meta["ui"] = uiMeta
 	}
 
 	return listResult, nil
