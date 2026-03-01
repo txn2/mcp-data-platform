@@ -14,7 +14,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
-	github.com/txn2/mcp-datahub v1.0.1
+	github.com/txn2/mcp-datahub v1.0.2
 	github.com/txn2/mcp-s3 v1.0.0
 	github.com/txn2/mcp-trino v1.0.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
