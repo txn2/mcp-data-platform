@@ -19,14 +19,18 @@ func (p *Platform) registerCustomResources() {
 			slog.Warn("skipping invalid custom resource", "uri", def.URI, "error", err)
 			continue
 		}
+		handler := func(_ context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			return buildCustomResourceResult(def)
+		}
 		p.mcpServer.AddResource(&mcp.Resource{
 			URI:         def.URI,
 			Name:        def.Name,
 			Description: def.Description,
 			MIMEType:    def.MIMEType,
-		}, func(_ context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			return buildCustomResourceResult(def)
-		})
+		}, handler)
+		if p.resourceRegistry != nil {
+			p.resourceRegistry[def.URI] = handler
+		}
 	}
 }
 

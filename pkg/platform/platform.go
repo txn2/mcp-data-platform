@@ -118,6 +118,10 @@ type Platform struct {
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
+
+	// Resource registry maps URIs to handlers so the read_resource tool can
+	// serve them without going through the MCP resources/read protocol path.
+	resourceRegistry map[string]mcp.ResourceHandler
 }
 
 // New creates a new platform instance.
@@ -132,8 +136,9 @@ func New(opts ...Option) (*Platform, error) {
 	}
 
 	p := &Platform{
-		config:    options.Config,
-		lifecycle: NewLifecycle(),
+		config:           options.Config,
+		lifecycle:        NewLifecycle(),
+		resourceRegistry: make(map[string]mcp.ResourceHandler),
 	}
 
 	// Initialize components
@@ -1291,6 +1296,9 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
+
+	// Register read_resource tool so AI can access registered resources as tools
+	p.registerResourceTool()
 
 	// Validate agent_instructions references against registered tools
 	p.validateAgentInstructions()
