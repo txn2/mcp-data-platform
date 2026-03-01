@@ -580,6 +580,40 @@ When enabled, the platform registers these resource templates:
 
 Clients that support resource browsing (e.g., Claude Desktop) will show these as navigable resources alongside tools.
 
+## Custom Resources Configuration
+
+Custom resources let you expose arbitrary static content as named MCP resources — brand assets, operational limits, environment docs, or any structured blob that agents can read by URI. They are registered whenever `resources.custom` is non-empty, independent of `resources.enabled`.
+
+```yaml
+resources:
+  custom:
+    - uri: "brand://theme"
+      name: "Brand Theme"
+      description: "Primary brand colors and site URL"
+      mime_type: "application/json"
+      content: |
+        {
+          "colors": {"primary": "#FF6B35", "secondary": "#004E89"},
+          "url": "https://example.com"
+        }
+
+    - uri: "brand://logo"
+      name: "Brand Logo SVG"
+      mime_type: "image/svg+xml"
+      content_file: "/etc/platform/logo.svg"
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `uri` | string | Yes | Unique resource URI (e.g., `brand://theme`, `docs://limits`) |
+| `name` | string | Yes | Human-readable name shown in `resources/list` |
+| `description` | string | No | Optional description for MCP clients |
+| `mime_type` | string | Yes | MIME type (e.g., `application/json`, `image/svg+xml`, `text/plain`) |
+| `content` | string | One of | Inline content (text, JSON, SVG, etc.) |
+| `content_file` | string | One of | Absolute path to a file; read on every request (supports hot-reload) |
+
+`content` and `content_file` are mutually exclusive. Invalid entries (missing required fields, both or neither content fields set) are skipped with a warning at startup; valid entries in the same list are still registered.
+
 ## Progress Notifications Configuration
 
 Progress notifications send granular updates to MCP clients during long-running Trino queries. The client must include `_meta.progressToken` in the request to receive updates.

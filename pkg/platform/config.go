@@ -481,7 +481,18 @@ type CSPAppConfig struct {
 
 // ResourcesConfig configures MCP resource templates.
 type ResourcesConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool                `yaml:"enabled"` // gates schema/glossary/availability templates
+	Custom  []CustomResourceDef `yaml:"custom"`  // always registered when non-empty
+}
+
+// CustomResourceDef defines a user-configured static MCP resource.
+type CustomResourceDef struct {
+	URI         string `yaml:"uri"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	MIMEType    string `yaml:"mime_type"`
+	Content     string `yaml:"content,omitempty"`      // inline text/JSON/SVG
+	ContentFile string `yaml:"content_file,omitempty"` // absolute or relative path
 }
 
 // ProgressConfig configures progress notifications during tool execution.

@@ -557,6 +557,34 @@ When `resources.enabled: true`, DataHub tools include links to:
 - `glossary://{term}` — glossary term definitions
 - `availability://{catalog}.{schema}/{table}` — query availability status
 
+## Custom Resources Configuration
+
+Expose arbitrary static content as named MCP resources. Registered whenever `resources.custom` is non-empty, independent of `resources.enabled`.
+
+```yaml
+resources:
+  custom:
+    - uri: "brand://theme"
+      name: "Brand Theme"
+      description: "Primary brand colors and site URL"
+      mime_type: "application/json"
+      content: |
+        {"colors": {"primary": "#FF6B35"}, "url": "https://example.com"}
+    - uri: "brand://logo"
+      name: "Brand Logo SVG"
+      mime_type: "image/svg+xml"
+      content_file: "/etc/platform/logo.svg"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `resources.custom[].uri` | string | — | Unique resource URI (required) |
+| `resources.custom[].name` | string | — | Display name in `resources/list` (required) |
+| `resources.custom[].description` | string | `""` | Optional description |
+| `resources.custom[].mime_type` | string | — | MIME type, e.g. `application/json` (required) |
+| `resources.custom[].content` | string | — | Inline content; mutually exclusive with `content_file` |
+| `resources.custom[].content_file` | string | — | File path; read on every request for hot-reload |
+
 ## Admin API Configuration
 
 ```yaml

@@ -1286,6 +1286,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register hints resource
 	p.registerHintsResource()
 
+	// Register user-defined custom resources from config
+	p.registerCustomResources()
+
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
 

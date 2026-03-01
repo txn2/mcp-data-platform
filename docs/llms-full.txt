@@ -347,6 +347,36 @@ When enabled, three RFC 6570 URI templates are registered:
 - `glossary://{term}` — Glossary term definition and related assets
 - `availability://{catalog}.{schema_name}/{table}` — Data availability status and row count
 
+## Custom Resources Configuration
+
+Custom resources expose arbitrary static content as named MCP resources. Registered whenever `resources.custom` is non-empty, independent of `resources.enabled`. Content can be inline (`content`) or read from a file on every request (`content_file`, supports hot-reload).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `resources.custom[].uri` | string | — | Unique resource URI, e.g. `brand://theme` (required) |
+| `resources.custom[].name` | string | — | Display name shown in `resources/list` (required) |
+| `resources.custom[].description` | string | `""` | Optional description for MCP clients |
+| `resources.custom[].mime_type` | string | — | MIME type, e.g. `application/json`, `image/svg+xml` (required) |
+| `resources.custom[].content` | string | — | Inline text/JSON/SVG content; mutually exclusive with `content_file` |
+| `resources.custom[].content_file` | string | — | Absolute file path; read on every `resources/read` request |
+
+Example — inline JSON brand theme and file-backed SVG logo:
+
+```yaml
+resources:
+  custom:
+    - uri: "brand://theme"
+      name: "Brand Theme"
+      mime_type: "application/json"
+      content: '{"colors":{"primary":"#FF6B35"},"url":"https://example.com"}'
+    - uri: "brand://logo"
+      name: "Brand Logo"
+      mime_type: "image/svg+xml"
+      content_file: "/etc/platform/logo.svg"
+```
+
+Invalid entries (missing URI, name, or mime_type; both or neither content fields) are skipped with a warning; valid entries in the same list are still registered.
+
 ## Progress Notifications Configuration
 
 | Field | Type | Default | Description |

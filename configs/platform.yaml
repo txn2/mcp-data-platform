@@ -326,6 +326,24 @@ tuning:
 #            availability://{catalog}.{schema}/{table}
 # resources:
 #   enabled: true
+#
+#   # User-defined static resources available to MCP clients and agents.
+#   # Registered whenever non-empty, independent of resources.enabled.
+#   # Use inline content (content:) or a file path (content_file:) — not both.
+#   custom:
+#     - uri: "brand://theme"
+#       name: "Brand Theme"
+#       description: "Primary brand colors, logo SVG, and site URL"
+#       mime_type: "application/json"
+#       content: |
+#         {
+#           "colors": {"primary": "#FF6B35", "secondary": "#004E89"},
+#           "url": "https://example.com"
+#         }
+#     - uri: "brand://logo"
+#       name: "Brand Logo SVG"
+#       mime_type: "image/svg+xml"
+#       content_file: "/etc/platform/logo.svg"
 
 # Progress notifications
 # Sends granular progress updates to MCP clients during long-running
