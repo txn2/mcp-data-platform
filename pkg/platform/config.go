@@ -77,6 +77,7 @@ type Config struct {
 	Icons         IconsConfig         `yaml:"icons"`
 	Elicitation   ElicitationConfig   `yaml:"elicitation"`
 	Workflow      WorkflowConfig      `yaml:"workflow"`
+	SessionGate   SessionGateConfig   `yaml:"session_gate"`
 }
 
 // AdminConfig configures the admin REST API.
@@ -594,6 +595,19 @@ type EscalationConfig struct {
 // defaultEscalationAfterWarnings is the default number of warnings before escalation.
 const defaultEscalationAfterWarnings = 3
 
+// SessionGateConfig configures the session initialization gate that requires
+// agents to call platform_info before using any other tool.
+type SessionGateConfig struct {
+	// Enabled activates the session initialization gate.
+	Enabled bool `yaml:"enabled"`
+
+	// InitTool is the tool that initializes the session (default: "platform_info").
+	InitTool string `yaml:"init_tool"`
+
+	// ExemptTools lists tool names that bypass the gate (e.g., "list_connections").
+	ExemptTools []string `yaml:"exempt_tools"`
+}
+
 // SessionsConfig configures session externalization.
 type SessionsConfig struct {
 	// Store selects the session storage backend: "memory" (default) or "database".
@@ -684,12 +698,23 @@ func applyDefaults(cfg *Config) {
 	applyAdminDefaults(cfg)
 	applyElicitationDefaults(cfg)
 	applyWorkflowDefaults(cfg)
+	applySessionGateDefaults(cfg)
 }
 
 // applyElicitationDefaults sets defaults for elicitation config.
 func applyElicitationDefaults(cfg *Config) {
 	if cfg.Elicitation.CostEstimation.RowThreshold == 0 {
 		cfg.Elicitation.CostEstimation.RowThreshold = defaultElicitRowThreshold
+	}
+}
+
+// defaultInitTool is the tool that initializes a session.
+const defaultInitTool = "platform_info"
+
+// applySessionGateDefaults sets defaults for session gate config.
+func applySessionGateDefaults(cfg *Config) {
+	if cfg.SessionGate.InitTool == "" {
+		cfg.SessionGate.InitTool = defaultInitTool
 	}
 }
 

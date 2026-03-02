@@ -116,6 +116,9 @@ type Platform struct {
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
 
+	// Session gate
+	sessionGate *middleware.SessionGate
+
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
@@ -180,6 +183,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	}
 	p.initTuning(opts)
 	p.initWorkflow()
+	p.initSessionGate()
 	if err := p.initExtensions(); err != nil {
 		return err
 	}
@@ -626,6 +630,32 @@ func (p *Platform) initWorkflow() {
 	)
 }
 
+// initSessionGate initializes the session initialization gate if configured.
+func (p *Platform) initSessionGate() {
+	if !p.config.SessionGate.Enabled {
+		return
+	}
+
+	sessionTTL := p.config.Sessions.TTL
+	if sessionTTL == 0 {
+		sessionTTL = p.config.Server.Streamable.SessionTimeout
+	}
+
+	p.sessionGate = middleware.NewSessionGate(middleware.SessionGateConfig{
+		InitTool:        p.config.SessionGate.InitTool,
+		ExemptTools:     p.config.SessionGate.ExemptTools,
+		SessionTTL:      sessionTTL,
+		CleanupInterval: p.config.Sessions.CleanupInterval,
+	})
+	p.sessionGate.StartCleanup(p.config.Sessions.CleanupInterval)
+
+	slog.Info("session gate enabled",
+		"init_tool", p.config.SessionGate.InitTool,
+		"exempt_tools", p.config.SessionGate.ExemptTools,
+		"session_ttl", sessionTTL,
+	)
+}
+
 // initKnowledge initializes the knowledge capture toolkit if enabled.
 // Knowledge tools require database persistence — without a database the
 // toolkit is not registered and its tools won't appear in tools/list.
@@ -853,7 +883,7 @@ func (p *Platform) finalizeSetup() {
 	// added runs FIRST. We add innermost middleware first and outermost last.
 	//
 	// Desired execution order (outermost → innermost → handler):
-	//   Tool visibility → Apps metadata → Auth/Authz → Audit → Rules → Client logging → Enrichment → handler
+	//   Tool visibility → Apps metadata → Auth/Authz → Session gate → Audit → Rules → Client logging → Enrichment → handler
 	//
 	// Therefore we add in reverse (innermost first):
 
@@ -909,23 +939,32 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
-	// 5. Auth/Authz (outermost for tools/call) - authenticates and authorizes
+	// 5. Session gate - blocks non-exempt tools until platform_info is called.
+	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
+	// gated calls don't produce audit events.
+	if p.sessionGate != nil {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPSessionGateMiddleware(p.sessionGate),
+		)
+	}
+
+	// 6. Auth/Authz (outermost for tools/call) - authenticates and authorizes
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport, p.workflowTracker),
 	)
 
-	// 6. MCP Apps metadata - injects _meta.ui into tools/list
+	// 7. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
 
-	// 7. Tool visibility - reduces tools/list for token savings
+	// 8. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
 
-	// 7.5 Description overrides - replaces tool descriptions with workflow guidance
+	// 8.5 Description overrides - replaces tool descriptions with workflow guidance
 	p.addDescriptionOverrideMiddleware()
 
-	// 8. Icons (outermost list decoration) - injects icons into list responses
+	// 9. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
 }
 
@@ -1689,11 +1728,8 @@ func closeResource(errs *[]error, closer Closer) {
 func (p *Platform) Close() error {
 	var errs []error
 
-	// Phase 0: stop workflow tracker goroutine
-	if p.workflowTracker != nil {
-		slog.Debug("shutdown: stopping workflow tracker")
-		p.workflowTracker.Stop()
-	}
+	// Phase 0: stop background goroutines
+	p.stopBackgroundTrackers()
 
 	// Phase 1a: flush enrichment dedup state to session store
 	p.flushEnrichmentState()
@@ -1746,6 +1782,19 @@ func (p *Platform) Close() error {
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// stopBackgroundTrackers stops background goroutines for workflow tracking and
+// session gating. Called at the beginning of Close() to halt periodic cleanups.
+func (p *Platform) stopBackgroundTrackers() {
+	if p.workflowTracker != nil {
+		slog.Debug("shutdown: stopping workflow tracker")
+		p.workflowTracker.Stop()
+	}
+	if p.sessionGate != nil {
+		slog.Debug("shutdown: stopping session gate")
+		p.sessionGate.Stop()
+	}
 }
 
 // flushEnrichmentState persists enrichment dedup state from the session cache

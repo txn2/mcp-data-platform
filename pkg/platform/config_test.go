@@ -46,6 +46,7 @@ const (
 	cfgTestCustomSessionsTTL = 15 * time.Minute
 	cfgTestCustomCleanup     = 2 * time.Minute
 	cfgTestPersonaSuperadmin = "superadmin"
+	cfgTestToolListConns     = "list_connections"
 )
 
 // writeTestConfig writes a YAML config to a temp dir and returns the path.
@@ -232,6 +233,9 @@ func TestApplyDefaults(t *testing.T) {
 	}
 	if cfg.Injection.EstimateRowCounts {
 		t.Error("Injection.EstimateRowCounts should default to false")
+	}
+	if cfg.SessionGate.InitTool != defaultInitTool {
+		t.Errorf("SessionGate.InitTool = %q, want %q", cfg.SessionGate.InitTool, defaultInitTool)
 	}
 }
 
@@ -1208,4 +1212,59 @@ injection:
 			t.Errorf("expected 10, got %d", cfg.Injection.EffectiveSchemaPreviewMaxColumns())
 		}
 	})
+}
+
+func TestApplyDefaults_SessionGateConfig(t *testing.T) {
+	t.Run("defaults init tool to platform_info", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.SessionGate.InitTool != defaultInitTool {
+			t.Errorf("SessionGate.InitTool = %q, want %q", cfg.SessionGate.InitTool, defaultInitTool)
+		}
+	})
+
+	t.Run("preserves explicit init tool", func(t *testing.T) {
+		cfg := &Config{
+			SessionGate: SessionGateConfig{
+				InitTool: "custom_init",
+			},
+		}
+		applyDefaults(cfg)
+		if cfg.SessionGate.InitTool != "custom_init" {
+			t.Errorf("SessionGate.InitTool = %q, want %q", cfg.SessionGate.InitTool, "custom_init")
+		}
+	})
+
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.SessionGate.Enabled {
+			t.Error("SessionGate.Enabled should default to false")
+		}
+	})
+}
+
+func TestLoadConfig_SessionGateFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+session_gate:
+  enabled: true
+  init_tool: platform_info
+  exempt_tools:
+    - list_connections
+    - read_resource
+`)
+	if !cfg.SessionGate.Enabled {
+		t.Error("SessionGate.Enabled = false, want true")
+	}
+	if cfg.SessionGate.InitTool != "platform_info" {
+		t.Errorf("SessionGate.InitTool = %q, want %q", cfg.SessionGate.InitTool, "platform_info")
+	}
+	if len(cfg.SessionGate.ExemptTools) != 2 {
+		t.Fatalf("SessionGate.ExemptTools length = %d, want 2", len(cfg.SessionGate.ExemptTools))
+	}
+	if cfg.SessionGate.ExemptTools[0] != cfgTestToolListConns {
+		t.Errorf("ExemptTools[0] = %q, want %q", cfg.SessionGate.ExemptTools[0], cfgTestToolListConns)
+	}
 }
