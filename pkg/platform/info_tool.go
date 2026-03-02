@@ -130,15 +130,19 @@ func (p *Platform) buildInfoToolTitle() string {
 
 // buildInfoToolDescription builds a dynamic tool description based on configuration.
 func (p *Platform) buildInfoToolDescription() string {
-	base := "Get information about this MCP data platform"
+	base := "MANDATORY first call in every session. "
 	if p.config.Server.Name != "" && p.config.Server.Name != "mcp-data-platform" {
-		base = fmt.Sprintf("Get information about %s", p.config.Server.Name)
+		base += fmt.Sprintf("Get information about %s", p.config.Server.Name)
+	} else {
+		base += "Get information about this MCP data platform"
 	}
 	if len(p.config.Server.Tags) > 0 {
 		base += fmt.Sprintf(" (%s)", strings.Join(p.config.Server.Tags, ", "))
 	}
 	return base + ", including its purpose, available toolkits, and enabled features. " +
-		"Call this first to understand what data and capabilities are available."
+		"This tool MUST be called before any other tool (datahub_search, trino_query, " +
+		"trino_describe_table, s3_list_objects, etc.). Skipping it causes incorrect query " +
+		"routing, operational rule violations, and degraded output quality."
 }
 
 // collectToolkits returns the list of enabled toolkit names and any

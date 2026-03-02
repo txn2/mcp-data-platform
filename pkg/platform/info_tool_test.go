@@ -231,6 +231,7 @@ func TestBuildInfoToolDescription(t *testing.T) {
 				Name: "mcp-data-platform",
 			},
 			wantContains: []string{
+				"MANDATORY first call",
 				"Get information about this MCP data platform",
 				"including its purpose",
 			},
@@ -241,7 +242,9 @@ func TestBuildInfoToolDescription(t *testing.T) {
 				Name: "ACME Data Platform",
 			},
 			wantContains: []string{
+				"MANDATORY first call",
 				"Get information about ACME Data Platform",
+				"MUST be called before any other tool",
 			},
 		},
 		{
@@ -251,6 +254,7 @@ func TestBuildInfoToolDescription(t *testing.T) {
 				Tags: []string{"analytics", "sales"},
 			},
 			wantContains: []string{
+				"MANDATORY first call",
 				"Get information about ACME Data Platform",
 				"(analytics, sales)",
 			},
@@ -263,6 +267,29 @@ func TestBuildInfoToolDescription(t *testing.T) {
 			},
 			wantContains: []string{
 				"Get information about ACME Data Platform",
+			},
+		},
+		{
+			name: "mentions consequences of skipping",
+			serverConfig: ServerConfig{
+				Name: "mcp-data-platform",
+			},
+			wantContains: []string{
+				"incorrect query routing",
+				"operational rule violations",
+				"degraded output quality",
+			},
+		},
+		{
+			name: "mentions specific tools that must not precede it",
+			serverConfig: ServerConfig{
+				Name: "mcp-data-platform",
+			},
+			wantContains: []string{
+				"datahub_search",
+				"trino_query",
+				"trino_describe_table",
+				"s3_list_objects",
 			},
 		},
 	}
