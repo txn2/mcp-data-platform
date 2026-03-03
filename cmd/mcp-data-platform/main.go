@@ -20,11 +20,13 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/adminui"
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
+	"github.com/txn2/mcp-data-platform/internal/portalui"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -291,6 +293,12 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount admin UI if explicitly enabled and frontend was built into the binary
 	mountAdminPortal(mux, p, adminui.Available())
 
+	// Mount portal API if enabled
+	mountPortalAPI(mux, p)
+
+	// Mount portal UI if explicitly enabled and frontend was built into the binary
+	mountPortalUI(mux, p, portalui.Available())
+
 	// Mount SSE handler (legacy clients)
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
 	mux.Handle("/sse", wrappedSSE)
@@ -449,6 +457,46 @@ func mountAdminPortal(mux *http.ServeMux, p *platform.Platform, assetsAvailable 
 	}
 	mux.Handle("/admin/", http.StripPrefix("/admin", adminui.Handler()))
 	log.Println("Admin UI enabled on /admin/")
+}
+
+// mountPortalAPI registers the portal REST API on the mux if portal is enabled.
+func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || !p.Config().Portal.Enabled {
+		return
+	}
+	if p.PortalAssetStore() == nil || p.PortalShareStore() == nil {
+		log.Println("Portal enabled but stores not available (database required)")
+		return
+	}
+
+	portalAuth := portal.NewAuthenticator(p.Authenticator())
+
+	deps := portal.Deps{
+		AssetStore:    p.PortalAssetStore(),
+		ShareStore:    p.PortalShareStore(),
+		S3Client:      p.PortalS3Client(),
+		S3Bucket:      p.Config().Portal.S3Bucket,
+		PublicBaseURL: p.Config().Portal.PublicBaseURL,
+		RateLimit: portal.RateLimitConfig{
+			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
+			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
+		},
+	}
+
+	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
+	mux.Handle("/api/v1/portal/", handler)
+	mux.Handle("/portal/view/", handler)
+	log.Println("Portal API enabled on /api/v1/portal/")
+}
+
+// mountPortalUI registers the portal SPA frontend on the mux when the portal
+// UI config gate is enabled and assets are available.
+func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
+	if p == nil || !p.Config().Portal.UI || !assetsAvailable {
+		return
+	}
+	mux.Handle("/portal/", http.StripPrefix("/portal", portalui.Handler()))
+	log.Println("Portal UI enabled on /portal/")
 }
 
 // buildAdminHandler constructs the admin REST API handler from the platform.

@@ -108,12 +108,20 @@ type KnowledgeApplyConfig struct {
 
 // PortalConfig configures the asset portal for saving AI-generated artifacts.
 type PortalConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	S3Connection   string `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
-	S3Bucket       string `yaml:"s3_bucket"`        // bucket for artifact storage
-	S3Prefix       string `yaml:"s3_prefix"`        // key prefix within the bucket
-	PublicBaseURL  string `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
-	MaxContentSize int    `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
+	Enabled        bool                  `yaml:"enabled"`
+	UI             bool                  `yaml:"ui"`               // enable portal SPA frontend (default: false)
+	S3Connection   string                `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
+	S3Bucket       string                `yaml:"s3_bucket"`        // bucket for artifact storage
+	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket
+	PublicBaseURL  string                `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
+	MaxContentSize int                   `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
+	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
+}
+
+// PortalRateLimitConfig configures rate limiting for the public portal viewer.
+type PortalRateLimitConfig struct {
+	RequestsPerMinute int `yaml:"requests_per_minute"` // default: 60
+	BurstSize         int `yaml:"burst_size"`          // default: 10
 }
 
 // defaultMaxContentSize is the default maximum artifact size (10 MB).
