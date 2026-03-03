@@ -585,6 +585,32 @@ resources:
 | `resources.custom[].content` | string | — | Inline content; mutually exclusive with `content_file` |
 | `resources.custom[].content_file` | string | — | File path; read on every request for hot-reload |
 
+## Portal Configuration
+
+The asset portal persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata tracking.
+
+```yaml
+portal:
+  enabled: true
+  s3_connection: primary        # S3 toolkit instance for artifact storage
+  s3_bucket: portal-artifacts   # Bucket for artifact content
+  s3_prefix: "artifacts/"       # Key prefix within the bucket
+  public_base_url: "https://portal.example.com"  # Base URL for portal links
+  max_content_size: 10485760    # Max artifact size in bytes (default: 10MB)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `portal.enabled` | bool | `false` | Enable the portal toolkit and `save_artifact`/`manage_artifact` tools |
+| `portal.s3_connection` | string | - | Name of the S3 toolkit instance to use for artifact storage |
+| `portal.s3_bucket` | string | - | S3 bucket for storing artifact content |
+| `portal.s3_prefix` | string | `""` | Key prefix within the bucket (e.g., `artifacts/`) |
+| `portal.public_base_url` | string | `""` | Base URL for portal links returned in `save_artifact` responses |
+| `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+
+!!! note "Prerequisites"
+    Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for artifact content storage.
+
 ## Admin API Configuration
 
 ```yaml
@@ -902,6 +928,13 @@ knowledge:
     enabled: true
     datahub_connection: primary
     require_confirmation: true
+
+portal:
+  enabled: true
+  s3_connection: primary
+  s3_bucket: portal-artifacts
+  s3_prefix: "artifacts/"
+  public_base_url: "https://portal.example.com"
 
 audit:
   enabled: true
