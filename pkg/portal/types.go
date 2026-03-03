@@ -41,15 +41,24 @@ type ProvenanceToolCall struct {
 
 // Share represents a share link for an asset.
 type Share struct {
-	ID             string     `json:"id"`
-	AssetID        string     `json:"asset_id"`
-	Token          string     `json:"token"`
-	CreatedBy      string     `json:"created_by"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	Revoked        bool       `json:"revoked"`
-	AccessCount    int        `json:"access_count"`
-	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID               string     `json:"id"`
+	AssetID          string     `json:"asset_id"`
+	Token            string     `json:"token"`
+	CreatedBy        string     `json:"created_by"`
+	SharedWithUserID string     `json:"shared_with_user_id,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Revoked          bool       `json:"revoked"`
+	AccessCount      int        `json:"access_count"`
+	LastAccessedAt   *time.Time `json:"last_accessed_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+// SharedAsset combines an Asset with share metadata for "shared with me" results.
+type SharedAsset struct {
+	Asset    Asset     `json:"asset"`
+	ShareID  string    `json:"share_id"`
+	SharedBy string    `json:"shared_by"`
+	SharedAt time.Time `json:"shared_at"`
 }
 
 // AssetFilter defines filtering criteria for listing assets.
