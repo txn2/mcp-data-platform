@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 24
+	migrateTestFileCount    = 28
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -68,6 +68,10 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000011_enrichment_tokens.down.sql",
 		"000012_enrichment_mode.up.sql",
 		"000012_enrichment_mode.down.sql",
+		"000013_portal_assets.up.sql",
+		"000013_portal_assets.down.sql",
+		"000014_portal_shares.up.sql",
+		"000014_portal_shares.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -102,6 +106,10 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000009_config_store.down.sql",
 		"migrations/000010_knowledge_source.up.sql",
 		"migrations/000010_knowledge_source.down.sql",
+		"migrations/000013_portal_assets.up.sql",
+		"migrations/000013_portal_assets.down.sql",
+		"migrations/000014_portal_shares.up.sql",
+		"migrations/000014_portal_shares.down.sql",
 	}
 
 	for _, file := range files {
@@ -118,6 +126,8 @@ func TestMigrationUpFilesContainCreateTable(t *testing.T) {
 		"migrations/000005_sessions.up.sql",
 		"migrations/000006_knowledge_insights.up.sql",
 		"migrations/000008_knowledge_changesets.up.sql",
+		"migrations/000013_portal_assets.up.sql",
+		"migrations/000014_portal_shares.up.sql",
 	}
 
 	for _, file := range upFiles {
@@ -134,6 +144,8 @@ func TestMigrationDownFilesContainDropTable(t *testing.T) {
 		"migrations/000005_sessions.down.sql",
 		"migrations/000006_knowledge_insights.down.sql",
 		"migrations/000008_knowledge_changesets.down.sql",
+		"migrations/000013_portal_assets.down.sql",
+		"migrations/000014_portal_shares.down.sql",
 	}
 
 	for _, file := range downFiles {

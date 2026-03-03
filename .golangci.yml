@@ -360,6 +360,10 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      - path: pkg/portal/
+        linters:
+          - revive
+        text: "max-public-structs"
 
 
 issues:
