@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Search, FileText, Image, Code, File } from "lucide-react";
 import { useAssets } from "@/api/hooks";
+import { formatBytes } from "@/lib/format";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -21,14 +22,6 @@ function contentTypeBadgeColor(ct: string) {
   if (lower.includes("svg")) return "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300";
   if (lower.includes("markdown")) return "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300";
   return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 export function MyAssetsPage({ onNavigate }: Props) {

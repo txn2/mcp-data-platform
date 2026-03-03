@@ -49,7 +49,7 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 	ctx := middleware.WithToken(r.Context(), token)
 	info, err := pa.authenticator.Authenticate(ctx)
 	if err != nil {
-		slog.Debug("portal auth rejected", "error", err)
+		slog.Warn("portal auth failed", "error", err)
 		return nil, nil //nolint:nilnil // auth failure → unauthenticated
 	}
 	if info == nil {

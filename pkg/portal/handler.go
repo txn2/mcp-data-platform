@@ -34,8 +34,8 @@ type Deps struct {
 type Handler struct {
 	mux         *http.ServeMux
 	publicMux   *http.ServeMux
+	authedMux   http.Handler
 	deps        Deps
-	authMiddle  func(http.Handler) http.Handler
 	rateLimiter *RateLimiter
 }
 
@@ -45,10 +45,17 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		mux:         http.NewServeMux(),
 		publicMux:   http.NewServeMux(),
 		deps:        deps,
-		authMiddle:  authMiddle,
 		rateLimiter: NewRateLimiter(deps.RateLimit),
 	}
 	h.registerRoutes()
+
+	// Wrap the authenticated mux once at startup, not on every request.
+	if authMiddle != nil {
+		h.authedMux = authMiddle(h.mux)
+	} else {
+		h.authedMux = h.mux
+	}
+
 	return h
 }
 
@@ -58,11 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
-	if h.authMiddle != nil {
-		h.authMiddle(h.mux).ServeHTTP(w, r)
-		return
-	}
-	h.mux.ServeHTTP(w, r)
+	h.authedMux.ServeHTTP(w, r)
 }
 
 func (h *Handler) registerRoutes() {

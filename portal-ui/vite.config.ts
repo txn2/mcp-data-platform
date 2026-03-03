@@ -19,7 +19,7 @@ export default defineConfig(() => {
         "/api": {
           target: apiTarget,
           changeOrigin: true,
-          secure: true,
+          secure: false,
         },
       },
     },

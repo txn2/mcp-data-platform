@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 const CSP = [
   "default-src 'none'",
@@ -42,6 +42,10 @@ ${content}
     const blob = new Blob([html], { type: "text/html" });
     return URL.createObjectURL(blob);
   }, [content]);
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [blobUrl]);
 
   return (
     <iframe

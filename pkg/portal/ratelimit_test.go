@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 func TestRateLimiterAllow(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 5})
+	defer rl.Close()
 
 	// Burst should allow 5 requests.
 	for i := range 5 {
@@ -22,6 +24,7 @@ func TestRateLimiterAllow(t *testing.T) {
 
 func TestRateLimiterDifferentIPs(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 2})
+	defer rl.Close()
 
 	assert.True(t, rl.Allow("1.1.1.1"))
 	assert.True(t, rl.Allow("1.1.1.1"))
@@ -33,12 +36,14 @@ func TestRateLimiterDifferentIPs(t *testing.T) {
 
 func TestRateLimiterDefaults(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{})
+	defer rl.Close()
 	// Should not panic, defaults applied.
 	assert.True(t, rl.Allow("test"))
 }
 
 func TestRateLimiterCleanup(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 5})
+	defer rl.Close()
 
 	rl.Allow("old")
 	rl.mu.Lock()
@@ -59,6 +64,7 @@ func TestRateLimiterCleanup(t *testing.T) {
 
 func TestRateLimiterMiddleware(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 1})
+	defer rl.Close()
 
 	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -103,6 +109,7 @@ func TestClientIPXForwardedFor(t *testing.T) {
 
 func TestRateLimiterTokenRefill(t *testing.T) {
 	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 6000, BurstSize: 1})
+	defer rl.Close()
 
 	// Exhaust the bucket.
 	assert.True(t, rl.Allow("refill"))
@@ -115,4 +122,37 @@ func TestRateLimiterTokenRefill(t *testing.T) {
 
 	// After enough time, tokens should refill.
 	assert.True(t, rl.Allow("refill"))
+}
+
+func TestRateLimiterClose(t *testing.T) {
+	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 5})
+	// Close should not panic and should be idempotent.
+	rl.Close()
+	rl.Close()
+
+	// After close, Allow should still work (buckets are intact, just cleanup stopped).
+	assert.True(t, rl.Allow("post-close"))
+}
+
+func TestRateLimiterCleanupLoopTickerFires(t *testing.T) {
+	rl := NewRateLimiter(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 5})
+	defer rl.Close()
+
+	rl.Allow("stale-ip")
+	rl.mu.Lock()
+	rl.buckets["stale-ip"].lastSeen = time.Now().Add(-1 * time.Hour)
+	rl.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Run cleanup loop with very short interval so the ticker fires.
+	go rl.runCleanupLoop(ctx, 10*time.Millisecond, 30*time.Minute)
+
+	// Wait long enough for at least one tick.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	rl.mu.Lock()
+	_, hasStale := rl.buckets["stale-ip"]
+	rl.mu.Unlock()
+	assert.False(t, hasStale, "stale entry should be cleaned up by loop")
 }

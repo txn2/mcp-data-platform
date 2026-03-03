@@ -1,6 +1,8 @@
 package portal
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ type RateLimiter struct {
 	buckets map[string]*bucket
 	rate    float64 // tokens per second
 	burst   int
+	stop    context.CancelFunc
 }
 
 type bucket struct {
@@ -36,11 +39,15 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 	if burst <= 0 {
 		burst = defaultBurst
 	}
-	return &RateLimiter{
+	ctx, cancel := context.WithCancel(context.Background())
+	rl := &RateLimiter{
 		buckets: make(map[string]*bucket),
 		rate:    float64(rpm) / secondsPerMinute,
 		burst:   burst,
+		stop:    cancel,
 	}
+	go rl.cleanupLoop(ctx)
+	return rl
 }
 
 const (
@@ -50,6 +57,10 @@ const (
 	defaultBurst = 10
 	// secondsPerMinute converts RPM to per-second rate.
 	secondsPerMinute = 60.0
+	// cleanupInterval is how often the background goroutine runs.
+	cleanupInterval = 10 * time.Minute
+	// cleanupMaxAge is the max idle time before a bucket is evicted.
+	cleanupMaxAge = 30 * time.Minute
 )
 
 // Allow checks whether a request from the given IP should be allowed.
@@ -89,6 +100,33 @@ func (rl *RateLimiter) Cleanup(maxAge time.Duration) {
 		if b.lastSeen.Before(cutoff) {
 			delete(rl.buckets, ip)
 		}
+	}
+}
+
+// cleanupLoop periodically evicts stale rate-limit buckets.
+func (rl *RateLimiter) cleanupLoop(ctx context.Context) {
+	rl.runCleanupLoop(ctx, cleanupInterval, cleanupMaxAge)
+}
+
+// runCleanupLoop is the testable core of cleanupLoop.
+func (rl *RateLimiter) runCleanupLoop(ctx context.Context, interval, maxAge time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rl.Cleanup(maxAge)
+			slog.Debug("rate limiter cleanup completed")
+		}
+	}
+}
+
+// Close stops the background cleanup goroutine.
+func (rl *RateLimiter) Close() {
+	if rl.stop != nil {
+		rl.stop()
 	}
 }
 

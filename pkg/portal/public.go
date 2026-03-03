@@ -2,6 +2,7 @@ package portal
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -14,6 +15,10 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 )
+
+// incrementAccessTimeout bounds the background goroutine that increments
+// share access counters after the HTTP response has been sent.
+const incrementAccessTimeout = 5 * time.Second
 
 //go:embed templates/public_viewer.html
 var templateFS embed.FS
@@ -44,9 +49,12 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Increment access count asynchronously.
-	go func() {
-		if incErr := h.deps.ShareStore.IncrementAccess(r.Context(), share.ID); incErr != nil {
+	// Increment access count asynchronously. Use a detached context because
+	// the request context is canceled after the handler returns.
+	go func() { // #nosec G118 -- intentionally detached: request ctx is canceled after handler returns
+		ctx, cancel := context.WithTimeout(context.Background(), incrementAccessTimeout)
+		defer cancel()
+		if incErr := h.deps.ShareStore.IncrementAccess(ctx, share.ID); incErr != nil {
 			slog.Warn("public view: failed to increment access", "error", incErr, "share_id", share.ID) // #nosec G706 -- structured log, not user-facing
 		}
 	}()
@@ -58,6 +66,7 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:;")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = viewerTemplate.Execute(w, map[string]any{
 		"Name":        asset.Name,
@@ -152,7 +161,7 @@ func sanitizeSVG(data []byte) string {
 	p.AllowAttrs("viewBox", "xmlns", "width", "height", "fill", "stroke",
 		"stroke-width", "d", "cx", "cy", "r", "rx", "ry", "x", "y",
 		"x1", "y1", "x2", "y2", "points", "transform", "opacity",
-		"class", "id", "style", "font-size", "font-family", "text-anchor",
+		"class", "id", "font-size", "font-family", "text-anchor",
 		"dominant-baseline", "offset", "stop-color", "stop-opacity",
 		"gradientUnits", "gradientTransform", "spreadMethod",
 		"xlink:href", "href", "preserveAspectRatio",

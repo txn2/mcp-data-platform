@@ -35,6 +35,10 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Contains(t, w.Body.String(), "Test") // asset name rendered
+
+	// CSP header must be set on public view responses.
+	csp := w.Header().Get("Content-Security-Policy")
+	assert.Contains(t, csp, "default-src 'none'")
 }
 
 func TestPublicViewTokenNotFound(t *testing.T) {
@@ -233,6 +237,13 @@ func TestSanitizeSVGRemovesScript(t *testing.T) {
 	result := sanitizeSVG([]byte(svg))
 	assert.NotContains(t, result, "<script")
 	assert.Contains(t, result, "<circle")
+}
+
+func TestSanitizeSVGStripsStyleAttr(t *testing.T) {
+	svg := `<svg><rect style="background:url(javascript:alert(1))" width="10" height="10"/></svg>`
+	result := sanitizeSVG([]byte(svg))
+	assert.NotContains(t, result, "style=")
+	assert.Contains(t, result, "<rect")
 }
 
 // --- sandboxedIframe ---
