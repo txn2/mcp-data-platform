@@ -2,11 +2,27 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "./client";
 import type {
   Asset,
+  Branding,
   Share,
   SharedAsset,
   PaginatedResponse,
   ShareResponse,
 } from "./types";
+
+// --- Branding (unauthenticated) ---
+
+export function useBranding() {
+  return useQuery({
+    queryKey: ["branding"],
+    queryFn: async () => {
+      const res = await fetch("/api/v1/admin/public/branding");
+      if (!res.ok) return null;
+      return res.json() as Promise<Branding>;
+    },
+    staleTime: 5 * 60_000, // cache for 5 minutes
+    retry: false,
+  });
+}
 
 // --- Queries ---
 

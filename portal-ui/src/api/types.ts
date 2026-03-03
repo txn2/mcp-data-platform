@@ -58,3 +58,11 @@ export interface ShareResponse {
   share: Share;
   share_url?: string;
 }
+
+export interface Branding {
+  name: string;
+  portal_title: string;
+  portal_logo: string;
+  portal_logo_light: string;
+  portal_logo_dark: string;
+}

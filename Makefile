@@ -32,7 +32,7 @@ GOLINT := golangci-lint
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
-	portal-frontend-install portal-frontend-build portal-frontend-dev portal-frontend-test \
+	portal-frontend-install portal-frontend-build portal-frontend-dev portal-frontend-mock portal-frontend-test \
 	build-with-all-ui \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev-up dev-down preview-apps preview-platform-info
@@ -344,6 +344,10 @@ portal-frontend-build: portal-frontend-install
 ## portal-frontend-dev: Run portal UI dev server (hot reload)
 portal-frontend-dev:
 	cd $(PORTAL_UI_DIR) && npm run dev
+
+## portal-frontend-mock: Run portal UI dev server with mock data (no backend needed)
+portal-frontend-mock:
+	cd $(PORTAL_UI_DIR) && VITE_MSW=true npm run dev
 
 ## portal-frontend-test: Run portal UI tests
 portal-frontend-test:

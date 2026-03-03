@@ -1,0 +1,234 @@
+import type { Asset, Share, SharedAsset } from "@/api/types";
+
+const now = new Date();
+function daysAgo(n: number): string {
+  const d = new Date(now);
+  d.setDate(d.getDate() - n);
+  return d.toISOString();
+}
+function hoursAgo(n: number): string {
+  const d = new Date(now);
+  d.setHours(d.getHours() - n);
+  return d.toISOString();
+}
+
+export const mockAssets: Asset[] = [
+  {
+    id: "ast-001",
+    owner_id: "user-alice",
+    name: "Q4 Revenue Dashboard",
+    description: "Interactive revenue breakdown by region and product line for Q4 2025.",
+    content_type: "text/html",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-001.html",
+    size_bytes: 4_250,
+    tags: ["dashboard", "revenue", "q4-2025"],
+    provenance: {
+      session_id: "sess-aaa",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(3), summary: "Queried quarterly revenue by region" },
+        { tool_name: "datahub_search", timestamp: daysAgo(3), summary: "Looked up revenue table metadata" },
+        { tool_name: "save_artifact", timestamp: daysAgo(3), summary: "Saved HTML dashboard" },
+      ],
+    },
+    session_id: "sess-aaa",
+    created_at: daysAgo(3),
+    updated_at: daysAgo(1),
+  },
+  {
+    id: "ast-002",
+    owner_id: "user-alice",
+    name: "Sales Pipeline Chart",
+    description: "SVG visualization of the current sales pipeline stages.",
+    content_type: "image/svg+xml",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-002.svg",
+    size_bytes: 6_800,
+    tags: ["chart", "sales", "pipeline"],
+    provenance: {
+      session_id: "sess-bbb",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(5), summary: "Queried pipeline stage counts" },
+        { tool_name: "save_artifact", timestamp: daysAgo(5), summary: "Saved SVG chart" },
+      ],
+    },
+    session_id: "sess-bbb",
+    created_at: daysAgo(5),
+    updated_at: daysAgo(5),
+  },
+  {
+    id: "ast-003",
+    owner_id: "user-alice",
+    name: "Weekly Inventory Report",
+    description: "Markdown summary of inventory levels across all warehouses.",
+    content_type: "text/markdown",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-003.md",
+    size_bytes: 2_100,
+    tags: ["report", "inventory", "weekly"],
+    provenance: {
+      session_id: "sess-ccc",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(2), summary: "Aggregated inventory by warehouse" },
+        { tool_name: "save_artifact", timestamp: daysAgo(2), summary: "Saved markdown report" },
+      ],
+    },
+    session_id: "sess-ccc",
+    created_at: daysAgo(2),
+    updated_at: daysAgo(2),
+  },
+  {
+    id: "ast-004",
+    owner_id: "user-alice",
+    name: "KPI Scorecard Component",
+    description: "React component showing key performance indicators with trend arrows.",
+    content_type: "text/jsx",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-004.jsx",
+    size_bytes: 3_400,
+    tags: ["component", "kpi", "react"],
+    provenance: {
+      session_id: "sess-ddd",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(7), summary: "Fetched KPI metrics" },
+        { tool_name: "datahub_search", timestamp: daysAgo(7), summary: "Resolved KPI definitions from glossary" },
+        { tool_name: "save_artifact", timestamp: daysAgo(7), summary: "Saved JSX component" },
+      ],
+    },
+    session_id: "sess-ddd",
+    created_at: daysAgo(7),
+    updated_at: daysAgo(4),
+  },
+  {
+    id: "ast-005",
+    owner_id: "user-alice",
+    name: "Customer Segmentation Analysis",
+    description: "HTML report showing customer segments with purchasing behavior patterns.",
+    content_type: "text/html",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-005.html",
+    size_bytes: 5_900,
+    tags: ["analysis", "customers", "segmentation"],
+    provenance: {
+      session_id: "sess-eee",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(10), summary: "Queried customer purchase history" },
+        { tool_name: "trino_query", timestamp: daysAgo(10), summary: "Computed RFM scores" },
+        { tool_name: "save_artifact", timestamp: daysAgo(10), summary: "Saved segmentation report" },
+      ],
+    },
+    session_id: "sess-eee",
+    created_at: daysAgo(10),
+    updated_at: daysAgo(10),
+  },
+  {
+    id: "ast-006",
+    owner_id: "user-alice",
+    name: "Data Quality Summary",
+    description: "Overview of data quality metrics across key tables.",
+    content_type: "text/markdown",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-006.md",
+    size_bytes: 1_800,
+    tags: ["data-quality", "monitoring"],
+    provenance: {
+      session_id: "sess-fff",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "datahub_search", timestamp: daysAgo(1), summary: "Searched for tables with quality issues" },
+        { tool_name: "save_artifact", timestamp: daysAgo(1), summary: "Saved quality summary" },
+      ],
+    },
+    session_id: "sess-fff",
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
+];
+
+export const mockShares: Record<string, Share[]> = {
+  "ast-001": [
+    {
+      id: "shr-001",
+      asset_id: "ast-001",
+      token: "tok_abc123def456ghi789jkl012mno345pq",
+      created_by: "user-alice",
+      expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      revoked: false,
+      access_count: 12,
+      last_accessed_at: hoursAgo(2),
+      created_at: daysAgo(2),
+    },
+    {
+      id: "shr-002",
+      asset_id: "ast-001",
+      token: "tok_zzz999yyy888xxx777www666vvv555uu",
+      created_by: "user-alice",
+      shared_with_user_id: "user-bob",
+      revoked: false,
+      access_count: 3,
+      last_accessed_at: daysAgo(1),
+      created_at: daysAgo(2),
+    },
+  ],
+  "ast-003": [
+    {
+      id: "shr-003",
+      asset_id: "ast-003",
+      token: "tok_rep111aaa222bbb333ccc444ddd555ee",
+      created_by: "user-alice",
+      expires_at: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked: false,
+      access_count: 5,
+      last_accessed_at: hoursAgo(6),
+      created_at: daysAgo(1),
+    },
+  ],
+};
+
+export const mockSharedWithMe: SharedAsset[] = [
+  {
+    asset: {
+      id: "ast-ext-001",
+      owner_id: "user-carol",
+      name: "Monthly Sales Trends",
+      description: "Line chart showing month-over-month sales growth.",
+      content_type: "image/svg+xml",
+      s3_bucket: "portal-assets",
+      s3_key: "assets/ast-ext-001.svg",
+      size_bytes: 4_200,
+      tags: ["chart", "sales", "trends"],
+      provenance: { session_id: "sess-ext1", user_id: "user-carol" },
+      session_id: "sess-ext1",
+      created_at: daysAgo(4),
+      updated_at: daysAgo(4),
+    },
+    share_id: "shr-ext-001",
+    shared_by: "carol@example.com",
+    shared_at: daysAgo(3),
+  },
+  {
+    asset: {
+      id: "ast-ext-002",
+      owner_id: "user-dave",
+      name: "API Latency Report",
+      description: "Performance analysis of API response times by endpoint.",
+      content_type: "text/html",
+      s3_bucket: "portal-assets",
+      s3_key: "assets/ast-ext-002.html",
+      size_bytes: 3_600,
+      tags: ["performance", "api", "latency"],
+      provenance: { session_id: "sess-ext2", user_id: "user-dave" },
+      session_id: "sess-ext2",
+      created_at: daysAgo(6),
+      updated_at: daysAgo(6),
+    },
+    share_id: "shr-ext-002",
+    shared_by: "dave@example.com",
+    shared_at: daysAgo(5),
+  },
+];
