@@ -14,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+	s3client "github.com/txn2/mcp-s3/pkg/client"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -38,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -112,6 +115,12 @@ type Platform struct {
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
+
+	// Portal stores (exposed for REST API in Phase 3)
+	portalAssetStore  portal.AssetStore
+	portalShareStore  portal.ShareStore
+	portalS3Client    portal.S3Client
+	provenanceTracker *middleware.ProvenanceTracker
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
@@ -202,6 +211,9 @@ func (p *Platform) initDataInfra() error {
 // initExtensions initializes optional extension toolkits and apps.
 func (p *Platform) initExtensions() error {
 	if err := p.initKnowledge(); err != nil {
+		return err
+	}
+	if err := p.initPortal(); err != nil {
 		return err
 	}
 	return p.initMCPApps()
@@ -734,6 +746,86 @@ func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
 	return knowledgekit.NewDataHubClientWriter(c), nil
 }
 
+// initPortal initializes the asset portal toolkit if enabled.
+// The portal requires a database for metadata and an S3 connection for content storage.
+func (p *Platform) initPortal() error {
+	if !p.config.Portal.Enabled {
+		return nil
+	}
+
+	if p.db == nil {
+		slog.Warn("portal enabled but no database configured; portal tools will not be registered")
+		return nil
+	}
+
+	// Create stores
+	p.portalAssetStore = portal.NewPostgresAssetStore(p.db)
+	p.portalShareStore = portal.NewPostgresShareStore(p.db)
+
+	// Create S3 client from referenced S3 connection
+	var s3Client portal.S3Client
+	if p.config.Portal.S3Connection != "" {
+		var clientErr error
+		s3Client, clientErr = p.createPortalS3Client()
+		if clientErr != nil {
+			return fmt.Errorf("creating portal S3 client: %w", clientErr)
+		}
+		p.portalS3Client = s3Client
+	} else {
+		slog.Warn("portal: no s3_connection configured; artifacts will be saved to database only")
+	}
+
+	// Create provenance tracker
+	p.provenanceTracker = middleware.NewProvenanceTracker()
+
+	// Create and register toolkit
+	tk := portalkit.New(portalkit.Config{
+		Name:           "default",
+		AssetStore:     p.portalAssetStore,
+		ShareStore:     p.portalShareStore,
+		S3Client:       s3Client,
+		S3Bucket:       p.config.Portal.S3Bucket,
+		S3Prefix:       p.config.Portal.S3Prefix,
+		BaseURL:        p.config.Portal.PublicBaseURL,
+		MaxContentSize: p.config.Portal.MaxContentSize,
+	})
+
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering portal toolkit: %w", err)
+	}
+
+	slog.Info("portal enabled",
+		"s3_connection", p.config.Portal.S3Connection,
+		"s3_bucket", p.config.Portal.S3Bucket,
+	)
+	return nil
+}
+
+// createPortalS3Client creates an S3Client from the referenced S3 connection config.
+func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
+	connName := p.config.Portal.S3Connection
+	s3Cfg := p.getS3Config(connName)
+	if s3Cfg == nil {
+		return nil, fmt.Errorf("s3 connection %q not found in toolkits config", connName)
+	}
+
+	clientCfg := &s3client.Config{
+		Region:          s3Cfg.Region,
+		Endpoint:        s3Cfg.Endpoint,
+		AccessKeyID:     s3Cfg.AccessKeyID,
+		SecretAccessKey: s3Cfg.SecretKey,
+		Name:            s3Cfg.ConnectionName,
+	}
+
+	c, err := s3client.New(context.Background(), clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating s3 client for connection %q: %w", connName, err)
+	}
+
+	slog.Info("portal: using s3 connection", "connection", connName)
+	return portal.NewS3ClientAdapter(c), nil
+}
+
 // initMCPApps initializes MCP Apps support.
 func (p *Platform) initMCPApps() error {
 	if !p.config.MCPApps.IsEnabled() {
@@ -906,6 +998,9 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
+	// 1.5. Provenance tracking - accumulates tool calls per session for save_artifact
+	p.addProvenanceMiddleware()
+
 	// 2. Client logging - sends enrichment info to client via session.Log()
 	if p.config.ClientLogging.Enabled {
 		p.mcpServer.AddReceivingMiddleware(
@@ -966,6 +1061,15 @@ func (p *Platform) finalizeSetup() {
 
 	// 9. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
+}
+
+// addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
+func (p *Platform) addProvenanceMiddleware() {
+	if p.provenanceTracker != nil {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPProvenanceMiddleware(p.provenanceTracker, "save_artifact"),
+		)
+	}
 }
 
 // addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.
@@ -1441,6 +1545,21 @@ func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
 	return p.knowledgeDataHubWriter
 }
 
+// PortalAssetStore returns the portal asset store, or nil if portal is disabled.
+func (p *Platform) PortalAssetStore() portal.AssetStore {
+	return p.portalAssetStore
+}
+
+// PortalShareStore returns the portal share store, or nil if portal is disabled.
+func (p *Platform) PortalShareStore() portal.ShareStore {
+	return p.portalShareStore
+}
+
+// PortalS3Client returns the portal S3 client, or nil if portal is disabled.
+func (p *Platform) PortalS3Client() portal.S3Client {
+	return p.portalS3Client
+}
+
 // ToolInfo describes a tool registered directly on the platform (not via a toolkit).
 type ToolInfo struct {
 	Name string
@@ -1767,6 +1886,10 @@ func (p *Platform) Close() error {
 	closeResource(&errs, p.semanticProvider)
 	closeResource(&errs, p.queryProvider)
 	closeResource(&errs, p.storageProvider)
+	if p.portalS3Client != nil {
+		slog.Debug("shutdown: closing portal S3 client")
+		closeResource(&errs, p.portalS3Client)
+	}
 	closeResource(&errs, p.toolkitRegistry)
 
 	// Phase 4: close database connection (last)

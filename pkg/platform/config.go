@@ -70,6 +70,7 @@ type Config struct {
 	MCPApps       MCPAppsConfig       `yaml:"mcpapps"`
 	Sessions      SessionsConfig      `yaml:"sessions"`
 	Knowledge     KnowledgeConfig     `yaml:"knowledge"`
+	Portal        PortalConfig        `yaml:"portal"`
 	Admin         AdminConfig         `yaml:"admin"`
 	Resources     ResourcesConfig     `yaml:"resources"`
 	Progress      ProgressConfig      `yaml:"progress"`
@@ -104,6 +105,19 @@ type KnowledgeApplyConfig struct {
 	DataHubConnection   string `yaml:"datahub_connection"`
 	RequireConfirmation bool   `yaml:"require_confirmation"`
 }
+
+// PortalConfig configures the asset portal for saving AI-generated artifacts.
+type PortalConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	S3Connection   string `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
+	S3Bucket       string `yaml:"s3_bucket"`        // bucket for artifact storage
+	S3Prefix       string `yaml:"s3_prefix"`        // key prefix within the bucket
+	PublicBaseURL  string `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
+	MaxContentSize int    `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
+}
+
+// defaultMaxContentSize is the default maximum artifact size (10 MB).
+const defaultMaxContentSize = 10 * 1024 * 1024
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
@@ -696,9 +710,17 @@ func applyDefaults(cfg *Config) {
 	applySessionDedupDefaults(cfg)
 	applySessionDefaults(cfg)
 	applyAdminDefaults(cfg)
+	applyPortalDefaults(cfg)
 	applyElicitationDefaults(cfg)
 	applyWorkflowDefaults(cfg)
 	applySessionGateDefaults(cfg)
+}
+
+// applyPortalDefaults sets defaults for portal config.
+func applyPortalDefaults(cfg *Config) {
+	if cfg.Portal.MaxContentSize == 0 {
+		cfg.Portal.MaxContentSize = defaultMaxContentSize
+	}
 }
 
 // applyElicitationDefaults sets defaults for elicitation config.

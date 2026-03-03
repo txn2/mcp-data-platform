@@ -15,7 +15,7 @@
 - [Operating Modes](server/operating-modes.md): Three deployment modes — standalone (no database), full-config file + database, bootstrap + database config. Feature availability by mode, example configurations, decision guide
 - [Admin Portal](server/admin-portal.md): Built-in web dashboard for monitoring and managing the platform. Configurable branding (portal_title, portal_logo with light/dark theme variants, dynamic favicon). Dashboard with activity timelines, performance percentiles, error monitoring. Tools overview with connection grid and tool inventory. Interactive tool explorer with semantic enrichment display. Searchable audit log with event detail drawer. Knowledge insight governance with approve/reject workflow and changeset tracking. Local dev with MSW mock data
 - [Admin API](server/admin-api.md): REST endpoints for system info, config management, personas, auth keys, audit (events, stats, metrics/overview, metrics/enrichment, metrics/discovery), knowledge. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`
-- [Tools](server/tools.md): All 27 tools from DataHub, Trino, and S3 toolkits
+- [Tools](server/tools.md): All tools from DataHub, Trino, S3, Knowledge, and Portal toolkits
 - [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
 - [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference (including enrichment_mode, enrichment_tokens_full, enrichment_tokens_dedup), parameter sanitization, retention, query examples (including enrichment token savings and discovery-before-query patterns), troubleshooting
 - [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
@@ -73,7 +73,7 @@
 ## Reference
 
 - [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
-- [Configuration](reference/configuration.md): Full YAML schema with all options
+- [Configuration](reference/configuration.md): Full YAML schema with all options including portal configuration
 - [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
 - [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware, description override middleware (built-in overrides for trino_query/trino_execute plus config-driven overrides), session-aware workflow gating (MCPRuleEnforcementMiddleware with SessionWorkflowTracker), icon injection middleware, client logging, progress notifications
 

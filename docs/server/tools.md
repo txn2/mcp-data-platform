@@ -4,7 +4,7 @@ description: MCP tools from DataHub, Trino, S3, and Knowledge toolkits. Search m
 
 # Available Tools
 
-mcp-data-platform provides tools from four integrated toolkits. Each tool can be invoked by name through any MCP client.
+mcp-data-platform provides tools from five integrated toolkits. Each tool can be invoked by name through any MCP client.
 
 !!! tip "Reducing token usage with tool visibility"
     The full tool list is 25-32 tools. Deployments that only use a subset can configure `tools.allow` and `tools.deny` at the top level of `platform.yaml` to hide unused tools from `tools/list` responses. This saves LLM context tokens without affecting authorization. See [Configuration](configuration.md#tool-visibility-configuration) for details.
@@ -43,6 +43,8 @@ mcp-data-platform provides tools from four integrated toolkits. Each tool can be
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
 | Knowledge | `capture_insight` | Record domain knowledge |
 | Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
+| Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
+| Portal | `manage_artifact` | List, get, update, or delete saved artifacts |
 
 ---
 
@@ -513,6 +515,61 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights
 - **apply**: Write changes to DataHub with changeset tracking
+
+---
+
+## Portal Tools
+
+The portal toolkit persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Automatically captures provenance (which tool calls produced the artifact).
+
+!!! tip "Prerequisites"
+    Portal tools require `portal.enabled: true`, a configured S3 connection (`portal.s3_connection`), and `database.dsn`. See [Configuration](../reference/configuration.md#portal-configuration).
+
+### save_artifact
+
+Save an AI-generated artifact to the asset portal. Automatically captures provenance tracking which tool calls in the session led to this artifact.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | string | Yes | - | Display name for the artifact (max 255 chars) |
+| `content` | string | Yes | - | The artifact content (JSX, HTML, SVG, Markdown, etc.) |
+| `content_type` | string | Yes | - | MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv |
+| `description` | string | No | - | Description of the artifact (max 2000 chars) |
+| `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
+
+**Response includes:**
+
+- Asset ID for future reference
+- Portal URL for viewing (if `public_base_url` is configured)
+- Provenance capture status and tool call count
+
+---
+
+### manage_artifact
+
+List, retrieve, update, or delete saved artifacts. All mutations enforce ownership (users can only modify their own artifacts).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action to perform: list, get, update, delete |
+| `asset_id` | string | Conditional | - | Required for get, update, delete |
+| `content` | string | No | - | New content (for update — replaces S3 object) |
+| `name` | string | No | - | New name (for update) |
+| `description` | string | No | - | New description (for update) |
+| `tags` | array | No | - | New tags (for update) |
+| `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `limit` | integer | No | 50 | Max results for list action (max 200) |
+
+**Actions:**
+
+- **list**: Show the current user's artifacts with metadata
+- **get**: Retrieve full asset metadata by ID
+- **update**: Change name, description, tags, or replace content
+- **delete**: Soft-delete an artifact
 
 ---
 

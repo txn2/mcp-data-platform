@@ -321,6 +321,19 @@ workflow:
 
 When `workflow.require_discovery_before_query` is disabled (default), the platform falls back to the static `tuning.rules.require_datahub_check` hint which fires on every query. The session-aware path is strictly better: it only warns when discovery hasn't happened and resets after any discovery tool call.
 
+## Portal Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `portal.enabled` | bool | `false` | Enable portal toolkit and save_artifact/manage_artifact tools |
+| `portal.s3_connection` | string | - | Name of the S3 toolkit instance for artifact storage |
+| `portal.s3_bucket` | string | - | S3 bucket for artifact content |
+| `portal.s3_prefix` | string | `""` | Key prefix within the bucket |
+| `portal.public_base_url` | string | `""` | Base URL for portal links in save_artifact responses |
+| `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+
+Portal requires `database.dsn` for metadata storage and at least one S3 toolkit instance for artifact content.
+
 ## Admin API Configuration
 
 | Field | Type | Default | Description |
@@ -1096,6 +1109,39 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `changes` | array | Conditional | Required for apply |
 | `confirm` | bool | No | Required when `require_confirmation` is true |
 | `review_notes` | string | No | Notes for approve/reject actions |
+
+## Portal Tools
+
+The portal toolkit persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata. Requires `portal.enabled: true`.
+
+### save_artifact
+
+Save an AI-generated artifact to the asset portal. Automatically captures provenance tracking which tool calls produced this artifact.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | string | Yes | - | Display name (max 255 chars) |
+| `content` | string | Yes | - | Artifact content |
+| `content_type` | string | Yes | - | MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv |
+| `description` | string | No | "" | Description (max 2000 chars) |
+| `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
+
+Response includes asset_id, portal_url (if public_base_url configured), provenance_captured status, and tool_calls_recorded count. Content stored at `{s3_prefix}{user_id}/{asset_id}/content.{ext}`.
+
+### manage_artifact
+
+List, retrieve, update, or delete saved artifacts. Ownership enforced — users can only modify their own artifacts.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | list, get, update, delete |
+| `asset_id` | string | Conditional | - | Required for get, update, delete |
+| `content` | string | No | - | New content (for update — replaces S3 object) |
+| `name` | string | No | - | New name (for update) |
+| `description` | string | No | - | New description (for update) |
+| `tags` | array | No | - | New tags (for update) |
+| `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `limit` | integer | No | 50 | Max results for list (max 200) |
 
 ---
 
