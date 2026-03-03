@@ -303,6 +303,9 @@ linters:
 
   exclusions:
     generated: lax
+    paths:
+      - portal-ui/node_modules
+      - admin-ui/node_modules
     rules:
       # Generated files
       - path: generated

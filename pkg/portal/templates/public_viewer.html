@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Name}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f5f5f5;
+            color: #1a1a1a;
+        }
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .badge {
+            font-size: 11px;
+            background: #e5e7eb;
+            color: #374151;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .content {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        pre {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        iframe {
+            background: #fff;
+        }
+        img, svg {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{.Name}}</h1>
+        <span class="badge">{{.ContentType}}</span>
+    </div>
+    <div class="content">
+        {{.Content}}
+    </div>
+</body>
+</html>

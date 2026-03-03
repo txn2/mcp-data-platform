@@ -13,6 +13,8 @@ BUILD_DIR := ./build
 DIST_DIR := ./dist
 ADMIN_UI_DIR := ./admin-ui
 ADMIN_UI_EMBED_DIR := ./internal/adminui/dist
+PORTAL_UI_DIR := ./portal-ui
+PORTAL_UI_EMBED_DIR := ./internal/portalui/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.8.0
@@ -30,6 +32,8 @@ GOLINT := golangci-lint
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
+	portal-frontend-install portal-frontend-build portal-frontend-dev portal-frontend-mock portal-frontend-test \
+	build-with-all-ui \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev-up dev-down preview-apps preview-platform-info
 
@@ -252,10 +256,12 @@ tools-check:
 	fi
 	@echo "All required tools found."
 
-## embed-clean: Reset admin UI embed dir to .gitkeep only (matches CI clean checkout)
+## embed-clean: Reset admin and portal UI embed dirs to .gitkeep only (matches CI clean checkout)
 embed-clean:
 	@echo "Cleaning admin UI embed directory..."
 	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
+	@echo "Cleaning portal UI embed directory..."
+	@find $(PORTAL_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(PORTAL_UI_EMBED_DIR) -delete 2>/dev/null || true
 
 ## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
 verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
@@ -315,6 +321,40 @@ frontend-storybook:
 
 ## build-with-ui: Build Go binary with embedded admin UI
 build-with-ui: frontend-build build
+
+# =============================================================================
+# Portal UI Frontend Targets
+# =============================================================================
+
+## portal-frontend-install: Install portal UI dependencies
+portal-frontend-install:
+	@echo "Installing portal UI dependencies..."
+	cd $(PORTAL_UI_DIR) && npm ci
+	@echo "Portal UI dependencies installed."
+
+## portal-frontend-build: Build portal UI and copy to embed directory
+portal-frontend-build: portal-frontend-install
+	@echo "Building portal UI..."
+	cd $(PORTAL_UI_DIR) && npm run build
+	@echo "Copying dist to embed directory..."
+	@rm -rf $(PORTAL_UI_EMBED_DIR)/*
+	@cp -r $(PORTAL_UI_DIR)/dist/* $(PORTAL_UI_EMBED_DIR)/
+	@echo "Portal UI built and embedded."
+
+## portal-frontend-dev: Run portal UI dev server (hot reload)
+portal-frontend-dev:
+	cd $(PORTAL_UI_DIR) && npm run dev
+
+## portal-frontend-mock: Run portal UI dev server with mock data (no backend needed)
+portal-frontend-mock:
+	cd $(PORTAL_UI_DIR) && VITE_MSW=true npm run dev
+
+## portal-frontend-test: Run portal UI tests
+portal-frontend-test:
+	cd $(PORTAL_UI_DIR) && npm run test
+
+## build-with-all-ui: Build Go binary with both admin and portal UIs
+build-with-all-ui: frontend-build portal-frontend-build build
 
 # =============================================================================
 # E2E Testing Targets
