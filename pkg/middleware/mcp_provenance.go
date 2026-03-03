@@ -32,6 +32,9 @@ func GetProvenanceToolCalls(ctx context.Context) []ProvenanceToolCall {
 	return nil
 }
 
+// maxCallsPerSession caps provenance buffer per session to prevent unbounded growth.
+const maxCallsPerSession = 100
+
 // ProvenanceTracker accumulates tool call records per session.
 type ProvenanceTracker struct {
 	mu       sync.Mutex
@@ -46,7 +49,13 @@ func NewProvenanceTracker() *ProvenanceTracker {
 }
 
 // Record adds a tool call to a session's provenance buffer.
+// Empty session IDs are ignored to prevent cross-user provenance mixing.
+// Each session is capped at maxCallsPerSession entries (oldest are evicted).
 func (pt *ProvenanceTracker) Record(sessionID, toolName string, params map[string]any) {
+	if sessionID == "" {
+		return
+	}
+
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
@@ -55,7 +64,13 @@ func (pt *ProvenanceTracker) Record(sessionID, toolName string, params map[strin
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Summary:   summarizeParams(params),
 	}
-	pt.sessions[sessionID] = append(pt.sessions[sessionID], call)
+
+	buf := pt.sessions[sessionID]
+	buf = append(buf, call)
+	if len(buf) > maxCallsPerSession {
+		buf = buf[len(buf)-maxCallsPerSession:]
+	}
+	pt.sessions[sessionID] = buf
 }
 
 // Harvest returns and clears the accumulated provenance for a session.
@@ -66,6 +81,22 @@ func (pt *ProvenanceTracker) Harvest(sessionID string) []ProvenanceToolCall {
 	calls := pt.sessions[sessionID]
 	delete(pt.sessions, sessionID)
 	return calls
+}
+
+// CleanupBefore removes all sessions with no activity since the given cutoff time.
+func (pt *ProvenanceTracker) CleanupBefore(cutoff time.Time) int {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+
+	cutoffStr := cutoff.UTC().Format(time.RFC3339)
+	removed := 0
+	for sid, calls := range pt.sessions {
+		if len(calls) == 0 || calls[len(calls)-1].Timestamp < cutoffStr {
+			delete(pt.sessions, sid)
+			removed++
+		}
+	}
+	return removed
 }
 
 // maxSummaryLength caps the parameter summary string length.

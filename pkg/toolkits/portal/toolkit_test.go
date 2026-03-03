@@ -280,8 +280,9 @@ func TestManageArtifact_Delete(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	_, getErr := store.Get(context.Background(), "a1")
-	assert.Error(t, getErr)
+	asset, getErr := store.Get(context.Background(), "a1")
+	require.NoError(t, getErr)
+	assert.NotNil(t, asset.DeletedAt)
 }
 
 func TestManageArtifact_InvalidAction(t *testing.T) {
@@ -368,14 +369,14 @@ func (s *inMemoryAssetStore) List(_ context.Context, filter portal.AssetFilter) 
 
 func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal.AssetUpdate) error {
 	a, ok := s.assets[id]
-	if !ok {
+	if !ok || a.DeletedAt != nil {
 		return notFoundError{}
 	}
-	if updates.Name != "" {
-		a.Name = updates.Name
+	if updates.Name != nil {
+		a.Name = *updates.Name
 	}
-	if updates.Description != "" {
-		a.Description = updates.Description
+	if updates.Description != nil {
+		a.Description = *updates.Description
 	}
 	if updates.Tags != nil {
 		a.Tags = updates.Tags
@@ -385,10 +386,13 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 }
 
 func (s *inMemoryAssetStore) SoftDelete(_ context.Context, id string) error {
-	if _, ok := s.assets[id]; !ok {
+	a, ok := s.assets[id]
+	if !ok || a.DeletedAt != nil {
 		return notFoundError{}
 	}
-	delete(s.assets, id)
+	now := time.Now()
+	a.DeletedAt = &now
+	s.assets[id] = a
 	return nil
 }
 
@@ -666,6 +670,88 @@ func TestManageArtifact_UpdateWithContentError(t *testing.T) {
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "failed to upload new content")
+}
+
+func TestSaveArtifact_ContentTooLarge(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket", MaxContentSize: 10})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user1", SessionID: "sess1",
+	})
+
+	input := saveArtifactInput{
+		Name: "Test", Content: "12345678901", ContentType: "text/html", // 11 bytes > 10
+	}
+
+	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "exceeds maximum")
+}
+
+func TestManageArtifact_UpdateContentTooLarge(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Test", ContentType: "text/html",
+		Tags: []string{}, Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{
+		Name: "test", AssetStore: store, S3Bucket: "bucket", MaxContentSize: 10,
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update", AssetID: "a1", Content: "12345678901", // 11 bytes > 10
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "exceeds maximum")
+}
+
+func TestManageArtifact_UpdateNoAuthDenied(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	// No PlatformContext — resolveOwnerID returns "anonymous" which != "user1"
+	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+		Action: "update", AssetID: "a1", Name: "Hijacked",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "you can only update your own artifacts")
+}
+
+func TestManageArtifact_DeleteNoAuthDenied(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	// No PlatformContext — resolveOwnerID returns "anonymous" which != "user1"
+	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+		Action: "delete", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "you can only delete your own artifacts")
 }
 
 func TestManageArtifact_SoftDeleteError(t *testing.T) {

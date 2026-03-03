@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -173,12 +174,12 @@ func TestMCPProvenanceMiddleware_NoSessionContext(t *testing.T) {
 		Name: "trino_query",
 	})
 
-	// Call without PlatformContext — should use empty session ID.
+	// Call without PlatformContext — empty session ID should skip recording.
 	_, err := handler(context.Background(), methodToolsCall, req)
 	require.NoError(t, err)
 
 	calls := tracker.Harvest("")
-	assert.Len(t, calls, 1)
+	assert.Nil(t, calls) // empty session ID is not recorded
 }
 
 func TestMCPProvenanceMiddleware_EmptyToolName(t *testing.T) {
@@ -195,6 +196,46 @@ func TestMCPProvenanceMiddleware_EmptyToolName(t *testing.T) {
 
 	_, err := handler(context.Background(), methodToolsCall, req)
 	require.NoError(t, err)
+}
+
+func TestProvenanceTracker_MaxCallsPerSession(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	// Record more than the max
+	for range maxCallsPerSession + 20 {
+		tracker.Record("sess1", "tool_x", nil)
+	}
+
+	calls := tracker.Harvest("sess1")
+	assert.Len(t, calls, maxCallsPerSession)
+}
+
+func TestProvenanceTracker_EmptySessionSkipsRecording(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	tracker.Record("", "tool_x", nil)
+
+	calls := tracker.Harvest("")
+	assert.Nil(t, calls)
+}
+
+func TestProvenanceTracker_CleanupBefore(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	tracker.Record("old_sess", "tool_a", nil)
+	// Manually set an old timestamp
+	tracker.mu.Lock()
+	tracker.sessions["old_sess"][0].Timestamp = "2020-01-01T00:00:00Z"
+	tracker.mu.Unlock()
+
+	tracker.Record("new_sess", "tool_b", nil)
+
+	removed := tracker.CleanupBefore(time.Now().Add(-1 * time.Hour))
+	assert.Equal(t, 1, removed) // old_sess removed
+
+	assert.Nil(t, tracker.Harvest("old_sess"))
+	calls := tracker.Harvest("new_sess")
+	assert.Len(t, calls, 1)
 }
 
 func TestExtractToolParams_NilCases(t *testing.T) {

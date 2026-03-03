@@ -183,12 +183,12 @@ func (s *postgresAssetStore) Update(ctx context.Context, id string, updates Asse
 
 func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuilder, error) {
 	hasUpdates := false
-	if updates.Name != "" {
-		qb = qb.Set("name", updates.Name)
+	if updates.Name != nil {
+		qb = qb.Set("name", *updates.Name)
 		hasUpdates = true
 	}
-	if updates.Description != "" {
-		qb = qb.Set("description", updates.Description)
+	if updates.Description != nil {
+		qb = qb.Set("description", *updates.Description)
 		hasUpdates = true
 	}
 	if updates.Tags != nil {
@@ -207,7 +207,7 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 		qb = qb.Set("s3_key", updates.S3Key)
 		hasUpdates = true
 	}
-	if updates.SizeBytes > 0 {
+	if updates.HasContent {
 		qb = qb.Set("size_bytes", updates.SizeBytes)
 		hasUpdates = true
 	}
@@ -418,7 +418,8 @@ func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder 
 		qb = qb.Where(sq.Eq{"content_type": filter.ContentType})
 	}
 	if filter.Tag != "" {
-		qb = qb.Where(sq.Expr("tags @> ?::jsonb", fmt.Sprintf(`[%q]`, filter.Tag)))
+		tagJSON, _ := json.Marshal([]string{filter.Tag})
+		qb = qb.Where(sq.Expr("tags @> ?::jsonb", string(tagJSON)))
 	}
 	return qb
 }

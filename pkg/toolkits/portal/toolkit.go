@@ -62,24 +62,26 @@ type saveArtifactOutput struct {
 
 // Config holds configuration for creating a portal toolkit.
 type Config struct {
-	Name       string
-	AssetStore portal.AssetStore
-	ShareStore portal.ShareStore
-	S3Client   portal.S3Client
-	S3Bucket   string
-	S3Prefix   string
-	BaseURL    string
+	Name           string
+	AssetStore     portal.AssetStore
+	ShareStore     portal.ShareStore
+	S3Client       portal.S3Client
+	S3Bucket       string
+	S3Prefix       string
+	BaseURL        string
+	MaxContentSize int // max artifact content size in bytes (0 = no limit)
 }
 
 // Toolkit implements the portal artifact toolkit.
 type Toolkit struct {
-	name       string
-	assetStore portal.AssetStore
-	shareStore portal.ShareStore
-	s3Client   portal.S3Client
-	s3Bucket   string
-	s3Prefix   string
-	baseURL    string
+	name           string
+	assetStore     portal.AssetStore
+	shareStore     portal.ShareStore
+	s3Client       portal.S3Client
+	s3Bucket       string
+	s3Prefix       string
+	baseURL        string
+	maxContentSize int
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -96,13 +98,14 @@ func New(cfg Config) *Toolkit {
 		shareStore = portal.NewNoopShareStore()
 	}
 	return &Toolkit{
-		name:       cfg.Name,
-		assetStore: assetStore,
-		shareStore: shareStore,
-		s3Client:   cfg.S3Client,
-		s3Bucket:   cfg.S3Bucket,
-		s3Prefix:   cfg.S3Prefix,
-		baseURL:    cfg.BaseURL,
+		name:           cfg.Name,
+		assetStore:     assetStore,
+		shareStore:     shareStore,
+		s3Client:       cfg.S3Client,
+		s3Bucket:       cfg.S3Bucket,
+		s3Prefix:       cfg.S3Prefix,
+		baseURL:        cfg.BaseURL,
+		maxContentSize: cfg.MaxContentSize,
 	}
 }
 
@@ -156,27 +159,19 @@ func (*Toolkit) Close() error { return nil }
 
 // handleSaveArtifact persists an artifact to S3 and records metadata.
 func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest, input saveArtifactInput) (*mcp.CallToolResult, any, error) {
-	if err := validateSaveInput(input); err != nil {
+	if err := t.validateAndCheckSize(input); err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	pc := middleware.GetPlatformContext(ctx)
-	userID := "anonymous"
-	sessionID := ""
-	if pc != nil {
-		if pc.UserID != "" {
-			userID = pc.UserID
-		}
-		sessionID = pc.SessionID
-	}
+	userID := resolveOwnerID(ctx)
+	sessionID := resolveSessionID(ctx)
 
 	assetID, err := generateID()
 	if err != nil {
 		return errorResult("internal error generating asset ID"), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	ext := extensionForContentType(input.ContentType)
-	s3Key := path.Join(t.s3Prefix, userID, assetID, "content"+ext)
+	s3Key := t.buildS3Key(userID, assetID, input.ContentType)
 
 	if t.s3Client != nil {
 		if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), input.ContentType); err != nil {
@@ -209,17 +204,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		return errorResult("failed to save asset metadata: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	output := saveArtifactOutput{
-		AssetID:            assetID,
-		Message:            "Artifact saved successfully.",
-		ProvenanceCaptured: len(prov.ToolCalls) > 0,
-		ToolCallsRecorded:  len(prov.ToolCalls),
-	}
-	if t.baseURL != "" {
-		output.PortalURL = t.baseURL + "/portal/assets/" + assetID
-	}
-
-	return jsonResult(output)
+	return jsonResult(t.buildSaveOutput(assetID, prov))
 }
 
 // handleManageArtifact dispatches to list/get/update/delete.
@@ -239,11 +224,7 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 }
 
 func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
-	pc := middleware.GetPlatformContext(ctx)
-	ownerID := "anonymous"
-	if pc != nil && pc.UserID != "" {
-		ownerID = pc.UserID
-	}
+	ownerID := resolveOwnerID(ctx)
 
 	assets, total, err := t.assetStore.List(ctx, portal.AssetFilter{
 		OwnerID: ownerID,
@@ -291,15 +272,19 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	pc := middleware.GetPlatformContext(ctx)
-	if pc != nil && pc.UserID != "" && asset.OwnerID != pc.UserID {
+	ownerID := resolveOwnerID(ctx)
+	if asset.OwnerID != ownerID {
 		return errorResult("you can only update your own artifacts"), nil, nil
 	}
 
 	updates := portal.AssetUpdate{
-		Name:        input.Name,
-		Description: input.Description,
-		Tags:        input.Tags,
+		Tags: input.Tags,
+	}
+	if input.Name != "" {
+		updates.Name = &input.Name
+	}
+	if input.Description != "" {
+		updates.Description = &input.Description
 	}
 
 	if input.Content != "" {
@@ -319,6 +304,9 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 }
 
 func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, input manageArtifactInput, updates *portal.AssetUpdate) error {
+	if t.maxContentSize > 0 && len(input.Content) > t.maxContentSize {
+		return fmt.Errorf("content size %d exceeds maximum %d bytes", len(input.Content), t.maxContentSize)
+	}
 	ct := input.ContentType
 	if ct == "" {
 		ct = asset.ContentType
@@ -333,6 +321,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	}
 	updates.S3Key = s3Key
 	updates.SizeBytes = int64(len(input.Content))
+	updates.HasContent = true
 	updates.ContentType = ct
 	return nil
 }
@@ -347,8 +336,8 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	pc := middleware.GetPlatformContext(ctx)
-	if pc != nil && pc.UserID != "" && asset.OwnerID != pc.UserID {
+	ownerID := resolveOwnerID(ctx)
+	if asset.OwnerID != ownerID {
 		return errorResult("you can only delete your own artifacts"), nil, nil
 	}
 
@@ -363,6 +352,51 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 }
 
 // --- Helpers ---
+
+// resolveOwnerID returns the authenticated user ID from the context, defaulting to "anonymous".
+func resolveOwnerID(ctx context.Context) string {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil && pc.UserID != "" {
+		return pc.UserID
+	}
+	return "anonymous"
+}
+
+func (t *Toolkit) validateAndCheckSize(input saveArtifactInput) error {
+	if err := validateSaveInput(input); err != nil {
+		return err
+	}
+	if t.maxContentSize > 0 && len(input.Content) > t.maxContentSize {
+		return fmt.Errorf("content size %d exceeds maximum %d bytes", len(input.Content), t.maxContentSize)
+	}
+	return nil
+}
+
+func resolveSessionID(ctx context.Context) string {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil {
+		return pc.SessionID
+	}
+	return ""
+}
+
+func (t *Toolkit) buildS3Key(ownerID, assetID, contentType string) string {
+	ext := extensionForContentType(contentType)
+	return path.Join(t.s3Prefix, ownerID, assetID, "content"+ext)
+}
+
+func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveArtifactOutput {
+	out := saveArtifactOutput{
+		AssetID:            assetID,
+		Message:            "Artifact saved successfully.",
+		ProvenanceCaptured: len(prov.ToolCalls) > 0,
+		ToolCallsRecorded:  len(prov.ToolCalls),
+	}
+	if t.baseURL != "" {
+		out.PortalURL = t.baseURL + "/artifacts/" + assetID
+	}
+	return out
+}
 
 func validateSaveInput(input saveArtifactInput) error {
 	if err := portal.ValidateAssetName(input.Name); err != nil {
@@ -430,9 +464,13 @@ func generateID() (string, error) {
 }
 
 func errorResult(msg string) *mcp.CallToolResult {
+	errObj := struct {
+		Error string `json:"error"`
+	}{Error: msg}
+	data, _ := json.Marshal(errObj) //nolint:errcheck // simple struct, cannot fail
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(`{"error": %q}`, msg)},
+			&mcp.TextContent{Text: string(data)},
 		},
 		IsError: true,
 	}

@@ -138,7 +138,8 @@ func TestPostgresAssetStoreUpdate(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err = store.Update(context.Background(), "abc123", AssetUpdate{Name: "New Name"})
+	name := "New Name"
+	err = store.Update(context.Background(), "abc123", AssetUpdate{Name: &name})
 	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -153,13 +154,16 @@ func TestPostgresAssetStoreUpdateAllFields(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	name := "New"
+	desc := "Desc"
 	err = store.Update(context.Background(), "abc123", AssetUpdate{
-		Name:        "New",
-		Description: "Desc",
+		Name:        &name,
+		Description: &desc,
 		Tags:        []string{"tag1"},
 		ContentType: "text/csv",
 		S3Key:       "new/key",
 		SizeBytes:   2048,
+		HasContent:  true,
 	})
 	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -175,9 +179,26 @@ func TestPostgresAssetStoreUpdateNotFound(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	err = store.Update(context.Background(), "missing", AssetUpdate{Name: "x"})
+	name := "x"
+	err = store.Update(context.Background(), "missing", AssetUpdate{Name: &name})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found or deleted")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreUpdateClearDescription(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectExec("UPDATE portal_assets").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	empty := ""
+	err = store.Update(context.Background(), "abc123", AssetUpdate{Description: &empty})
+	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -579,7 +600,8 @@ func TestPostgresAssetStoreUpdateExecError(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnError(fmt.Errorf("db error"))
 
-	err = store.Update(context.Background(), "abc123", AssetUpdate{Name: "x"})
+	name := "x"
+	err = store.Update(context.Background(), "abc123", AssetUpdate{Name: &name})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "updating asset")
 	assert.NoError(t, mock.ExpectationsWereMet())

@@ -79,13 +79,15 @@ func (f *AssetFilter) EffectiveLimit() int {
 }
 
 // AssetUpdate holds mutable fields for updating an asset.
+// Pointer fields distinguish "no change" (nil) from "clear to empty" (pointer to "").
 type AssetUpdate struct {
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	ContentType string   `json:"content_type,omitempty"`
 	S3Key       string   `json:"s3_key,omitempty"`
 	SizeBytes   int64    `json:"size_bytes,omitempty"`
+	HasContent  bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 }
 
 // maxNameLength is the maximum length for asset names.
