@@ -944,3 +944,115 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 ```
 
 See [Governance Workflow](../knowledge/governance.md) for detailed examples of each action.
+
+---
+
+## Portal Tools
+
+The portal toolkit persists AI-generated artifacts to S3 with PostgreSQL metadata. Requires `portal.enabled: true`.
+
+### save_artifact
+
+Save an AI-generated artifact (JSX dashboard, HTML report, SVG chart, etc.) to the asset portal. Automatically captures provenance — which tool calls in the current session produced this artifact.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | string | Yes | - | Display name (max 255 chars) |
+| `content` | string | Yes | - | Artifact content |
+| `content_type` | string | Yes | - | MIME type: `text/html`, `text/jsx`, `image/svg+xml`, `text/markdown`, `application/json`, `text/csv` |
+| `description` | string | No | `""` | Description (max 2000 chars) |
+| `tags` | array | No | `[]` | Tags for categorization (max 20 tags, each max 100 chars) |
+
+**Response Schema:**
+
+```json
+{
+  "asset_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "portal_url": "https://portal.example.com/portal/assets/a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "message": "Artifact saved successfully.",
+  "provenance_captured": true,
+  "tool_calls_recorded": 5
+}
+```
+
+**Storage layout:**
+
+Content is stored in S3 at `{s3_prefix}{user_id}/{asset_id}/content.{ext}` where the extension is derived from the content type.
+
+---
+
+### manage_artifact
+
+List, retrieve, update, or delete saved artifacts. All mutations enforce ownership — users can only modify their own artifacts.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete` |
+| `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete` |
+| `content` | string | No | - | New content (for `update` — replaces S3 object) |
+| `name` | string | No | - | New name (for `update`) |
+| `description` | string | No | - | New description (for `update`) |
+| `tags` | array | No | - | New tags (for `update`) |
+| `content_type` | string | No | - | New content type (for `update`, only when replacing content) |
+| `limit` | integer | No | 50 | Max results for `list` (max 200) |
+
+**Actions:**
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `list` | Show current user's artifacts | None |
+| `get` | Retrieve full asset metadata | `asset_id` |
+| `update` | Change metadata or replace content | `asset_id` |
+| `delete` | Soft-delete an artifact | `asset_id` |
+
+**Response Schema (list):**
+
+```json
+{
+  "assets": [
+    {
+      "id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+      "owner_id": "user@example.com",
+      "name": "Revenue Dashboard",
+      "description": "Monthly revenue breakdown",
+      "content_type": "text/html",
+      "s3_bucket": "portal-artifacts",
+      "s3_key": "artifacts/user/asset-id/content.html",
+      "size_bytes": 4096,
+      "tags": ["dashboard", "revenue"],
+      "provenance": {
+        "user_id": "user@example.com",
+        "session_id": "sess123",
+        "tool_calls": [
+          {"tool_name": "trino_query", "timestamp": "2024-01-15T10:00:00Z", "summary": "SELECT ..."}
+        ]
+      },
+      "created_at": "2024-01-15T10:05:00Z",
+      "updated_at": "2024-01-15T10:05:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Response Schema (update/delete):**
+
+```json
+{
+  "asset_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "message": "Asset updated successfully."
+}
+```
+
+**Error Codes:**
+
+| Condition | Error Message |
+|-----------|---------------|
+| Missing asset_id | `asset_id is required for {action} action` |
+| Asset not found | `asset not found: ...` |
+| Wrong owner | `you can only {action} your own artifacts` |
+| Invalid action | `invalid action "...": must be one of: list, get, update, delete` |

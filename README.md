@@ -385,7 +385,8 @@ database:
 | `pkg/audit` | Audit logging with PostgreSQL storage |
 | `pkg/tuning` | Prompts, hints, and operational rules |
 | `pkg/storage` | S3-compatible storage provider abstraction |
-| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge) |
+| `pkg/portal` | Asset portal types, stores, and S3 client for AI-generated artifacts |
+| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge, Portal) |
 | `pkg/admin` | Admin REST API for knowledge management |
 | `pkg/client` | Platform client utilities |
 
