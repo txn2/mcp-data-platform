@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -389,4 +390,303 @@ func (s *inMemoryAssetStore) SoftDelete(_ context.Context, id string) error {
 	}
 	delete(s.assets, id)
 	return nil
+}
+
+func TestRegisterTools(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
+	tk.RegisterTools(server)
+
+	// Verify tools are registered by checking Tools() returns them.
+	tools := tk.Tools()
+	assert.Contains(t, tools, saveToolName)
+	assert.Contains(t, tools, manageToolName)
+}
+
+func TestSetProviders(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+
+	// SetSemanticProvider and SetQueryProvider should not panic.
+	tk.SetSemanticProvider(nil)
+	tk.SetQueryProvider(nil)
+
+	// Close should return nil.
+	assert.NoError(t, tk.Close())
+}
+
+func TestSaveArtifact_S3Error(t *testing.T) {
+	s3 := &mockS3Client{putErr: notFoundError{}}
+	tk := New(Config{
+		Name: "test", AssetStore: newInMemoryAssetStore(), S3Client: s3,
+		S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user1", SessionID: "sess1",
+	})
+
+	input := saveArtifactInput{
+		Name: "Test", Content: "<div/>", ContentType: "text/html",
+	}
+
+	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to upload content")
+}
+
+func TestSaveArtifact_NoContext(t *testing.T) {
+	store := newInMemoryAssetStore()
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	// Call without PlatformContext — should default to anonymous.
+	input := saveArtifactInput{
+		Name: "Test", Content: "<div/>", ContentType: "text/html",
+	}
+
+	result, _, err := tk.handleSaveArtifact(context.Background(), nil, input)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+}
+
+func TestManageArtifact_DeleteWrongOwner(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user2"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "delete", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestManageArtifact_DeleteNotFound(t *testing.T) {
+	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Bucket: "bucket"})
+
+	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+		Action: "delete", AssetID: "missing",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestManageArtifact_GetDeletedAsset(t *testing.T) {
+	store := newInMemoryAssetStore()
+	now := time.Now()
+	store.assets["a1"] = portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Deleted", Tags: []string{},
+		Provenance: portal.Provenance{}, DeletedAt: &now,
+	}
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+		Action: "get", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "deleted")
+}
+
+func TestManageArtifact_ListNoContext(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "anonymous", Name: "Anon Asset", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	// Call without PlatformContext — should default to "anonymous".
+	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{Action: "list"})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+}
+
+func TestSaveArtifact_ValidationDescription(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+
+	longDesc := make([]byte, 2001)
+	for i := range longDesc {
+		longDesc[i] = 'a'
+	}
+
+	result, _, err := tk.handleSaveArtifact(context.Background(), nil, saveArtifactInput{
+		Name: "Test", Content: "x", ContentType: "text/html",
+		Description: string(longDesc),
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestSaveArtifact_ValidationTags(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+
+	tooMany := make([]string, 21)
+	for i := range tooMany {
+		tooMany[i] = "tag"
+	}
+
+	result, _, err := tk.handleSaveArtifact(context.Background(), nil, saveArtifactInput{
+		Name: "Test", Content: "x", ContentType: "text/html",
+		Tags: tooMany,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+// errorAssetStore is an in-memory asset store that returns errors for testing.
+type errorAssetStore struct {
+	insertErr  error
+	listErr    error
+	softDelErr error
+	updateErr  error
+	inMemoryAssetStore
+}
+
+func (s *errorAssetStore) Insert(_ context.Context, _ portal.Asset) error {
+	if s.insertErr != nil {
+		return s.insertErr
+	}
+	return nil
+}
+
+func (s *errorAssetStore) List(_ context.Context, _ portal.AssetFilter) ([]portal.Asset, int, error) {
+	if s.listErr != nil {
+		return nil, 0, s.listErr
+	}
+	return nil, 0, nil
+}
+
+func (s *errorAssetStore) SoftDelete(_ context.Context, _ string) error {
+	if s.softDelErr != nil {
+		return s.softDelErr
+	}
+	return nil
+}
+
+func (s *errorAssetStore) Update(_ context.Context, _ string, _ portal.AssetUpdate) error {
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	return nil
+}
+
+func TestSaveArtifact_StoreInsertError(t *testing.T) {
+	store := &errorAssetStore{insertErr: notFoundError{}}
+	store.assets = make(map[string]portal.Asset)
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user1", SessionID: "sess1",
+	})
+
+	input := saveArtifactInput{
+		Name: "Test", Content: "<div/>", ContentType: "text/html",
+	}
+
+	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to save asset metadata")
+}
+
+func TestManageArtifact_ListError(t *testing.T) {
+	store := &errorAssetStore{listErr: notFoundError{}}
+	store.assets = make(map[string]portal.Asset)
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to list assets")
+}
+
+func TestManageArtifact_UpdateStoreError(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Test", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	errStore := &errorAssetStore{updateErr: notFoundError{}}
+	errStore.assets = store.assets
+	tk := New(Config{Name: "test", AssetStore: errStore, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update", AssetID: "a1", Name: "New",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to update asset")
+}
+
+func TestManageArtifact_UpdateWithContentError(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Test", ContentType: "text/html",
+		Tags: []string{}, Provenance: portal.Provenance{},
+	})
+
+	s3 := &mockS3Client{putErr: notFoundError{}}
+	tk := New(Config{
+		Name: "test", AssetStore: store, S3Client: s3,
+		S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to upload new content")
+}
+
+func TestManageArtifact_SoftDeleteError(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Test", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	errStore := &errorAssetStore{softDelErr: notFoundError{}}
+	errStore.assets = store.assets
+	tk := New(Config{Name: "test", AssetStore: errStore, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "delete", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "failed to delete asset")
 }

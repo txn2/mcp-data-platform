@@ -446,3 +446,292 @@ func TestValidateDescription(t *testing.T) {
 	}
 	assert.Error(t, ValidateDescription(string(longDesc)))
 }
+
+// --- Error path tests ---
+
+func TestPostgresAssetStoreInsertError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectExec("INSERT INTO portal_assets").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.Insert(context.Background(), Asset{
+		Tags: []string{}, Provenance: Provenance{},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "inserting asset")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreListCountError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnError(fmt.Errorf("db error"))
+
+	_, _, err = store.List(context.Background(), AssetFilter{OwnerID: "user1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "counting assets")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreListQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnError(fmt.Errorf("db error"))
+
+	_, _, err = store.List(context.Background(), AssetFilter{OwnerID: "user1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying assets")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreListWithOffset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	tags, _ := json.Marshal([]string{})
+	prov, _ := json.Marshal(Provenance{})
+
+	dataRows := sqlmock.NewRows([]string{
+		"id", "owner_id", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+	}).AddRow(
+		"abc123", "user1", "Test", "", "text/html", "portal", "key1",
+		int64(100), tags, prov, "", time.Now(), time.Now(), nil,
+	)
+	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
+
+	assets, _, err := store.List(context.Background(), AssetFilter{
+		OwnerID: "user1", Offset: 10, Limit: 5,
+	})
+	require.NoError(t, err)
+	assert.Len(t, assets, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreListFilterByTag(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"id", "owner_id", "name", "description", "content_type", "s3_bucket", "s3_key",
+			"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		}),
+	)
+
+	assets, _, err := store.List(context.Background(), AssetFilter{Tag: "dashboard"})
+	require.NoError(t, err)
+	assert.Empty(t, assets)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreListFilterByContentType(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"id", "owner_id", "name", "description", "content_type", "s3_bucket", "s3_key",
+			"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		}),
+	)
+
+	assets, _, err := store.List(context.Background(), AssetFilter{ContentType: "text/html"})
+	require.NoError(t, err)
+	assert.Empty(t, assets)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreUpdateExecError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectExec("UPDATE portal_assets").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.Update(context.Background(), "abc123", AssetUpdate{Name: "x"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "updating asset")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreSoftDeleteExecError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	mock.ExpectExec("UPDATE portal_assets SET deleted_at").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.SoftDelete(context.Background(), "abc123")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "soft-deleting asset")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreInsertError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectExec("INSERT INTO portal_shares").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.Insert(context.Background(), Share{ID: "s1", AssetID: "a1", Token: "t1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "inserting share")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListByAssetError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE asset_id").
+		WillReturnError(fmt.Errorf("db error"))
+
+	_, err = store.ListByAsset(context.Background(), "abc123")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying shares")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreRevokeExecError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectExec("UPDATE portal_shares SET revoked").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.Revoke(context.Background(), "share1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "revoking share")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreIncrementAccessError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectExec("UPDATE portal_shares SET access_count").
+		WillReturnError(fmt.Errorf("db error"))
+
+	err = store.IncrementAccess(context.Background(), "share1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "incrementing access count")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreGetByTokenNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
+		WithArgs("missing").
+		WillReturnError(fmt.Errorf("sql: no rows in result set"))
+
+	_, err = store.GetByToken(context.Background(), "missing")
+	assert.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreGetByTokenWithExpiration(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+	now := time.Now()
+	expires := now.Add(24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "asset_id", "token", "created_by", "expires_at",
+		"revoked", "access_count", "last_accessed_at", "created_at",
+	}).AddRow("share1", "abc123", "tok123", "user1", expires, false, 0, nil, now)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
+		WithArgs("tok123").
+		WillReturnRows(rows)
+
+	share, err := store.GetByToken(context.Background(), "tok123")
+	require.NoError(t, err)
+	assert.NotNil(t, share.ExpiresAt)
+	assert.Nil(t, share.LastAccessedAt)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresAssetStoreGetWithDeletedAt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+	now := time.Now()
+	deletedAt := now.Add(-1 * time.Hour)
+
+	tags, _ := json.Marshal([]string{})
+	prov, _ := json.Marshal(Provenance{})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "owner_id", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+	}).AddRow(
+		"abc123", "user1", "Test", "desc", "text/html", "portal", "key1",
+		int64(512), tags, prov, "sess1", now, now, deletedAt,
+	)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
+		WithArgs("abc123").
+		WillReturnRows(rows)
+
+	asset, err := store.Get(context.Background(), "abc123")
+	require.NoError(t, err)
+	assert.NotNil(t, asset.DeletedAt)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

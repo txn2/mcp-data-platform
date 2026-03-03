@@ -159,3 +159,62 @@ func TestMCPProvenanceMiddleware_SessionIsolation(t *testing.T) {
 	assert.Len(t, calls, 1)
 	assert.Equal(t, "tool_b", calls[0].ToolName)
 }
+
+func TestMCPProvenanceMiddleware_NoSessionContext(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{}, nil
+	}
+
+	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+
+	req := newTestServerRequest(&mcp.CallToolParamsRaw{
+		Name: "trino_query",
+	})
+
+	// Call without PlatformContext — should use empty session ID.
+	_, err := handler(context.Background(), methodToolsCall, req)
+	require.NoError(t, err)
+
+	calls := tracker.Harvest("")
+	assert.Len(t, calls, 1)
+}
+
+func TestMCPProvenanceMiddleware_EmptyToolName(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{}, nil
+	}
+
+	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+
+	// Request with empty tool name — extractToolName succeeds but records it.
+	req := newTestServerRequest(&mcp.CallToolParamsRaw{Name: ""})
+
+	_, err := handler(context.Background(), methodToolsCall, req)
+	require.NoError(t, err)
+}
+
+func TestExtractToolParams_NilCases(t *testing.T) {
+	// Request with nil arguments.
+	req := newTestServerRequest(&mcp.CallToolParamsRaw{Name: "test"})
+	assert.Nil(t, extractToolParams(req))
+
+	// Request with invalid JSON arguments.
+	req = newTestServerRequest(&mcp.CallToolParamsRaw{
+		Name:      "test",
+		Arguments: json.RawMessage(`{invalid`),
+	})
+	assert.Nil(t, extractToolParams(req))
+
+	// Request with valid arguments.
+	args, _ := json.Marshal(map[string]any{"key": "val"})
+	req = newTestServerRequest(&mcp.CallToolParamsRaw{
+		Name:      "test",
+		Arguments: args,
+	})
+	result := extractToolParams(req)
+	assert.Equal(t, "val", result["key"])
+}
