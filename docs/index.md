@@ -2,15 +2,19 @@
 description: MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context.
 hide:
   - navigation
+  - toc
 ---
 
-# mcp-data-platform
+# ![txn2/mcp-data-platform](images/MCP-data-platform-logo-banner-black-transparent.svg#only-light)![txn2/mcp-data-platform](images/MCP-data-platform-logo-banner-white-transparent.svg#only-dark)
 
 **Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
 mcp-data-platform fixes that. Connect AI assistants to your data infrastructure with automatic business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
 **The only requirement is [DataHub](https://datahubproject.io/).** Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](concepts/components.md)
+
+[Get Started](server/overview.md){ .md-button .md-button--primary }
+[View on GitHub](https://github.com/txn2/mcp-data-platform){ .md-button }
 
 <div class="grid cards" markdown>
 
@@ -354,8 +358,8 @@ semantic:
 
 | Toolkit | Tools | Purpose |
 |---------|-------|---------|
-| **DataHub** | 11 tools | Search, metadata, lineage, glossary, domains |
-| **Trino** | 7 tools | SQL queries, schema exploration, catalogs |
+| **DataHub** | 16 tools | Search, metadata, lineage, glossary, browse, write-back |
+| **Trino** | 6 tools | SQL queries, schema exploration, catalog browsing |
 | **S3** | 6-9 tools | Bucket/object operations, presigned URLs |
 
 DataHub is the foundation and serves as your semantic layer. Add Trino for SQL queries, S3 for object storage. Use what you have.

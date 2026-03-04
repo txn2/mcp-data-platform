@@ -29,11 +29,16 @@ theme:
     - navigation.instant
     - navigation.tabs
     - navigation.sections
+    - navigation.expand
+    - navigation.top
     - search.suggest
+    - search.highlight
     - content.code.copy
+    - content.tabs.link
 
 nav:
   - Home: index.md
+  - Ecosystem: ecosystem/index.md
   - Getting Started:
     - Overview: server/overview.md
     - The Data Stack: concepts/components.md

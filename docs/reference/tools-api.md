@@ -103,17 +103,20 @@ Get the execution plan for a SQL query.
 
 ---
 
-### trino_list_catalogs
+### trino_browse
 
-List available catalogs.
+Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provide `catalog` to list schemas. Provide `catalog` and `schema` to list tables.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| `catalog` | string | No | - | Catalog name. Omit to list all catalogs |
+| `schema` | string | No | - | Schema name. Requires `catalog`. Omit to list schemas |
+| `pattern` | string | No | - | LIKE pattern to filter tables (only when listing tables) |
 | `connection` | string | No | first configured | Trino connection name |
 
-**Response Schema:**
+**Response Schema (list catalogs):**
 
 ```json
 {
@@ -121,20 +124,7 @@ List available catalogs.
 }
 ```
 
----
-
-### trino_list_schemas
-
-List schemas in a catalog.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog name |
-| `connection` | string | No | first configured | Trino connection name |
-
-**Response Schema:**
+**Response Schema (list schemas):**
 
 ```json
 {
@@ -143,21 +133,7 @@ List schemas in a catalog.
 }
 ```
 
----
-
-### trino_list_tables
-
-List tables in a schema.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog name |
-| `schema` | string | No | configured default | Schema name |
-| `connection` | string | No | first configured | Trino connection name |
-
-**Response Schema:**
+**Response Schema (list tables):**
 
 ```json
 {
@@ -462,18 +438,19 @@ Get glossary term details.
 
 ---
 
-### datahub_list_tags
+### datahub_browse
 
-List available tags.
+Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum tags to return |
+| `what` | string | Yes | - | What to browse: `tags`, `domains`, or `data_products` |
+| `filter` | string | No | - | Optional filter string (tags only) |
 | `connection` | string | No | first configured | DataHub connection name |
 
-**Response Schema:**
+**Response Schema (tags):**
 
 ```json
 {
@@ -484,20 +461,7 @@ List available tags.
 }
 ```
 
----
-
-### datahub_list_domains
-
-List data domains.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum domains to return |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
+**Response Schema (domains):**
 
 ```json
 {
@@ -512,21 +476,7 @@ List data domains.
 }
 ```
 
----
-
-### datahub_list_data_products
-
-List data products.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `domain` | string | No | - | Filter by domain URN |
-| `limit` | integer | No | 100 | Maximum products to return |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
+**Response Schema (data_products):**
 
 ```json
 {

@@ -297,10 +297,10 @@ personas:
           - "datahub_get_schema"
           - "datahub_get_lineage"
           - "datahub_get_glossary_term"
-          - "datahub_list_domains"
+          - "datahub_browse"
           - "trino_query"
           - "trino_execute"
-          - "trino_list_*"
+          - "trino_browse"
           - "trino_describe_*"
         deny:
           - "*_delete_*"
@@ -420,9 +420,8 @@ personas:
           - "datahub_get_schema"
           - "datahub_get_lineage"
           - "datahub_get_glossary_term"
-          - "datahub_list_domains"
-          - "datahub_list_tags"
-          - "trino_list_*"
+          - "datahub_browse"
+          - "trino_browse"
           - "trino_describe_*"
           # No direct query access yet
         deny:
@@ -508,9 +507,9 @@ personas:
           - "datahub_get_schema"
           - "datahub_get_lineage"
           - "datahub_get_queries"        # See popular queries
-          - "datahub_list_data_products"
+          - "datahub_browse"
           - "trino_query"
-          - "trino_list_*"
+          - "trino_browse"
           - "trino_describe_*"
           - "trino_explain"              # Query planning
         deny:

@@ -6,6 +6,10 @@
 
 - [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-injection makes them greater than the sum of parts.
 
+## Ecosystem
+
+- [Ecosystem](ecosystem/index.md): Suite of composable MCP servers (mcp-datahub, mcp-s3, mcp-trino) designed to work together as a data platform
+
 ## Documentation
 
 - [Home](index.md): Introduction, quick start, and key features

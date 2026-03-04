@@ -8,7 +8,7 @@ When `trino_semantic_enrichment` is enabled, Trino tool results include semantic
 |------|-------------------|
 | `trino_query` | Table names in the query |
 | `trino_describe_table` | The described table |
-| `trino_list_tables` | Each table in the list |
+| `trino_browse` | Each table in the list (when browsing tables) |
 
 ## Enriched Data
 
