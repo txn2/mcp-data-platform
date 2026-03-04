@@ -1,4 +1,4 @@
-![txn2/mcp_data_platform](docs/images/mcp_dp_banner.png)
+[![txn2/mcp-data-platform](docs/images/MCP-data-platform-logo-banner.svg)](https://mcp-data-platform.txn2.com)
 
 [![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
@@ -9,13 +9,21 @@
 
 
 
-**[Documentation](https://txn2.github.io/mcp-data-platform/)** | **[Installation](https://txn2.github.io/mcp-data-platform/server/overview/)** | **[Library Docs](https://txn2.github.io/mcp-data-platform/library/overview/)**
+**[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/overview/)** | **[Library Docs](https://mcp-data-platform.txn2.com/library/overview/)**
 
 **Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
 mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
-The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](https://txn2.github.io/mcp-data-platform/concepts/components/)
+The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](https://mcp-data-platform.txn2.com/concepts/components/)
+
+## MCP Data Platform Ecosystem
+
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+
+- [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/) — DataHub metadata catalog: search, lineage, glossary terms, domains, tags, and ownership
+- [txn2/mcp-s3](https://github.com/txn2/mcp-s3/) — S3 object storage: list buckets, browse prefixes, read objects, generate presigned URLs
+- [txn2/mcp-trino](https://github.com/txn2/mcp-trino/) — Trino distributed SQL: query any data source Trino connects to with configurable timeouts and row limits
 
 ---
 
@@ -99,7 +107,7 @@ Every data query includes business context from DataHub. Table descriptions, col
 Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
 
 ### Workflow Gating
-LLM agents tend to skip DataHub discovery and jump straight to SQL. Session-aware workflow gating detects this and annotates query results with warnings when no discovery has occurred. Warnings escalate after repeated violations. Built-in description overrides on `trino_query` and `trino_execute` also guide agents to call `datahub_search` first. See the [Middleware Reference](https://txn2.github.io/mcp-data-platform/reference/middleware/) for details.
+LLM agents tend to skip DataHub discovery and jump straight to SQL. Session-aware workflow gating detects this and annotates query results with warnings when no discovery has occurred. Warnings escalate after repeated violations. Built-in description overrides on `trino_query` and `trino_execute` also guide agents to call `datahub_search` first. See the [Middleware Reference](https://mcp-data-platform.txn2.com/reference/middleware/) for details.
 
 ### Enterprise Security
 Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
@@ -114,7 +122,7 @@ Define who can use which tools. Analysts get read access to queries and searches
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
 ### Knowledge Capture
-AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions, and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://txn2.github.io/mcp-data-platform/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://txn2.github.io/mcp-data-platform/knowledge/overview/) for details.
+AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions, and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
 
 ### Resource Templates
 Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates expose table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`) without making tool calls.
@@ -142,7 +150,7 @@ A built-in web dashboard for monitoring, auditing, and exploring the platform. E
 
 **Tools Explore** — Interactive tool execution with auto-generated parameter forms, rendered results, and full semantic enrichment context (owners, tags, glossary terms, column metadata, lineage).
 
-See the [Admin Portal documentation](https://txn2.github.io/mcp-data-platform/server/admin-portal/) for the complete visual guide.
+See the [Admin Portal documentation](https://mcp-data-platform.txn2.com/server/admin-portal/) for the complete visual guide.
 
 ---
 
@@ -300,7 +308,7 @@ oauth:
 
 When you connect, Claude Desktop will open your browser for Keycloak login, then automatically complete the OAuth flow.
 
-See [OAuth 2.1 Server documentation](https://txn2.github.io/mcp-data-platform/auth/oauth-server/) for complete setup instructions.
+See [OAuth 2.1 Server documentation](https://mcp-data-platform.txn2.com/auth/oauth-server/) for complete setup instructions.
 
 ---
 
@@ -448,13 +456,13 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 
 ## Documentation
 
-Full documentation is available at [txn2.github.io/mcp-data-platform](https://txn2.github.io/mcp-data-platform/).
+Full documentation is available at [mcp-data-platform.txn2.com](https://mcp-data-platform.txn2.com/).
 
-- [Server Guide](https://txn2.github.io/mcp-data-platform/server/overview/) - Configuration and deployment
-- [Cross-Injection](https://txn2.github.io/mcp-data-platform/cross-injection/overview/) - How automatic enrichment works
-- [Authentication](https://txn2.github.io/mcp-data-platform/auth/overview/) - OIDC, API keys, and OAuth 2.1
-- [Go Library](https://txn2.github.io/mcp-data-platform/library/overview/) - Build custom MCP servers
-- [API Reference](https://txn2.github.io/mcp-data-platform/reference/tools-api/) - Complete tool documentation
+- [Server Guide](https://mcp-data-platform.txn2.com/server/overview/) - Configuration and deployment
+- [Cross-Injection](https://mcp-data-platform.txn2.com/cross-injection/overview/) - How automatic enrichment works
+- [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) - OIDC, API keys, and OAuth 2.1
+- [Go Library](https://mcp-data-platform.txn2.com/library/overview/) - Build custom MCP servers
+- [API Reference](https://mcp-data-platform.txn2.com/reference/tools-api/) - Complete tool documentation
 
 ---
 

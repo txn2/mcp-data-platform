@@ -40,8 +40,8 @@ graph TD
 | Pattern | Matches |
 |---------|---------|
 | `*` | Everything |
-| `trino_*` | trino_query, trino_execute, trino_explain, trino_list_tables, etc. |
-| `*_list_*` | trino_list_catalogs, s3_list_buckets, datahub_list_tags, etc. |
+| `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, etc. |
+| `*_list_*` | s3_list_buckets, s3_list_objects, datahub_list_connections, etc. |
 | `datahub_get_*` | datahub_get_entity, datahub_get_schema, etc. |
 | `s3_*` | All S3 tools |
 | `trino_query` | Exact match only |
@@ -126,9 +126,7 @@ Use these exact names in your patterns:
 - `trino_query` (read-only)
 - `trino_execute` (read-write)
 - `trino_explain`
-- `trino_list_catalogs`
-- `trino_list_schemas`
-- `trino_list_tables`
+- `trino_browse`
 - `trino_describe_table`
 - `trino_list_connections`
 
@@ -139,10 +137,15 @@ Use these exact names in your patterns:
 - `datahub_get_lineage`
 - `datahub_get_queries`
 - `datahub_get_glossary_term`
-- `datahub_list_tags`
-- `datahub_list_domains`
-- `datahub_list_data_products`
+- `datahub_browse`
 - `datahub_get_data_product`
+- `datahub_update_description`
+- `datahub_add_tag`
+- `datahub_remove_tag`
+- `datahub_add_glossary_term`
+- `datahub_remove_glossary_term`
+- `datahub_add_link`
+- `datahub_remove_link`
 - `datahub_list_connections`
 
 **S3 Tools:**
@@ -254,7 +257,7 @@ filter := persona.NewToolFilter(persona.ToolRules{
     Deny:  []string{"trino_query"},
 })
 
-filter.Allows("trino_list_tables")  // true
+filter.Allows("trino_browse")        // true
 filter.Allows("trino_query")         // false
 filter.Allows("datahub_search")      // false
 ```

@@ -7,7 +7,7 @@ description: MCP tools from DataHub, Trino, S3, and Knowledge toolkits. Search m
 mcp-data-platform provides tools from five integrated toolkits. Each tool can be invoked by name through any MCP client.
 
 !!! tip "Reducing token usage with tool visibility"
-    The full tool list is 25-32 tools. Deployments that only use a subset can configure `tools.allow` and `tools.deny` at the top level of `platform.yaml` to hide unused tools from `tools/list` responses. This saves LLM context tokens without affecting authorization. See [Configuration](configuration.md#tool-visibility-configuration) for details.
+    The full tool list is 30-35 tools depending on configuration. Deployments that only use a subset can configure `tools.allow` and `tools.deny` at the top level of `platform.yaml` to hide unused tools from `tools/list` responses. This saves LLM context tokens without affecting authorization. See [Configuration](configuration.md#tool-visibility-configuration) for details.
 
 ## Tools Summary
 
@@ -16,21 +16,24 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Trino | `trino_query` | Execute read-only SQL queries (SELECT, SHOW, DESCRIBE, EXPLAIN) |
 | Trino | `trino_execute` | Execute any SQL including write operations (INSERT, UPDATE, DELETE, CREATE, DROP) |
 | Trino | `trino_explain` | Get query execution plans |
-| Trino | `trino_list_catalogs` | List available catalogs |
-| Trino | `trino_list_schemas` | List schemas in a catalog |
-| Trino | `trino_list_tables` | List tables in a schema |
+| Trino | `trino_browse` | Browse the catalog hierarchy: list catalogs, schemas, or tables |
 | Trino | `trino_describe_table` | Get table schema and metadata |
 | Trino | `trino_list_connections` | List configured Trino connections |
 | DataHub | `datahub_search` | Search for datasets, dashboards, etc. |
 | DataHub | `datahub_get_entity` | Get detailed entity information |
 | DataHub | `datahub_get_schema` | Get dataset schema |
-| DataHub | `datahub_get_lineage` | Get data lineage |
+| DataHub | `datahub_get_lineage` | Get dataset or column-level lineage |
 | DataHub | `datahub_get_queries` | Get popular queries for a dataset |
 | DataHub | `datahub_get_glossary_term` | Get glossary term details |
-| DataHub | `datahub_list_tags` | List available tags |
-| DataHub | `datahub_list_domains` | List data domains |
-| DataHub | `datahub_list_data_products` | List data products |
+| DataHub | `datahub_browse` | Browse tags, domains, or data products |
 | DataHub | `datahub_get_data_product` | Get data product details |
+| DataHub | `datahub_update_description` | Update entity description |
+| DataHub | `datahub_add_tag` | Add a tag to an entity |
+| DataHub | `datahub_remove_tag` | Remove a tag from an entity |
+| DataHub | `datahub_add_glossary_term` | Add a glossary term to an entity |
+| DataHub | `datahub_remove_glossary_term` | Remove a glossary term from an entity |
+| DataHub | `datahub_add_link` | Add a link to an entity |
+| DataHub | `datahub_remove_link` | Remove a link from an entity |
 | DataHub | `datahub_list_connections` | List configured DataHub connections |
 | S3 | `s3_list_buckets` | List S3 buckets |
 | S3 | `s3_list_objects` | List objects in a bucket |
@@ -111,41 +114,17 @@ Get the execution plan for a query without running it.
 
 ---
 
-### trino_list_catalogs
+### trino_browse
 
-List all available catalogs in the Trino cluster.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### trino_list_schemas
-
-List schemas in a catalog.
+Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provide `catalog` to list schemas. Provide `catalog` and `schema` to list tables (with optional `pattern` filter).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog to list schemas from |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### trino_list_tables
-
-List tables in a schema.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `catalog` | string | No | configured default | Catalog name |
-| `schema` | string | No | configured default | Schema name |
+| `catalog` | string | No | - | Catalog name. Omit to list all catalogs |
+| `schema` | string | No | - | Schema name. Requires `catalog`. Omit to list schemas |
+| `pattern` | string | No | - | LIKE pattern to filter tables (only when listing tables) |
 | `connection` | string | No | default | Connection name to use |
 
 ---
@@ -237,15 +216,16 @@ Get the schema for a dataset.
 
 ### datahub_get_lineage
 
-Get upstream or downstream lineage for an entity.
+Get upstream or downstream lineage for an entity. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Default (`dataset`) returns dataset-level relationships with direction and depth control.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `urn` | string | Yes | - | Entity URN |
-| `direction` | string | No | `downstream` | `upstream` or `downstream` |
-| `depth` | integer | No | 3 | Maximum traversal depth |
+| `level` | string | No | `dataset` | Granularity: `dataset` or `column` |
+| `direction` | string | No | `DOWNSTREAM` | `UPSTREAM` or `DOWNSTREAM` (dataset level only) |
+| `depth` | integer | No | 1 | Maximum traversal depth, max 5 (dataset level only) |
 | `connection` | string | No | default | Connection name to use |
 
 ---
@@ -277,42 +257,16 @@ Get details about a glossary term.
 
 ---
 
-### datahub_list_tags
+### datahub_browse
 
-List available tags in DataHub.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum tags to return |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_list_domains
-
-List data domains.
+Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `limit` | integer | No | 100 | Maximum domains to return |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_list_data_products
-
-List data products.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `domain` | string | No | - | Filter by domain URN |
-| `limit` | integer | No | 100 | Maximum products to return |
+| `what` | string | Yes | - | What to browse: `tags`, `domains`, or `data_products` |
+| `filter` | string | No | - | Optional filter string (tags only) |
 | `connection` | string | No | default | Connection name to use |
 
 ---
@@ -326,6 +280,105 @@ Get details about a data product.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `urn` | string | Yes | - | Data product URN |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_update_description
+
+Update the description of a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `description` | string | Yes | - | New description text |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_add_tag
+
+Add a tag to a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `tag_urn` | string | Yes | - | Tag URN (e.g., `urn:li:tag:PII`) |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_remove_tag
+
+Remove a tag from a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `tag_urn` | string | Yes | - | Tag URN to remove |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_add_glossary_term
+
+Add a glossary term to a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `term_urn` | string | Yes | - | Glossary term URN (e.g., `urn:li:glossaryTerm:Classification`) |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_remove_glossary_term
+
+Remove a glossary term from a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `term_urn` | string | Yes | - | Glossary term URN to remove |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_add_link
+
+Add a link to a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `url` | string | Yes | - | URL of the link |
+| `description` | string | Yes | - | Description of the link |
+| `connection` | string | No | default | Connection name to use |
+
+---
+
+### datahub_remove_link
+
+Remove a link from a DataHub entity.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `urn` | string | Yes | - | Entity URN |
+| `url` | string | Yes | - | URL of the link to remove |
 | `connection` | string | No | default | Connection name to use |
 
 ---

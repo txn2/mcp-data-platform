@@ -38,6 +38,24 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 ---
 
+# Ecosystem
+
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+
+## mcp-datahub (https://github.com/txn2/mcp-datahub/)
+
+An MCP server for DataHub, the metadata catalog. Provides AI assistants with dataset search, schema exploration, lineage graphs, glossary terms, domains, tags, and ownership information. In the platform, DataHub serves as the semantic layer: every query result is enriched with business context from DataHub before being returned to the AI assistant.
+
+## mcp-s3 (https://github.com/txn2/mcp-s3/)
+
+An MCP server for Amazon S3, providing AI assistants with direct access to object storage. List buckets, browse prefixes, read objects, and generate presigned URLs. Supports multi-server configurations for accessing storage across accounts and regions.
+
+## mcp-trino (https://github.com/txn2/mcp-trino/)
+
+An MCP server for Trino, the distributed SQL query engine. Run read-only SQL queries across any data source Trino connects to, including data lakes, warehouses, and relational databases. List catalogs and schemas, describe tables, explain query plans, and execute analytical queries with configurable timeouts and row limits.
+
+---
+
 # The Data Stack: DataHub + Trino + S3
 
 Modern data platforms need three things: meaning (what does the data represent?), access (how do I query it?), and storage (where does it live?). mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage.
@@ -951,17 +969,9 @@ Get the execution plan for a SQL query.
 | `query` | string | Yes | - | SQL query to explain |
 | `connection` | string | No | first configured | Trino connection name |
 
-### trino_list_catalogs
+### trino_browse
 
-List available catalogs. Parameters: `connection` (optional).
-
-### trino_list_schemas
-
-List schemas in a catalog. Parameters: `catalog`, `connection` (both optional).
-
-### trino_list_tables
-
-List tables in a schema. Parameters: `catalog`, `schema`, `connection` (all optional).
+Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provide `catalog` to list schemas. Provide `catalog` and `schema` to list tables (with optional `pattern` filter). Parameters: `catalog`, `schema`, `pattern`, `connection` (all optional).
 
 ### trino_describe_table
 
@@ -1005,7 +1015,7 @@ Get dataset schema. Parameters: `urn` (required), `connection` (optional).
 
 ### datahub_get_lineage
 
-Get data lineage. Parameters: `urn` (required), `direction` (upstream/downstream), `depth`, `connection`.
+Get dataset or column-level lineage. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Parameters: `urn` (required), `level` (dataset/column), `direction` (UPSTREAM/DOWNSTREAM, dataset only), `depth` (max 5, dataset only), `connection`.
 
 ### datahub_get_queries
 
@@ -1015,21 +1025,41 @@ Get popular queries for a dataset. Parameters: `urn` (required), `limit`, `conne
 
 Get glossary term details. Parameters: `urn` (required), `connection`.
 
-### datahub_list_tags
+### datahub_browse
 
-List available tags. Parameters: `limit`, `connection`.
-
-### datahub_list_domains
-
-List data domains. Parameters: `limit`, `connection`.
-
-### datahub_list_data_products
-
-List data products. Parameters: `domain`, `limit`, `connection`.
+Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products. Parameters: `what` (required: tags/domains/data_products), `filter` (optional, tags only), `connection`.
 
 ### datahub_get_data_product
 
 Get data product details. Parameters: `urn` (required), `connection`.
+
+### datahub_update_description
+
+Update the description of a DataHub entity. Parameters: `urn` (required), `description` (required), `connection`.
+
+### datahub_add_tag
+
+Add a tag to a DataHub entity. Parameters: `urn` (required), `tag_urn` (required, e.g. urn:li:tag:PII), `connection`.
+
+### datahub_remove_tag
+
+Remove a tag from a DataHub entity. Parameters: `urn` (required), `tag_urn` (required), `connection`.
+
+### datahub_add_glossary_term
+
+Add a glossary term to a DataHub entity. Parameters: `urn` (required), `term_urn` (required), `connection`.
+
+### datahub_remove_glossary_term
+
+Remove a glossary term from a DataHub entity. Parameters: `urn` (required), `term_urn` (required), `connection`.
+
+### datahub_add_link
+
+Add a link to a DataHub entity. Parameters: `urn` (required), `url` (required), `description` (required), `connection`.
+
+### datahub_remove_link
+
+Remove a link from a DataHub entity. Parameters: `urn` (required), `url` (required), `connection`.
 
 ### datahub_list_connections
 
@@ -1879,7 +1909,7 @@ Requires `knowledge.enabled: true` and database. Returns 409 without database.
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform
-- Documentation: https://txn2.github.io/mcp-data-platform/
+- Documentation: https://mcp-data-platform.txn2.com/
 - DataHub: https://datahubproject.io/
 - MCP Specification: https://modelcontextprotocol.io/
 - Security Article: https://imti.co/mcp-defense/

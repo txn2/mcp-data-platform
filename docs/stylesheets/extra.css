@@ -74,15 +74,19 @@
 /* ===== CONTENT WIDTH ===== */
 .md-content__inner {
   max-width: 52rem;
-  margin-left: auto;
-  margin-right: auto;
+}
+
+/* ===== IMAGE HEADINGS ===== */
+.md-typeset h1:has(img) {
+  margin: 0 0 0 0;
+  padding: 0;
+}
+
+.md-typeset h1:has(img) .headerlink {
+  display: none;
 }
 
 /* ===== CODE BLOCKS ===== */
-[data-md-color-scheme="default"] .md-typeset pre > code {
-  background-color: #1a202c;
-}
-
 [data-md-color-scheme="default"] .md-typeset code {
   background-color: #edf2f7;
 }
