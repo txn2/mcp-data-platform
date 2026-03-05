@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,9 +19,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/txn2/mcp-data-platform/internal/adminui"
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
-	"github.com/txn2/mcp-data-platform/internal/portalui"
+	"github.com/txn2/mcp-data-platform/internal/ui"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
@@ -287,17 +287,17 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		log.Println("OAuth protected resource metadata enabled on /.well-known/oauth-protected-resource")
 	}
 
+	// Mount browser auth routes (OIDC login/callback/logout)
+	mountBrowserAuth(mux, p)
+
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p)
-
-	// Mount admin UI if explicitly enabled and frontend was built into the binary
-	mountAdminPortal(mux, p, adminui.Available())
 
 	// Mount portal API if enabled
 	mountPortalAPI(mux, p)
 
-	// Mount portal UI if explicitly enabled and frontend was built into the binary
-	mountPortalUI(mux, p, portalui.Available())
+	// Mount unified portal UI (includes both portal and admin sections)
+	mountPortalUI(mux, p, ui.Available())
 
 	// Mount SSE handler (legacy clients)
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
@@ -323,6 +323,13 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 			TTL:   p.Config().Sessions.TTL,
 		})
 		log.Println("Session-aware handler enabled (external session store)")
+	}
+
+	// Wrap root handler with browser redirect when portal UI is enabled.
+	// Browser requests (Accept: text/html) to / redirect to /portal/;
+	// MCP clients (Accept: application/json or no Accept) pass through.
+	if p != nil && p.Config().Portal.UI && ui.Available() {
+		rootHandler = browserRedirectMiddleware(rootHandler)
 	}
 
 	if hcfg.requireAuth {
@@ -449,16 +456,6 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
 	log.Println("Admin API enabled on", prefix)
 }
 
-// mountAdminPortal registers the admin SPA frontend on the mux when the portal
-// config gate is enabled and assets are available.
-func mountAdminPortal(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
-	if p == nil || !p.Config().Admin.Portal || !assetsAvailable {
-		return
-	}
-	mux.Handle("/admin/", http.StripPrefix("/admin", adminui.Handler()))
-	log.Println("Admin UI enabled on /admin/")
-}
-
 // mountPortalAPI registers the portal REST API on the mux if portal is enabled.
 func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	if p == nil || !p.Config().Portal.Enabled {
@@ -469,7 +466,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 		return
 	}
 
-	portalAuth := portal.NewAuthenticator(p.Authenticator())
+	var portalAuthOpts []portal.AuthenticatorOption
+	if p.BrowserSessionAuth() != nil {
+		portalAuthOpts = append(portalAuthOpts, portal.WithBrowserAuth(p.BrowserSessionAuth()))
+	}
+	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
 
 	deps := portal.Deps{
 		AssetStore:    p.PortalAssetStore(),
@@ -481,6 +482,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
 		},
+		OIDCEnabled: p.BrowserSessionFlow() != nil,
 	}
 
 	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
@@ -489,22 +491,27 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	log.Println("Portal API enabled on /api/v1/portal/")
 }
 
-// mountPortalUI registers the portal SPA frontend on the mux when the portal
-// UI config gate is enabled and assets are available.
+// mountPortalUI registers the unified portal SPA frontend on the mux when the
+// portal UI config gate is enabled and assets are available.
 func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
 	if p == nil || !p.Config().Portal.UI || !assetsAvailable {
 		return
 	}
-	mux.Handle("/portal/", http.StripPrefix("/portal", portalui.Handler()))
+	mux.Handle("/portal/", http.StripPrefix("/portal", ui.Handler()))
 	log.Println("Portal UI enabled on /portal/")
 }
 
 // buildAdminHandler constructs the admin REST API handler from the platform.
 func buildAdminHandler(p *platform.Platform) http.Handler {
+	var authOpts []admin.PlatformAuthOption
+	if p.BrowserSessionAuth() != nil {
+		authOpts = append(authOpts, admin.WithBrowserSessionAuth(p.BrowserSessionAuth()))
+	}
 	platAuth := admin.NewPlatformAuthenticator(
 		p.Authenticator(),
 		p.Config().Admin.Persona,
 		p.PersonaRegistry(),
+		authOpts...,
 	)
 
 	deps := admin.Deps{
@@ -535,6 +542,30 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	}
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+}
+
+// mountBrowserAuth registers the OIDC login/callback/logout routes.
+func mountBrowserAuth(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || p.BrowserSessionFlow() == nil {
+		return
+	}
+	flow := p.BrowserSessionFlow()
+	mux.HandleFunc("/portal/auth/login", flow.LoginHandler)
+	mux.HandleFunc("/portal/auth/callback", flow.CallbackHandler)
+	mux.HandleFunc("/portal/auth/logout", flow.LogoutHandler)
+	log.Println("Browser auth enabled (OIDC login on /portal/auth/login)")
+}
+
+// browserRedirectMiddleware redirects browser requests to the portal.
+// Non-browser requests (MCP clients) pass through to the MCP handler.
+func browserRedirectMiddleware(mcpHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			http.Redirect(w, r, "/portal/", http.StatusTemporaryRedirect)
+			return
+		}
+		mcpHandler.ServeHTTP(w, r)
+	})
 }
 
 // registerOAuthRoutes registers OAuth endpoints on the given mux.

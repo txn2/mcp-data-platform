@@ -11,10 +11,8 @@ LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Versio
 CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
 DIST_DIR := ./dist
-ADMIN_UI_DIR := ./admin-ui
-ADMIN_UI_EMBED_DIR := ./internal/adminui/dist
-PORTAL_UI_DIR := ./portal-ui
-PORTAL_UI_EMBED_DIR := ./internal/portalui/dist
+UI_DIR := ./ui
+UI_EMBED_DIR := ./internal/ui/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.8.0
@@ -31,9 +29,7 @@ GOLINT := golangci-lint
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
-	frontend-install frontend-build frontend-dev frontend-test frontend-storybook \
-	portal-frontend-install portal-frontend-build portal-frontend-dev portal-frontend-mock portal-frontend-test \
-	build-with-all-ui \
+	frontend-install frontend-build frontend-dev frontend-mock frontend-test \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev-up dev-down preview-apps preview-platform-info
 
@@ -94,9 +90,9 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@rm -f coverage.out coverage.html
-	@rm -rf $(ADMIN_UI_DIR)/dist $(ADMIN_UI_DIR)/node_modules
+	@rm -rf $(UI_DIR)/dist $(UI_DIR)/node_modules
 	@# Reset embed dir but keep .gitkeep
-	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
+	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
 	@echo "Clean complete."
 
 ## install: Install the binary
@@ -256,12 +252,10 @@ tools-check:
 	fi
 	@echo "All required tools found."
 
-## embed-clean: Reset admin and portal UI embed dirs to .gitkeep only (matches CI clean checkout)
+## embed-clean: Reset UI embed dir to .gitkeep only (matches CI clean checkout)
 embed-clean:
-	@echo "Cleaning admin UI embed directory..."
-	@find $(ADMIN_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(ADMIN_UI_EMBED_DIR) -delete 2>/dev/null || true
-	@echo "Cleaning portal UI embed directory..."
-	@find $(PORTAL_UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(PORTAL_UI_EMBED_DIR) -delete 2>/dev/null || true
+	@echo "Cleaning UI embed directory..."
+	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
 
 ## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
 verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
@@ -288,73 +282,39 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
 
 # =============================================================================
-# Admin UI Frontend Targets
+# Frontend Targets (unified portal UI)
 # =============================================================================
 
-## frontend-install: Install admin UI dependencies
+## frontend-install: Install UI dependencies
 frontend-install:
-	@echo "Installing admin UI dependencies..."
-	cd $(ADMIN_UI_DIR) && npm ci
-	@echo "Admin UI dependencies installed."
+	@echo "Installing UI dependencies..."
+	cd $(UI_DIR) && npm ci
+	@echo "UI dependencies installed."
 
-## frontend-build: Build admin UI and copy to embed directory
+## frontend-build: Build UI and copy to embed directory
 frontend-build: frontend-install
-	@echo "Building admin UI..."
-	cd $(ADMIN_UI_DIR) && npm run build
+	@echo "Building UI..."
+	cd $(UI_DIR) && npm run build
 	@echo "Copying dist to embed directory..."
-	@rm -rf $(ADMIN_UI_EMBED_DIR)/*
-	@cp -r $(ADMIN_UI_DIR)/dist/* $(ADMIN_UI_EMBED_DIR)/
-	@rm -f $(ADMIN_UI_EMBED_DIR)/mockServiceWorker.js
-	@echo "Admin UI built and embedded."
+	@rm -rf $(UI_EMBED_DIR)/*
+	@cp -r $(UI_DIR)/dist/* $(UI_EMBED_DIR)/
+	@rm -f $(UI_EMBED_DIR)/mockServiceWorker.js
+	@echo "UI built and embedded."
 
-## frontend-dev: Run admin UI dev server (hot reload)
+## frontend-dev: Run UI dev server (hot reload)
 frontend-dev:
-	cd $(ADMIN_UI_DIR) && npm run dev
+	cd $(UI_DIR) && npm run dev
 
-## frontend-test: Run admin UI tests
+## frontend-mock: Run UI dev server with mock data (no backend needed)
+frontend-mock:
+	cd $(UI_DIR) && VITE_MSW=true npm run dev
+
+## frontend-test: Run UI tests
 frontend-test:
-	cd $(ADMIN_UI_DIR) && npm run test
+	cd $(UI_DIR) && npm run test
 
-## frontend-storybook: Run Storybook for component development
-frontend-storybook:
-	cd $(ADMIN_UI_DIR) && npm run storybook
-
-## build-with-ui: Build Go binary with embedded admin UI
+## build-with-ui: Build Go binary with embedded UI
 build-with-ui: frontend-build build
-
-# =============================================================================
-# Portal UI Frontend Targets
-# =============================================================================
-
-## portal-frontend-install: Install portal UI dependencies
-portal-frontend-install:
-	@echo "Installing portal UI dependencies..."
-	cd $(PORTAL_UI_DIR) && npm ci
-	@echo "Portal UI dependencies installed."
-
-## portal-frontend-build: Build portal UI and copy to embed directory
-portal-frontend-build: portal-frontend-install
-	@echo "Building portal UI..."
-	cd $(PORTAL_UI_DIR) && npm run build
-	@echo "Copying dist to embed directory..."
-	@rm -rf $(PORTAL_UI_EMBED_DIR)/*
-	@cp -r $(PORTAL_UI_DIR)/dist/* $(PORTAL_UI_EMBED_DIR)/
-	@echo "Portal UI built and embedded."
-
-## portal-frontend-dev: Run portal UI dev server (hot reload)
-portal-frontend-dev:
-	cd $(PORTAL_UI_DIR) && npm run dev
-
-## portal-frontend-mock: Run portal UI dev server with mock data (no backend needed)
-portal-frontend-mock:
-	cd $(PORTAL_UI_DIR) && VITE_MSW=true npm run dev
-
-## portal-frontend-test: Run portal UI tests
-portal-frontend-test:
-	cd $(PORTAL_UI_DIR) && npm run test
-
-## build-with-all-ui: Build Go binary with both admin and portal UIs
-build-with-all-ui: frontend-build portal-frontend-build build
 
 # =============================================================================
 # E2E Testing Targets
@@ -450,11 +410,11 @@ dev-up:
 	@echo "(Optional) Seed historical data:"
 	@echo "  psql -h localhost -U platform -d mcp_platform -f dev/seed.sql"
 	@echo ""
-	@echo "Start the admin UI:"
-	@echo "  cd admin-ui && npm run dev"
+	@echo "Start the portal UI:"
+	@echo "  cd ui && npm run dev"
 	@echo ""
 	@echo "Or use MSW mode (no backend needed):"
-	@echo "  cd admin-ui && VITE_MSW=true npm run dev"
+	@echo "  cd ui && VITE_MSW=true npm run dev"
 	@echo ""
 	@echo "API Key: acme-dev-key-2024"
 	@echo ""

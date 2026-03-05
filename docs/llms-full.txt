@@ -1611,8 +1611,8 @@ Insight list with filtering by status, category, and confidence. Detail drawer w
 
 ## Local Development
 
-Run with mock data (no backend): `cd admin-ui && VITE_MSW=true npm run dev`
-Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd admin-ui && npm run dev`
+Run with mock data (no backend): `cd ui && VITE_MSW=true npm run dev`
+Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd ui && npm run dev`
 
 ---
 
