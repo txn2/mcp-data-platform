@@ -31,9 +31,7 @@ export const mockTools: ToolInfo[] = [
   // acme-warehouse (trino) — production data warehouse
   { name: "trino_query", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
   { name: "trino_describe_table", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_list_catalogs", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_list_schemas", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_list_tables", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
+  { name: "trino_browse", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
   { name: "trino_explain", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
   // acme-staging (trino) — staging environment
   { name: "trino_query", toolkit: "acme-staging", kind: "trino", connection: "acme-staging" },
@@ -43,7 +41,7 @@ export const mockTools: ToolInfo[] = [
   { name: "datahub_get_entity", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
   { name: "datahub_get_schema", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
   { name: "datahub_get_lineage", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
-  { name: "datahub_get_column_lineage", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
+  { name: "datahub_browse", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
   // acme-catalog-staging (datahub) — staging catalog
   { name: "datahub_search", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging" },
   { name: "datahub_get_entity", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging" },
@@ -61,7 +59,7 @@ export const mockConnections: ConnectionInfo[] = [
     kind: "trino",
     name: "acme-warehouse",
     connection: "acme-warehouse",
-    tools: ["trino_query", "trino_describe_table", "trino_list_catalogs", "trino_list_schemas", "trino_list_tables", "trino_explain"],
+    tools: ["trino_query", "trino_describe_table", "trino_browse", "trino_explain"],
     hidden_tools: ["trino_explain"],
   },
   {
@@ -75,7 +73,7 @@ export const mockConnections: ConnectionInfo[] = [
     kind: "datahub",
     name: "acme-catalog",
     connection: "acme-catalog",
-    tools: ["datahub_search", "datahub_get_entity", "datahub_get_schema", "datahub_get_lineage", "datahub_get_column_lineage"],
+    tools: ["datahub_search", "datahub_get_entity", "datahub_get_schema", "datahub_get_lineage", "datahub_browse"],
     hidden_tools: [],
   },
   {

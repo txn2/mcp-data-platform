@@ -200,9 +200,10 @@ personas:
       roles: ["staging"]
       tools:
         allow:
-          - "trino_query"       # Can query
-          - "trino_list_*"      # Can explore schema
-          - "trino_describe_*"  # Can describe tables
+          - "trino_query"           # Can query
+          - "trino_browse"          # Can explore catalogs/schemas/tables
+          - "trino_describe_*"      # Can describe tables
+          - "trino_list_connections" # Can list connections
         deny:
           - "trino_explain"     # Cannot see execution plans
 ```

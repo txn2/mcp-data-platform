@@ -41,7 +41,7 @@ graph TD
 |---------|---------|
 | `*` | Everything |
 | `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, etc. |
-| `*_list_*` | s3_list_buckets, s3_list_objects, datahub_list_connections, etc. |
+| `*_list_*` | s3_list_buckets, s3_list_objects, trino_list_connections, etc. (does **not** match `trino_browse` or `datahub_browse`) |
 | `datahub_get_*` | datahub_get_entity, datahub_get_schema, etc. |
 | `s3_*` | All S3 tools |
 | `trino_query` | Exact match only |
@@ -65,8 +65,9 @@ tools:
   allow:
     - "trino_query"
     - "trino_explain"
-    - "trino_list_*"
+    - "trino_browse"
     - "trino_describe_*"
+    - "trino_list_connections"
     - "datahub_*"
     - "s3_list_*"
     - "s3_get_*"
@@ -83,8 +84,9 @@ tools:
 tools:
   allow:
     - "datahub_*"
-    - "trino_list_*"
+    - "trino_browse"
     - "trino_describe_*"
+    - "trino_list_connections"
   deny:
     - "trino_query"
     - "trino_execute"
@@ -188,8 +190,9 @@ data_steward:
   tools:
     allow:
       - "datahub_*"
-      - "trino_list_*"
+      - "trino_browse"
       - "trino_describe_*"
+      - "trino_list_connections"
     deny:
       - "trino_query"
       - "trino_execute"
@@ -217,8 +220,8 @@ viewer:
     allow:
       - "datahub_search"
       - "datahub_get_entity"
-      - "datahub_list_*"
-      - "trino_list_*"
+      - "datahub_browse"
+      - "trino_browse"
     deny:
       - "trino_query"
       - "trino_execute"
@@ -257,7 +260,8 @@ filter := persona.NewToolFilter(persona.ToolRules{
     Deny:  []string{"trino_query"},
 })
 
-filter.Allows("trino_browse")        // true
+filter.Allows("trino_browse")         // true
+filter.Allows("trino_describe_table") // true
 filter.Allows("trino_query")         // false
 filter.Allows("datahub_search")      // false
 ```

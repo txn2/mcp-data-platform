@@ -93,7 +93,7 @@ personas:
       allow:
         - "datahub_search"
         - "datahub_get_entity"
-        - "datahub_list_*"
+        - "datahub_browse"
       deny: []
     prompts:
       system_prefix: |

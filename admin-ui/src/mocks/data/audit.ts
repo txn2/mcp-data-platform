@@ -76,8 +76,7 @@ const toolDefs: ToolDef[] = [
   // acme-warehouse (trino) — 35% of traffic
   { name: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 22 },
   { name: "trino_describe_table", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 7 },
-  { name: "trino_list_tables", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 3 },
-  { name: "trino_list_schemas", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 2 },
+  { name: "trino_browse", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 5 },
   { name: "trino_explain", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 1 },
   // acme-staging (trino) — 5% of traffic
   { name: "trino_query", connection: "acme-staging", kind: "trino", toolkit: "acme-staging", weight: 4 },
@@ -87,7 +86,7 @@ const toolDefs: ToolDef[] = [
   { name: "datahub_get_entity", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 6 },
   { name: "datahub_get_schema", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 3 },
   { name: "datahub_get_lineage", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 2 },
-  { name: "datahub_get_column_lineage", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 1 },
+  { name: "datahub_browse", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 1 },
   // acme-catalog-staging (datahub) — 3% of traffic
   { name: "datahub_search", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 2 },
   { name: "datahub_get_entity", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 1 },
@@ -174,12 +173,8 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
         schema: seededItem(trinoSchemas),
         table: seededItem(trinoTables),
       };
-    case "trino_list_tables":
+    case "trino_browse":
       return { catalog: seededItem(trinoCatalogs), schema: seededItem(trinoSchemas) };
-    case "trino_list_schemas":
-      return { catalog: seededItem(trinoCatalogs) };
-    case "trino_list_catalogs":
-      return {};
     case "trino_explain":
       return {
         sql: `SELECT region, SUM(revenue) FROM ${seededItem(trinoSchemas)}.${seededItem(trinoTables)} GROUP BY region`,
@@ -196,8 +191,8 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
         direction: seededItem(["upstream", "downstream"]),
         depth: seededItem([1, 2, 3]),
       };
-    case "datahub_get_column_lineage":
-      return { urn: `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.${seededItem(trinoTables)},PROD)` };
+    case "datahub_browse":
+      return { type: seededItem(["tags", "domains", "data_products"]) };
     case "s3_list_objects":
       return { bucket: seededItem(s3Buckets), prefix: seededItem(s3Prefixes) };
     case "s3_get_object":
@@ -245,14 +240,12 @@ function toolDuration(tool: ToolDef): number {
     case "trino_query": return seededInt(45, 2800);
     case "trino_describe_table": return seededInt(20, 250);
     case "trino_explain": return seededInt(30, 400);
-    case "trino_list_tables": return seededInt(10, 80);
-    case "trino_list_schemas": return seededInt(8, 50);
-    case "trino_list_catalogs": return seededInt(5, 30);
+    case "trino_browse": return seededInt(5, 80);
     case "datahub_search": return seededInt(25, 180);
     case "datahub_get_entity": return seededInt(30, 200);
     case "datahub_get_schema": return seededInt(25, 150);
     case "datahub_get_lineage": return seededInt(40, 350);
-    case "datahub_get_column_lineage": return seededInt(50, 400);
+    case "datahub_browse": return seededInt(10, 100);
     case "s3_list_objects": return seededInt(15, 100);
     case "s3_get_object": return seededInt(20, 500);
     case "s3_list_buckets": return seededInt(8, 40);
@@ -361,7 +354,7 @@ export const mockToolBreakdown: BreakdownEntry[] = [
   { dimension: "s3_list_objects", count: 362, success_rate: 0.994, avg_duration_ms: 42.1 },
   { dimension: "s3_get_object", count: 338, success_rate: 0.953, avg_duration_ms: 156.8 },
   { dimension: "datahub_get_schema", count: 241, success_rate: 0.988, avg_duration_ms: 62.5 },
-  { dimension: "trino_list_tables", count: 193, success_rate: 1.0, avg_duration_ms: 28.3 },
+  { dimension: "trino_browse", count: 193, success_rate: 1.0, avg_duration_ms: 28.3 },
 ];
 
 export const mockUserBreakdown: BreakdownEntry[] = [

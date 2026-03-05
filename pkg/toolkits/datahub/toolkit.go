@@ -209,12 +209,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			dhtools.ToolGetEntity,
 			dhtools.ToolGetSchema,
 			dhtools.ToolGetLineage,
-			dhtools.ToolGetColumnLineage,
 			dhtools.ToolGetQueries,
+			dhtools.ToolBrowse,
 			dhtools.ToolGetGlossaryTerm,
-			dhtools.ToolListTags,
-			dhtools.ToolListDomains,
-			dhtools.ToolListDataProducts,
 			dhtools.ToolGetDataProduct,
 		)
 	}
@@ -227,12 +224,9 @@ func (*Toolkit) Tools() []string {
 		"datahub_get_entity",
 		"datahub_get_schema",
 		"datahub_get_lineage",
-		"datahub_get_column_lineage",
 		"datahub_get_queries",
+		"datahub_browse",
 		"datahub_get_glossary_term",
-		"datahub_list_tags",
-		"datahub_list_domains",
-		"datahub_list_data_products",
 		"datahub_get_data_product",
 	}
 }

@@ -80,53 +80,26 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
-  trino_list_catalogs: {
-    name: "trino_list_catalogs",
+  trino_browse: {
+    name: "trino_browse",
     kind: "trino",
     description:
-      "List all available catalogs in the Trino cluster. Catalogs are the top-level containers for schemas and tables.",
+      "Browse Trino catalogs, schemas, and tables. Omit all parameters to list catalogs; provide catalog to list schemas; provide catalog and schema to list tables.",
     parameters: {
       type: "object",
       required: [],
-      properties: {},
-    },
-  },
-  trino_list_schemas: {
-    name: "trino_list_schemas",
-    kind: "trino",
-    description:
-      "List all schemas in a catalog. Schemas are containers for tables within a catalog.",
-    parameters: {
-      type: "object",
-      required: ["catalog"],
       properties: {
         catalog: {
           type: "string",
-          description: "The catalog to list schemas from",
-        },
-      },
-    },
-  },
-  trino_list_tables: {
-    name: "trino_list_tables",
-    kind: "trino",
-    description:
-      "List all tables in a schema. Optionally filter by a LIKE pattern.",
-    parameters: {
-      type: "object",
-      required: ["catalog", "schema"],
-      properties: {
-        catalog: {
-          type: "string",
-          description: "The catalog containing the schema",
+          description: "Catalog name. Omit to list all catalogs.",
         },
         schema: {
           type: "string",
-          description: "The schema to list tables from",
+          description: "Schema name. Requires catalog. Omit to list schemas.",
         },
         pattern: {
           type: "string",
-          description: "Optional LIKE pattern to filter table names",
+          description: "LIKE pattern to filter tables (only when listing tables)",
         },
       },
     },
@@ -253,19 +226,23 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
-  datahub_get_column_lineage: {
-    name: "datahub_get_column_lineage",
+  datahub_browse: {
+    name: "datahub_browse",
     kind: "datahub",
     description:
-      "Get fine-grained column-level lineage for a dataset. Returns mappings showing how downstream columns are derived from upstream columns. Useful for understanding data transformations at the field level.",
+      "Browse the DataHub catalog: list tags, domains, and data products in a single tool. Specify the type parameter to choose what to browse.",
     parameters: {
       type: "object",
-      required: ["urn"],
+      required: ["type"],
       properties: {
-        urn: {
+        type: {
           type: "string",
-          description: "The DataHub URN of the dataset",
-          format: "urn",
+          description: "What to browse",
+          enum: ["tags", "domains", "data_products"],
+        },
+        filter: {
+          type: "string",
+          description: "Optional filter string (for tags)",
         },
       },
     },
@@ -347,33 +324,8 @@ export function generateMockResult(
       return trinoQueryResult(params, duration);
     case "trino_explain":
       return trinoExplainResult(params, duration);
-    case "trino_list_catalogs":
-      return textResult(
-        JSON.stringify(
-          ["acme_warehouse", "iceberg", "system", "hive", "memory"],
-          null,
-          2,
-        ),
-        duration,
-      );
-    case "trino_list_schemas":
-      return textResult(
-        JSON.stringify(
-          [
-            "sales",
-            "inventory",
-            "finance",
-            "analytics",
-            "staging",
-            "information_schema",
-          ],
-          null,
-          2,
-        ),
-        duration,
-      );
-    case "trino_list_tables":
-      return trinoListTablesResult(duration);
+    case "trino_browse":
+      return trinoBrowseResult(params, duration);
     case "trino_describe_table":
       return trinoDescribeResult(params, duration);
     case "datahub_search":
@@ -384,8 +336,8 @@ export function generateMockResult(
       return datahubSchemaResult(duration);
     case "datahub_get_lineage":
       return datahubLineageResult(params, duration);
-    case "datahub_get_column_lineage":
-      return datahubColumnLineageResult(duration);
+    case "datahub_browse":
+      return datahubBrowseResult(params, duration);
     case "s3_list_buckets":
       return s3ListBucketsResult(duration);
     case "s3_list_objects":
@@ -594,20 +546,47 @@ function trinoExplainResult(
   return textResult(text, duration, [trinoSemanticEnrichment("daily_sales")]);
 }
 
-function trinoListTablesResult(duration: number): ToolCallResponse {
-  const tables = [
-    { name: "daily_sales", type: "TABLE" },
-    { name: "store_transactions", type: "TABLE" },
-    { name: "inventory_levels", type: "TABLE" },
-    { name: "product_catalog", type: "TABLE" },
-    { name: "customer_segments", type: "TABLE" },
-    { name: "regional_performance", type: "VIEW" },
-    { name: "supply_chain_orders", type: "TABLE" },
-    { name: "price_adjustments", type: "TABLE" },
-    { name: "return_rates", type: "VIEW" },
-    { name: "employee_schedules", type: "TABLE" },
-  ];
-  return textResult(JSON.stringify(tables, null, 2), duration);
+function trinoBrowseResult(
+  params: Record<string, unknown>,
+  duration: number,
+): ToolCallResponse {
+  const catalog = params.catalog as string | undefined;
+  const schema = params.schema as string | undefined;
+
+  if (catalog && schema) {
+    // List tables
+    const tables = [
+      { name: "daily_sales", type: "TABLE" },
+      { name: "store_transactions", type: "TABLE" },
+      { name: "inventory_levels", type: "TABLE" },
+      { name: "product_catalog", type: "TABLE" },
+      { name: "customer_segments", type: "TABLE" },
+      { name: "regional_performance", type: "VIEW" },
+      { name: "supply_chain_orders", type: "TABLE" },
+      { name: "price_adjustments", type: "TABLE" },
+      { name: "return_rates", type: "VIEW" },
+      { name: "employee_schedules", type: "TABLE" },
+    ];
+    return textResult(JSON.stringify(tables, null, 2), duration);
+  }
+  if (catalog) {
+    // List schemas
+    return textResult(
+      JSON.stringify(
+        ["sales", "inventory", "finance", "analytics", "staging", "information_schema"],
+        null, 2,
+      ),
+      duration,
+    );
+  }
+  // List catalogs
+  return textResult(
+    JSON.stringify(
+      ["acme_warehouse", "iceberg", "system", "hive", "memory"],
+      null, 2,
+    ),
+    duration,
+  );
 }
 
 function trinoDescribeResult(
@@ -804,42 +783,34 @@ function datahubLineageResult(
   return textResult(JSON.stringify(lineage, null, 2), duration);
 }
 
-function datahubColumnLineageResult(duration: number): ToolCallResponse {
-  const lineage = {
-    mappings: [
-      {
-        downstream_column: "revenue",
-        upstream_columns: [
-          { dataset: "staging.raw_pos_events", column: "item_total", transform: "SUM(item_total)" },
-        ],
-      },
-      {
-        downstream_column: "units_sold",
-        upstream_columns: [
-          { dataset: "staging.raw_pos_events", column: "quantity", transform: "SUM(quantity)" },
-        ],
-      },
-      {
-        downstream_column: "store_id",
-        upstream_columns: [
-          { dataset: "staging.raw_pos_events", column: "store_id", transform: "PASSTHROUGH" },
-        ],
-      },
-      {
-        downstream_column: "region",
-        upstream_columns: [
-          { dataset: "staging.store_master", column: "region_name", transform: "LOOKUP(store_id)" },
-        ],
-      },
-      {
-        downstream_column: "avg_ticket",
-        upstream_columns: [
-          { dataset: "staging.raw_pos_events", column: "item_total", transform: "AVG(item_total) GROUP BY txn_id" },
-        ],
-      },
-    ],
-  };
-  return textResult(JSON.stringify(lineage, null, 2), duration);
+function datahubBrowseResult(
+  params: Record<string, unknown>,
+  duration: number,
+): ToolCallResponse {
+  const browseType = String(params.type ?? "tags");
+
+  switch (browseType) {
+    case "domains":
+      return textResult(JSON.stringify([
+        { name: "Retail Analytics", urn: "urn:li:domain:retail-analytics", description: "Sales, transactions, and customer data" },
+        { name: "Inventory Management", urn: "urn:li:domain:inventory", description: "Stock levels, supply chain, and warehousing" },
+        { name: "Finance", urn: "urn:li:domain:finance", description: "Revenue, margins, and financial reporting" },
+      ], null, 2), duration);
+    case "data_products":
+      return textResult(JSON.stringify([
+        { name: "Daily Sales Report", urn: "urn:li:dataProduct:daily-sales", datasets: 3, domain: "Retail Analytics" },
+        { name: "Inventory Dashboard", urn: "urn:li:dataProduct:inventory-dashboard", datasets: 4, domain: "Inventory Management" },
+      ], null, 2), duration);
+    default: // tags
+      return textResult(JSON.stringify([
+        { name: "certified", count: 12 },
+        { name: "pii", count: 5 },
+        { name: "pii-free", count: 18 },
+        { name: "tier-1", count: 8 },
+        { name: "raw", count: 14 },
+        { name: "real-time", count: 3 },
+      ], null, 2), duration);
+  }
 }
 
 function s3ListBucketsResult(duration: number): ToolCallResponse {

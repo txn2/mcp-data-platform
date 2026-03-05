@@ -11,13 +11,10 @@ var DefaultDiscoveryTools = []string{
 	"datahub_get_entity",
 	"datahub_get_schema",
 	"datahub_get_lineage",
-	"datahub_get_column_lineage",
 	"datahub_get_queries",
+	"datahub_browse",
 	"datahub_get_glossary_term",
 	"datahub_get_data_product",
-	"datahub_list_data_products",
-	"datahub_list_domains",
-	"datahub_list_tags",
 }
 
 // DefaultQueryTools lists the tool names that are gated by discovery.

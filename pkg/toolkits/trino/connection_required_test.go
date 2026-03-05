@@ -92,17 +92,17 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects list_catalogs without connection", func(t *testing.T) {
-		tc := trinotools.NewToolContext(trinotools.ToolListCatalogs, trinotools.ListCatalogsInput{})
+	t.Run("rejects browse without connection", func(t *testing.T) {
+		tc := trinotools.NewToolContext(trinotools.ToolBrowse, trinotools.BrowseInput{})
 
 		_, err := mw.Before(context.Background(), tc)
 		if err == nil {
-			t.Fatal("expected error for missing connection on list_catalogs")
+			t.Fatal("expected error for missing connection on browse")
 		}
 	})
 
-	t.Run("passes list_schemas with connection", func(t *testing.T) {
-		tc := trinotools.NewToolContext(trinotools.ToolListSchemas, trinotools.ListSchemasInput{
+	t.Run("passes browse with connection", func(t *testing.T) {
+		tc := trinotools.NewToolContext(trinotools.ToolBrowse, trinotools.BrowseInput{
 			Catalog:    "hive",
 			Connection: "elasticsearch",
 		})

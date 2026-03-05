@@ -343,18 +343,19 @@ Get dataset schema.
 
 ### datahub_get_lineage
 
-Get data lineage.
+Get upstream or downstream lineage for an entity. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Default (`dataset`) returns dataset-level relationships with direction and depth control.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `urn` | string | Yes | - | Entity URN |
-| `direction` | string | No | `downstream` | `upstream` or `downstream` |
-| `depth` | integer | No | 3 | Maximum traversal depth |
+| `level` | string | No | `dataset` | Granularity: `dataset` or `column` |
+| `direction` | string | No | `downstream` | `upstream` or `downstream` (dataset level only) |
+| `depth` | integer | No | 3 | Maximum traversal depth, max 5 (dataset level only) |
 | `connection` | string | No | first configured | DataHub connection name |
 
-**Response Schema:**
+**Response Schema (dataset level):**
 
 ```json
 {
@@ -373,6 +374,28 @@ Get data lineage.
       "source": "urn:li:dataset:orders",
       "target": "urn:li:dataset:daily_orders_agg",
       "type": "TRANSFORMED"
+    }
+  ]
+}
+```
+
+**Response Schema (column level):**
+
+```json
+{
+  "root": "urn:li:dataset:...",
+  "column_lineage": [
+    {
+      "downstream": {
+        "urn": "urn:li:dataset:daily_orders_agg",
+        "column": "total_revenue"
+      },
+      "upstreams": [
+        {
+          "urn": "urn:li:dataset:orders",
+          "column": "total_amount"
+        }
+      ]
     }
   ]
 }
