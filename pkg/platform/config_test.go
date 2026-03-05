@@ -335,7 +335,7 @@ func TestConfigValidate(t *testing.T) {
 		cfg := &Config{
 			Auth: AuthConfig{
 				BrowserSession: BrowserSessionConfig{
-					Enabled:   true,
+					Enabled:    true,
 					SigningKey: "dGVzdGtleQ==",
 				},
 			},
@@ -372,7 +372,7 @@ func TestConfigValidate(t *testing.T) {
 					Issuer:  "https://auth.example.com",
 				},
 				BrowserSession: BrowserSessionConfig{
-					Enabled:   true,
+					Enabled:    true,
 					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
 				},
 			},

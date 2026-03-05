@@ -91,6 +91,7 @@ func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 
 // SetCookie writes the session JWT as an HTTP-only cookie.
 func SetCookie(w http.ResponseWriter, cfg *CookieConfig, tokenString string) {
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cfg.effectiveName(),
 		Value:    tokenString,
@@ -105,6 +106,7 @@ func SetCookie(w http.ResponseWriter, cfg *CookieConfig, tokenString string) {
 
 // ClearCookie removes the session cookie.
 func ClearCookie(w http.ResponseWriter, cfg *CookieConfig) {
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cfg.effectiveName(),
 		Value:    "",

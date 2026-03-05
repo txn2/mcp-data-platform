@@ -784,6 +784,14 @@ func TestBuildAdminHandler(t *testing.T) {
 			Enabled: true,
 			Persona: "admin",
 		},
+		Auth: platform.AuthConfig{
+			APIKeys: platform.APIKeyAuthConfig{
+				Enabled: true,
+				Keys: []platform.APIKeyDef{
+					{Key: "test-admin-key", Name: "admin", Roles: []string{"admin"}},
+				},
+			},
+		},
 		Personas: platform.PersonasConfig{
 			Definitions: map[string]platform.PersonaDef{
 				"admin": {
@@ -816,4 +824,158 @@ func TestBuildAdminHandler(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for unauthenticated request, got %d", w.Code)
 	}
+}
+
+func TestBuildRootHandler_NilPlatform(t *testing.T) {
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	handler := buildRootHandler(mcpServer, nil, httpConfig{})
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+}
+
+func TestBuildRootHandler_WithSessionStore(t *testing.T) {
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{
+			Name: "test",
+			Streamable: platform.StreamableConfig{
+				Stateless:      true,
+				SessionTimeout: testSessionTimeout,
+			},
+		},
+		Sessions: platform.SessionsConfig{
+			TTL: testSessionTimeout,
+		},
+	})
+	defer func() { _ = p.Close() }()
+
+	hcfg := extractHTTPConfig(p)
+	handler := buildRootHandler(mcpServer, p, hcfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+
+	// The handler should be wrapped with session awareness
+	req := httptest.NewRequest("POST", "/", http.NoBody)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Session-aware handler adds Mcp-Session-Id header
+	if sessionID := w.Header().Get("Mcp-Session-Id"); sessionID == "" {
+		t.Error("expected Mcp-Session-Id header from session-aware wrapper")
+	}
+}
+
+func TestMountRootHandler_AuthRequired(t *testing.T) {
+	mux := http.NewServeMux()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mountRootHandler(mux, inner, httpConfig{requireAuth: true}, "")
+
+	req := httptest.NewRequest("POST", "/", http.NoBody)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	// Auth gateway should reject unauthenticated requests
+	if w.Code == http.StatusOK {
+		t.Error("expected auth gateway to reject request")
+	}
+}
+
+func TestMountRootHandler_NoAuth(t *testing.T) {
+	mux := http.NewServeMux()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mountRootHandler(mux, inner, httpConfig{requireAuth: false}, "")
+
+	req := httptest.NewRequest("POST", "/", http.NoBody)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestBrowserRedirectMiddleware(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := browserRedirectMiddleware(inner)
+
+	t.Run("redirects browsers", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusTemporaryRedirect {
+			t.Errorf("expected 307, got %d", w.Code)
+		}
+		if loc := w.Header().Get("Location"); loc != "/portal/" {
+			t.Errorf("Location = %q, want /portal/", loc)
+		}
+	})
+
+	t.Run("passes through non-browser", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("passes through GET without html accept", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.Header.Set("Accept", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+}
+
+func TestMountBrowserAuth_NilPlatform(_ *testing.T) {
+	mux := http.NewServeMux()
+	mountBrowserAuth(mux, nil) // should not panic
+}
+
+func TestMountBrowserAuth_NilFlow(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+	})
+	defer func() { _ = p.Close() }()
+
+	mux := http.NewServeMux()
+	mountBrowserAuth(mux, p) // should not register routes (no browser session)
+}
+
+func TestMountPortalUI_Disabled(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Portal: platform.PortalConfig{UI: false},
+	})
+	defer func() { _ = p.Close() }()
+
+	mux := http.NewServeMux()
+	mountPortalUI(mux, p, true) // UI disabled in config
+}
+
+func TestMountPortalUI_NoAssets(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Portal: platform.PortalConfig{UI: true},
+	})
+	defer func() { _ = p.Close() }()
+
+	mux := http.NewServeMux()
+	mountPortalUI(mux, p, false) // no assets available
 }

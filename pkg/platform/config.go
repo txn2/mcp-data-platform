@@ -191,7 +191,7 @@ type OIDCAuthConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	Issuer        string   `yaml:"issuer"`
 	ClientID      string   `yaml:"client_id"`
-	ClientSecret  string   `yaml:"client_secret"` // for auth code exchange (browser flow)
+	ClientSecret  string   `yaml:"client_secret"` // #nosec G117 -- OIDC secret from admin config
 	Audience      string   `yaml:"audience"`
 	RoleClaimPath string   `yaml:"role_claim_path"`
 	RolePrefix    string   `yaml:"role_prefix"`
@@ -202,9 +202,9 @@ type OIDCAuthConfig struct {
 type BrowserSessionConfig struct {
 	Enabled    bool          `yaml:"enabled"`
 	CookieName string        `yaml:"cookie_name"` // default: "mcp_session"
-	TTL        time.Duration `yaml:"ttl"`          // default: 8h
-	SigningKey  string        `yaml:"signing_key"`  // base64-encoded HMAC key
-	Secure     bool          `yaml:"secure"`        // default: true
+	TTL        time.Duration `yaml:"ttl"`         // default: 8h
+	SigningKey string        `yaml:"signing_key"` // base64-encoded HMAC key
+	Secure     bool          `yaml:"secure"`      // default: true
 	Domain     string        `yaml:"domain"`
 }
 

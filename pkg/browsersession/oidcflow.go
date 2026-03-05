@@ -18,12 +18,14 @@ import (
 
 // OIDC/PKCE constants.
 const (
-	stateBytes         = 32
-	verifierBytes      = 32
-	stateCookieName    = "mcp_auth_state"
-	stateCookieMaxAge  = 300 // 5 minutes
-	codeChallengeS256  = "S256"
+	randomStringBytes   = 32 // size for random state/verifier strings
+	jwtPartCount        = 3  // JWTs have exactly 3 dot-separated parts
+	stateCookieName     = "mcp_auth_state"
+	stateCookieMaxAge   = 300 // 5 minutes
+	codeChallengeS256   = "S256"
 	oidcDiscoverySuffix = "/.well-known/openid-configuration"
+	logKeyError         = "error"
+	logKeyState         = "state"
 )
 
 // FlowConfig configures the OIDC authorization code flow.
@@ -35,7 +37,7 @@ type FlowConfig struct {
 	ClientID string
 
 	// ClientSecret is the OIDC client secret for confidential clients.
-	ClientSecret string
+	ClientSecret string // #nosec G117 -- OIDC client secret from admin config
 
 	// RedirectURI is the callback URL (e.g., "https://example.com/portal/auth/callback").
 	RedirectURI string
@@ -100,7 +102,7 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 
 	endpoints, err := f.discover(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("OIDC discovery: %w", err)
+		return nil, fmt.Errorf("oidc discovery: %w", err)
 	}
 	f.endpoints = endpoints
 
@@ -111,13 +113,13 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 // It generates state + PKCE verifier, stores them in a temporary cookie,
 // and redirects the user to the OIDC provider's authorization endpoint.
 func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	state, err := randomString(stateBytes)
+	state, err := randomString()
 	if err != nil {
 		http.Error(w, "failed to generate state", http.StatusInternalServerError)
 		return
 	}
 
-	verifier, err := randomString(verifierBytes)
+	verifier, err := randomString()
 	if err != nil {
 		http.Error(w, "failed to generate PKCE verifier", http.StatusInternalServerError)
 		return
@@ -125,8 +127,8 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Store state + verifier in encrypted cookie
 	stateData := url.Values{
-		"state":    {state},
-		"verifier": {verifier},
+		logKeyState: {state},
+		"verifier":  {verifier},
 	}
 	stateToken, err := signStateData(stateData.Encode(), &f.cfg.Cookie)
 	if err != nil {
@@ -134,6 +136,7 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    stateToken,
@@ -151,7 +154,7 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		"client_id":             {f.cfg.ClientID},
 		"redirect_uri":          {f.cfg.RedirectURI},
 		"scope":                 {strings.Join(f.cfg.Scopes, " ")},
-		"state":                 {state},
+		logKeyState:             {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {codeChallengeS256},
 	}
@@ -165,42 +168,66 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 // creates a session cookie, and redirects to the portal.
 func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Check for errors from the OIDC provider
-	if errParam := r.URL.Query().Get("error"); errParam != "" {
+	if errParam := r.URL.Query().Get(logKeyError); errParam != "" {
 		desc := r.URL.Query().Get("error_description")
-		slog.Warn("OIDC callback error", "error", errParam, "description", desc)
-		http.Error(w, "authentication failed: "+errParam, http.StatusForbidden)
+		safeErr := sanitizeLogValue(errParam)
+		safeDesc := sanitizeLogValue(desc)
+		slog.Warn("OIDC callback error", // #nosec G706 -- values are sanitized above
+			logKeyError, safeErr,
+			"description", safeDesc)
+		http.Error(w, "authentication failed", http.StatusForbidden)
 		return
 	}
 
 	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
+	state := r.URL.Query().Get(logKeyState)
 	if code == "" || state == "" {
 		http.Error(w, "missing code or state", http.StatusBadRequest)
 		return
 	}
 
-	// Retrieve and validate state cookie
+	// Validate state and extract PKCE verifier.
+	verifier, err := f.validateCallbackState(r, state)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Clear state cookie
+	f.clearStateCookie(w)
+
+	// Exchange code for tokens, parse identity, create session.
+	if err := f.completeLogin(r.Context(), w, code, verifier); err != nil {
+		return // completeLogin already wrote the HTTP error
+	}
+
+	http.Redirect(w, r, f.cfg.PostLoginRedirect, http.StatusFound)
+}
+
+// validateCallbackState verifies the state cookie matches the callback state
+// parameter and returns the PKCE code verifier.
+func (f *Flow) validateCallbackState(r *http.Request, state string) (string, error) {
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil {
-		http.Error(w, "missing state cookie", http.StatusBadRequest)
-		return
+		return "", fmt.Errorf("missing state cookie")
 	}
 
 	stateData, err := verifyStateData(stateCookie.Value, f.cfg.Cookie.Key)
 	if err != nil {
-		http.Error(w, "invalid state cookie", http.StatusBadRequest)
-		return
+		return "", fmt.Errorf("invalid state cookie")
 	}
 
 	parsed, err := url.ParseQuery(stateData)
-	if err != nil || parsed.Get("state") != state {
-		http.Error(w, "state mismatch", http.StatusBadRequest)
-		return
+	if err != nil || parsed.Get(logKeyState) != state {
+		return "", fmt.Errorf("state mismatch")
 	}
 
-	verifier := parsed.Get("verifier")
+	return parsed.Get("verifier"), nil
+}
 
-	// Clear state cookie
+// clearStateCookie removes the temporary OIDC state cookie.
+func (f *Flow) clearStateCookie(w http.ResponseWriter) {
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    "",
@@ -210,34 +237,35 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Secure:   f.cfg.Cookie.Secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
 
-	// Exchange code for tokens
-	tokenResp, err := f.exchangeCode(r.Context(), code, verifier)
+// completeLogin exchanges the authorization code for tokens, parses the
+// id_token, and sets the session cookie. It writes HTTP errors directly
+// on failure and returns a non-nil error to signal the caller to stop.
+func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, verifier string) error {
+	tokenResp, err := f.exchangeCode(ctx, code, verifier)
 	if err != nil {
-		slog.Error("OIDC token exchange failed", "error", err)
+		slog.Error("OIDC token exchange failed", logKeyError, err)
 		http.Error(w, "token exchange failed", http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	// Parse id_token to extract claims
 	claims, err := f.parseIDToken(tokenResp.IDToken)
 	if err != nil {
-		slog.Error("failed to parse id_token", "error", err)
+		slog.Error("failed to parse id_token", logKeyError, err)
 		http.Error(w, "failed to parse identity", http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	// Create session cookie
 	sessionToken, err := SignSession(*claims, &f.cfg.Cookie)
 	if err != nil {
-		slog.Error("failed to create session", "error", err)
+		slog.Error("failed to create session", logKeyError, err)
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	SetCookie(w, &f.cfg.Cookie, sessionToken)
-
-	http.Redirect(w, r, f.cfg.PostLoginRedirect, http.StatusFound)
+	return nil
 }
 
 // LogoutHandler clears the session cookie and redirects to the OIDC end_session endpoint.
@@ -258,11 +286,11 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 // tokenResponse holds the token endpoint response.
 type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	IDToken      string `json:"id_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`  // #nosec G117 -- token from OIDC provider
+	IDToken      string `json:"id_token"`      //nolint:tagliatelle // OIDC standard field name
+	TokenType    string `json:"token_type"`    //nolint:tagliatelle // OIDC standard field name
+	ExpiresIn    int    `json:"expires_in"`    //nolint:tagliatelle // OIDC standard field name
+	RefreshToken string `json:"refresh_token"` // #nosec G117 -- token from OIDC provider
 }
 
 // exchangeCode exchanges an authorization code for tokens.
@@ -287,7 +315,7 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := f.httpClient()
-	resp, err := client.Do(req) // #nosec G107 -- URL from admin-controlled OIDC issuer config
+	resp, err := client.Do(req) // #nosec G107 G704 -- URL from admin-controlled OIDC issuer config
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
@@ -315,7 +343,7 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 // not needed for this use case per OpenID Connect Core §3.1.3.7.
 func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 	parts := strings.Split(idToken, ".")
-	if len(parts) != 3 { //nolint:mnd // JWT has exactly 3 parts
+	if len(parts) != jwtPartCount {
 		return nil, fmt.Errorf("invalid JWT format")
 	}
 
@@ -395,7 +423,7 @@ func (f *Flow) discover(ctx context.Context) (oidcEndpoints, error) {
 	}
 
 	client := f.httpClient()
-	resp, err := client.Do(req) // #nosec G107 -- URL from admin-controlled OIDC issuer config
+	resp, err := client.Do(req) // #nosec G107 G704 -- URL from admin-controlled OIDC issuer config
 	if err != nil {
 		return oidcEndpoints{}, fmt.Errorf("fetching discovery: %w", err)
 	}
@@ -436,7 +464,11 @@ func signStateData(data string, cfg *CookieConfig) (string, error) {
 		"iat":  now.Unix(),
 	})
 
-	return token.SignedString(cfg.Key)
+	signed, err := token.SignedString(cfg.Key)
+	if err != nil {
+		return "", fmt.Errorf("signing state data: %w", err)
+	}
+	return signed, nil
 }
 
 // verifyStateData validates the signed state JWT and returns the data payload.
@@ -473,10 +505,20 @@ func pkceChallenge(verifier string) string {
 }
 
 // randomString generates a URL-safe random string.
-func randomString(nBytes int) (string, error) {
-	b := make([]byte, nBytes)
+func randomString() (string, error) {
+	b := make([]byte, randomStringBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("reading random bytes: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// sanitizeLogValue strips control characters from a string to prevent log injection.
+func sanitizeLogValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, s)
 }

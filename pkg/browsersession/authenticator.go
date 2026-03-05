@@ -22,8 +22,8 @@ func NewAuthenticator(cfg CookieConfig) *Authenticator {
 // AuthenticateHTTP checks the HTTP request for a valid session cookie.
 // Returns nil, nil when no valid cookie is found (no error, just unauthenticated).
 func (a *Authenticator) AuthenticateHTTP(r *http.Request) (*middleware.UserInfo, error) {
-	claims, err := ParseFromRequest(r, &a.cfg)
-	if err != nil {
+	claims, _ := ParseFromRequest(r, &a.cfg)
+	if claims == nil {
 		return nil, nil //nolint:nilnil // no valid cookie → unauthenticated, not an error
 	}
 

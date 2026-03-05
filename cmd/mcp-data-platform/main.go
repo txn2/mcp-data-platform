@@ -20,8 +20,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
-	"github.com/txn2/mcp-data-platform/internal/ui"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
@@ -305,7 +305,16 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	mux.Handle("/message", wrappedSSE)
 	log.Println("SSE transport enabled on /sse, /message")
 
-	// Mount Streamable HTTP handler at root (modern clients).
+	// Build and mount the root handler (MCP streamable HTTP + session + browser redirect).
+	rootHandler := buildRootHandler(mcpServer, p, hcfg)
+	mountRootHandler(mux, rootHandler, hcfg, rmURL)
+
+	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg, hc)
+}
+
+// buildRootHandler constructs the MCP streamable HTTP handler with optional
+// session-aware wrapping and browser redirect middleware.
+func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConfig) http.Handler {
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
@@ -316,22 +325,28 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Wrap with AwareHandler when using external session store
 	// (database mode forces Stateless: true on the SDK, and sessions
 	// are managed by our handler against the external store).
-	var rootHandler http.Handler = streamableHandler
+	var handler http.Handler = streamableHandler
 	if p != nil && p.SessionStore() != nil && hcfg.streamableCfg.Stateless {
-		rootHandler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
+		handler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
 			Store: p.SessionStore(),
 			TTL:   p.Config().Sessions.TTL,
 		})
 		log.Println("Session-aware handler enabled (external session store)")
 	}
 
-	// Wrap root handler with browser redirect when portal UI is enabled.
+	// Wrap with browser redirect when portal UI is enabled.
 	// Browser requests (Accept: text/html) to / redirect to /portal/;
 	// MCP clients (Accept: application/json or no Accept) pass through.
 	if p != nil && p.Config().Portal.UI && ui.Available() {
-		rootHandler = browserRedirectMiddleware(rootHandler)
+		handler = browserRedirectMiddleware(handler)
 	}
 
+	return handler
+}
+
+// mountRootHandler registers the root handler on the mux, optionally wrapping
+// it with the MCP auth gateway when authentication is required.
+func mountRootHandler(mux *http.ServeMux, rootHandler http.Handler, hcfg httpConfig, rmURL string) {
 	if hcfg.requireAuth {
 		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(rootHandler))
 		log.Println("Streamable HTTP transport enabled on / (auth required)")
@@ -339,8 +354,6 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		mux.Handle("/", rootHandler)
 		log.Println("Streamable HTTP transport enabled on / (anonymous)")
 	}
-
-	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg, hc)
 }
 
 func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg httpConfig, hc *health.Checker) error {

@@ -57,14 +57,14 @@ func mockOIDCProvider(t *testing.T, idTokenClaims map[string]any) *httptest.Serv
 
 func testFlowConfig(serverURL string) FlowConfig {
 	return FlowConfig{
-		Issuer:       serverURL,
-		ClientID:     "test-client",
-		ClientSecret: "test-secret",
-		RedirectURI:  serverURL + "/portal/auth/callback",
-		Scopes:       []string{"openid", "profile", "email"},
-		RoleClaim:    "realm_access.roles",
-		RolePrefix:   "dp_",
-		Cookie:       CookieConfig{Key: testKey(), TTL: time.Hour},
+		Issuer:            serverURL,
+		ClientID:          "test-client",
+		ClientSecret:      "test-secret",
+		RedirectURI:       serverURL + "/portal/auth/callback",
+		Scopes:            []string{"openid", "profile", "email"},
+		RoleClaim:         "realm_access.roles",
+		RolePrefix:        "dp_",
+		Cookie:            CookieConfig{Key: testKey(), TTL: time.Hour},
 		PostLoginRedirect: "/portal/",
 	}
 }
@@ -275,7 +275,7 @@ func TestCallbackHandlerErrorParam(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet,
-		"/portal/auth/callback?error=access_denied&error_description=user+cancelled", http.NoBody)
+		"/portal/auth/callback?error=access_denied&error_description=user+canceled", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.CallbackHandler(w, req)
@@ -362,6 +362,76 @@ func TestCallbackHandlerStateMismatch(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCallbackHandlerBadIDToken(t *testing.T) {
+	// Create a mock OIDC provider that returns a malformed id_token.
+	mux := http.NewServeMux()
+	var serverURL string
+
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"authorization_endpoint": serverURL + "/auth",
+			"token_endpoint":         serverURL + "/token",
+			"end_session_endpoint":   serverURL + "/logout",
+			"userinfo_endpoint":      serverURL + "/userinfo",
+		})
+	})
+
+	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Return an id_token that is NOT a valid 3-part JWT.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "access-token",
+			"id_token":     "not-a-jwt",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	serverURL = srv.URL
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	// Login to get a valid state cookie + extract state param.
+	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginW := httptest.NewRecorder()
+	flow.LoginHandler(loginW, loginReq)
+
+	var stateCookie *http.Cookie
+	for _, c := range loginW.Result().Cookies() {
+		if c.Name == stateCookieName {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no state cookie from login")
+	}
+
+	// Extract state from redirect URL.
+	loc := loginW.Header().Get("Location")
+	u, _ := url.Parse(loc)
+	state := u.Query().Get("state")
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/portal/auth/callback?code=test-code&state="+state, http.NoBody)
+	req.AddCookie(stateCookie)
+	w := httptest.NewRecorder()
+
+	flow.CallbackHandler(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -502,6 +572,72 @@ func TestExtractRolesBadPath(t *testing.T) {
 	}
 }
 
+func TestExtractRolesNonStringValues(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{RoleClaim: "roles"}}
+	roles := f.extractRoles(map[string]any{
+		"roles": []any{"admin", 42, "user", true},
+	})
+	if len(roles) != 2 || roles[0] != "admin" || roles[1] != "user" {
+		t.Errorf("roles = %v, want [admin user]", roles)
+	}
+}
+
+func TestExtractRolesNotAnArray(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{RoleClaim: "roles"}}
+	roles := f.extractRoles(map[string]any{
+		"roles": "not-an-array",
+	})
+	if roles != nil {
+		t.Errorf("roles = %v, want nil", roles)
+	}
+}
+
+func TestExtractRolesEmpty(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{}}
+	roles := f.extractRoles(map[string]any{})
+	if roles != nil {
+		t.Errorf("roles = %v, want nil", roles)
+	}
+}
+
+func TestHTTPClientDefault(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{}}
+	client := f.httpClient()
+	if client != http.DefaultClient {
+		t.Error("expected default client")
+	}
+}
+
+func TestHTTPClientCustom(t *testing.T) {
+	custom := &http.Client{Timeout: time.Second}
+	f := &Flow{cfg: FlowConfig{HTTPClient: custom}}
+	client := f.httpClient()
+	if client != custom {
+		t.Error("expected custom client")
+	}
+}
+
+func TestSanitizeLogValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"clean", "hello world", "hello world"},
+		{"newlines", "line1\nline2\r\n", "line1 line2  "},
+		{"tabs", "col1\tcol2", "col1 col2"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeLogValue(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeLogValue(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPKCEChallenge(t *testing.T) {
 	// Verify S256 challenge is deterministic for same verifier
 	verifier := "test-verifier-value"
@@ -516,18 +652,18 @@ func TestPKCEChallenge(t *testing.T) {
 }
 
 func TestRandomString(t *testing.T) {
-	s1, err := randomString(32)
+	s1, err := randomString()
 	if err != nil {
 		t.Fatalf("randomString: %v", err)
 	}
-	s2, err := randomString(32)
+	s2, err := randomString()
 	if err != nil {
 		t.Fatalf("randomString: %v", err)
 	}
 	if s1 == s2 {
 		t.Error("two random strings should differ")
 	}
-	if len(s1) == 0 {
+	if s1 == "" {
 		t.Error("expected non-empty string")
 	}
 }

@@ -97,7 +97,7 @@ type meResponse struct {
 	IsAdmin bool     `json:"is_admin"`
 }
 
-func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
+func (*Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
