@@ -4,9 +4,25 @@ import { LogIn, Key, ChevronDown, ChevronUp } from "lucide-react";
 
 const DEFAULT_PLATFORM_NAME = "MCP Data Platform";
 
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  access_denied: "Access was denied by the identity provider.",
+  invalid_request: "The authentication request was invalid.",
+  invalid_state: "The authentication session expired. Please try again.",
+  auth_failed: "Authentication failed. Please try again.",
+};
+
+function getAuthError(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("error");
+  if (!code) return null;
+  // Clear the error from the URL without reloading.
+  window.history.replaceState({}, "", window.location.pathname);
+  return AUTH_ERROR_MESSAGES[code] || "Authentication failed. Please try again.";
+}
+
 export function LoginForm() {
   const [key, setKey] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => getAuthError() || "");
   const [loading, setLoading] = useState(false);
   const [platformName, setPlatformName] = useState(DEFAULT_PLATFORM_NAME);
   const [oidcEnabled, setOidcEnabled] = useState(false);

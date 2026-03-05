@@ -164,6 +164,47 @@ oauth:
 | `oauth.dcr.enabled` | bool | `false` | Enable Dynamic Client Registration (**not recommended**) |
 | `oauth.dcr.allowed_redirect_patterns` | array | `[]` | Allowed redirect URI patterns |
 
+### Browser Sessions
+
+Enables cookie-based browser authentication for the portal UI using OIDC authorization code flow with PKCE. Requires `auth.oidc` to be enabled.
+
+```yaml
+auth:
+  browser_session:
+    enabled: true
+    cookie_name: "mcp_session"      # Cookie name (default: mcp_session)
+    signing_key: "${SESSION_KEY}"    # base64-encoded 32+ byte HMAC key
+    ttl: 8h                         # Session lifetime (default: 8h)
+    secure: true                    # HTTPS-only cookies (default: true)
+    domain: ""                      # Cookie domain (empty = current host)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `auth.browser_session.enabled` | bool | `false` | Enable browser session authentication |
+| `auth.browser_session.cookie_name` | string | `mcp_session` | Session cookie name |
+| `auth.browser_session.signing_key` | string | - | Base64-encoded HMAC-SHA256 key (32+ bytes). Generate: `openssl rand -base64 32` |
+| `auth.browser_session.ttl` | duration | `8h` | Session cookie lifetime |
+| `auth.browser_session.secure` | bool | `true` | Set `Secure` flag on cookies (disable only for local dev) |
+| `auth.browser_session.domain` | string | - | Cookie domain restriction (empty = current host only) |
+
+When enabled, the platform registers three HTTP endpoints:
+
+- `GET /portal/auth/login` — Initiates OIDC authorization code flow with PKCE
+- `GET /portal/auth/callback` — Processes the OIDC callback, creates session cookie
+- `GET /portal/auth/logout` — Clears session cookie and redirects to OIDC end_session
+
+The OIDC `client_secret` and `scopes` fields from the `auth.oidc` config are used for the browser session flow.
+
+!!! note "Session Limitations"
+    Sessions are stateless JWT cookies signed with HMAC-SHA256. This means:
+
+    - **No individual session revocation** — disabled users remain authenticated until cookie expires
+    - **No key rotation support** — rotating `signing_key` invalidates all active sessions immediately
+    - **No session refresh** — users must re-authenticate after TTL expires (default: 8h)
+
+    For deployments requiring immediate revocation, consider shorter TTL values.
+
 ## Database Configuration
 
 ```yaml

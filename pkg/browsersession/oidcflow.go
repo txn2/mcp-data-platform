@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ const (
 	oidcDiscoverySuffix = "/.well-known/openid-configuration"
 	logKeyError         = "error"
 	logKeyState         = "state"
+	maxResponseBytes    = 1 << 20 // 1 MB limit for OIDC HTTP responses
 )
 
 // FlowConfig configures the OIDC authorization code flow.
@@ -175,21 +177,21 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("OIDC callback error", // #nosec G706 -- values are sanitized above
 			logKeyError, safeErr,
 			"description", safeDesc)
-		http.Error(w, "authentication failed", http.StatusForbidden)
+		f.redirectWithError(w, r, "access_denied")
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get(logKeyState)
 	if code == "" || state == "" {
-		http.Error(w, "missing code or state", http.StatusBadRequest)
+		f.redirectWithError(w, r, "invalid_request")
 		return
 	}
 
 	// Validate state and extract PKCE verifier.
 	verifier, err := f.validateCallbackState(r, state)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		f.redirectWithError(w, r, "invalid_state")
 		return
 	}
 
@@ -198,10 +200,18 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Exchange code for tokens, parse identity, create session.
 	if err := f.completeLogin(r.Context(), w, code, verifier); err != nil {
-		return // completeLogin already wrote the HTTP error
+		f.redirectWithError(w, r, "auth_failed")
+		return
 	}
 
 	http.Redirect(w, r, f.cfg.PostLoginRedirect, http.StatusFound)
+}
+
+// redirectWithError redirects the user to the portal with an error query parameter
+// so the SPA can display a friendly error message.
+func (f *Flow) redirectWithError(w http.ResponseWriter, r *http.Request, errCode string) {
+	dest := f.cfg.PostLoginRedirect + "?error=" + url.QueryEscape(errCode)
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 // validateCallbackState verifies the state cookie matches the callback state
@@ -246,21 +256,21 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	tokenResp, err := f.exchangeCode(ctx, code, verifier)
 	if err != nil {
 		slog.Error("OIDC token exchange failed", logKeyError, err)
-		http.Error(w, "token exchange failed", http.StatusInternalServerError)
 		return err
 	}
 
 	claims, err := f.parseIDToken(tokenResp.IDToken)
 	if err != nil {
 		slog.Error("failed to parse id_token", logKeyError, err)
-		http.Error(w, "failed to parse identity", http.StatusInternalServerError)
 		return err
 	}
+
+	// Store raw id_token for logout id_token_hint.
+	claims.IDToken = tokenResp.IDToken
 
 	sessionToken, err := SignSession(*claims, &f.cfg.Cookie)
 	if err != nil {
 		slog.Error("failed to create session", logKeyError, err)
-		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return err
 	}
 
@@ -270,12 +280,21 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 
 // LogoutHandler clears the session cookie and redirects to the OIDC end_session endpoint.
 func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract id_token_hint from session cookie before clearing it.
+	var idTokenHint string
+	if claims, _ := ParseFromRequest(r, &f.cfg.Cookie); claims != nil {
+		idTokenHint = claims.IDToken
+	}
+
 	ClearCookie(w, &f.cfg.Cookie)
 
 	if f.endpoints.EndSessionEndpoint != "" {
 		params := url.Values{
 			"client_id":                {f.cfg.ClientID},
 			"post_logout_redirect_uri": {f.cfg.PostLoginRedirect},
+		}
+		if idTokenHint != "" {
+			params.Set("id_token_hint", idTokenHint)
 		}
 		http.Redirect(w, r, f.endpoints.EndSessionEndpoint+"?"+params.Encode(), http.StatusFound)
 		return
@@ -326,7 +345,8 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 	}
 
 	var tokenResp tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+	limited := io.LimitReader(resp.Body, maxResponseBytes)
+	if err := json.NewDecoder(limited).Decode(&tokenResp); err != nil {
 		return nil, fmt.Errorf("parsing token response: %w", err)
 	}
 
@@ -337,10 +357,11 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 	return &tokenResp, nil
 }
 
-// parseIDToken extracts session claims from the id_token JWT.
+// parseIDToken extracts and validates session claims from the id_token JWT.
 // NOTE: We trust the id_token because it came directly from the token endpoint
 // over TLS (server-side confidential client flow). Signature verification is
 // not needed for this use case per OpenID Connect Core §3.1.3.7.
+// However, iss, aud, and exp claims are still validated per the spec.
 func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != jwtPartCount {
@@ -357,6 +378,21 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 		return nil, fmt.Errorf("parsing claims: %w", err)
 	}
 
+	// Validate issuer (OIDC Core §3.1.3.7 #2).
+	if err := f.validateIssuer(claims); err != nil {
+		return nil, err
+	}
+
+	// Validate audience (OIDC Core §3.1.3.7 #3).
+	if err := f.validateAudience(claims); err != nil {
+		return nil, err
+	}
+
+	// Validate expiration (OIDC Core §3.1.3.7 #9).
+	if err := validateExpiration(claims); err != nil {
+		return nil, err
+	}
+
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
 		return nil, fmt.Errorf("missing sub claim in id_token")
@@ -371,6 +407,55 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 		Email:  email,
 		Roles:  roles,
 	}, nil
+}
+
+// validateIssuer checks that the id_token iss claim matches the configured issuer.
+func (f *Flow) validateIssuer(claims map[string]any) error {
+	iss, _ := claims["iss"].(string)
+	if iss == "" {
+		return fmt.Errorf("missing iss claim in id_token")
+	}
+	if iss != f.cfg.Issuer {
+		return fmt.Errorf("id_token issuer %q does not match configured issuer %q", iss, f.cfg.Issuer)
+	}
+	return nil
+}
+
+// validateAudience checks that the id_token aud claim contains the configured client_id.
+// Per OIDC Core, aud can be a string or an array of strings.
+func (f *Flow) validateAudience(claims map[string]any) error {
+	switch aud := claims["aud"].(type) {
+	case string:
+		if aud != f.cfg.ClientID {
+			return fmt.Errorf("id_token audience %q does not match client_id %q", aud, f.cfg.ClientID)
+		}
+	case []any:
+		found := false
+		for _, a := range aud {
+			if s, ok := a.(string); ok && s == f.cfg.ClientID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("id_token audience does not contain client_id %q", f.cfg.ClientID)
+		}
+	default:
+		return fmt.Errorf("missing or invalid aud claim in id_token")
+	}
+	return nil
+}
+
+// validateExpiration checks that the id_token has not expired.
+func validateExpiration(claims map[string]any) error {
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return fmt.Errorf("missing exp claim in id_token")
+	}
+	if time.Now().Unix() > int64(exp) {
+		return fmt.Errorf("id_token has expired")
+	}
+	return nil
 }
 
 // extractRoles extracts roles from claims using the configured claim path and prefix.
@@ -434,7 +519,8 @@ func (f *Flow) discover(ctx context.Context) (oidcEndpoints, error) {
 	}
 
 	var ep oidcEndpoints
-	if err := json.NewDecoder(resp.Body).Decode(&ep); err != nil {
+	limited := io.LimitReader(resp.Body, maxResponseBytes)
+	if err := json.NewDecoder(limited).Decode(&ep); err != nil {
 		return oidcEndpoints{}, fmt.Errorf("parsing discovery: %w", err)
 	}
 

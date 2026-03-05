@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,8 @@ import (
 )
 
 // mockOIDCProvider creates a test OIDC server that returns discovery and token endpoints.
+// If idTokenClaims does not contain iss, aud, or exp, they are injected automatically
+// using the server URL and test-client defaults.
 func mockOIDCProvider(t *testing.T, idTokenClaims map[string]any) *httptest.Server {
 	t.Helper()
 
@@ -35,9 +38,22 @@ func mockOIDCProvider(t *testing.T, idTokenClaims map[string]any) *httptest.Serv
 			return
 		}
 
+		// Inject standard OIDC claims if not explicitly set by the test.
+		claims := make(map[string]any)
+		maps.Copy(claims, idTokenClaims)
+		if _, ok := claims["iss"]; !ok {
+			claims["iss"] = serverURL
+		}
+		if _, ok := claims["aud"]; !ok {
+			claims["aud"] = "test-client"
+		}
+		if _, ok := claims["exp"]; !ok {
+			claims["exp"] = float64(time.Now().Add(time.Hour).Unix())
+		}
+
 		// Build a fake id_token (unsigned for testing)
 		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
-		payload, _ := json.Marshal(idTokenClaims)
+		payload, _ := json.Marshal(claims)
 		payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
 		idToken := header + "." + payloadB64 + ".fakesig"
 
@@ -280,8 +296,12 @@ func TestCallbackHandlerErrorParam(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=access_denied") {
+		t.Errorf("redirect should contain error param, got %q", loc)
 	}
 }
 
@@ -302,8 +322,12 @@ func TestCallbackHandlerMissingCode(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=invalid_request") {
+		t.Errorf("redirect should contain error=invalid_request, got %q", loc)
 	}
 }
 
@@ -324,8 +348,12 @@ func TestCallbackHandlerMissingStateCookie(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=invalid_state") {
+		t.Errorf("redirect should contain error=invalid_state, got %q", loc)
 	}
 }
 
@@ -360,8 +388,12 @@ func TestCallbackHandlerStateMismatch(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=invalid_state") {
+		t.Errorf("redirect should contain error=invalid_state, got %q", loc)
 	}
 }
 
@@ -430,8 +462,11 @@ func TestCallbackHandlerBadIDToken(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	if !strings.Contains(w.Header().Get("Location"), "error=auth_failed") {
+		t.Errorf("redirect should contain error=auth_failed, got %q", w.Header().Get("Location"))
 	}
 }
 
@@ -786,7 +821,237 @@ func TestCallbackHandlerTokenExchangeFailure(t *testing.T) {
 
 	flow.CallbackHandler(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	if !strings.Contains(w.Header().Get("Location"), "error=auth_failed") {
+		t.Errorf("redirect should contain error=auth_failed, got %q", w.Header().Get("Location"))
+	}
+}
+
+func TestParseIDTokenValidatesIssuer(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{Issuer: "https://correct.example.com", ClientID: "c"}}
+
+	claims := map[string]any{
+		"sub": "user-1",
+		"iss": "https://wrong.example.com",
+		"aud": "c",
+		"exp": float64(time.Now().Add(time.Hour).Unix()),
+	}
+	payload, _ := json.Marshal(claims)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	idToken := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	_, err := f.parseIDToken(idToken)
+	if err == nil {
+		t.Fatal("expected error for issuer mismatch")
+	}
+	if !strings.Contains(err.Error(), "issuer") {
+		t.Errorf("error should mention issuer, got: %v", err)
+	}
+}
+
+func TestParseIDTokenValidatesAudience(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{Issuer: "https://issuer.example.com", ClientID: "my-client"}}
+
+	claims := map[string]any{
+		"sub": "user-1",
+		"iss": "https://issuer.example.com",
+		"aud": "wrong-client",
+		"exp": float64(time.Now().Add(time.Hour).Unix()),
+	}
+	payload, _ := json.Marshal(claims)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	idToken := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	_, err := f.parseIDToken(idToken)
+	if err == nil {
+		t.Fatal("expected error for audience mismatch")
+	}
+	if !strings.Contains(err.Error(), "audience") {
+		t.Errorf("error should mention audience, got: %v", err)
+	}
+}
+
+func TestParseIDTokenValidatesAudienceArray(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{Issuer: "https://issuer.example.com", ClientID: "my-client"}}
+
+	// aud as array containing the client_id — should succeed
+	claims := map[string]any{
+		"sub": "user-1",
+		"iss": "https://issuer.example.com",
+		"aud": []any{"other-client", "my-client"},
+		"exp": float64(time.Now().Add(time.Hour).Unix()),
+	}
+	payload, _ := json.Marshal(claims)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	idToken := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	sc, err := f.parseIDToken(idToken)
+	if err != nil {
+		t.Fatalf("expected success for audience array containing client_id, got: %v", err)
+	}
+	if sc.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", sc.UserID, "user-1")
+	}
+
+	// aud as array NOT containing the client_id — should fail
+	claims["aud"] = []any{"other-client", "another-client"}
+	payload, _ = json.Marshal(claims)
+	idToken = header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	_, err = f.parseIDToken(idToken)
+	if err == nil {
+		t.Fatal("expected error for audience array not containing client_id")
+	}
+}
+
+func TestParseIDTokenValidatesExpiration(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{Issuer: "https://issuer.example.com", ClientID: "c"}}
+
+	claims := map[string]any{
+		"sub": "user-1",
+		"iss": "https://issuer.example.com",
+		"aud": "c",
+		"exp": float64(time.Now().Add(-time.Hour).Unix()), // expired 1 hour ago
+	}
+	payload, _ := json.Marshal(claims)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	idToken := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	_, err := f.parseIDToken(idToken)
+	if err == nil {
+		t.Fatal("expected error for expired token")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Errorf("error should mention expired, got: %v", err)
+	}
+}
+
+func TestParseIDTokenMissingClaims(t *testing.T) {
+	tests := []struct {
+		name   string
+		claims map[string]any
+		errMsg string
+	}{
+		{
+			name:   "missing iss",
+			claims: map[string]any{"sub": "u", "aud": "c", "exp": float64(time.Now().Add(time.Hour).Unix())},
+			errMsg: "iss",
+		},
+		{
+			name:   "missing aud",
+			claims: map[string]any{"sub": "u", "iss": "https://issuer.example.com", "exp": float64(time.Now().Add(time.Hour).Unix())},
+			errMsg: "aud",
+		},
+		{
+			name:   "missing exp",
+			claims: map[string]any{"sub": "u", "iss": "https://issuer.example.com", "aud": "c"},
+			errMsg: "exp",
+		},
+	}
+
+	f := &Flow{cfg: FlowConfig{Issuer: "https://issuer.example.com", ClientID: "c"}}
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, _ := json.Marshal(tt.claims)
+			idToken := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+			_, err := f.parseIDToken(idToken)
+			if err == nil {
+				t.Fatalf("expected error for %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error should mention %q, got: %v", tt.errMsg, err)
+			}
+		})
+	}
+}
+
+func TestLogoutHandlerWithIDTokenHint(t *testing.T) {
+	claims := map[string]any{
+		"sub":   "user-42",
+		"email": "user@example.com",
+		"realm_access": map[string]any{
+			"roles": []any{"dp_admin"},
+		},
+	}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	// Complete a full login to get a session cookie with id_token stored.
+	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginW := httptest.NewRecorder()
+	flow.LoginHandler(loginW, loginReq)
+
+	loc, _ := url.Parse(loginW.Result().Header.Get("Location"))
+	state := loc.Query().Get("state")
+
+	var stateCookie *http.Cookie
+	for _, c := range loginW.Result().Cookies() {
+		if c.Name == stateCookieName {
+			stateCookie = c
+		}
+	}
+
+	callbackURL := "/portal/auth/callback?code=auth-code&state=" + state
+	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, http.NoBody)
+	callbackReq.AddCookie(stateCookie)
+	callbackW := httptest.NewRecorder()
+	flow.CallbackHandler(callbackW, callbackReq)
+
+	// Get the session cookie from the callback response.
+	var sessionCookie *http.Cookie
+	for _, c := range callbackW.Result().Cookies() {
+		if c.Name == DefaultCookieName {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("no session cookie from callback")
+	}
+
+	// Now logout WITH the session cookie — should include id_token_hint.
+	logoutReq := httptest.NewRequest(http.MethodGet, "/portal/auth/logout", http.NoBody)
+	logoutReq.AddCookie(sessionCookie)
+	logoutW := httptest.NewRecorder()
+
+	flow.LogoutHandler(logoutW, logoutReq)
+
+	logoutResp := logoutW.Result()
+	if logoutResp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", logoutResp.StatusCode, http.StatusFound)
+	}
+
+	logoutLoc := logoutResp.Header.Get("Location")
+	if !strings.Contains(logoutLoc, "id_token_hint=") {
+		t.Error("logout redirect should contain id_token_hint")
+	}
+}
+
+func TestRedirectWithError(t *testing.T) {
+	f := &Flow{cfg: FlowConfig{PostLoginRedirect: "/portal/"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback", http.NoBody)
+	w := httptest.NewRecorder()
+
+	f.redirectWithError(w, req, "test_error")
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/portal/?error=test_error" {
+		t.Errorf("redirect = %q, want /portal/?error=test_error", loc)
 	}
 }

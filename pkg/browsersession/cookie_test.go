@@ -273,6 +273,47 @@ func TestCookieConfigCustomValues(t *testing.T) {
 	}
 }
 
+func TestSignSessionWithIDToken(t *testing.T) {
+	cfg := &CookieConfig{Key: testKey(), TTL: time.Hour}
+	claims := SessionClaims{
+		UserID:  "user-1",
+		Email:   "test@example.com",
+		Roles:   []string{"admin"},
+		IDToken: "eyJ.payload.sig",
+	}
+
+	token, err := SignSession(claims, cfg)
+	if err != nil {
+		t.Fatalf("SignSession: %v", err)
+	}
+
+	got, err := VerifySession(token, cfg.Key)
+	if err != nil {
+		t.Fatalf("VerifySession: %v", err)
+	}
+	if got.IDToken != "eyJ.payload.sig" {
+		t.Errorf("IDToken = %q, want %q", got.IDToken, "eyJ.payload.sig")
+	}
+}
+
+func TestSignSessionWithoutIDToken(t *testing.T) {
+	cfg := &CookieConfig{Key: testKey(), TTL: time.Hour}
+	claims := SessionClaims{UserID: "user-1"}
+
+	token, err := SignSession(claims, cfg)
+	if err != nil {
+		t.Fatalf("SignSession: %v", err)
+	}
+
+	got, err := VerifySession(token, cfg.Key)
+	if err != nil {
+		t.Fatalf("VerifySession: %v", err)
+	}
+	if got.IDToken != "" {
+		t.Errorf("IDToken = %q, want empty", got.IDToken)
+	}
+}
+
 func TestSignSessionNilRoles(t *testing.T) {
 	cfg := &CookieConfig{Key: testKey(), TTL: time.Hour}
 	claims := SessionClaims{UserID: "u", Roles: nil}

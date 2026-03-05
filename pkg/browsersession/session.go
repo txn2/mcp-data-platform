@@ -19,9 +19,10 @@ const (
 
 // SessionClaims holds the claims stored in the session JWT cookie.
 type SessionClaims struct {
-	UserID string   `json:"sub"`
-	Email  string   `json:"email,omitempty"`
-	Roles  []string `json:"roles"`
+	UserID  string   `json:"sub"`
+	Email   string   `json:"email,omitempty"`
+	Roles   []string `json:"roles"`
+	IDToken string   `json:"idt,omitempty"` // raw id_token for logout id_token_hint
 }
 
 // CookieConfig controls session cookie behavior.

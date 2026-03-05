@@ -20,13 +20,18 @@ func SignSession(claims SessionClaims, cfg *CookieConfig) (string, error) {
 	now := time.Now()
 	ttl := cfg.effectiveTTL()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	mc := jwt.MapClaims{
 		"sub":   claims.UserID,
 		"email": claims.Email,
 		"roles": claims.Roles,
 		"iat":   now.Unix(),
 		"exp":   now.Add(ttl).Unix(),
-	})
+	}
+	if claims.IDToken != "" {
+		mc["idt"] = claims.IDToken
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, mc)
 
 	signed, err := token.SignedString(cfg.Key)
 	if err != nil {
@@ -72,6 +77,7 @@ func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 	}
 
 	email, _ := mc["email"].(string)
+	idToken, _ := mc["idt"].(string)
 
 	var roles []string
 	if rawRoles, ok := mc["roles"].([]any); ok {
@@ -83,9 +89,10 @@ func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 	}
 
 	return &SessionClaims{
-		UserID: sub,
-		Email:  email,
-		Roles:  roles,
+		UserID:  sub,
+		Email:   email,
+		Roles:   roles,
+		IDToken: idToken,
 	}, nil
 }
 
