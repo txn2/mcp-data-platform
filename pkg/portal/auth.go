@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -31,16 +32,40 @@ func GetUser(ctx context.Context) *User {
 // require a specific persona — any authenticated user can access the portal.
 type Authenticator struct {
 	authenticator middleware.Authenticator
+	browserAuth   *browsersession.Authenticator
 }
 
 // NewAuthenticator creates a Authenticator.
-func NewAuthenticator(auth middleware.Authenticator) *Authenticator {
-	return &Authenticator{authenticator: auth}
+func NewAuthenticator(auth middleware.Authenticator, opts ...AuthenticatorOption) *Authenticator {
+	a := &Authenticator{authenticator: auth}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a
+}
+
+// AuthenticatorOption configures the portal authenticator.
+type AuthenticatorOption func(*Authenticator)
+
+// WithBrowserAuth adds cookie-based authentication.
+func WithBrowserAuth(ba *browsersession.Authenticator) AuthenticatorOption {
+	return func(a *Authenticator) {
+		a.browserAuth = ba
+	}
 }
 
 // Authenticate extracts credentials from the HTTP request and delegates
-// to the platform authenticator.
+// to the platform authenticator. It checks browser session cookies first,
+// then falls back to token-based authentication.
 func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
+	// Try cookie-based auth first (browser sessions).
+	if pa.browserAuth != nil {
+		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {
+			return &User{UserID: info.UserID, Roles: info.Roles}, nil
+		}
+	}
+
+	// Fall back to token-based auth (API key or Bearer token).
 	token := extractPortalToken(r)
 	if token == "" {
 		return nil, nil //nolint:nilnil // no credentials

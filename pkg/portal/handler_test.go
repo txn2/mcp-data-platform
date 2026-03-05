@@ -1217,3 +1217,48 @@ func TestIsSharedWithUserError(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
 }
+
+// --- Me handler tests ---
+
+func TestGetMeSuccess(t *testing.T) {
+	user := &User{UserID: "user-42", Roles: []string{"admin", "analyst"}}
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, user)
+
+	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp meResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "user-42", resp.UserID)
+	assert.True(t, resp.IsAdmin)
+	assert.Contains(t, resp.Roles, "admin")
+}
+
+func TestGetMeNonAdmin(t *testing.T) {
+	user := &User{UserID: "user-99", Roles: []string{"analyst"}}
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, user)
+
+	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp meResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "user-99", resp.UserID)
+	assert.False(t, resp.IsAdmin)
+}
+
+func TestGetMeNoUser(t *testing.T) {
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}

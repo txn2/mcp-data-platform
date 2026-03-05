@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
@@ -451,6 +453,59 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		user, err := pa.Authenticate(req)
 		require.NoError(t, err)
 		assert.Nil(t, user)
+	})
+
+	t.Run("cookie auth admin", func(t *testing.T) {
+		key := []byte("test-key-that-is-at-least-32-bytes-long!!")
+		cfg := browsersession.CookieConfig{Key: key, TTL: time.Hour}
+		token, tokenErr := browsersession.SignSession(
+			browsersession.SessionClaims{UserID: "admin-cookie", Roles: []string{"admin"}},
+			&cfg,
+		)
+		require.NoError(t, tokenErr)
+
+		ba := browsersession.NewAuthenticator(cfg)
+		reg := setupRegistry()
+		pa := NewPlatformAuthenticator(
+			&mockMCPAuthenticator{},
+			"admin",
+			reg,
+			WithBrowserSessionAuth(ba),
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+
+		user, err := pa.Authenticate(req)
+		require.NoError(t, err)
+		require.NotNil(t, user)
+		assert.Equal(t, "admin-cookie", user.UserID)
+	})
+
+	t.Run("cookie auth non-admin rejected", func(t *testing.T) {
+		key := []byte("test-key-that-is-at-least-32-bytes-long!!")
+		cfg := browsersession.CookieConfig{Key: key, TTL: time.Hour}
+		token, tokenErr := browsersession.SignSession(
+			browsersession.SessionClaims{UserID: "analyst-cookie", Roles: []string{testRoleAnalyst}},
+			&cfg,
+		)
+		require.NoError(t, tokenErr)
+
+		ba := browsersession.NewAuthenticator(cfg)
+		reg := setupRegistry()
+		pa := NewPlatformAuthenticator(
+			&mockMCPAuthenticator{},
+			"admin",
+			reg,
+			WithBrowserSessionAuth(ba),
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+
+		user, err := pa.Authenticate(req)
+		require.NoError(t, err)
+		assert.Nil(t, user, "non-admin cookie should be rejected")
 	})
 }
 

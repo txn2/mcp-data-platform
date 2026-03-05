@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
@@ -94,6 +95,7 @@ type PlatformAuthenticator struct {
 	authenticator middleware.Authenticator
 	adminPersona  string
 	registry      *persona.Registry
+	browserAuth   *browsersession.Authenticator
 }
 
 // NewPlatformAuthenticator creates a PlatformAuthenticator that bridges
@@ -102,18 +104,46 @@ func NewPlatformAuthenticator(
 	auth middleware.Authenticator,
 	adminPersona string,
 	registry *persona.Registry,
+	opts ...PlatformAuthOption,
 ) *PlatformAuthenticator {
-	return &PlatformAuthenticator{
+	pa := &PlatformAuthenticator{
 		authenticator: auth,
 		adminPersona:  adminPersona,
 		registry:      registry,
+	}
+	for _, opt := range opts {
+		opt(pa)
+	}
+	return pa
+}
+
+// PlatformAuthOption configures the PlatformAuthenticator.
+type PlatformAuthOption func(*PlatformAuthenticator)
+
+// WithBrowserSessionAuth adds cookie-based authentication.
+func WithBrowserSessionAuth(ba *browsersession.Authenticator) PlatformAuthOption {
+	return func(pa *PlatformAuthenticator) {
+		pa.browserAuth = ba
 	}
 }
 
 // Authenticate extracts credentials from the HTTP request, delegates to the
 // platform authenticator, then checks that the resolved persona matches
-// the admin persona.
+// the admin persona. It checks browser session cookies first, then falls
+// back to token-based authentication.
 func (pa *PlatformAuthenticator) Authenticate(r *http.Request) (*User, error) {
+	// Try cookie-based auth first (browser sessions).
+	if pa.browserAuth != nil {
+		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {
+			// Still require admin persona.
+			resolved, ok := pa.registry.GetForRoles(info.Roles)
+			if ok && resolved.Name == pa.adminPersona {
+				return &User{UserID: info.UserID, Roles: info.Roles}, nil
+			}
+		}
+	}
+
+	// Fall back to token-based auth.
 	token := extractToken(r)
 	if token == "" {
 		return nil, nil //nolint:nilnil // no credentials
