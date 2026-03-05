@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ type Deps struct {
 	S3Bucket      string
 	PublicBaseURL string
 	RateLimit     RateLimitConfig
+	OIDCEnabled   bool
 }
 
 // Handler provides portal REST API endpoints.
@@ -70,6 +72,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) registerRoutes() {
 	// Authenticated routes
+	h.mux.HandleFunc("GET /api/v1/portal/me", h.getMe)
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
@@ -83,6 +86,29 @@ func (h *Handler) registerRoutes() {
 	// Public route (rate limited)
 	h.publicMux.Handle("GET /portal/view/{token}",
 		h.rateLimiter.Middleware(http.HandlerFunc(h.publicView)))
+}
+
+// --- Me handler ---
+
+// meResponse is returned by GET /api/v1/portal/me.
+type meResponse struct {
+	UserID  string   `json:"user_id"`
+	Roles   []string `json:"roles"`
+	IsAdmin bool     `json:"is_admin"`
+}
+
+func (*Handler) getMe(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{
+		UserID:  user.UserID,
+		Roles:   user.Roles,
+		IsAdmin: slices.Contains(user.Roles, "admin"),
+	})
 }
 
 // --- Asset handlers ---

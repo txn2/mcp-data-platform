@@ -179,6 +179,42 @@ auth:
 !!! note "Fail-Closed Security"
     Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access.
 
+### Browser Sessions (OIDC Login for Portal UI)
+
+When both `auth.oidc` and `auth.browser_session` are enabled, the portal UI offers SSO login via the configured OIDC provider. The flow uses authorization code with PKCE and stores the session in an HMAC-SHA256 signed JWT cookie.
+
+```yaml
+auth:
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    audience: "mcp-data-platform"
+    role_claim_path: "realm_access.roles"
+    role_prefix: "dp_"
+    scopes: [openid, profile, email]
+  browser_session:
+    enabled: true
+    signing_key: "${SESSION_SIGNING_KEY}"  # openssl rand -base64 32
+    ttl: 8h
+    secure: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `browser_session.enabled` | bool | `false` | Enable cookie-based browser sessions |
+| `browser_session.signing_key` | string | - | Base64-encoded HMAC key (32+ bytes) |
+| `browser_session.ttl` | duration | `8h` | Session lifetime |
+| `browser_session.secure` | bool | `true` | HTTPS-only cookies (set `false` for local dev) |
+| `browser_session.cookie_name` | string | `mcp_session` | Cookie name |
+| `browser_session.domain` | string | - | Cookie domain restriction |
+
+The portal UI automatically detects OIDC availability and shows an SSO button. API key authentication remains as a fallback. MCP protocol clients are unaffected — browser sessions only apply to the portal HTTP endpoints.
+
+!!! warning "Session Limitations"
+    Sessions are stateless (no server-side store). Individual sessions cannot be revoked. Rotating `signing_key` invalidates all active sessions. Users must re-authenticate after TTL expires.
+
 ## Database Configuration
 
 The `database` block configures the PostgreSQL connection used by audit logging, knowledge capture, session externalization, OAuth persistence, and (optionally) the config store.

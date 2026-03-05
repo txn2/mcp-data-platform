@@ -330,6 +330,72 @@ func TestConfigValidate(t *testing.T) {
 			t.Error("Validate() expected error for multiple issues")
 		}
 	})
+
+	t.Run("browser session without OIDC", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleQ==",
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Validate() expected error for browser session without OIDC")
+		}
+	})
+
+	t.Run("browser session without signing key", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{
+					Enabled: true,
+					Issuer:  "https://auth.example.com",
+				},
+				BrowserSession: BrowserSessionConfig{
+					Enabled: true,
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Validate() expected error for browser session without signing key")
+		}
+	})
+
+	t.Run("browser session valid config", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{
+					Enabled: true,
+					Issuer:  "https://auth.example.com",
+				},
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("browser session disabled skips validation", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				BrowserSession: BrowserSessionConfig{
+					Enabled: false,
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
 }
 
 func TestLoadConfig_StreamableFromYAML(t *testing.T) {

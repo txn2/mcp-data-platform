@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/apps"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
@@ -98,6 +99,10 @@ type Platform struct {
 	oauthServer      *oauth.Server
 	oauthSigningKey  []byte
 	oauthStoreCloser interface{ Close() error }
+
+	// Browser session (OIDC login flow + cookie-based auth)
+	browserSessionFlow *browsersession.Flow
+	browserSessionAuth *browsersession.Authenticator
 
 	// Audit
 	auditLogger middleware.AuditLogger
@@ -406,6 +411,64 @@ func (p *Platform) initAuth(opts *Options) error {
 	} else {
 		p.authorizer = p.createAuthorizer()
 	}
+
+	// Initialize browser session (OIDC login + cookie auth) when enabled.
+	if err := p.initBrowserSession(); err != nil {
+		return fmt.Errorf("initializing browser session: %w", err)
+	}
+
+	return nil
+}
+
+// initBrowserSession sets up OIDC login flow and cookie authenticator.
+func (p *Platform) initBrowserSession() error {
+	bsCfg := p.config.Auth.BrowserSession
+	if !bsCfg.Enabled || !p.config.Auth.OIDC.Enabled {
+		return nil
+	}
+
+	keyBytes, err := base64.StdEncoding.DecodeString(bsCfg.SigningKey)
+	if err != nil {
+		return fmt.Errorf("decoding browser session signing key: %w", err)
+	}
+
+	cookieCfg := browsersession.CookieConfig{
+		Name:   bsCfg.CookieName,
+		Domain: bsCfg.Domain,
+		Secure: bsCfg.Secure,
+		TTL:    bsCfg.TTL,
+		Key:    keyBytes,
+	}
+
+	oidcCfg := p.config.Auth.OIDC
+
+	// Build redirect URI from portal public base URL.
+	redirectURI := p.config.Portal.PublicBaseURL + "/portal/auth/callback"
+
+	flowCfg := browsersession.FlowConfig{
+		Issuer:            oidcCfg.Issuer,
+		ClientID:          oidcCfg.ClientID,
+		ClientSecret:      oidcCfg.ClientSecret,
+		RedirectURI:       redirectURI,
+		Scopes:            oidcCfg.Scopes,
+		RoleClaim:         oidcCfg.RoleClaimPath,
+		RolePrefix:        oidcCfg.RolePrefix,
+		Cookie:            cookieCfg,
+		PostLoginRedirect: "/portal/",
+	}
+
+	flow, err := browsersession.NewFlow(context.Background(), flowCfg)
+	if err != nil {
+		return fmt.Errorf("creating OIDC flow: %w", err)
+	}
+
+	p.browserSessionFlow = flow
+	p.browserSessionAuth = browsersession.NewAuthenticator(cookieCfg)
+
+	slog.Info("browser session enabled",
+		"issuer", oidcCfg.Issuer,
+		"redirect_uri", redirectURI,
+	)
 
 	return nil
 }
@@ -1558,6 +1621,16 @@ func (p *Platform) PortalShareStore() portal.ShareStore {
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.
 func (p *Platform) PortalS3Client() portal.S3Client {
 	return p.portalS3Client
+}
+
+// BrowserSessionFlow returns the OIDC login flow, or nil if browser sessions are disabled.
+func (p *Platform) BrowserSessionFlow() *browsersession.Flow {
+	return p.browserSessionFlow
+}
+
+// BrowserSessionAuth returns the cookie-based authenticator, or nil if browser sessions are disabled.
+func (p *Platform) BrowserSessionAuth() *browsersession.Authenticator {
+	return p.browserSessionAuth
 }
 
 // ToolInfo describes a tool registered directly on the platform (not via a toolkit).

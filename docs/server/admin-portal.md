@@ -127,12 +127,12 @@ The Insight Detail drawer shows:
 Run the Admin Portal locally with demo data using [Mock Service Worker](https://mswjs.io/):
 
 ```bash
-cd admin-ui
+cd ui
 npm install
 VITE_MSW=true npm run dev
 ```
 
-Open `http://localhost:5173/admin/` — no backend required. The mock data includes realistic ACME Corporation demo content with 200+ audit events, 50 knowledge insights, 6 personas, and 12 users.
+Open `http://localhost:5173/portal/` — no backend required. The mock data includes realistic ACME Corporation demo content with 200+ audit events, 50 knowledge insights, 6 personas, and 12 users.
 
 For full-stack development with a real backend:
 
@@ -140,7 +140,7 @@ For full-stack development with a real backend:
 make dev-up                                        # Start PostgreSQL
 go run ./cmd/mcp-data-platform --config dev/platform.yaml  # Start server
 psql -h localhost -U platform -d mcp_platform -f dev/seed.sql  # Seed demo data
-cd admin-ui && npm run dev                         # Start React dev server
+cd ui && npm run dev                               # Start React dev server
 ```
 
 See [`dev/README.md`](https://github.com/txn2/mcp-data-platform/blob/main/dev/README.md) for complete local development instructions.

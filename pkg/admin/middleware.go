@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
@@ -94,6 +95,7 @@ type PlatformAuthenticator struct {
 	authenticator middleware.Authenticator
 	adminPersona  string
 	registry      *persona.Registry
+	browserAuth   *browsersession.Authenticator
 }
 
 // NewPlatformAuthenticator creates a PlatformAuthenticator that bridges
@@ -102,18 +104,63 @@ func NewPlatformAuthenticator(
 	auth middleware.Authenticator,
 	adminPersona string,
 	registry *persona.Registry,
+	opts ...PlatformAuthOption,
 ) *PlatformAuthenticator {
-	return &PlatformAuthenticator{
+	pa := &PlatformAuthenticator{
 		authenticator: auth,
 		adminPersona:  adminPersona,
 		registry:      registry,
+	}
+	for _, opt := range opts {
+		opt(pa)
+	}
+	return pa
+}
+
+// PlatformAuthOption configures the PlatformAuthenticator.
+type PlatformAuthOption func(*PlatformAuthenticator)
+
+// WithBrowserSessionAuth adds cookie-based authentication.
+func WithBrowserSessionAuth(ba *browsersession.Authenticator) PlatformAuthOption {
+	return func(pa *PlatformAuthenticator) {
+		pa.browserAuth = ba
 	}
 }
 
 // Authenticate extracts credentials from the HTTP request, delegates to the
 // platform authenticator, then checks that the resolved persona matches
-// the admin persona.
+// the admin persona. It checks browser session cookies first, then falls
+// back to token-based authentication.
 func (pa *PlatformAuthenticator) Authenticate(r *http.Request) (*User, error) {
+	// Try cookie-based auth first (browser sessions).
+	if u := pa.authenticateViaCookie(r); u != nil {
+		return u, nil
+	}
+
+	// Fall back to token-based auth.
+	return pa.authenticateViaToken(r)
+}
+
+// authenticateViaCookie tries browser session cookie auth and verifies the
+// user has the admin persona.
+func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) *User {
+	if pa.browserAuth == nil {
+		return nil
+	}
+	info, err := pa.browserAuth.AuthenticateHTTP(r)
+	if err != nil || info == nil {
+		return nil
+	}
+	resolved, ok := pa.registry.GetForRoles(info.Roles)
+	if !ok || resolved.Name != pa.adminPersona {
+		return nil
+	}
+	return &User{UserID: info.UserID, Roles: info.Roles}
+}
+
+// authenticateViaToken extracts a token from headers, validates it, and
+// verifies the user has the admin persona.
+func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, error) {
 	token := extractToken(r)
 	if token == "" {
 		return nil, nil //nolint:nilnil // no credentials

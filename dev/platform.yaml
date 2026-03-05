@@ -5,8 +5,8 @@
 #   go run ./cmd/mcp-data-platform --config dev/platform.yaml
 #
 # Then in another terminal:
-#   cd admin-ui && npm run dev
-#   Open http://localhost:5173/admin/
+#   cd ui && npm run dev
+#   Open http://localhost:5173/portal/
 
 apiVersion: v1
 

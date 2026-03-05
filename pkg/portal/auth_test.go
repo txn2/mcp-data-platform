@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	mw "github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -140,4 +142,88 @@ func TestExtractPortalTokenBearer(t *testing.T) {
 func TestExtractPortalTokenEmpty(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", http.NoBody)
 	assert.Equal(t, "", extractPortalToken(r))
+}
+
+// testSessionKey returns a key suitable for HMAC signing in tests.
+func testSessionKey() []byte {
+	return []byte("test-key-that-is-at-least-32-bytes-long!!")
+}
+
+func TestPortalAuthenticatorCookieAuth(t *testing.T) {
+	cfg := browsersession.CookieConfig{Key: testSessionKey(), TTL: time.Hour}
+	token, err := browsersession.SignSession(
+		browsersession.SessionClaims{UserID: "cookie-user", Roles: []string{"analyst"}},
+		&cfg,
+	)
+	require.NoError(t, err)
+
+	ba := browsersession.NewAuthenticator(cfg)
+	pa := NewAuthenticator(&mockAuthenticator{}, WithBrowserAuth(ba))
+
+	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+
+	user, authErr := pa.Authenticate(r)
+	assert.NoError(t, authErr)
+	require.NotNil(t, user)
+	assert.Equal(t, "cookie-user", user.UserID)
+	assert.Contains(t, user.Roles, "analyst")
+}
+
+func TestPortalAuthenticatorCookiePriority(t *testing.T) {
+	// When both cookie and API key are present, cookie wins.
+	cfg := browsersession.CookieConfig{Key: testSessionKey(), TTL: time.Hour}
+	token, err := browsersession.SignSession(
+		browsersession.SessionClaims{UserID: "cookie-user", Roles: []string{"analyst"}},
+		&cfg,
+	)
+	require.NoError(t, err)
+
+	ba := browsersession.NewAuthenticator(cfg)
+	pa := NewAuthenticator(
+		&mockAuthenticator{info: &mw.UserInfo{UserID: "api-key-user", Roles: []string{"admin"}}},
+		WithBrowserAuth(ba),
+	)
+
+	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+	r.Header.Set("X-API-Key", "some-key")
+
+	user, authErr := pa.Authenticate(r)
+	assert.NoError(t, authErr)
+	require.NotNil(t, user)
+	assert.Equal(t, "cookie-user", user.UserID, "cookie auth should take priority")
+}
+
+func TestPortalAuthenticatorCookieFallback(t *testing.T) {
+	// When cookie is invalid, falls back to token.
+	ba := browsersession.NewAuthenticator(browsersession.CookieConfig{Key: testSessionKey()})
+	pa := NewAuthenticator(
+		&mockAuthenticator{info: &mw.UserInfo{UserID: "api-user", Roles: []string{"admin"}}},
+		WithBrowserAuth(ba),
+	)
+
+	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: "invalid-jwt"})
+	r.Header.Set("X-API-Key", "key")
+
+	user, err := pa.Authenticate(r)
+	assert.NoError(t, err)
+	require.NotNil(t, user)
+	assert.Equal(t, "api-user", user.UserID, "should fall back to API key auth")
+}
+
+func TestPortalAuthenticatorNoBrowserAuth(t *testing.T) {
+	// Without browser auth option, cookie is ignored.
+	pa := NewAuthenticator(&mockAuthenticator{
+		info: &mw.UserInfo{UserID: "u1", Roles: []string{"r1"}},
+	})
+
+	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r.Header.Set("X-API-Key", "key")
+
+	user, err := pa.Authenticate(r)
+	assert.NoError(t, err)
+	require.NotNil(t, user)
+	assert.Equal(t, "u1", user.UserID)
 }

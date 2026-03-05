@@ -304,8 +304,7 @@ linters:
   exclusions:
     generated: lax
     paths:
-      - portal-ui/node_modules
-      - admin-ui/node_modules
+      - ui/node_modules
     rules:
       # Generated files
       - path: generated
@@ -330,6 +329,10 @@ linters:
         text: "cognitive-complexity|cyclomatic"
 
       # Test files use literal values for fixtures — extracting constants hurts readability
+      - path: _test\.go
+        linters:
+          - goconst
+
       - path: _test\.go
         linters:
           - revive

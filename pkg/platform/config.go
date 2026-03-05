@@ -180,19 +180,32 @@ type TLSConfig struct {
 
 // AuthConfig configures authentication.
 type AuthConfig struct {
-	OIDC           OIDCAuthConfig   `yaml:"oidc"`
-	APIKeys        APIKeyAuthConfig `yaml:"api_keys"`
-	AllowAnonymous bool             `yaml:"allow_anonymous"` // default: false
+	OIDC           OIDCAuthConfig       `yaml:"oidc"`
+	APIKeys        APIKeyAuthConfig     `yaml:"api_keys"`
+	BrowserSession BrowserSessionConfig `yaml:"browser_session"`
+	AllowAnonymous bool                 `yaml:"allow_anonymous"` // default: false
 }
 
 // OIDCAuthConfig configures OIDC authentication.
 type OIDCAuthConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Issuer        string `yaml:"issuer"`
-	ClientID      string `yaml:"client_id"`
-	Audience      string `yaml:"audience"`
-	RoleClaimPath string `yaml:"role_claim_path"`
-	RolePrefix    string `yaml:"role_prefix"`
+	Enabled       bool     `yaml:"enabled"`
+	Issuer        string   `yaml:"issuer"`
+	ClientID      string   `yaml:"client_id"`
+	ClientSecret  string   `yaml:"client_secret"` // #nosec G117 -- OIDC secret from admin config
+	Audience      string   `yaml:"audience"`
+	RoleClaimPath string   `yaml:"role_claim_path"`
+	RolePrefix    string   `yaml:"role_prefix"`
+	Scopes        []string `yaml:"scopes"` // default: [openid, profile, email]
+}
+
+// BrowserSessionConfig configures cookie-based browser sessions.
+type BrowserSessionConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	CookieName string        `yaml:"cookie_name"` // default: "mcp_session"
+	TTL        time.Duration `yaml:"ttl"`         // default: 8h
+	SigningKey string        `yaml:"signing_key"` // base64-encoded HMAC key
+	Secure     bool          `yaml:"secure"`      // default: true
+	Domain     string        `yaml:"domain"`
 }
 
 // APIKeyAuthConfig configures API key authentication.
@@ -844,6 +857,7 @@ func (c *Config) Validate() error {
 	errs = c.validateConfigStore(errs)
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
+	errs = c.validateBrowserSession(errs)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation errors: %s", strings.Join(errs, "; "))
@@ -880,6 +894,20 @@ func (c *Config) validateOAuth(errs []string) []string {
 	}
 	if c.OAuth.Upstream.RedirectURI == "" {
 		errs = append(errs, "oauth.upstream.redirect_uri is required")
+	}
+	return errs
+}
+
+// validateBrowserSession checks browser session configuration validity and appends any errors.
+func (c *Config) validateBrowserSession(errs []string) []string {
+	if !c.Auth.BrowserSession.Enabled {
+		return errs
+	}
+	if !c.Auth.OIDC.Enabled {
+		errs = append(errs, "auth.oidc must be enabled when browser_session is enabled")
+	}
+	if c.Auth.BrowserSession.SigningKey == "" {
+		errs = append(errs, "auth.browser_session.signing_key is required")
 	}
 	return errs
 }

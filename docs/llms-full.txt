@@ -615,6 +615,29 @@ oauth:
     redirect_uri: "https://mcp.example.com/oauth/callback"
 ```
 
+## Browser Sessions (OIDC Login for Portal UI)
+
+When `auth.oidc` and `auth.browser_session` are both enabled, the portal UI offers SSO login. The flow uses OIDC authorization code with PKCE. Sessions are stored as HMAC-SHA256 signed JWT cookies (stateless, no server-side store).
+
+```yaml
+auth:
+  oidc:
+    enabled: true
+    issuer: "https://auth.example.com/realms/platform"
+    client_id: "mcp-data-platform"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    scopes: [openid, profile, email]
+  browser_session:
+    enabled: true
+    signing_key: "${SESSION_SIGNING_KEY}"  # openssl rand -base64 32
+    ttl: 8h
+    secure: true
+```
+
+Endpoints: `/portal/auth/login` (initiate), `/portal/auth/callback` (process), `/portal/auth/logout` (clear). API key fallback always available. MCP clients unaffected.
+
+Limitations: no individual session revocation, no key rotation support (rotating invalidates all sessions), no session refresh (re-auth required after TTL).
+
 ---
 
 # Audit Logging
@@ -1611,8 +1634,8 @@ Insight list with filtering by status, category, and confidence. Detail drawer w
 
 ## Local Development
 
-Run with mock data (no backend): `cd admin-ui && VITE_MSW=true npm run dev`
-Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd admin-ui && npm run dev`
+Run with mock data (no backend): `cd ui && VITE_MSW=true npm run dev`
+Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd ui && npm run dev`
 
 ---
 

@@ -1,18 +1,18 @@
 # ACME Corporation Local Dev Environment
 
-Local development environment for the admin UI portal, pre-configured with ACME Corporation retail data (national retailer, 1,000 stores, 12 users, 6 personas).
+Local development environment for the portal UI, pre-configured with ACME Corporation retail data (national retailer, 1,000 stores, 12 users, 6 personas).
 
 ## Quick Start: MSW Mode (No Backend)
 
-The fastest way to see the admin UI with realistic data. No Docker, no database, no Go server.
+The fastest way to see the portal UI with realistic data. No Docker, no database, no Go server.
 
 ```bash
-cd admin-ui
+cd ui
 npm install
 VITE_MSW=true npm run dev
 ```
 
-Open <http://localhost:5173/admin/> — you'll see the ACME dashboard with:
+Open <http://localhost:5173/portal/> — you'll see the portal with:
 
 - 12 ACME users across 6 personas (admin, data-engineer, inventory-analyst, regional-director, finance-executive, store-manager)
 - 20 tools across 6 connections (2 Trino, 2 DataHub, 2 S3)
@@ -40,11 +40,11 @@ go run ./cmd/mcp-data-platform --config dev/platform.yaml
 # 3. (Optional) Seed with historical data
 psql -h localhost -U platform -d mcp_platform -f dev/seed.sql
 
-# 4. Start the admin UI dev server
-cd admin-ui && npm run dev
+# 4. Start the portal UI dev server
+cd ui && npm run dev
 ```
 
-Open <http://localhost:5173/admin/>
+Open <http://localhost:5173/portal/>
 
 **API Key**: `acme-dev-key-2024`
 

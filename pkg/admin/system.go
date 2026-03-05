@@ -88,6 +88,7 @@ type publicBrandingResponse struct {
 	PortalLogo      string `json:"portal_logo"`
 	PortalLogoLight string `json:"portal_logo_light"`
 	PortalLogoDark  string `json:"portal_logo_dark"`
+	OIDCEnabled     bool   `json:"oidc_enabled"`
 }
 
 // getPublicBranding handles GET /api/v1/admin/public/branding.
@@ -100,6 +101,7 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 		resp.PortalLogo = h.deps.Config.Admin.PortalLogo
 		resp.PortalLogoLight = h.deps.Config.Admin.PortalLogoLight
 		resp.PortalLogoDark = h.deps.Config.Admin.PortalLogoDark
+		resp.OIDCEnabled = h.deps.Config.Auth.BrowserSession.Enabled && h.deps.Config.Auth.OIDC.Enabled
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
