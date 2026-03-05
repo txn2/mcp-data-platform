@@ -129,7 +129,7 @@ FROM
     SELECT tool_name, toolkit_kind, toolkit_name, connection FROM (VALUES
       ('trino_query',              'trino',   'acme-warehouse',        'acme-warehouse',         22),
       ('trino_describe_table',     'trino',   'acme-warehouse',        'acme-warehouse',          7),
-      ('trino_list_tables',        'trino',   'acme-warehouse',        'acme-warehouse',          3),
+      ('trino_browse',             'trino',   'acme-warehouse',        'acme-warehouse',          3),
       ('datahub_search',           'datahub', 'acme-catalog',          'acme-catalog',           12),
       ('datahub_get_entity',       'datahub', 'acme-catalog',          'acme-catalog',            6),
       ('datahub_get_schema',       'datahub', 'acme-catalog',          'acme-catalog',            3),

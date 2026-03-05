@@ -79,7 +79,7 @@ personas:
       allow:
         - "trino_query"
         - "trino_describe_table"
-        - "trino_list_*"
+        - "trino_browse"
         - "datahub_search"
         - "datahub_get_entity"
         - "datahub_get_schema"

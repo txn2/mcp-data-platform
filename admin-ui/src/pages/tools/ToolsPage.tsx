@@ -969,18 +969,17 @@ function ToolsHelpTab() {
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium">Trino</td>
                 <td className="px-3 py-2 text-xs">
-                  trino_query, trino_describe_table, trino_list_catalogs,
-                  trino_list_schemas, trino_list_tables, trino_explain
+                  trino_query, trino_describe_table, trino_browse,
+                  trino_explain, trino_execute
                 </td>
               </tr>
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium">DataHub</td>
                 <td className="px-3 py-2 text-xs">
                   datahub_search, datahub_get_entity, datahub_get_schema,
-                  datahub_get_lineage, datahub_get_column_lineage,
+                  datahub_get_lineage, datahub_browse,
                   datahub_get_glossary_term, datahub_get_queries,
-                  datahub_get_data_product, datahub_list_data_products,
-                  datahub_list_domains, datahub_list_tags
+                  datahub_get_data_product
                 </td>
               </tr>
               <tr>

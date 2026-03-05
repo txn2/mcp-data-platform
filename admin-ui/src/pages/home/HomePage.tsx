@@ -220,7 +220,7 @@ function HelpTab({ onNavigate }: { onNavigate: (path: string) => void }) {
                   SQL query execution, schema exploration, catalog browsing
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">
-                  trino_query, trino_describe_table, trino_list_catalogs
+                  trino_query, trino_describe_table, trino_browse
                 </td>
               </tr>
               <tr className="border-b">

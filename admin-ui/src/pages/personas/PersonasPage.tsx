@@ -775,7 +775,7 @@ function HelpTab() {
               <tr className="border-b">
                 <td className="px-3 py-2 font-mono text-xs">trino_*</td>
                 <td className="px-3 py-2 text-xs">
-                  trino_query, trino_describe_table, trino_list_catalogs, etc.
+                  trino_query, trino_describe_table, trino_browse, etc.
                 </td>
               </tr>
               <tr className="border-b">

@@ -309,9 +309,7 @@ func TestToolkit_Tools(t *testing.T) {
 		"trino_query",
 		"trino_execute",
 		"trino_explain",
-		"trino_list_catalogs",
-		"trino_list_schemas",
-		"trino_list_tables",
+		"trino_browse",
 		"trino_describe_table",
 	}
 
@@ -692,8 +690,8 @@ func TestNewMulti(t *testing.T) {
 		}
 
 		tools := tk.Tools()
-		if len(tools) != 7 { //nolint:mnd // 7 trino tools
-			t.Errorf("expected 7 tools, got %d", len(tools))
+		if len(tools) != 5 { //nolint:mnd // 5 trino tools
+			t.Errorf("expected 5 tools, got %d", len(tools))
 		}
 	})
 

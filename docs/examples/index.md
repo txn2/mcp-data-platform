@@ -160,7 +160,7 @@ personas:
       display_name: "Data Analyst"
       roles: ["dp_analyst"]
       tools:
-        allow: ["trino_query", "trino_list_*", "trino_describe_*", "datahub_*"]
+        allow: ["trino_query", "trino_browse", "trino_describe_*", "trino_list_connections", "datahub_*"]
         deny: ["*_delete_*", "*_drop_*", "*_put_*"]
 
     # Tier 3: Data engineers with write access
@@ -386,8 +386,9 @@ personas:
           - "datahub_*"
           - "trino_query:marketing"      # Explicit cluster access
           - "trino_query:sales"
-          - "trino_list_*"
+          - "trino_browse"
           - "trino_describe_*"
+          - "trino_list_connections"
         deny:
           - "trino_query:finance"        # No finance access
           - "*_delete_*"

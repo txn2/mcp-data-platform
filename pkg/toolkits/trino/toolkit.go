@@ -435,9 +435,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			trinotools.ToolQuery,
 			trinotools.ToolExecute,
 			trinotools.ToolExplain,
-			trinotools.ToolListCatalogs,
-			trinotools.ToolListSchemas,
-			trinotools.ToolListTables,
+			trinotools.ToolBrowse,
 			trinotools.ToolDescribeTable,
 		)
 	}
@@ -449,9 +447,7 @@ func (*Toolkit) Tools() []string {
 		"trino_query",
 		"trino_execute",
 		"trino_explain",
-		"trino_list_catalogs",
-		"trino_list_schemas",
-		"trino_list_tables",
+		"trino_browse",
 		"trino_describe_table",
 	}
 }

@@ -150,14 +150,11 @@ func TestDefaultDiscoveryTools(t *testing.T) {
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_entity")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_schema")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_lineage")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_column_lineage")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_queries")
+	assert.Contains(t, DefaultDiscoveryTools, "datahub_browse")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_glossary_term")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_data_product")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_list_data_products")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_list_domains")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_list_tags")
-	assert.Len(t, DefaultDiscoveryTools, 11)
+	assert.Len(t, DefaultDiscoveryTools, 8)
 }
 
 func TestDefaultQueryTools(t *testing.T) {
