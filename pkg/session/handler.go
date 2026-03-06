@@ -15,6 +15,10 @@ import (
 // awareSessionKey is the context key for the AwareHandler session ID.
 type awareSessionKey struct{}
 
+// replacedSessionKey is the context key for the old session ID that was replaced
+// during session recovery (expired session → new session with auth credentials).
+type replacedSessionKey struct{}
+
 // AwareSessionID returns the session ID set by AwareHandler, or "".
 func AwareSessionID(ctx context.Context) string {
 	if id, ok := ctx.Value(awareSessionKey{}).(string); ok {
@@ -28,6 +32,22 @@ func AwareSessionID(ctx context.Context) string {
 // needs to read the session ID via AwareSessionID.
 func WithAwareSessionID(ctx context.Context, sessionID string) context.Context {
 	return context.WithValue(ctx, awareSessionKey{}, sessionID)
+}
+
+// ReplacedSessionID returns the old session ID that was replaced during session
+// recovery, or "" if no replacement occurred.
+func ReplacedSessionID(ctx context.Context) string {
+	if id, ok := ctx.Value(replacedSessionKey{}).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// WithReplacedSessionID returns a context carrying the old session ID that was
+// replaced. This allows downstream middleware (e.g. provenance) to recover data
+// recorded under the old session.
+func WithReplacedSessionID(ctx context.Context, oldSessionID string) context.Context {
+	return context.WithValue(ctx, replacedSessionKey{}, oldSessionID)
 }
 
 const (
@@ -142,6 +162,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		if extractToken(r) != "" {
 			slog.Info("session: expired, creating replacement",
 				"old_session_id", sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+			r = r.WithContext(WithReplacedSessionID(r.Context(), sessionID))
 			h.handleInitialize(w, r)
 			return
 		}

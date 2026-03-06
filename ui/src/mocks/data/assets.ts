@@ -148,6 +148,29 @@ export const mockAssets: Asset[] = [
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
+  {
+    id: "ast-007",
+    owner_id: "user-alice",
+    name: "ACME Corp Sales Dashboard",
+    description: "Full interactive sales dashboard with recharts, tabs, KPI cards, and regional breakdowns. Tests complex JSX rendering.",
+    content_type: "text/jsx",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-007.jsx",
+    size_bytes: 25_400,
+    tags: ["dashboard", "sales", "jsx", "recharts"],
+    provenance: {
+      session_id: "sess-ggg",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(1), summary: "Queried annual sales data" },
+        { tool_name: "datahub_search", timestamp: daysAgo(1), summary: "Searched for store metadata" },
+        { tool_name: "save_artifact", timestamp: daysAgo(1), summary: "Saved JSX dashboard" },
+      ],
+    },
+    session_id: "sess-ggg",
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
 ];
 
 export const mockShares: Record<string, Share[]> = {
