@@ -272,9 +272,9 @@ func TestCallbackHandler(t *testing.T) {
 	if sessionClaims.Email != "user@example.com" {
 		t.Errorf("Email = %q, want %q", sessionClaims.Email, "user@example.com")
 	}
-	// Roles should be stripped of dp_ prefix
-	if len(sessionClaims.Roles) != 2 || sessionClaims.Roles[0] != "admin" || sessionClaims.Roles[1] != "analyst" {
-		t.Errorf("Roles = %v, want [admin analyst]", sessionClaims.Roles)
+	// Roles should be filtered by dp_ prefix but keep the full role name
+	if len(sessionClaims.Roles) != 2 || sessionClaims.Roles[0] != "dp_admin" || sessionClaims.Roles[1] != "dp_analyst" {
+		t.Errorf("Roles = %v, want [dp_admin dp_analyst]", sessionClaims.Roles)
 	}
 }
 
@@ -594,8 +594,8 @@ func TestExtractRolesNestedPath(t *testing.T) {
 			"roles": []any{"app_admin", "other", "app_user"},
 		},
 	})
-	if len(roles) != 2 || roles[0] != "admin" || roles[1] != "user" {
-		t.Errorf("roles = %v, want [admin user]", roles)
+	if len(roles) != 2 || roles[0] != "app_admin" || roles[1] != "app_user" {
+		t.Errorf("roles = %v, want [app_admin app_user]", roles)
 	}
 }
 
