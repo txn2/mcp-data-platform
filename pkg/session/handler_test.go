@@ -63,7 +63,7 @@ func newTestHandler() (*AwareHandler, *MemoryStore, *testInnerHandler) {
 func TestHandler_Initialize_CreatesSession(t *testing.T) {
 	handler, store, inner := newTestHandler()
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -82,7 +82,7 @@ func TestHandler_Initialize_CreatesSession(t *testing.T) {
 func TestHandler_Initialize_WithBearerToken(t *testing.T) {
 	handler, store, _ := newTestHandler()
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(handlerTestAuthHeader, "Bearer my-test-token")
 	w := httptest.NewRecorder()
 
@@ -101,7 +101,7 @@ func TestHandler_Initialize_WithBearerToken(t *testing.T) {
 func TestHandler_Initialize_WithAPIKey(t *testing.T) {
 	handler, store, _ := newTestHandler()
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set("X-API-Key", handlerTestAPIKey)
 	w := httptest.NewRecorder()
 
@@ -125,7 +125,7 @@ func TestHandler_ExistingSession_Valid(t *testing.T) {
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "existing-sess")
 	w := httptest.NewRecorder()
 
@@ -137,7 +137,7 @@ func TestHandler_ExistingSession_Valid(t *testing.T) {
 func TestHandler_ExistingSession_NotFound(t *testing.T) {
 	handler, _, inner := newTestHandler()
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "nonexistent-sess")
 	w := httptest.NewRecorder()
 
@@ -156,7 +156,7 @@ func TestHandler_ExistingSession_Expired(t *testing.T) {
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "expired-sess")
 	w := httptest.NewRecorder()
 
@@ -175,7 +175,7 @@ func TestHandler_ExpiredSession_RecoveryWithBearer(t *testing.T) {
 	sess.UserID = hashToken("my-bearer-token")
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "expired-bearer")
 	req.Header.Set(handlerTestAuthHeader, "Bearer my-bearer-token")
 	w := httptest.NewRecorder()
@@ -201,7 +201,7 @@ func TestHandler_MissingSession_RecoveryWithAPIKey(t *testing.T) {
 	handler, store, inner := newTestHandler()
 
 	// No session created at all — completely missing
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "does-not-exist")
 	req.Header.Set("X-API-Key", handlerTestAPIKey)
 	w := httptest.NewRecorder()
@@ -230,7 +230,7 @@ func TestHandler_ExpiredSession_NoCredentials_Returns404(t *testing.T) {
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "expired-anon")
 	// No Authorization or X-API-Key headers
 	w := httptest.NewRecorder()
@@ -251,7 +251,7 @@ func TestHandler_HijackPrevention_DifferentToken(t *testing.T) {
 	require.NoError(t, store.Create(ctx, sess))
 
 	// Attempt to use the session with a different token
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, handlerTestProtectedSess)
 	req.Header.Set(handlerTestAuthHeader, "Bearer different-token")
 	w := httptest.NewRecorder()
@@ -270,7 +270,7 @@ func TestHandler_HijackPrevention_SameToken(t *testing.T) {
 	sess.UserID = hashToken("valid-token")
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, handlerTestProtectedSess)
 	req.Header.Set(handlerTestAuthHeader, "Bearer valid-token")
 	w := httptest.NewRecorder()
@@ -288,7 +288,7 @@ func TestHandler_HijackPrevention_AnonymousSkipped(t *testing.T) {
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "anon-sess")
 	req.Header.Set(handlerTestAuthHeader, "Bearer any-token")
 	w := httptest.NewRecorder()
@@ -306,7 +306,7 @@ func TestHandler_Delete(t *testing.T) {
 	sess.UserID = ""
 	require.NoError(t, store.Create(ctx, sess))
 
-	req := httptest.NewRequest(http.MethodDelete, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, handlerTestPath, http.NoBody)
 	req.Header.Set(sessionIDHeader, "delete-me")
 	w := httptest.NewRecorder()
 
@@ -322,7 +322,7 @@ func TestHandler_Delete(t *testing.T) {
 func TestHandler_Delete_NoSessionID(t *testing.T) {
 	handler, _, inner := newTestHandler()
 
-	req := httptest.NewRequest(http.MethodDelete, handlerTestPath, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, handlerTestPath, http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -390,7 +390,7 @@ func TestExtractToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, handlerTestPath, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, handlerTestPath, http.NoBody)
 			if tt.header != "" {
 				req.Header.Set(handlerTestAuthHeader, tt.header)
 			}
@@ -446,7 +446,7 @@ func TestHandler_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 50 {
-				req := httptest.NewRequest(http.MethodPost, handlerTestPath, http.NoBody)
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 				req.Header.Set(sessionIDHeader, "concurrent-sess")
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)

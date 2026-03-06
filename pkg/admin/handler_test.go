@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +61,7 @@ func TestHandler_RoutesRegistered(t *testing.T) {
 
 	for _, rt := range routes {
 		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
-			req := httptest.NewRequest(rt.method, rt.path, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), rt.method, rt.path, http.NoBody)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, req)
 			// Should not be 404 — the route is registered.
@@ -86,7 +87,7 @@ func TestHandler_SystemRoutesRegistered(t *testing.T) {
 
 	for _, rt := range routes {
 		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
-			req := httptest.NewRequest(rt.method, rt.path, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), rt.method, rt.path, http.NoBody)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code,
@@ -102,7 +103,7 @@ func TestHandler_ServeHTTP_WithoutAuthMiddleware(t *testing.T) {
 	kh := NewKnowledgeHandler(store, &mockChangesetStore{}, nil)
 	h := NewHandler(Deps{Knowledge: kh}, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -123,7 +124,7 @@ func TestHandler_ServeHTTP_WithAuthMiddleware(t *testing.T) {
 		}
 		h := NewHandler(Deps{Knowledge: kh}, authMiddle)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -138,7 +139,7 @@ func TestHandler_ServeHTTP_WithAuthMiddleware(t *testing.T) {
 		}
 		h := NewHandler(Deps{Knowledge: kh}, authMiddle)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -153,7 +154,7 @@ func TestHandler_ServeHTTP_WithAuthMiddleware(t *testing.T) {
 		}
 		h := NewHandler(Deps{Knowledge: kh}, authMiddle)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/docs/index.html", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/docs/index.html", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -166,7 +167,7 @@ func TestHandler_NilKnowledgeHandler_SystemRoutesStillWork(t *testing.T) {
 	h := NewHandler(Deps{}, nil)
 
 	// System routes are always registered
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -186,7 +187,7 @@ func TestFeatureUnavailable_Knowledge(t *testing.T) {
 			"/api/v1/admin/knowledge/changesets",
 		}
 		for _, path := range paths {
-			req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, req)
 
@@ -202,7 +203,7 @@ func TestFeatureUnavailable_Knowledge(t *testing.T) {
 		disabledCfg.Knowledge.Enabled = false
 		h := NewHandler(Deps{Config: disabledCfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -223,7 +224,7 @@ func TestFeatureUnavailable_Audit(t *testing.T) {
 			"/api/v1/admin/audit/stats",
 		}
 		for _, path := range paths {
-			req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, req)
 
@@ -239,7 +240,7 @@ func TestFeatureUnavailable_Audit(t *testing.T) {
 		disabledCfg.Audit.Enabled = false
 		h := NewHandler(Deps{Config: disabledCfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 

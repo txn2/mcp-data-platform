@@ -84,7 +84,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	}
 
 	t.Run("authenticates with X-API-Key header", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "valid-key-1")
 
 		user, err := auth.Authenticate(req)
@@ -95,7 +95,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("authenticates with Bearer token", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer viewer-key")
 
 		user, err := auth.Authenticate(req)
@@ -105,7 +105,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("X-API-Key takes priority over Authorization", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "valid-key-1")
 		req.Header.Set("Authorization", "Bearer viewer-key")
 
@@ -116,7 +116,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("returns nil for missing credentials", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 
 		user, err := auth.Authenticate(req)
 		require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("returns nil for invalid key", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "invalid-key")
 
 		user, err := auth.Authenticate(req)
@@ -133,7 +133,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("returns nil for non-Bearer authorization", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 
 		user, err := auth.Authenticate(req)
@@ -142,7 +142,7 @@ func TestAPIKeyAuthenticator_Authenticate(t *testing.T) {
 	})
 
 	t.Run("returns nil for empty Bearer token", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer ")
 
 		user, err := auth.Authenticate(req)
@@ -166,7 +166,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -188,7 +188,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(checkHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -201,7 +201,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -217,7 +217,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -233,7 +233,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -248,7 +248,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -264,7 +264,7 @@ func TestRequireAdmin(t *testing.T) {
 		mid := RequireAdmin(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -299,31 +299,31 @@ func TestHasAdminRole(t *testing.T) {
 
 func TestExtractToken(t *testing.T) {
 	t.Run("extracts from X-API-Key", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 		assert.Equal(t, "test-key", extractToken(req))
 	})
 
 	t.Run("extracts from Bearer token", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer jwt-token")
 		assert.Equal(t, "jwt-token", extractToken(req))
 	})
 
 	t.Run("X-API-Key takes priority", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "api-key")
 		req.Header.Set("Authorization", "Bearer jwt-token")
 		assert.Equal(t, "api-key", extractToken(req))
 	})
 
 	t.Run("returns empty for no credentials", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		assert.Equal(t, "", extractToken(req))
 	})
 
 	t.Run("returns empty for non-Bearer auth", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Basic abc123")
 		assert.Equal(t, "", extractToken(req))
 	})
@@ -357,7 +357,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
@@ -374,7 +374,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
@@ -387,7 +387,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 
 		user, err := pa.Authenticate(req)
 		require.NoError(t, err)
@@ -401,7 +401,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 
 		// Auth failures (invalid keys, expired tokens) return nil/nil
@@ -416,7 +416,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
@@ -431,7 +431,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Authorization", "Bearer jwt-token")
 
 		user, err := pa.Authenticate(req)
@@ -447,7 +447,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		reg := setupRegistry()
 		pa := NewPlatformAuthenticator(mcpAuth, "admin", reg)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
@@ -473,7 +473,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 			WithBrowserSessionAuth(ba),
 		)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
 
 		user, err := pa.Authenticate(req)
@@ -500,7 +500,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 			WithBrowserSessionAuth(ba),
 		)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
 
 		user, err := pa.Authenticate(req)
@@ -524,7 +524,7 @@ func TestRequirePersona(t *testing.T) {
 		mid := RequirePersona(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -536,7 +536,7 @@ func TestRequirePersona(t *testing.T) {
 		mid := RequirePersona(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -548,7 +548,7 @@ func TestRequirePersona(t *testing.T) {
 		mid := RequirePersona(auth)
 		handler := mid(successHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -567,7 +567,7 @@ func TestRequirePersona(t *testing.T) {
 		mid := RequirePersona(auth)
 		handler := mid(checkHandler)
 
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -596,7 +596,7 @@ func TestHandler_IntegrationWithAuth(t *testing.T) {
 	h := NewHandler(Deps{Knowledge: kh}, authMiddle)
 
 	t.Run("authenticated admin can access insights", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		req.Header.Set("X-API-Key", "admin-key")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -605,7 +605,7 @@ func TestHandler_IntegrationWithAuth(t *testing.T) {
 	})
 
 	t.Run("unauthenticated request is rejected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -613,7 +613,7 @@ func TestHandler_IntegrationWithAuth(t *testing.T) {
 	})
 
 	t.Run("non-admin key is forbidden", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		req.Header.Set("X-API-Key", "unknown-key")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

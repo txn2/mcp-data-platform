@@ -1,6 +1,7 @@
 package browsersession
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -205,7 +206,7 @@ func TestParseFromRequest(t *testing.T) {
 		t.Fatalf("SignSession: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
 
 	got, err := ParseFromRequest(req, cfg)
@@ -219,7 +220,7 @@ func TestParseFromRequest(t *testing.T) {
 
 func TestParseFromRequestNoCookie(t *testing.T) {
 	cfg := &CookieConfig{Key: testKey()}
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 
 	_, err := ParseFromRequest(req, cfg)
 	if err == nil {

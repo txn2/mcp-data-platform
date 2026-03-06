@@ -142,7 +142,7 @@ func TestLoginHandler(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.LoginHandler(w, req)
@@ -214,7 +214,7 @@ func TestCallbackHandler(t *testing.T) {
 	}
 
 	// First, simulate the login to get state cookie
-	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
 	flow.LoginHandler(loginW, loginReq)
 
@@ -235,7 +235,7 @@ func TestCallbackHandler(t *testing.T) {
 
 	// Simulate callback with code and state
 	callbackURL := "/portal/auth/callback?code=auth-code&state=" + state
-	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, http.NoBody)
+	callbackReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, callbackURL, http.NoBody)
 	callbackReq.AddCookie(stateCookie)
 	callbackW := httptest.NewRecorder()
 
@@ -290,7 +290,7 @@ func TestCallbackHandlerErrorParam(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet,
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/portal/auth/callback?error=access_denied&error_description=user+canceled", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -317,7 +317,7 @@ func TestCallbackHandlerMissingCode(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback?state=abc", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/callback?state=abc", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.CallbackHandler(w, req)
@@ -343,7 +343,7 @@ func TestCallbackHandlerMissingStateCookie(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback?code=abc&state=xyz", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/callback?code=abc&state=xyz", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.CallbackHandler(w, req)
@@ -370,7 +370,7 @@ func TestCallbackHandlerStateMismatch(t *testing.T) {
 	}
 
 	// Login to get a valid state cookie
-	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
 	flow.LoginHandler(loginW, loginReq)
 
@@ -382,7 +382,7 @@ func TestCallbackHandlerStateMismatch(t *testing.T) {
 	}
 
 	// Callback with a different state value
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback?code=abc&state=wrong", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/callback?code=abc&state=wrong", http.NoBody)
 	req.AddCookie(stateCookie)
 	w := httptest.NewRecorder()
 
@@ -436,7 +436,7 @@ func TestCallbackHandlerBadIDToken(t *testing.T) {
 	}
 
 	// Login to get a valid state cookie + extract state param.
-	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
 	flow.LoginHandler(loginW, loginReq)
 
@@ -455,7 +455,7 @@ func TestCallbackHandlerBadIDToken(t *testing.T) {
 	u, _ := url.Parse(loc)
 	state := u.Query().Get("state")
 
-	req := httptest.NewRequest(http.MethodGet,
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/portal/auth/callback?code=test-code&state="+state, http.NoBody)
 	req.AddCookie(stateCookie)
 	w := httptest.NewRecorder()
@@ -482,7 +482,7 @@ func TestLogoutHandler(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/logout", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.LogoutHandler(w, req)
@@ -532,7 +532,7 @@ func TestLogoutHandlerNoEndSession(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/logout", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
 	w := httptest.NewRecorder()
 
 	flow.LogoutHandler(w, req)
@@ -800,7 +800,7 @@ func TestCallbackHandlerTokenExchangeFailure(t *testing.T) {
 	}
 
 	// Login to get state
-	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
 	flow.LoginHandler(loginW, loginReq)
 
@@ -815,7 +815,7 @@ func TestCallbackHandlerTokenExchangeFailure(t *testing.T) {
 	}
 
 	// Callback
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback?code=abc&state="+state, http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/callback?code=abc&state="+state, http.NoBody)
 	req.AddCookie(stateCookie)
 	w := httptest.NewRecorder()
 
@@ -990,7 +990,7 @@ func TestLogoutHandlerWithIDTokenHint(t *testing.T) {
 	}
 
 	// Complete a full login to get a session cookie with id_token stored.
-	loginReq := httptest.NewRequest(http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
 	flow.LoginHandler(loginW, loginReq)
 
@@ -1005,7 +1005,7 @@ func TestLogoutHandlerWithIDTokenHint(t *testing.T) {
 	}
 
 	callbackURL := "/portal/auth/callback?code=auth-code&state=" + state
-	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, http.NoBody)
+	callbackReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, callbackURL, http.NoBody)
 	callbackReq.AddCookie(stateCookie)
 	callbackW := httptest.NewRecorder()
 	flow.CallbackHandler(callbackW, callbackReq)
@@ -1022,7 +1022,7 @@ func TestLogoutHandlerWithIDTokenHint(t *testing.T) {
 	}
 
 	// Now logout WITH the session cookie — should include id_token_hint.
-	logoutReq := httptest.NewRequest(http.MethodGet, "/portal/auth/logout", http.NoBody)
+	logoutReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
 	logoutReq.AddCookie(sessionCookie)
 	logoutW := httptest.NewRecorder()
 
@@ -1042,7 +1042,7 @@ func TestLogoutHandlerWithIDTokenHint(t *testing.T) {
 func TestRedirectWithError(t *testing.T) {
 	f := &Flow{cfg: FlowConfig{PostLoginRedirect: "/portal/"}}
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/auth/callback", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/callback", http.NoBody)
 	w := httptest.NewRecorder()
 
 	f.redirectWithError(w, req, "test_error")

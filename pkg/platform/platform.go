@@ -878,6 +878,7 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 		AccessKeyID:     s3Cfg.AccessKeyID,
 		SecretAccessKey: s3Cfg.SecretKey,
 		Name:            s3Cfg.ConnectionName,
+		UsePathStyle:    s3Cfg.UsePathStyle,
 	}
 
 	c, err := s3client.New(context.Background(), clientCfg)
@@ -1680,6 +1681,7 @@ type s3Config struct {
 	SecretKey      string
 	BucketPrefix   string
 	ConnectionName string
+	UsePathStyle   bool
 }
 
 // getDataHubConfig extracts DataHub configuration from toolkits config.
@@ -1742,6 +1744,7 @@ func (p *Platform) getS3Config(instanceName string) *s3Config {
 		SecretKey:      cfgString(instanceCfg, "secret_access_key"),
 		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
 		ConnectionName: cfgString(instanceCfg, "connection_name"),
+		UsePathStyle:   cfgBool(instanceCfg, "use_path_style"),
 	}
 
 	if cfg.ConnectionName == "" {

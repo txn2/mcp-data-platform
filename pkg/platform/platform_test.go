@@ -779,6 +779,7 @@ func TestGetS3Config(t *testing.T) {
 								"secret_access_key": "secret-key",
 								"bucket_prefix":     "prefix-",
 								"connection_name":   "minio",
+								"use_path_style":    true,
 							},
 						},
 					},
@@ -797,6 +798,9 @@ func TestGetS3Config(t *testing.T) {
 		}
 		if result.ConnectionName != "minio" {
 			t.Errorf("expected ConnectionName 'minio', got %q", result.ConnectionName)
+		}
+		if !result.UsePathStyle {
+			t.Error("expected UsePathStyle to be true")
 		}
 	})
 
@@ -822,6 +826,35 @@ func TestGetS3Config(t *testing.T) {
 			t.Errorf("expected ConnectionName 'myinstance', got %q", result.ConnectionName)
 		}
 	})
+}
+
+func TestCreatePortalS3ClientPathStyle(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Portal: PortalConfig{
+				S3Connection: "minio",
+			},
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					testInstancesKey: map[string]any{
+						"minio": map[string]any{
+							"region":         "us-east-1",
+							"endpoint":       "http://localhost:9000",
+							"use_path_style": true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client, err := p.createPortalS3Client()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
 }
 
 func TestProviderInstanceNotFound(t *testing.T) {

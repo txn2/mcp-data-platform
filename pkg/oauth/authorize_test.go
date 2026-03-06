@@ -40,7 +40,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/authorize", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -61,7 +61,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=invalid&redirect_uri=http://localhost:8080/callback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/authorize?response_type=code&client_id=invalid&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -83,7 +83,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -107,7 +107,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			// No Upstream configured
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -136,7 +136,7 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			},
 		}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -167,7 +167,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodPost, "/oauth/callback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/callback", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -180,7 +180,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&error_description=User+denied+access", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=access_denied&error_description=User+denied+access", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -193,7 +193,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?code=abc", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -206,7 +206,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		storage := NewMemoryStorage()
 		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=abc&state=invalid", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?code=abc&state=invalid", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -269,7 +269,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 		}
 		_ = server.stateStore.Save("upstream-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?code=keycloak-code&state=upstream-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?code=keycloak-code&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -595,7 +595,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		}
 		_ = server.stateStore.Save("upstream-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -627,7 +627,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false for other errors", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=access_denied&state=some-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=access_denied&state=some-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -637,7 +637,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false when state is missing", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -647,7 +647,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	})
 
 	t.Run("returns false when state not found in store", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=nonexistent", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=nonexistent", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -666,7 +666,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		}
 		_ = server.stateStore.Save("loop-state", state)
 
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handled := server.handleLoginRequiredError(w, req)
@@ -709,7 +709,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		_ = server.stateStore.Save("upstream-state", state)
 
 		// Simulate Keycloak returning login_required (user has no session)
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 
@@ -758,7 +758,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		_ = server.stateStore.Save("loop-state", state)
 
 		// login_required again after retry — should fall through to generic error handler
-		req := httptest.NewRequest(http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, req)
 

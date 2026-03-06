@@ -71,7 +71,7 @@ func TestRateLimiterMiddleware(t *testing.T) {
 	}))
 
 	// First request allowed.
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:1234"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -97,7 +97,7 @@ func TestClientIPXForwardedFor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest("GET", "/", http.NoBody)
+			r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 			r.RemoteAddr = tt.remote
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)

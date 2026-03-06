@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,7 +26,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: events, countResult: 10}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?per_page=2&page=1", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?per_page=2&page=1", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -42,7 +43,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: events[:1], countResult: 1}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?user_id=user-1&tool_name=trino_query&success=true", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?user_id=user-1&tool_name=trino_query&success=true", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -53,7 +54,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -68,7 +69,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryErr: fmt.Errorf("db error")}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -79,7 +80,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: events, countErr: fmt.Errorf("count error")}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -90,7 +91,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -104,7 +105,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?search=trino", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?search=trino", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -115,7 +116,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?sort_by=duration_ms&sort_order=asc", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?sort_by=duration_ms&sort_order=asc", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -126,7 +127,7 @@ func TestListAuditEvents(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events?sort_by=timestamp&sort_order=invalid", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?sort_by=timestamp&sort_order=invalid", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -141,7 +142,7 @@ func TestListAuditEventFilters(t *testing.T) {
 		}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -156,7 +157,7 @@ func TestListAuditEventFilters(t *testing.T) {
 		aq := &mockAuditQuerier{distinctResult: nil}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -171,7 +172,7 @@ func TestListAuditEventFilters(t *testing.T) {
 		aq := &mockAuditQuerier{distinctErr: fmt.Errorf("db error")}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -185,7 +186,7 @@ func TestGetAuditEvent(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: []audit.Event{event}}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/ev-123", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/ev-123", http.NoBody)
 		req.SetPathValue("id", "ev-123")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -200,7 +201,7 @@ func TestGetAuditEvent(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/missing", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/missing", http.NoBody)
 		req.SetPathValue("id", "missing")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -214,7 +215,7 @@ func TestGetAuditEvent(t *testing.T) {
 		aq := &mockAuditQuerier{queryErr: fmt.Errorf("db error")}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/events/ev-123", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/ev-123", http.NoBody)
 		req.SetPathValue("id", "ev-123")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -228,7 +229,7 @@ func TestGetAuditStats(t *testing.T) {
 		aq := &mockAuditQuerier{countResult: 100}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/stats", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/stats", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -245,7 +246,7 @@ func TestGetAuditStats(t *testing.T) {
 		aq := &mockAuditQuerier{countErr: fmt.Errorf("db error")}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/stats", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/stats", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -256,7 +257,7 @@ func TestGetAuditStats(t *testing.T) {
 		aq := &mockAuditQuerier{countResult: 5}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit/stats?user_id=user-1&tool_name=trino_query", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/stats?user_id=user-1&tool_name=trino_query", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
