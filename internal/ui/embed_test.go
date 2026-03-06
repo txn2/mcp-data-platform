@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,7 +39,7 @@ func TestHandler_ReturnsHandler(t *testing.T) {
 func TestSPAHandler_Root_ServesIndexHTML(t *testing.T) {
 	h := newSPAHandler(testFS())
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -50,7 +51,7 @@ func TestSPAHandler_Root_ServesIndexHTML(t *testing.T) {
 func TestSPAHandler_SPAFallback_ServesIndexHTML(t *testing.T) {
 	h := newSPAHandler(testFS())
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/dashboard", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -62,7 +63,7 @@ func TestSPAHandler_SPAFallback_ServesIndexHTML(t *testing.T) {
 func TestSPAHandler_StaticAsset_ServedByFileServer(t *testing.T) {
 	h := newSPAHandler(testFS())
 
-	req := httptest.NewRequest(http.MethodGet, "/assets/app.js", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/assets/app.js", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -73,7 +74,7 @@ func TestSPAHandler_StaticAsset_ServedByFileServer(t *testing.T) {
 func TestSPAHandler_CSSAsset(t *testing.T) {
 	h := newSPAHandler(testFS())
 
-	req := httptest.NewRequest(http.MethodGet, "/assets/style.css", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/assets/style.css", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -85,7 +86,7 @@ func TestSPAHandler_NoIndexHTML_Returns404(t *testing.T) {
 	emptyFS := fstest.MapFS{}
 	h := newSPAHandler(emptyFS)
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -96,7 +97,7 @@ func TestSPAHandler_NoRedirectLoop(t *testing.T) {
 	h := newSPAHandler(testFS())
 
 	// The exact bug: /index.html must NOT produce a 301
-	req := httptest.NewRequest(http.MethodGet, "/index.html", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/index.html", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -107,7 +108,7 @@ func TestSPAHandler_NoRedirectLoop(t *testing.T) {
 func TestSPAHandler_NestedUnknownRoute_Fallback(t *testing.T) {
 	h := newSPAHandler(testFS())
 
-	req := httptest.NewRequest(http.MethodGet, "/settings/profile", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/settings/profile", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

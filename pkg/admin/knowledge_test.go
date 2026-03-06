@@ -235,7 +235,7 @@ func TestListInsights(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListInsights(w, req)
 
@@ -260,7 +260,7 @@ func TestListInsights(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights?page=1&per_page=2", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights?page=1&per_page=2", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListInsights(w, req)
 
@@ -281,7 +281,7 @@ func TestListInsights(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights?status=pending&category=correction&confidence=high", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights?status=pending&category=correction&confidence=high", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListInsights(w, req)
 
@@ -295,7 +295,7 @@ func TestListInsights(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListInsights(w, req)
 
@@ -318,7 +318,7 @@ func TestGetInsight(t *testing.T) {
 		store := &mockInsightStore{getResult: insight}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights/ins-123", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/ins-123", http.NoBody)
 		req.SetPathValue("id", "ins-123")
 		w := httptest.NewRecorder()
 		kh.GetInsight(w, req)
@@ -334,7 +334,7 @@ func TestGetInsight(t *testing.T) {
 		store := &mockInsightStore{getErr: fmt.Errorf("not found")}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights/nonexistent", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/nonexistent", http.NoBody)
 		req.SetPathValue("id", "nonexistent")
 		w := httptest.NewRecorder()
 		kh.GetInsight(w, req)
@@ -357,7 +357,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"status":"approved","review_notes":"looks good"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
 		req.SetPathValue("id", "ins-123")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -378,7 +378,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"status":"rejected","review_notes":"not relevant"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-456/status", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-456/status", strings.NewReader(body))
 		req.SetPathValue("id", "ins-456")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -391,7 +391,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"status":"applied"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
 		req.SetPathValue("id", "ins-123")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -410,7 +410,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"status":"rejected"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-789/status", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-789/status", strings.NewReader(body))
 		req.SetPathValue("id", "ins-789")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -424,7 +424,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		store := &mockInsightStore{getErr: fmt.Errorf("not found")}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/missing/status", strings.NewReader(statusApprovedBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/missing/status", strings.NewReader(statusApprovedBody))
 		req.SetPathValue("id", "missing")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -436,7 +436,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		store := &mockInsightStore{}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader("{invalid"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader("{invalid"))
 		req.SetPathValue("id", "ins-123")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -455,7 +455,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-500/status", strings.NewReader(statusApprovedBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-500/status", strings.NewReader(statusApprovedBody))
 		req.SetPathValue("id", "ins-500")
 		w := httptest.NewRecorder()
 		kh.UpdateInsightStatus(w, req)
@@ -472,7 +472,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-admin/status", strings.NewReader(statusApprovedBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-admin/status", strings.NewReader(statusApprovedBody))
 		req = req.WithContext(ctx)
 		req.SetPathValue("id", "ins-admin")
 		w := httptest.NewRecorder()
@@ -494,7 +494,7 @@ func TestUpdateInsight(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"insight_text":"updated text that is long enough","category":"correction"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-edit", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-edit", strings.NewReader(body))
 		req.SetPathValue("id", "ins-edit")
 		w := httptest.NewRecorder()
 		kh.UpdateInsight(w, req)
@@ -515,7 +515,7 @@ func TestUpdateInsight(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"insight_text":"new text"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-applied", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-applied", strings.NewReader(body))
 		req.SetPathValue("id", "ins-applied")
 		w := httptest.NewRecorder()
 		kh.UpdateInsight(w, req)
@@ -530,7 +530,7 @@ func TestUpdateInsight(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"insight_text":"new text"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/missing", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/missing", strings.NewReader(body))
 		req.SetPathValue("id", "missing")
 		w := httptest.NewRecorder()
 		kh.UpdateInsight(w, req)
@@ -542,7 +542,7 @@ func TestUpdateInsight(t *testing.T) {
 		store := &mockInsightStore{}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123", strings.NewReader("{bad"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123", strings.NewReader("{bad"))
 		req.SetPathValue("id", "ins-123")
 		w := httptest.NewRecorder()
 		kh.UpdateInsight(w, req)
@@ -562,7 +562,7 @@ func TestUpdateInsight(t *testing.T) {
 		kh := NewKnowledgeHandler(store, nil, nil)
 
 		body := `{"insight_text":"updated text"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/knowledge/insights/ins-err", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-err", strings.NewReader(body))
 		req.SetPathValue("id", "ins-err")
 		w := httptest.NewRecorder()
 		kh.UpdateInsight(w, req)
@@ -586,7 +586,7 @@ func TestGetStats(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.GetStats(w, req)
 
@@ -603,7 +603,7 @@ func TestGetStats(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.GetStats(w, req)
 
@@ -616,7 +616,7 @@ func TestGetStats(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/insights/stats?status=pending&category=correction", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats?status=pending&category=correction", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.GetStats(w, req)
 
@@ -634,7 +634,7 @@ func TestListChangesets(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListChangesets(w, req)
 
@@ -658,7 +658,7 @@ func TestListChangesets(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets?page=2&per_page=2", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets?page=2&per_page=2", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListChangesets(w, req)
 
@@ -676,7 +676,7 @@ func TestListChangesets(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListChangesets(w, req)
 
@@ -689,7 +689,7 @@ func TestListChangesets(t *testing.T) {
 		}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets?entity_urn=urn:test&rolled_back=true", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets?entity_urn=urn:test&rolled_back=true", http.NoBody)
 		w := httptest.NewRecorder()
 		kh.ListChangesets(w, req)
 
@@ -712,7 +712,7 @@ func TestGetChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets/cs-123", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets/cs-123", http.NoBody)
 		req.SetPathValue("id", "cs-123")
 		w := httptest.NewRecorder()
 		kh.GetChangeset(w, req)
@@ -728,7 +728,7 @@ func TestGetChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/changesets/nonexistent", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets/nonexistent", http.NoBody)
 		req.SetPathValue("id", "nonexistent")
 		w := httptest.NewRecorder()
 		kh.GetChangeset(w, req)
@@ -753,7 +753,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, writer)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-roll/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-roll/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-roll")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -776,7 +776,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-already/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-already/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-already")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -790,7 +790,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/missing/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/missing/rollback", http.NoBody)
 		req.SetPathValue("id", "missing")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -809,7 +809,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, writer)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-fail/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-fail/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-fail")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -829,7 +829,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-nowriter/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-nowriter/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-nowriter")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -849,7 +849,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, writer)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-empty/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-empty/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-empty")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -871,7 +871,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs}
 		kh := NewKnowledgeHandler(nil, csStore, writer)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-nokey/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-nokey/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-nokey")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -889,7 +889,7 @@ func TestRollbackChangeset(t *testing.T) {
 		csStore := &mockChangesetStore{getResult: cs, rollbackErr: fmt.Errorf("rollback db error")}
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-storeerr/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-storeerr/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-storeerr")
 		w := httptest.NewRecorder()
 		kh.RollbackChangeset(w, req)
@@ -907,7 +907,7 @@ func TestRollbackChangeset(t *testing.T) {
 		kh := NewKnowledgeHandler(nil, csStore, nil)
 
 		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-admin/rollback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/knowledge/changesets/cs-admin/rollback", http.NoBody)
 		req = req.WithContext(ctx)
 		req.SetPathValue("id", "cs-admin")
 		w := httptest.NewRecorder()
@@ -926,7 +926,7 @@ func TestParseInsightFilter(t *testing.T) {
 		url := fmt.Sprintf("/insights?status=pending&category=correction&entity_urn=urn:test&captured_by=user1&confidence=high&since=%s&until=%s&per_page=10&page=3",
 			since.Format(time.RFC3339), until.Format(time.RFC3339))
 
-		req := httptest.NewRequest(http.MethodGet, url, http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 		filter := parseInsightFilter(req)
 
 		assert.Equal(t, "pending", filter.Status)
@@ -944,7 +944,7 @@ func TestParseInsightFilter(t *testing.T) {
 	})
 
 	t.Run("defaults for empty parameters", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/insights", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights", http.NoBody)
 		filter := parseInsightFilter(req)
 
 		assert.Empty(t, filter.Status)
@@ -956,7 +956,7 @@ func TestParseInsightFilter(t *testing.T) {
 	})
 
 	t.Run("ignores invalid time formats", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/insights?since=not-a-time&until=invalid", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?since=not-a-time&until=invalid", http.NoBody)
 		filter := parseInsightFilter(req)
 
 		assert.Nil(t, filter.Since)
@@ -964,7 +964,7 @@ func TestParseInsightFilter(t *testing.T) {
 	})
 
 	t.Run("ignores invalid numeric values", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/insights?per_page=abc&page=xyz", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?per_page=abc&page=xyz", http.NoBody)
 		filter := parseInsightFilter(req)
 
 		assert.Equal(t, 0, filter.Limit)
@@ -972,11 +972,11 @@ func TestParseInsightFilter(t *testing.T) {
 	})
 
 	t.Run("page zero or negative is ignored", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/insights?page=0", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?page=0", http.NoBody)
 		filter := parseInsightFilter(req)
 		assert.Equal(t, 0, filter.Offset)
 
-		req = httptest.NewRequest(http.MethodGet, "/insights?page=-1", http.NoBody)
+		req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?page=-1", http.NoBody)
 		filter = parseInsightFilter(req)
 		assert.Equal(t, 0, filter.Offset)
 	})
@@ -990,7 +990,7 @@ func TestParseChangesetFilter(t *testing.T) {
 		url := fmt.Sprintf("/changesets?entity_urn=urn:test&applied_by=user1&since=%s&rolled_back=true&per_page=5&page=2",
 			since.Format(time.RFC3339))
 
-		req := httptest.NewRequest(http.MethodGet, url, http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 		filter := parseChangesetFilter(req)
 
 		assert.Equal(t, "urn:test", filter.EntityURN)
@@ -1005,7 +1005,7 @@ func TestParseChangesetFilter(t *testing.T) {
 	})
 
 	t.Run("defaults for empty parameters", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/changesets", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/changesets", http.NoBody)
 		filter := parseChangesetFilter(req)
 
 		assert.Empty(t, filter.EntityURN)
@@ -1018,7 +1018,7 @@ func TestParseChangesetFilter(t *testing.T) {
 	})
 
 	t.Run("parses rolled_back false", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/changesets?rolled_back=false", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/changesets?rolled_back=false", http.NoBody)
 		filter := parseChangesetFilter(req)
 
 		require.NotNil(t, filter.RolledBack)
@@ -1026,7 +1026,7 @@ func TestParseChangesetFilter(t *testing.T) {
 	})
 
 	t.Run("ignores invalid rolled_back", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/changesets?rolled_back=maybe", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/changesets?rolled_back=maybe", http.NoBody)
 		filter := parseChangesetFilter(req)
 
 		assert.Nil(t, filter.RolledBack)
@@ -1035,7 +1035,7 @@ func TestParseChangesetFilter(t *testing.T) {
 	t.Run("parses until parameter", func(t *testing.T) {
 		until := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
 		url := fmt.Sprintf("/changesets?until=%s", until.Format(time.RFC3339))
-		req := httptest.NewRequest(http.MethodGet, url, http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 		filter := parseChangesetFilter(req)
 
 		require.NotNil(t, filter.Until)

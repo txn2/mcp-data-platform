@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func TestPublicViewSuccess(t *testing.T) {
 		S3Bucket:   "test",
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -48,7 +49,7 @@ func TestPublicViewTokenNotFound(t *testing.T) {
 		S3Client:   &mockS3Client{},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/badtoken", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/badtoken", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -63,7 +64,7 @@ func TestPublicViewRevoked(t *testing.T) {
 		S3Client:   &mockS3Client{},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -79,7 +80,7 @@ func TestPublicViewExpired(t *testing.T) {
 		S3Client:   &mockS3Client{},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -94,7 +95,7 @@ func TestPublicViewAssetNotFound(t *testing.T) {
 		S3Client:   &mockS3Client{},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -111,7 +112,7 @@ func TestPublicViewAssetDeleted(t *testing.T) {
 		S3Client:   &mockS3Client{},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -127,7 +128,7 @@ func TestPublicViewNilS3Client(t *testing.T) {
 		S3Client:   nil, // no S3 configured
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -143,7 +144,7 @@ func TestPublicViewS3Error(t *testing.T) {
 		S3Client:   &mockS3Client{getErr: fmt.Errorf("s3 fail")},
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -158,7 +159,7 @@ func TestPublicViewEmptyToken(t *testing.T) {
 	}, nil)
 
 	// No token in path — we need to hit /portal/view/ which doesn't match the route
-	req := httptest.NewRequest("GET", "/portal/view/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 

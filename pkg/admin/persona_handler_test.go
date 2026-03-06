@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,7 @@ func TestListPersonas(t *testing.T) {
 		}
 		h := NewHandler(Deps{PersonaRegistry: pReg, ToolkitRegistry: tkReg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -71,7 +72,7 @@ func TestListPersonas(t *testing.T) {
 		}
 		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -110,7 +111,7 @@ func TestGetPersona(t *testing.T) {
 		}
 		h := NewHandler(Deps{PersonaRegistry: pReg, ToolkitRegistry: tkReg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas/analyst", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/analyst", http.NoBody)
 		req.SetPathValue("name", "analyst")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -132,7 +133,7 @@ func TestGetPersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
 		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas/unknown", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/unknown", http.NoBody)
 		req.SetPathValue("name", "unknown")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -151,7 +152,7 @@ func TestGetPersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
 		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas/admin", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/admin", http.NoBody)
 		req.SetPathValue("name", "admin")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -171,7 +172,7 @@ func TestCreatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: cs}, nil)
 
 		body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["trino_*"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -188,7 +189,7 @@ func TestCreatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"name":"admin","display_name":"New Admin","roles":["admin"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -202,7 +203,7 @@ func TestCreatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"display_name":"No Name"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -216,7 +217,7 @@ func TestCreatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"name":"test"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -229,7 +230,7 @@ func TestCreatePersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{}
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader("{bad"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader("{bad"))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -244,7 +245,7 @@ func TestUpdatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: cs}, nil)
 
 		body := `{"display_name":"Updated Analyst","roles":["analyst","viewer"]}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
 		req.SetPathValue("name", "analyst")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -262,7 +263,7 @@ func TestUpdatePersona(t *testing.T) {
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"roles":["analyst"]}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
 		req.SetPathValue("name", "analyst")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -274,7 +275,7 @@ func TestUpdatePersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{}
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/personas/test", strings.NewReader("{bad"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/test", strings.NewReader("{bad"))
 		req.SetPathValue("name", "test")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -289,7 +290,7 @@ func TestDeletePersona(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: cs}, nil)
 
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
 		req.SetPathValue("name", "analyst")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -305,7 +306,7 @@ func TestDeletePersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/personas/nonexistent", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/nonexistent", http.NoBody)
 		req.SetPathValue("name", "nonexistent")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -317,7 +318,7 @@ func TestDeletePersona(t *testing.T) {
 		pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
 		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/personas/admin", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/admin", http.NoBody)
 		req.SetPathValue("name", "admin")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

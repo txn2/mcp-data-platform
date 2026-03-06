@@ -1,6 +1,7 @@
 package browsersession
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +19,7 @@ func TestAuthenticatorValidCookie(t *testing.T) {
 
 	auth := NewAuthenticator(cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
 
 	info, err := auth.AuthenticateHTTP(req)
@@ -46,7 +47,7 @@ func TestAuthenticatorNoCookie(t *testing.T) {
 	cfg := CookieConfig{Key: testKey()}
 	auth := NewAuthenticator(cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {
@@ -63,7 +64,7 @@ func TestAuthenticatorExpiredCookie(t *testing.T) {
 
 	auth := NewAuthenticator(CookieConfig{Key: testKey()})
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
 
 	info, err := auth.AuthenticateHTTP(req)
@@ -78,7 +79,7 @@ func TestAuthenticatorExpiredCookie(t *testing.T) {
 func TestAuthenticatorMalformedCookie(t *testing.T) {
 	auth := NewAuthenticator(CookieConfig{Key: testKey()})
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: "not-a-jwt"})
 
 	info, err := auth.AuthenticateHTTP(req)
@@ -97,7 +98,7 @@ func TestAuthenticatorWrongKey(t *testing.T) {
 	wrongKey := []byte("different-key-at-least-32-bytes-long!!!")
 	auth := NewAuthenticator(CookieConfig{Key: wrongKey})
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
 
 	info, err := auth.AuthenticateHTTP(req)
@@ -115,7 +116,7 @@ func TestAuthenticatorCustomCookieName(t *testing.T) {
 
 	auth := NewAuthenticator(cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "custom_session", Value: token})
 
 	info, err := auth.AuthenticateHTTP(req)

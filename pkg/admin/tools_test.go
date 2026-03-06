@@ -58,7 +58,7 @@ func TestGetToolSchemas(t *testing.T) {
 			MCPServer:       newTestMCPServer(),
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -82,7 +82,7 @@ func TestGetToolSchemas(t *testing.T) {
 	t.Run("returns empty schemas when no MCP server", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -97,7 +97,7 @@ func TestGetToolSchemas(t *testing.T) {
 			MCPServer: newTestMCPServer(),
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -121,7 +121,7 @@ func TestCallTool(t *testing.T) {
 			ToolName:   "trino_query",
 			Parameters: map[string]any{"sql": "SELECT 1"},
 		})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -155,7 +155,7 @@ func TestCallTool(t *testing.T) {
 			Connection: "prod-trino",
 			Parameters: map[string]any{"sql": "SELECT 1"},
 		})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -167,7 +167,7 @@ func TestCallTool(t *testing.T) {
 	t.Run("returns error for missing tool_name", func(t *testing.T) {
 		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
 		body, _ := json.Marshal(toolCallRequest{})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -178,7 +178,7 @@ func TestCallTool(t *testing.T) {
 
 	t.Run("returns error for invalid JSON", func(t *testing.T) {
 		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader([]byte("not json")))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader([]byte("not json")))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -188,7 +188,7 @@ func TestCallTool(t *testing.T) {
 	t.Run("returns error when no MCP server", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 		body, _ := json.Marshal(toolCallRequest{ToolName: "trino_query"})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -198,7 +198,7 @@ func TestCallTool(t *testing.T) {
 	t.Run("handles unknown tool gracefully", func(t *testing.T) {
 		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
 		body, _ := json.Marshal(toolCallRequest{ToolName: "nonexistent_tool"})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -212,7 +212,7 @@ func TestCallTool(t *testing.T) {
 	t.Run("handles nil parameters", func(t *testing.T) {
 		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
 		body, _ := json.Marshal(toolCallRequest{ToolName: "datahub_search"})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -228,7 +228,7 @@ func TestCallTool(t *testing.T) {
 			ToolName:   "trino_query",
 			Parameters: map[string]any{"sql": "SELECT 1"},
 		})
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer test-token-123")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

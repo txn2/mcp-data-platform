@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -92,7 +93,7 @@ func TestLivenessHandler_AlwaysReturns200(t *testing.T) {
 			tt.setup()
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", http.NoBody)
 			hc.LivenessHandler().ServeHTTP(w, req)
 
 			if w.Code != http.StatusOK {
@@ -133,7 +134,7 @@ func TestReadinessHandler_StatusCodes(t *testing.T) {
 			tt.setup()
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/readyz", http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", http.NoBody)
 			hc.ReadinessHandler().ServeHTTP(w, req)
 
 			if w.Code != tt.wantCode {

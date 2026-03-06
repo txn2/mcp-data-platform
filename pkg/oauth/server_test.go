@@ -324,7 +324,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	}, storage)
 
 	t.Run("metadata endpoint", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -338,7 +338,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("metadata endpoint advertises paths without oauth prefix", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/.well-known/oauth-authorization-server", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -357,7 +357,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("token endpoint wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/token", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/token", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -368,7 +368,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("register endpoint wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/oauth/register", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/register", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -379,7 +379,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/unknown", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/unknown", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -390,7 +390,7 @@ func TestServerHTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("token endpoint with form", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("grant_type=password"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader("grant_type=password"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
 
@@ -411,7 +411,7 @@ func TestServerHTTPHandlers_Register(t *testing.T) {
 
 	t.Run("register endpoint with valid JSON", func(t *testing.T) {
 		body := testDCRRequestBody
-		req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
@@ -423,7 +423,7 @@ func TestServerHTTPHandlers_Register(t *testing.T) {
 	})
 
 	t.Run("register endpoint with invalid JSON", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader("invalid"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/register", strings.NewReader("invalid"))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
@@ -444,7 +444,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 
 	// Test paths without /oauth prefix (Claude Desktop compatibility)
 	t.Run("token endpoint without oauth prefix", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=password"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/token", strings.NewReader("grant_type=password"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
 
@@ -457,7 +457,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("token endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/token", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/token", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -469,7 +469,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 
 	t.Run("register endpoint without oauth prefix", func(t *testing.T) {
 		body := testDCRRequestBody
-		req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
@@ -481,7 +481,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("register endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/register", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/register", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -492,7 +492,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("authorize endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/authorize", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/authorize", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -503,7 +503,7 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	})
 
 	t.Run("callback endpoint without oauth prefix wrong method", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/callback", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/callback", http.NoBody)
 		w := httptest.NewRecorder()
 
 		server.ServeHTTP(w, req)
@@ -1283,7 +1283,7 @@ func TestTokenEndpointBasicAuth(t *testing.T) {
 	server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
 
 	body := "grant_type=authorization_code&code=valid-code&redirect_uri=http://localhost:8080/callback"
-	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(testClientID, testSecret)
 	w := httptest.NewRecorder()
@@ -1507,7 +1507,7 @@ func TestHandleRegisterEndpointStorageError(t *testing.T) {
 	}, storage)
 
 	body := testDCRRequestBody
-	req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 

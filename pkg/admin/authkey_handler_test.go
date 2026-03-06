@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,7 +25,7 @@ func TestListAuthKeys(t *testing.T) {
 		}
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -42,7 +43,7 @@ func TestListAuthKeys(t *testing.T) {
 		mgr := &mockAPIKeyManager{keys: []auth.APIKeySummary{}}
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -60,7 +61,7 @@ func TestCreateAuthKey(t *testing.T) {
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: cs}, nil)
 
 		body := `{"name":"new-key","roles":["admin"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -78,7 +79,7 @@ func TestCreateAuthKey(t *testing.T) {
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"roles":["admin"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -92,7 +93,7 @@ func TestCreateAuthKey(t *testing.T) {
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"name":"test"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -110,7 +111,7 @@ func TestCreateAuthKey(t *testing.T) {
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
 		body := `{"name":"existing","roles":["admin"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -121,7 +122,7 @@ func TestCreateAuthKey(t *testing.T) {
 		mgr := &mockAPIKeyManager{}
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader("{bad"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader("{bad"))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -137,7 +138,7 @@ func TestDeleteAuthKey(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: cs}, nil)
 
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/auth/keys/test-key", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/auth/keys/test-key", http.NoBody)
 		req.SetPathValue("name", "test-key")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -155,7 +156,7 @@ func TestDeleteAuthKey(t *testing.T) {
 		}
 		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/auth/keys/nonexistent", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/auth/keys/nonexistent", http.NoBody)
 		req.SetPathValue("name", "nonexistent")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

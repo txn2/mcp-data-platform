@@ -138,7 +138,7 @@ func TestServeHTTPRoutesToPublicMux(t *testing.T) {
 	shares := &mockShareStore{getByTokenErr: fmt.Errorf("not found")}
 	h := newTestHandler(assets, shares, &mockS3Client{}, &User{UserID: "u1"})
 
-	req := httptest.NewRequest("GET", "/portal/view/sometoken", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/sometoken", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -154,7 +154,7 @@ func TestServeHTTPRoutesToAuthMux(t *testing.T) {
 	shares := &mockShareStore{}
 	h := newTestHandler(assets, shares, &mockS3Client{}, &User{UserID: "u1"})
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -168,7 +168,7 @@ func TestServeHTTPNoAuthMiddleware(t *testing.T) {
 	}, nil)
 
 	// Without auth middleware, no user in context → 401
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -188,7 +188,7 @@ func TestListAssetsSuccess(t *testing.T) {
 	}
 	h := newTestHandler(assets, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets?limit=10&offset=0&content_type=text/html&tag=dashboard", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets?limit=10&offset=0&content_type=text/html&tag=dashboard", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -204,7 +204,7 @@ func TestListAssetsSuccess(t *testing.T) {
 func TestListAssetsNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -215,7 +215,7 @@ func TestListAssetsStoreError(t *testing.T) {
 	assets := &mockAssetStore{listErr: fmt.Errorf("db error")}
 	h := newTestHandler(assets, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -226,7 +226,7 @@ func TestListAssetsNilResult(t *testing.T) {
 	assets := &mockAssetStore{listRes: nil, listTotal: 0}
 	h := newTestHandler(assets, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -253,7 +253,7 @@ func TestGetAssetSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -268,7 +268,7 @@ func TestGetAssetNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/missing", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/missing", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -286,7 +286,7 @@ func TestGetAssetDeleted(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -302,7 +302,7 @@ func TestGetAssetForbiddenNotOwner(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -321,7 +321,7 @@ func TestGetAssetSharedWithUser(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -331,7 +331,7 @@ func TestGetAssetSharedWithUser(t *testing.T) {
 func TestGetAssetNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -349,7 +349,7 @@ func TestGetAssetContentSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -367,7 +367,7 @@ func TestGetAssetContentS3Error(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -383,7 +383,7 @@ func TestGetAssetContentEmptyContentType(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -399,7 +399,7 @@ func TestGetAssetContentNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -416,7 +416,7 @@ func TestGetAssetContentDeleted(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -432,7 +432,7 @@ func TestGetAssetContentForbidden(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -442,7 +442,7 @@ func TestGetAssetContentForbidden(t *testing.T) {
 func TestGetAssetContentNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -458,7 +458,7 @@ func TestGetAssetContentNilS3Client(t *testing.T) {
 		S3Bucket:   "test-bucket",
 	}, testAuthMiddleware(&User{UserID: "u1"}))
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -478,7 +478,7 @@ func TestUpdateAssetSuccess(t *testing.T) {
 	)
 
 	body := `{"name":"New Name","description":"New desc","tags":["tag1"]}`
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -500,7 +500,7 @@ func TestUpdateAssetNotOwner(t *testing.T) {
 	)
 
 	body := `{"name":"x"}`
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -516,7 +516,7 @@ func TestUpdateAssetNotFound(t *testing.T) {
 	)
 
 	body := `{"name":"x"}`
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -532,7 +532,7 @@ func TestUpdateAssetInvalidBody(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader("{bad json"))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader("{bad json"))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -549,7 +549,7 @@ func TestUpdateAssetInvalidName(t *testing.T) {
 	)
 
 	body := `{"name":""}`
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -567,7 +567,7 @@ func TestUpdateAssetInvalidDescription(t *testing.T) {
 
 	longDesc := strings.Repeat("x", maxDescriptionLength+1)
 	body := fmt.Sprintf(`{"description":%q}`, longDesc)
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -589,7 +589,7 @@ func TestUpdateAssetInvalidTags(t *testing.T) {
 	}
 	tagsJSON, _ := json.Marshal(tags)
 	body := fmt.Sprintf(`{"tags":%s}`, tagsJSON)
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -606,7 +606,7 @@ func TestUpdateAssetStoreError(t *testing.T) {
 	)
 
 	body := `{"name":"Valid Name"}`
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -616,7 +616,7 @@ func TestUpdateAssetStoreError(t *testing.T) {
 func TestUpdateAssetNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("PUT", "/api/v1/portal/assets/a1", strings.NewReader(`{"name":"x"}`))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(`{"name":"x"}`))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -634,7 +634,7 @@ func TestDeleteAssetSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -655,7 +655,7 @@ func TestDeleteAssetNotOwner(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -670,7 +670,7 @@ func TestDeleteAssetNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/assets/missing", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/missing", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -686,7 +686,7 @@ func TestDeleteAssetStoreError(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -696,7 +696,7 @@ func TestDeleteAssetStoreError(t *testing.T) {
 func TestDeleteAssetNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/assets/a1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -715,7 +715,7 @@ func TestCreateShareSuccess(t *testing.T) {
 	)
 
 	body := `{"expires_in":"24h"}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -738,7 +738,7 @@ func TestCreateShareWithUserID(t *testing.T) {
 	)
 
 	body := `{"shared_with_user_id":"u2"}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -755,7 +755,7 @@ func TestCreateShareNotOwner(t *testing.T) {
 	)
 
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -771,7 +771,7 @@ func TestCreateShareAssetNotFound(t *testing.T) {
 	)
 
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/missing/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/missing/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -787,7 +787,7 @@ func TestCreateShareInvalidBody(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader("{bad"))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader("{bad"))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -804,7 +804,7 @@ func TestCreateShareInvalidDuration(t *testing.T) {
 	)
 
 	body := `{"expires_in":"not-a-duration"}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -821,7 +821,7 @@ func TestCreateShareStoreError(t *testing.T) {
 	)
 
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -831,7 +831,7 @@ func TestCreateShareStoreError(t *testing.T) {
 func TestCreateShareNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(`{}`))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -847,7 +847,7 @@ func TestCreateShareNoPublicBaseURL(t *testing.T) {
 	}, testAuthMiddleware(&User{UserID: "u1"}))
 
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -871,7 +871,7 @@ func TestListSharesSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -887,7 +887,7 @@ func TestListSharesNotOwner(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -902,7 +902,7 @@ func TestListSharesAssetNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/missing/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/missing/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -918,7 +918,7 @@ func TestListSharesStoreError(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -934,7 +934,7 @@ func TestListSharesNilResult(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -949,7 +949,7 @@ func TestListSharesNilResult(t *testing.T) {
 func TestListSharesNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/shares", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -968,7 +968,7 @@ func TestRevokeShareSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/s1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/s1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -988,7 +988,7 @@ func TestRevokeShareNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/missing", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/missing", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1005,7 +1005,7 @@ func TestRevokeShareNotOwner(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/s1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/s1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1021,7 +1021,7 @@ func TestRevokeShareAssetNotFound(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/s1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/s1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1038,7 +1038,7 @@ func TestRevokeShareStoreError(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/s1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/s1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1048,7 +1048,7 @@ func TestRevokeShareStoreError(t *testing.T) {
 func TestRevokeShareNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/portal/shares/s1", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/s1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1072,7 +1072,7 @@ func TestListSharedWithMeSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/shared-with-me?limit=5&offset=0", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/shared-with-me?limit=5&offset=0", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1092,7 +1092,7 @@ func TestListSharedWithMeStoreError(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/shared-with-me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/shared-with-me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1107,7 +1107,7 @@ func TestListSharedWithMeNilResult(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/shared-with-me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/shared-with-me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1117,7 +1117,7 @@ func TestListSharedWithMeNilResult(t *testing.T) {
 func TestListSharedWithMeNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/shared-with-me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/shared-with-me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1164,7 +1164,7 @@ func TestIntParam(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/test"+tt.query, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/test"+tt.query, http.NoBody)
 			assert.Equal(t, tt.expected, intParam(req, tt.param, tt.fallback))
 		})
 	}
@@ -1195,7 +1195,7 @@ func TestIsSharedWithUserTrue(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.True(t, h.isSharedWithUser(req, "a1", "u1"))
 }
 
@@ -1210,7 +1210,7 @@ func TestIsSharedWithUserRevoked(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
 }
 
@@ -1226,7 +1226,7 @@ func TestIsSharedWithUserExpired(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
 }
 
@@ -1241,7 +1241,7 @@ func TestIsSharedWithUserWrongUser(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
 }
 
@@ -1253,7 +1253,7 @@ func TestIsSharedWithUserError(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
 }
 
@@ -1269,7 +1269,7 @@ func TestGetMeSuccess(t *testing.T) {
 		AdminRoles: []string{"dp_admin"},
 	}, testAuthMiddleware(user))
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1292,7 +1292,7 @@ func TestGetMeNonAdminWithPrefixedRoles(t *testing.T) {
 		AdminRoles: []string{"dp_admin"},
 	}, testAuthMiddleware(user))
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1307,7 +1307,7 @@ func TestGetMeNonAdmin(t *testing.T) {
 	user := &User{UserID: "user-99", Roles: []string{"analyst"}}
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, user)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -1322,7 +1322,7 @@ func TestGetMeNonAdmin(t *testing.T) {
 func TestGetMeNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 

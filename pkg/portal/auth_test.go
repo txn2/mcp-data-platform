@@ -39,7 +39,7 @@ func TestGetUserFromContext(t *testing.T) {
 
 func TestPortalAuthenticatorNoToken(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{})
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	user, err := pa.Authenticate(r)
 	assert.NoError(t, err)
 	assert.Nil(t, user)
@@ -49,7 +49,7 @@ func TestPortalAuthenticatorAPIKey(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{
 		info: &mw.UserInfo{UserID: "user1", Roles: []string{"analyst"}},
 	})
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "test-key")
 	user, err := pa.Authenticate(r)
 	assert.NoError(t, err)
@@ -61,7 +61,7 @@ func TestPortalAuthenticatorBearer(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{
 		info: &mw.UserInfo{UserID: "user2", Roles: []string{"admin"}},
 	})
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("Authorization", "Bearer mytoken")
 	user, err := pa.Authenticate(r)
 	assert.NoError(t, err)
@@ -73,7 +73,7 @@ func TestPortalAuthenticatorAuthError(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{
 		err: fmt.Errorf("auth failed"),
 	})
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "test")
 	user, err := pa.Authenticate(r)
 	assert.NoError(t, err) // errors are treated as unauthenticated
@@ -84,7 +84,7 @@ func TestPortalAuthenticatorNilInfo(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{
 		info: nil,
 	})
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "test")
 	user, err := pa.Authenticate(r)
 	assert.NoError(t, err)
@@ -102,7 +102,7 @@ func TestRequirePortalAuthSuccess(t *testing.T) {
 	})
 
 	authMW := RequirePortalAuth(pa)(inner)
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "test")
 	w := httptest.NewRecorder()
 	authMW.ServeHTTP(w, r)
@@ -120,7 +120,7 @@ func TestRequirePortalAuthNoCredentials(t *testing.T) {
 	})
 
 	authMW := RequirePortalAuth(pa)(inner)
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	w := httptest.NewRecorder()
 	authMW.ServeHTTP(w, r)
 
@@ -128,19 +128,19 @@ func TestRequirePortalAuthNoCredentials(t *testing.T) {
 }
 
 func TestExtractPortalTokenAPIKey(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "mykey")
 	assert.Equal(t, "mykey", extractPortalToken(r))
 }
 
 func TestExtractPortalTokenBearer(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("Authorization", "Bearer mytoken")
 	assert.Equal(t, "mytoken", extractPortalToken(r))
 }
 
 func TestExtractPortalTokenEmpty(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	assert.Equal(t, "", extractPortalToken(r))
 }
 
@@ -160,7 +160,7 @@ func TestPortalAuthenticatorCookieAuth(t *testing.T) {
 	ba := browsersession.NewAuthenticator(cfg)
 	pa := NewAuthenticator(&mockAuthenticator{}, WithBrowserAuth(ba))
 
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
 
 	user, authErr := pa.Authenticate(r)
@@ -185,7 +185,7 @@ func TestPortalAuthenticatorCookiePriority(t *testing.T) {
 		WithBrowserAuth(ba),
 	)
 
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
 	r.Header.Set("X-API-Key", "some-key")
 
@@ -203,7 +203,7 @@ func TestPortalAuthenticatorCookieFallback(t *testing.T) {
 		WithBrowserAuth(ba),
 	)
 
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: "invalid-jwt"})
 	r.Header.Set("X-API-Key", "key")
 
@@ -219,7 +219,7 @@ func TestPortalAuthenticatorNoBrowserAuth(t *testing.T) {
 		info: &mw.UserInfo{UserID: "u1", Roles: []string{"r1"}},
 	})
 
-	r := httptest.NewRequest("GET", "/", http.NoBody)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 	r.Header.Set("X-API-Key", "key")
 
 	user, err := pa.Authenticate(r)

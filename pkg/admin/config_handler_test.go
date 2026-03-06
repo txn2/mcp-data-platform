@@ -45,7 +45,7 @@ func TestGetConfig(t *testing.T) {
 		}
 		h := NewHandler(Deps{Config: cfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -85,7 +85,7 @@ func TestConfigMode(t *testing.T) {
 	t.Run("returns file mode when no config store", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -99,7 +99,7 @@ func TestConfigMode(t *testing.T) {
 	t.Run("returns file mode with file config store", func(t *testing.T) {
 		h := NewHandler(Deps{ConfigStore: &mockConfigStore{mode: "file"}}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -113,7 +113,7 @@ func TestConfigMode(t *testing.T) {
 	t.Run("returns database mode", func(t *testing.T) {
 		h := NewHandler(Deps{ConfigStore: &mockConfigStore{mode: "database"}}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/mode", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -138,7 +138,7 @@ func TestExportConfig(t *testing.T) {
 		}
 		h := NewHandler(Deps{Config: cfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/export", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/export", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -163,7 +163,7 @@ func TestExportConfig(t *testing.T) {
 		}
 		h := NewHandler(Deps{Config: cfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/export?secrets=true", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/export?secrets=true", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -176,7 +176,7 @@ func TestExportConfig(t *testing.T) {
 	t.Run("returns error when no config", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/export", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/export", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -190,7 +190,7 @@ func TestImportConfig(t *testing.T) {
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
 		yamlBody := testValidConfigYAML
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import?comment=test+import", strings.NewReader(yamlBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import?comment=test+import", strings.NewReader(yamlBody))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -206,7 +206,7 @@ func TestImportConfig(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("{{invalid yaml"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("{{invalid yaml"))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -220,7 +220,7 @@ func TestImportConfig(t *testing.T) {
 
 		// OIDC enabled without issuer fails validation
 		yamlBody := "apiVersion: v1\nauth:\n  oidc:\n    enabled: true\n"
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -235,7 +235,7 @@ func TestImportConfig(t *testing.T) {
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
 		yamlBody := testValidConfigYAML
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import?comment=user+import", strings.NewReader(yamlBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import?comment=user+import", strings.NewReader(yamlBody))
 		ctx := context.WithValue(req.Context(), adminUserKey, &User{UserID: "admin-user"})
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
@@ -250,7 +250,7 @@ func TestImportConfig(t *testing.T) {
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
 		yamlBody := testValidConfigYAML
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -261,7 +261,7 @@ func TestImportConfig(t *testing.T) {
 		cs := &mockConfigStore{mode: "file"}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("apiVersion: v1\n"))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("apiVersion: v1\n"))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -287,7 +287,7 @@ func TestConfigHistory(t *testing.T) {
 		}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -304,7 +304,7 @@ func TestConfigHistory(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -319,7 +319,7 @@ func TestConfigHistory(t *testing.T) {
 		cs.historyErr = errTestSave
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -330,7 +330,7 @@ func TestConfigHistory(t *testing.T) {
 		cs := &mockConfigStore{mode: "file"}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -341,7 +341,7 @@ func TestConfigHistory(t *testing.T) {
 func TestSyncConfig(t *testing.T) {
 	t.Run("no-op when config store is nil", func(_ *testing.T) {
 		h := NewHandler(Deps{Config: testConfig()}, nil)
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		// Should not panic
 		h.syncConfig(req, "test")
 	})
@@ -349,7 +349,7 @@ func TestSyncConfig(t *testing.T) {
 	t.Run("no-op in file mode", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "file"}
 		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		h.syncConfig(req, "test")
 		assert.Equal(t, 0, cs.saveCalls)
 	})
@@ -357,7 +357,7 @@ func TestSyncConfig(t *testing.T) {
 	t.Run("saves in database mode", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		h.syncConfig(req, "test mutation")
 		assert.Equal(t, 1, cs.saveCalls)
 	})
@@ -365,7 +365,7 @@ func TestSyncConfig(t *testing.T) {
 	t.Run("saves with user context", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		ctx := context.WithValue(req.Context(), adminUserKey, &User{UserID: "admin-user"})
 		req = req.WithContext(ctx)
 		h.syncConfig(req, "with user")
@@ -375,7 +375,7 @@ func TestSyncConfig(t *testing.T) {
 	t.Run("logs error on save failure", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database", saveErr: errTestSave}
 		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		// Should not panic, error is logged
 		h.syncConfig(req, "fail save")
 		assert.Equal(t, 1, cs.saveCalls)
@@ -546,7 +546,7 @@ func TestFileMode_PersonaMutationsBlocked(t *testing.T) {
 
 	t.Run("POST persona returns 405", func(t *testing.T) {
 		body := `{"name":"new","display_name":"New"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -554,7 +554,7 @@ func TestFileMode_PersonaMutationsBlocked(t *testing.T) {
 
 	t.Run("PUT persona returns 405", func(t *testing.T) {
 		body := `{"display_name":"Updated"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/personas/admin", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/admin", strings.NewReader(body))
 		req.SetPathValue("name", "admin")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -562,7 +562,7 @@ func TestFileMode_PersonaMutationsBlocked(t *testing.T) {
 	})
 
 	t.Run("DELETE persona returns 405", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/personas/admin", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/admin", http.NoBody)
 		req.SetPathValue("name", "admin")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -570,7 +570,7 @@ func TestFileMode_PersonaMutationsBlocked(t *testing.T) {
 	})
 
 	t.Run("GET personas still works", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/personas", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -584,14 +584,14 @@ func TestFileMode_AuthKeyMutationsBlocked(t *testing.T) {
 
 	t.Run("POST auth key returns 405", func(t *testing.T) {
 		body := `{"name":"new","roles":["admin"]}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/auth/keys", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 	})
 
 	t.Run("DELETE auth key returns 405", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/auth/keys/test", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/auth/keys/test", http.NoBody)
 		req.SetPathValue("name", "test")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -599,7 +599,7 @@ func TestFileMode_AuthKeyMutationsBlocked(t *testing.T) {
 	})
 
 	t.Run("GET auth keys still works", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/auth/keys", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)

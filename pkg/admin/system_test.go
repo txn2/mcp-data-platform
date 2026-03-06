@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,7 @@ func TestGetSystemInfo(t *testing.T) {
 			ConfigStore:       &mockConfigStore{mode: "database"},
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -93,7 +94,7 @@ func TestGetSystemInfo(t *testing.T) {
 			// No AuditQuerier, no Knowledge handler — not available at runtime
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -109,7 +110,7 @@ func TestGetSystemInfo(t *testing.T) {
 	t.Run("returns info without config", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -133,7 +134,7 @@ func TestGetPublicBranding(t *testing.T) {
 
 		h := NewHandler(Deps{Config: cfg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -150,7 +151,7 @@ func TestGetPublicBranding(t *testing.T) {
 	t.Run("returns empty when no config", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -175,7 +176,7 @@ func TestGetPublicBranding(t *testing.T) {
 
 		h := NewHandler(Deps{Config: cfg}, authMiddle)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -190,7 +191,7 @@ func TestGetPublicBranding(t *testing.T) {
 func TestSwaggerEndpoint(t *testing.T) {
 	h := NewHandler(Deps{Config: testConfig()}, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/docs/index.html", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/docs/index.html", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -208,7 +209,7 @@ func TestListTools(t *testing.T) {
 		}
 		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -234,7 +235,7 @@ func TestListTools(t *testing.T) {
 			},
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -255,7 +256,7 @@ func TestListTools(t *testing.T) {
 	t.Run("returns empty list when no registry", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -272,7 +273,7 @@ func TestListTools(t *testing.T) {
 			},
 		}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -294,7 +295,7 @@ func TestListConnections(t *testing.T) {
 		}
 		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -320,7 +321,7 @@ func TestListConnections(t *testing.T) {
 		}
 		h := NewHandler(Deps{Config: cfg, ToolkitRegistry: reg}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
@@ -349,7 +350,7 @@ func TestListConnections(t *testing.T) {
 	t.Run("returns empty list when no registry", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 

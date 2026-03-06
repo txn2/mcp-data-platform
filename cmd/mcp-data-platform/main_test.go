@@ -83,7 +83,7 @@ func TestRegisterOAuthRoutes(t *testing.T) {
 
 	for _, route := range routes {
 		t.Run(route, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, route, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, route, http.NoBody)
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
 
@@ -101,7 +101,7 @@ func TestCorsMiddleware(t *testing.T) {
 	handler := corsMiddleware(inner)
 
 	t.Run("sets CORS headers", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -136,7 +136,7 @@ func TestCorsMiddleware(t *testing.T) {
 	})
 
 	t.Run("handles OPTIONS preflight", func(t *testing.T) {
-		req := httptest.NewRequest("OPTIONS", "/mcp", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), "OPTIONS", "/mcp", http.NoBody)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -148,7 +148,7 @@ func TestCorsMiddleware(t *testing.T) {
 	})
 
 	t.Run("defaults origin to wildcard", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -475,14 +475,14 @@ func TestHealthEndpointsRegistered(t *testing.T) {
 
 	// Test /healthz
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", http.NoBody))
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/healthz", http.NoBody))
 	if w.Code != http.StatusOK {
 		t.Errorf("/healthz status = %d, want %d", w.Code, http.StatusOK)
 	}
 
 	// Test /readyz when ready
 	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", http.NoBody))
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/readyz", http.NoBody))
 	if w.Code != http.StatusOK {
 		t.Errorf("/readyz status = %d, want %d (ready)", w.Code, http.StatusOK)
 	}
@@ -490,7 +490,7 @@ func TestHealthEndpointsRegistered(t *testing.T) {
 	// Test /readyz when draining
 	hc.SetDraining()
 	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", http.NoBody))
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/readyz", http.NoBody))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("/readyz status = %d, want %d (draining)", w.Code, http.StatusServiceUnavailable)
 	}
@@ -558,7 +558,7 @@ func TestAwareHandlerWiring(t *testing.T) {
 		})
 
 		// First request (no session) should get a session ID in response.
-		req := httptest.NewRequest("POST", "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -568,7 +568,7 @@ func TestAwareHandlerWiring(t *testing.T) {
 		}
 
 		// Second request with session ID should succeed.
-		req2 := httptest.NewRequest("POST", "/", http.NoBody)
+		req2 := httptest.NewRequestWithContext(context.Background(), "POST", "/", http.NoBody)
 		req2.Header.Set("Mcp-Session-Id", sessionID)
 		w2 := httptest.NewRecorder()
 		handler.ServeHTTP(w2, req2)
@@ -757,7 +757,7 @@ func TestMountAdminAPI(t *testing.T) {
 		mountAdminAPI(mux, p)
 
 		// Admin route should be registered and return 401 (no auth)
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
@@ -815,7 +815,7 @@ func TestBuildAdminHandler(t *testing.T) {
 	}
 
 	// The handler should respond to admin routes
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
 	req.Header.Set("X-API-Key", "test-key")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -858,7 +858,7 @@ func TestBuildRootHandler_WithSessionStore(t *testing.T) {
 	}
 
 	// The handler should be wrapped with session awareness
-	req := httptest.NewRequest("POST", "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -875,7 +875,7 @@ func TestMountRootHandler_AuthRequired(t *testing.T) {
 	})
 	mountRootHandler(mux, inner, httpConfig{requireAuth: true}, "")
 
-	req := httptest.NewRequest("POST", "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -892,7 +892,7 @@ func TestMountRootHandler_NoAuth(t *testing.T) {
 	})
 	mountRootHandler(mux, inner, httpConfig{requireAuth: false}, "")
 
-	req := httptest.NewRequest("POST", "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -908,7 +908,7 @@ func TestBrowserRedirectMiddleware(t *testing.T) {
 	handler := browserRedirectMiddleware(inner)
 
 	t.Run("redirects browsers", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Accept", "text/html,application/xhtml+xml")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -922,7 +922,7 @@ func TestBrowserRedirectMiddleware(t *testing.T) {
 	})
 
 	t.Run("passes through non-browser", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", http.NoBody)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -932,7 +932,7 @@ func TestBrowserRedirectMiddleware(t *testing.T) {
 	})
 
 	t.Run("passes through GET without html accept", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -951,7 +951,7 @@ func TestMountRootHandler_AuthWithPortalUI_BrowserRedirects(t *testing.T) {
 	mountRootHandler(mux, inner, httpConfig{requireAuth: true, portalUI: true}, "")
 
 	// Browser request should redirect to /portal/ instead of getting 401.
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -972,7 +972,7 @@ func TestMountRootHandler_AuthWithPortalUI_MCPStillRequiresAuth(t *testing.T) {
 	mountRootHandler(mux, inner, httpConfig{requireAuth: true, portalUI: true}, "")
 
 	// MCP request (POST, no Accept: text/html) should still hit auth gateway.
-	req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
