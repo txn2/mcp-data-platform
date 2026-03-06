@@ -31,6 +31,14 @@ const BARE_IMPORT_MAP: Record<string, string> = {
 const IMPORT_MAP = JSON.stringify({ imports: BARE_IMPORT_MAP });
 
 /**
+ * Escape closing script tags so injected code cannot break out of a
+ * `<script>` block in the generated HTML.
+ */
+export function escapeScriptClose(code: string): string {
+  return code.replace(/<\/script/gi, "<\\/script");
+}
+
+/**
  * Transform JSX to valid JavaScript using Sucrase.
  * Uses automatic JSX runtime so `<div>` becomes `_jsx("div", ...)` with an
  * auto-inserted `import { jsx as _jsx } from "react/jsx-runtime"`.
@@ -102,12 +110,13 @@ export function JsxRenderer({ content }: { content: string }) {
   const blobUrl = useMemo(() => {
     let transformed: string;
     try {
-      transformed = transformJsx(content);
+      transformed = escapeScriptClose(transformJsx(content));
     } catch (e) {
-      // If Sucrase fails, show the error in the iframe.
+      // If Sucrase fails, show the error in the iframe via textContent (safe).
       const errMsg =
         e instanceof Error ? e.message : "JSX transform failed";
-      const html = `<!DOCTYPE html><html><body><pre style="${ERROR_STYLE}">${errMsg}</pre></body></html>`;
+      const html = `<!DOCTYPE html><html><body><pre id="e" style="${ERROR_STYLE}"></pre>
+<script>document.getElementById('e').textContent=${JSON.stringify(errMsg)};</script></body></html>`;
       return URL.createObjectURL(new Blob([html], { type: "text/html" }));
     }
 

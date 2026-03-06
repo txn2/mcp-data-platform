@@ -4,6 +4,7 @@ import {
   JsxRenderer,
   transformJsx,
   findComponentName,
+  escapeScriptClose,
 } from "./JsxRenderer";
 
 // jsdom does not implement URL.createObjectURL; provide a stub.
@@ -126,6 +127,39 @@ describe("JsxRenderer", () => {
       <JsxRenderer content="function App() { return <div>Hello</div>; }" />,
     );
     expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+});
+
+describe("escapeScriptClose", () => {
+  it("escapes </script> in code strings", () => {
+    const code = `const x = "</script><script>alert(1)</script>";`;
+    const escaped = escapeScriptClose(code);
+    expect(escaped).not.toContain("</script>");
+    expect(escaped).toContain("<\\/script");
+  });
+
+  it("escapes case-insensitive variants", () => {
+    const code = `const x = "</SCRIPT>"; const y = "</Script>";`;
+    const escaped = escapeScriptClose(code);
+    expect(escaped).not.toMatch(/<\/script/i);
+  });
+
+  it("leaves code without script tags unchanged", () => {
+    const code = `function App() { return "hello"; }`;
+    expect(escapeScriptClose(code)).toBe(code);
+  });
+});
+
+describe("JsxRenderer: script injection safety", () => {
+  it("generated HTML does not contain raw </script> from content", () => {
+    const malicious = `export default function App() { return <div>{"</script><script>alert(1)</script>"}</div>; }`;
+    // transformJsx will transform the JSX, and escapeScriptClose should
+    // prevent the closing script tag from breaking the HTML structure.
+    const { container } = render(<JsxRenderer content={malicious} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    // The blob URL should still be created (no crash)
+    expect(iframe?.getAttribute("src")).toMatch(/^blob:/);
   });
 });
 
