@@ -393,7 +393,7 @@ func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveAr
 		ToolCallsRecorded:  len(prov.ToolCalls),
 	}
 	if t.baseURL != "" {
-		out.PortalURL = t.baseURL + "/artifacts/" + assetID
+		out.PortalURL = t.baseURL + "/portal/assets/" + assetID
 	}
 	return out
 }

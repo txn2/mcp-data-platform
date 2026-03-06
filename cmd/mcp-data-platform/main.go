@@ -489,6 +489,13 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	}
 	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
 
+	var adminRoles []string
+	if pr := p.PersonaRegistry(); pr != nil {
+		if persona, ok := pr.Get(p.Config().Admin.Persona); ok {
+			adminRoles = persona.Roles
+		}
+	}
+
 	deps := portal.Deps{
 		AssetStore:    p.PortalAssetStore(),
 		ShareStore:    p.PortalShareStore(),
@@ -500,6 +507,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
 		},
 		OIDCEnabled: p.BrowserSessionFlow() != nil,
+		AdminRoles:  adminRoles,
 	}
 
 	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))

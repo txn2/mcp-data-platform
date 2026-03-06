@@ -105,6 +105,10 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (*Asset, []b
 		return nil, nil, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
 	}
 
+	if h.deps.S3Client == nil {
+		return nil, nil, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+	}
+
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
 		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) //nolint:gosec // structured log, not user-facing

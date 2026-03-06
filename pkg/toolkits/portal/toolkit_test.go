@@ -305,6 +305,26 @@ func TestManageArtifact_MissingAssetID(t *testing.T) {
 	}
 }
 
+func TestBuildSaveOutput(t *testing.T) {
+	tk := New(Config{Name: "test", BaseURL: "https://example.com", S3Bucket: "bucket"})
+	out := tk.buildSaveOutput("abc123", portal.Provenance{
+		ToolCalls: []portal.ProvenanceToolCall{{ToolName: "trino_query"}},
+	})
+
+	assert.Equal(t, "abc123", out.AssetID)
+	assert.Equal(t, "https://example.com/portal/assets/abc123", out.PortalURL)
+	assert.True(t, out.ProvenanceCaptured)
+	assert.Equal(t, 1, out.ToolCallsRecorded)
+}
+
+func TestBuildSaveOutputNoBaseURL(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	out := tk.buildSaveOutput("abc123", portal.Provenance{})
+
+	assert.Empty(t, out.PortalURL)
+	assert.False(t, out.ProvenanceCaptured)
+}
+
 func TestExtensionForContentType(t *testing.T) {
 	tests := []struct {
 		ct  string

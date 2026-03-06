@@ -118,6 +118,22 @@ func TestPublicViewAssetDeleted(t *testing.T) {
 	assert.Equal(t, http.StatusGone, w.Code)
 }
 
+func TestPublicViewNilS3Client(t *testing.T) {
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{ID: "a1"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   nil, // no S3 configured
+	}, nil)
+
+	req := httptest.NewRequest("GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
 func TestPublicViewS3Error(t *testing.T) {
 	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{ID: "a1"}
