@@ -490,8 +490,12 @@ func (f *Flow) extractRoles(claims map[string]any) []string {
 			roles = append(roles, s)
 			continue
 		}
-		if after, found := strings.CutPrefix(s, f.cfg.RolePrefix); found {
-			roles = append(roles, after)
+		// Filter to roles with the prefix but keep the full role name.
+		// This matches the MCP auth path (pkg/auth/claims.go filterByPrefix)
+		// so that persona role matching works consistently across both
+		// browser sessions and MCP OAuth/OIDC flows.
+		if strings.HasPrefix(s, f.cfg.RolePrefix) {
+			roles = append(roles, s)
 		}
 	}
 
