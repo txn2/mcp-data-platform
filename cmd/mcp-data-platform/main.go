@@ -207,6 +207,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 // httpConfig holds configuration extracted from the platform for HTTP servers.
 type httpConfig struct {
 	requireAuth   bool
+	portalUI      bool
 	tlsEnabled    bool
 	tlsCertFile   string
 	tlsKeyFile    string
@@ -219,6 +220,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 	if p != nil && p.Config() != nil {
 		c := p.Config()
 		cfg.requireAuth = !c.Auth.AllowAnonymous
+		cfg.portalUI = c.Portal.UI && ui.Available()
 		cfg.tlsEnabled = c.Server.TLS.Enabled
 		cfg.tlsCertFile = c.Server.TLS.CertFile
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
@@ -313,7 +315,8 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional
-// session-aware wrapping and browser redirect middleware.
+// session-aware wrapping. Browser redirect is applied in mountRootHandler
+// so it wraps outside the auth gateway.
 func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConfig) http.Handler {
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
@@ -334,26 +337,27 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 		log.Println("Session-aware handler enabled (external session store)")
 	}
 
-	// Wrap with browser redirect when portal UI is enabled.
-	// Browser requests (Accept: text/html) to / redirect to /portal/;
-	// MCP clients (Accept: application/json or no Accept) pass through.
-	if p != nil && p.Config().Portal.UI && ui.Available() {
-		handler = browserRedirectMiddleware(handler)
-	}
-
 	return handler
 }
 
 // mountRootHandler registers the root handler on the mux, optionally wrapping
 // it with the MCP auth gateway when authentication is required.
+// Browser redirect wraps OUTSIDE the auth gateway so that browser requests
+// (Accept: text/html) redirect to /portal/ without hitting the 401.
 func mountRootHandler(mux *http.ServeMux, rootHandler http.Handler, hcfg httpConfig, rmURL string) {
+	handler := rootHandler
 	if hcfg.requireAuth {
-		mux.Handle("/", httpauth.MCPAuthGateway(rmURL)(rootHandler))
+		handler = httpauth.MCPAuthGateway(rmURL)(handler)
 		log.Println("Streamable HTTP transport enabled on / (auth required)")
 	} else {
-		mux.Handle("/", rootHandler)
 		log.Println("Streamable HTTP transport enabled on / (anonymous)")
 	}
+
+	if hcfg.portalUI {
+		handler = browserRedirectMiddleware(handler)
+	}
+
+	mux.Handle("/", handler)
 }
 
 func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg httpConfig, hc *health.Checker) error {
