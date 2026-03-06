@@ -9,6 +9,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // newTestServerRequest creates a test server request for tools/call.
@@ -236,6 +238,73 @@ func TestProvenanceTracker_CleanupBefore(t *testing.T) {
 	assert.Nil(t, tracker.Harvest("old_sess"))
 	calls := tracker.Harvest("new_sess")
 	assert.Len(t, calls, 1)
+}
+
+func TestMCPProvenanceMiddleware_SessionReplacement(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	// Record tool calls under the "old" session (the one that will expire).
+	tracker.Record("old-session", "trino_query", map[string]any{"sql": "SELECT 1"})
+	tracker.Record("old-session", "datahub_search", map[string]any{"query": "sales"})
+
+	var capturedCalls []ProvenanceToolCall
+	base := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		capturedCalls = GetProvenanceToolCalls(ctx)
+		return &mcp.CallToolResult{}, nil
+	}
+
+	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+
+	req := newTestServerRequest(&mcp.CallToolParamsRaw{
+		Name: "save_artifact",
+	})
+
+	// The new session has no tool calls, but the replaced session ID carries
+	// the old session's provenance.
+	ctx := WithPlatformContext(context.Background(), &PlatformContext{SessionID: "new-session"})
+	ctx = pkgsession.WithReplacedSessionID(ctx, "old-session")
+
+	_, err := handler(ctx, methodToolsCall, req)
+	require.NoError(t, err)
+
+	// Both old-session tool calls should be recovered.
+	require.Len(t, capturedCalls, 2, "should recover provenance from replaced session")
+	assert.Equal(t, "trino_query", capturedCalls[0].ToolName)
+	assert.Equal(t, "datahub_search", capturedCalls[1].ToolName)
+
+	// Both sessions should be cleared after harvest.
+	assert.Nil(t, tracker.Harvest("old-session"))
+	assert.Nil(t, tracker.Harvest("new-session"))
+}
+
+func TestMCPProvenanceMiddleware_SessionReplacementMergesBoth(t *testing.T) {
+	tracker := NewProvenanceTracker()
+
+	// Old session has 2 calls, new session has 1 call.
+	tracker.Record("old-sess", "tool_a", nil)
+	tracker.Record("old-sess", "tool_b", nil)
+	tracker.Record("new-sess", "tool_c", nil)
+
+	var capturedCalls []ProvenanceToolCall
+	base := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		capturedCalls = GetProvenanceToolCalls(ctx)
+		return &mcp.CallToolResult{}, nil
+	}
+
+	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+
+	req := newTestServerRequest(&mcp.CallToolParamsRaw{Name: "save_artifact"})
+	ctx := WithPlatformContext(context.Background(), &PlatformContext{SessionID: "new-sess"})
+	ctx = pkgsession.WithReplacedSessionID(ctx, "old-sess")
+
+	_, err := handler(ctx, methodToolsCall, req)
+	require.NoError(t, err)
+
+	// Old calls come first, then new session calls.
+	require.Len(t, capturedCalls, 3)
+	assert.Equal(t, "tool_a", capturedCalls[0].ToolName)
+	assert.Equal(t, "tool_b", capturedCalls[1].ToolName)
+	assert.Equal(t, "tool_c", capturedCalls[2].ToolName)
 }
 
 func TestExtractToolParams_NilCases(t *testing.T) {

@@ -1,58 +1,72 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
+import { transform } from "sucrase";
 
 const CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh blob:",
-  "style-src 'unsafe-inline'",
+  "script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
   "img-src data: blob:",
-  "font-src data:",
-  "connect-src https://esm.sh blob:",
+  "font-src data: https://fonts.gstatic.com",
+  "connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
 ].join("; ");
 
 /**
- * Bare-specifier → absolute URL map used for both the import map (self-mounting
- * path) and the blob module rewriter (auto-mount path). Single source of truth.
+ * Bare-specifier → absolute URL map. Used in the import map inside the
+ * sandboxed iframe so that `import { useState } from "react"` etc. resolve.
  */
 const BARE_IMPORT_MAP: Record<string, string> = {
-  react: "https://esm.sh/react@19?bundle",
-  "react/": "https://esm.sh/react@19&bundle/",
-  "react-dom/client": "https://esm.sh/react-dom@19/client?bundle",
-  "react-dom/": "https://esm.sh/react-dom@19&bundle/",
-  "react-dom": "https://esm.sh/react-dom@19?bundle",
-  recharts: "https://esm.sh/recharts@2?bundle",
-  "lucide-react": "https://esm.sh/lucide-react@0.469?bundle",
+  // React core: unbundled so all imports share one instance.
+  // Using ?bundle here causes dual-instance bugs (useState → null).
+  react: "https://esm.sh/react@19",
+  "react/": "https://esm.sh/react@19/",
+  "react-dom": "https://esm.sh/react-dom@19",
+  "react-dom/": "https://esm.sh/react-dom@19/",
+  "react-dom/client": "https://esm.sh/react-dom@19/client",
+  // Leaf packages: bundle own deps but externalize react/react-dom.
+  recharts: "https://esm.sh/recharts@2?bundle&external=react,react-dom",
+  "lucide-react":
+    "https://esm.sh/lucide-react@0.469?bundle&external=react",
 };
 
 const IMPORT_MAP = JSON.stringify({ imports: BARE_IMPORT_MAP });
 
-/** Replace bare import specifiers with absolute esm.sh URLs so blob modules resolve. */
-function resolveImports(code: string): string {
-  let resolved = code;
-  const entries = Object.entries(BARE_IMPORT_MAP).sort(
-    (a, b) => b[0].length - a[0].length,
-  );
-  for (const [bare, url] of entries) {
-    resolved = resolved.split(`from '${bare}'`).join(`from '${url}'`);
-    resolved = resolved.split(`from "${bare}"`).join(`from "${url}"`);
-  }
-  return resolved;
+/**
+ * Transform JSX to valid JavaScript using Sucrase.
+ * Uses automatic JSX runtime so `<div>` becomes `_jsx("div", ...)` with an
+ * auto-inserted `import { jsx as _jsx } from "react/jsx-runtime"`.
+ */
+export function transformJsx(code: string): string {
+  const result = transform(code, {
+    transforms: ["jsx"],
+    jsxRuntime: "automatic",
+    production: true,
+  });
+  return result.code;
 }
 
 /**
- * If content lacks `export default`, detect the last PascalCase component and
- * append an export. Handles function, const, let, and class declarations.
+ * Detect the default-exported component name from JSX source.
+ * Checks common patterns in order of specificity.
  */
-function ensureExport(code: string): string {
-  if (/export\s+default/.test(code)) return code;
+export function findComponentName(code: string): string | null {
+  // export default function Name / export default class Name
+  const namedDefault = code.match(
+    /export\s+default\s+(?:function|class)\s+([A-Z][A-Za-z0-9]*)/,
+  );
+  if (namedDefault?.[1]) return namedDefault[1];
+
+  // export default Name;  (where Name is PascalCase)
+  const reExport = code.match(/export\s+default\s+([A-Z][A-Za-z0-9]*)\s*;/);
+  if (reExport?.[1]) return reExport[1];
+
+  // Fallback: last PascalCase declaration (function/const/let/class)
   const matches = [
     ...code.matchAll(/(?:function|const|let|class)\s+([A-Z][A-Za-z0-9]*)/g),
   ];
   const last = matches[matches.length - 1];
-  if (last) {
-    const name = last[1];
-    return code + `\nexport default ${name};`;
-  }
-  return code;
+  if (last?.[1]) return last[1];
+
+  return null;
 }
 
 /**
@@ -85,18 +99,21 @@ function showError(text, tag, style) {
 }`;
 
 export function JsxRenderer({ content }: { content: string }) {
-  // Track module blob URLs for cleanup (auto-mount path creates one).
-  const moduleBlobRef = useRef<string | null>(null);
-
   const blobUrl = useMemo(() => {
-    // Revoke any previous module blob URL before creating a new one.
-    if (moduleBlobRef.current) {
-      URL.revokeObjectURL(moduleBlobRef.current);
-      moduleBlobRef.current = null;
+    let transformed: string;
+    try {
+      transformed = transformJsx(content);
+    } catch (e) {
+      // If Sucrase fails, show the error in the iframe.
+      const errMsg =
+        e instanceof Error ? e.message : "JSX transform failed";
+      const html = `<!DOCTYPE html><html><body><pre style="${ERROR_STYLE}">${errMsg}</pre></body></html>`;
+      return URL.createObjectURL(new Blob([html], { type: "text/html" }));
     }
 
     if (hasMountCode(content)) {
-      // Self-mounting content: use import map + inline injection (existing behavior).
+      // Self-mounting path: content has its own createRoot/render call.
+      // Inject transformed code with import map so bare specifiers resolve.
       const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -114,26 +131,27 @@ ${SHOW_ERROR_FN}
 window.onerror = function(msg, src, line, col, err) {
   showError(err && err.stack ? err.stack : msg);
 };
-${content}
+window.addEventListener('unhandledrejection', function(e) {
+  showError('Module load error: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+});
+${transformed}
   </script>
 </body>
 </html>`;
-      const blob = new Blob([html], { type: "text/html" });
-      return URL.createObjectURL(blob);
+      return URL.createObjectURL(new Blob([html], { type: "text/html" }));
     }
 
-    // Auto-mount path: resolve imports, ensure default export, load as blob module.
-    const resolvedCode = resolveImports(ensureExport(content));
-    const moduleBlob = new Blob([resolvedCode], {
-      type: "application/javascript",
-    });
-    const moduleBlobUrl = URL.createObjectURL(moduleBlob);
-    moduleBlobRef.current = moduleBlobUrl;
+    // Auto-mount path: detect component name and render it.
+    const componentName = findComponentName(content);
+    const mountCall = componentName
+      ? `createRoot(document.getElementById('root')).render(React.createElement(${componentName}));`
+      : `showError('No component found. Use export default function MyComponent() {...}', 'p', 'color:#f59e0b;padding:16px;font-family:system-ui');`;
 
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta http-equiv="Content-Security-Policy" content="${CSP}">
+  <script type="importmap">${IMPORT_MAP}</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; padding: 16px; }
@@ -142,43 +160,33 @@ ${content}
 <body>
   <div id="root"></div>
   <script type="module">
-import React from 'https://esm.sh/react@19?bundle';
-import { createRoot } from 'https://esm.sh/react-dom@19/client?bundle';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 
 ${SHOW_ERROR_FN}
 window.onerror = function(msg, src, line, col, err) {
   showError(err && err.stack ? err.stack : msg);
 };
+window.addEventListener('unhandledrejection', function(e) {
+  showError('Module load error: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+});
+
+${transformed}
 
 try {
-  const mod = await import("${moduleBlobUrl}");
-  if (mod.default) {
-    createRoot(document.getElementById('root'))
-      .render(React.createElement(mod.default));
-  } else {
-    showError(
-      'Module loaded but no default export found. Ensure your component uses export default.',
-      'p',
-      'color:#f59e0b;padding:16px;font-family:system-ui'
-    );
-  }
+  ${mountCall}
 } catch(e) {
   showError(e.stack || e.message);
 }
   </script>
 </body>
 </html>`;
-    const htmlBlob = new Blob([html], { type: "text/html" });
-    return URL.createObjectURL(htmlBlob);
+    return URL.createObjectURL(new Blob([html], { type: "text/html" }));
   }, [content]);
 
   useEffect(() => {
     return () => {
       URL.revokeObjectURL(blobUrl);
-      if (moduleBlobRef.current) {
-        URL.revokeObjectURL(moduleBlobRef.current);
-        moduleBlobRef.current = null;
-      }
     };
   }, [blobUrl]);
 

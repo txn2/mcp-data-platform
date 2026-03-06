@@ -1,3 +1,5 @@
+import { jsxDashboardContent } from "./jsx-dashboard-content";
+
 /**
  * Mock content for each asset, keyed by asset ID.
  * These are returned by GET /assets/:id/content.
@@ -327,4 +329,6 @@ export const mockContent: Record<string, string> = {
   </table>
 </body>
 </html>`,
+
+  "ast-007": jsxDashboardContent,
 };
