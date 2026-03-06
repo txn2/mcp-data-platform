@@ -2843,3 +2843,170 @@ func TestExecuteChanges_DocumentationParamMapping(t *testing.T) {
 	// Second arg is description (from detail)
 	assert.Equal(t, "Revenue documentation", call.Arg2)
 }
+
+// ---------------------------------------------------------------------------
+// Non-dataset entity support (issue #180)
+// ---------------------------------------------------------------------------
+
+func TestHandleApply_UpdateDescriptionOnDomain(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:domain:sales",
+		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Sales domain"}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "update_description should work on domains: %v", result.Content)
+
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:domain:sales", writer.WriteCalls[0].URN)
+}
+
+func TestHandleApply_UpdateDescriptionOnGlossaryTerm(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:glossaryTerm:Revenue",
+		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Revenue is..."}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "update_description should work on glossary terms: %v", result.Content)
+
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].URN)
+}
+
+func TestHandleApply_UpdateDescriptionOnDataProduct(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:dataProduct:analytics",
+		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Analytics product"}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "update_description should work on data products: %v", result.Content)
+
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:dataProduct:analytics", writer.WriteCalls[0].URN)
+}
+
+func TestHandleApply_ColumnDescOnNonDatasetRejected(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:domain:sales",
+		Changes:   []ApplyChange{{ChangeType: "update_description", Target: "column:name", Detail: "desc"}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	assert.True(t, result.IsError, "column description on domain should fail")
+
+	m := parseJSONResult(t, result)
+	errMsg, _ := m["error"].(string)
+	assert.Contains(t, errMsg, "column-level update_description is only supported for datasets")
+	assert.Contains(t, errMsg, "Supported operations for domain")
+
+	// No writes should have been attempted
+	assert.Empty(t, writer.WriteCalls)
+}
+
+func TestHandleApply_CuratedQueryOnNonDatasetRejected(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:glossaryTerm:Revenue",
+		Changes:   []ApplyChange{{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"}},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	assert.True(t, result.IsError, "curated query on glossary term should fail")
+
+	m := parseJSONResult(t, result)
+	errMsg, _ := m["error"].(string)
+	assert.Contains(t, errMsg, "add_curated_query is only supported for datasets")
+	assert.Contains(t, errMsg, "Supported operations for glossaryTerm")
+
+	// No writes should have been attempted
+	assert.Empty(t, writer.WriteCalls)
+}
+
+func TestHandleApply_AddTagOnNonDatasetSucceeds(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:domain:sales",
+		Changes: []ApplyChange{
+			{ChangeType: "add_tag", Detail: "important"},
+			{ChangeType: "remove_tag", Detail: "deprecated"},
+			{ChangeType: "add_glossary_term", Detail: "Revenue"},
+			{ChangeType: "add_documentation", Target: "https://docs.example.com", Detail: "docs"},
+			{ChangeType: "flag_quality_issue", Detail: "stale metadata"},
+		},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "tag/glossary/doc/quality ops should work on domains: %v", result.Content)
+
+	assert.Len(t, writer.WriteCalls, 5)
+}
+
+func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	// First change is valid, second is not (curated query on domain)
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: "urn:li:domain:sales",
+		Changes: []ApplyChange{
+			{ChangeType: "add_tag", Detail: "tag1"},
+			{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"},
+		},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
+	require.Nil(t, callErr)
+	assert.True(t, result.IsError, "should reject entire batch when one change is incompatible")
+
+	// Pre-flight validation should prevent ANY writes
+	assert.Empty(t, writer.WriteCalls, "no writes should occur when pre-flight validation fails")
+	assert.Empty(t, csStore.Changesets, "no changeset should be recorded")
+}

@@ -115,11 +115,11 @@ var applyKnowledgeSchema = json.RawMessage(`{
         "properties": {
           "change_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only."
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id'). For add_documentation, this is the URL. For remove_tag, this is ignored. Leave empty for dataset-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id', dataset-only). For add_documentation, this is the URL. For remove_tag, this is ignored. Leave empty for entity-level updates"
           },
           "detail": {
             "type": "string",

@@ -145,7 +145,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. " +
-				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for dataset-level. " +
+				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
+				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
+				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
+				"add_tag, remove_tag, add_glossary_term, add_documentation, and flag_quality_issue work on all entity types. " +
+				"add_curated_query is dataset-only. " +
 				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
 				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
 				"For add_documentation, target is the URL, detail is the link description. " +
@@ -486,6 +490,13 @@ const columnTargetPrefix = "column:"
 // executeChanges applies changes to DataHub, rolling back on failure.
 // Returns a list of URNs created by add_curated_query changes.
 func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
+	// Pre-flight: validate entity type compatibility for all changes before executing any.
+	for i, c := range changes {
+		if err := validateEntityTypeForChange(urn, c); err != nil {
+			return nil, fmt.Errorf("change %d of %d rejected: %w", i+1, len(changes), err)
+		}
+	}
+
 	var createdURNs []string
 	for i, c := range changes {
 		queryURN, err := t.dispatchChange(ctx, urn, c)
@@ -562,7 +573,8 @@ func (t *Toolkit) executeUpdateDescription(ctx context.Context, urn string, c Ap
 		return nil
 	}
 	if err := t.datahubWriter.UpdateDescription(ctx, urn, c.Detail); err != nil {
-		return fmt.Errorf("description update: %w", err)
+		// Wrap ErrUnsupportedEntityType with a user-friendly message.
+		return wrapDescriptionError(err, urn)
 	}
 	return nil
 }
