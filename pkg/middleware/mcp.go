@@ -13,6 +13,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 const (
@@ -78,6 +80,13 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
 			pc.SessionID = extractSessionID(req)
+			// Fall back to AwareHandler-managed session ID when the MCP SDK
+			// doesn't propagate one (SSE returns "", stateless mode may vary).
+			if pc.SessionID == defaultSessionID {
+				if awareID := pkgsession.AwareSessionID(ctx); awareID != "" {
+					pc.SessionID = awareID
+				}
+			}
 			pc.Transport = transport
 			pc.Source = "mcp"
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)

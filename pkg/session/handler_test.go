@@ -431,6 +431,82 @@ func TestSanitizeLogValue(t *testing.T) {
 	}
 }
 
+func TestAwareSessionID_EmptyContext(t *testing.T) {
+	got := AwareSessionID(context.Background())
+	assert.Empty(t, got, "plain context should return empty string")
+}
+
+func TestAwareSessionID_Roundtrip(t *testing.T) {
+	ctx := WithAwareSessionID(context.Background(), "test-session-123")
+	got := AwareSessionID(ctx)
+	assert.Equal(t, "test-session-123", got)
+}
+
+// contextCapturingHandler captures the AwareSessionID from the request context.
+type contextCapturingHandler struct {
+	mu             sync.Mutex
+	awareSessionID string
+	capturedCalled bool
+}
+
+func (h *contextCapturingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	h.capturedCalled = true
+	h.awareSessionID = AwareSessionID(r.Context())
+	h.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func TestHandler_Initialize_SetsContextSessionID(t *testing.T) {
+	store := NewMemoryStore(handlerTestTTL)
+	capture := &contextCapturingHandler{}
+	handler := NewAwareHandler(capture, HandlerConfig{
+		Store: store,
+		TTL:   handlerTestTTL,
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	assert.True(t, capture.capturedCalled, "inner handler should be called")
+	assert.NotEmpty(t, capture.awareSessionID, "AwareSessionID should be set in context")
+
+	// The context session ID should match the response header session ID
+	responseSessionID := w.Header().Get(sessionIDHeader)
+	assert.Equal(t, responseSessionID, capture.awareSessionID,
+		"context session ID should match response header session ID")
+}
+
+func TestHandler_ExistingSession_SetsContextSessionID(t *testing.T) {
+	store := NewMemoryStore(handlerTestTTL)
+	capture := &contextCapturingHandler{}
+	handler := NewAwareHandler(capture, HandlerConfig{
+		Store: store,
+		TTL:   handlerTestTTL,
+	})
+
+	// Pre-create a session
+	sess := newTestSession("ctx-existing-sess", handlerTestTTL)
+	sess.UserID = ""
+	require.NoError(t, store.Create(context.Background(), sess))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "ctx-existing-sess")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	assert.True(t, capture.capturedCalled, "inner handler should be called")
+	assert.Equal(t, "ctx-existing-sess", capture.awareSessionID,
+		"AwareSessionID should be the existing session ID")
+}
+
 func TestHandler_ConcurrentAccess(t *testing.T) {
 	handler, store, _ := newTestHandler()
 	ctx := context.Background()

@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // Test constants to avoid repeated string literals.
@@ -963,6 +964,76 @@ func TestMCPToolCallMiddleware_ConnectionOverride(t *testing.T) {
 			},
 		}
 
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+}
+
+func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, "http")
+
+	t.Run("uses AwareHandler session ID when SDK returns default", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.SessionID != "aware-session-abc" {
+				t.Errorf("expected SessionID 'aware-session-abc', got %q", pc.SessionID)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		// Set AwareHandler session ID in context (simulates what AwareHandler does).
+		ctx := pkgsession.WithAwareSessionID(context.Background(), "aware-session-abc")
+
+		_, err := handler(ctx, mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	// NOTE: A test for "SDK session ID takes priority over AwareHandler session
+	// ID" is not possible in a unit test because mcp.Session has unexported
+	// methods (sendingMethodInfos, receivingMethodInfos, etc.) that prevent
+	// external mocking. Constructing a *mcp.ServerSession with a real session
+	// ID requires internal SDK types (mcpConn implementing hasSessionID).
+	// The AwareHandler → middleware integration test in middleware_chain_test.go
+	// covers this path through a real Streamable HTTP transport.
+
+	t.Run("falls back to default when no AwareHandler session", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.SessionID != defaultSessionID {
+				t.Errorf("expected SessionID %q, got %q", defaultSessionID, pc.SessionID)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		// No AwareHandler session in context
 		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
 			t.Fatalf(mcpTestErrFmt, err)

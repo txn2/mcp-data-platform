@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 
@@ -181,6 +182,11 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	}
 
 	prov := buildProvenance(ctx, userID, sessionID)
+	slog.Info("save_artifact.provenance",
+		"session_id", sessionID,
+		"user_id", userID,
+		"tool_calls", len(prov.ToolCalls),
+	)
 
 	tags := input.Tags
 	if tags == nil {
