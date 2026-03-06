@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -2186,6 +2187,135 @@ func TestWorkflowGating_BackwardCompat(t *testing.T) {
 
 	// Should have the static hint
 	assertContentContainsText(t, result, "datahub_search")
+}
+
+// TestMiddlewareChain_AwareHandler_ProvenanceSessionID verifies that session
+// IDs propagated by AwareHandler through the Go request context reach
+// MCPToolCallMiddleware and MCPProvenanceMiddleware, so that provenance is
+// correctly keyed and harvested per-client in stateless Streamable HTTP mode.
+//
+// This is the integration test for the context propagation chain:
+//
+//	AwareHandler.handleInitialize → WithAwareSessionID(ctx)
+//	  → MCPToolCallMiddleware reads AwareSessionID(ctx) as fallback
+//	    → sets PlatformContext.SessionID
+//	      → MCPProvenanceMiddleware uses PlatformContext.SessionID for Record/Harvest
+func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
+	const (
+		queryToolName = "data_query"
+		saveToolName  = "save_artifact"
+	)
+
+	tracker := middleware.NewProvenanceTracker()
+
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "prov-test-user",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-aware-provenance",
+		Version: "v0.0.1",
+	}, nil)
+
+	// data_query: a normal tool whose calls should be recorded in provenance.
+	server.AddTool(&mcp.Tool{
+		Name:        queryToolName,
+		Description: "Run a query",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "query result: 42"}},
+		}, nil
+	})
+
+	// save_artifact: reads provenance from context (injected by MCPProvenanceMiddleware)
+	// and returns the count so the test can assert it.
+	server.AddTool(&mcp.Tool{
+		Name:        saveToolName,
+		Description: "Save an artifact",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		calls := middleware.GetProvenanceToolCalls(ctx)
+		resp := fmt.Sprintf(`{"provenance_count":%d}`, len(calls))
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: resp}},
+		}, nil
+	})
+
+	// Middleware order (innermost first, outermost last):
+	// 1. Provenance (innermost) — records tool calls, harvests on save_artifact
+	// 2. Auth (outermost) — creates PlatformContext with session ID
+	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(tracker, saveToolName))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, "http"))
+
+	// Stateless Streamable HTTP handler — no SDK-managed sessions.
+	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return server
+	}, &mcp.StreamableHTTPOptions{
+		Stateless: true,
+	})
+
+	// Wrap with AwareHandler to provide session ID propagation via context.
+	awareHandler := pkgsession.NewAwareHandler(streamableHandler, pkgsession.HandlerConfig{
+		Store: pkgsession.NewMemoryStore(10 * time.Minute),
+		TTL:   10 * time.Minute,
+	})
+
+	ts := httptest.NewServer(awareHandler)
+	defer ts.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+	ctx := context.Background()
+	clientSession, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatalf("connecting client: %v", err)
+	}
+	defer func() { _ = clientSession.Close() }()
+
+	// Call data_query — this should be recorded in provenance under the
+	// AwareHandler session ID (not the default "stdio").
+	_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      queryToolName,
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	if err != nil {
+		t.Fatalf("calling data_query: %v", err)
+	}
+
+	// Call save_artifact — MCPProvenanceMiddleware harvests the provenance
+	// for this session and injects it into the context. The tool handler
+	// returns the count so we can verify the chain worked end-to-end.
+	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      saveToolName,
+		Arguments: map[string]any{"name": "test-artifact"},
+	})
+	if err != nil {
+		t.Fatalf("calling save_artifact: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("save_artifact returned error: %v", result.Content)
+	}
+
+	// Verify provenance was captured (count > 0 means session IDs matched
+	// between Record and Harvest through the full AwareHandler → middleware chain).
+	found := false
+	for _, c := range result.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			if strings.Contains(tc.Text, `"provenance_count":1`) {
+				found = true
+				break
+			}
+			// Dump content for debugging if assertion fails
+			t.Logf("save_artifact content: %s", tc.Text)
+		}
+	}
+	if !found {
+		t.Fatal("expected provenance_count:1 — AwareHandler session ID did not propagate through middleware chain")
+	}
 }
 
 // Suppress unused import warnings for storage (used in EnrichmentConfig).

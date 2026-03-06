@@ -83,7 +83,7 @@ func (pt *ProvenanceTracker) Harvest(sessionID string) []ProvenanceToolCall {
 
 	calls := pt.sessions[sessionID]
 	delete(pt.sessions, sessionID)
-	slog.Info("provenance.harvest", "session_id", sessionID, "count", len(calls))
+	slog.Debug("provenance.harvest", "session_id", sessionID, "count", len(calls))
 	return calls
 }
 

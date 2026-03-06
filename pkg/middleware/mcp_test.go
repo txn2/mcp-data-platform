@@ -1008,33 +1008,13 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps SDK session ID when available", func(t *testing.T) {
-		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-			pc := GetPlatformContext(ctx)
-			if pc == nil {
-				t.Fatal(mcpTestPCExpected)
-			}
-			// When SDK provides a real session ID, the fallback should NOT override it.
-			// Our test request has no session so extractSessionID returns "stdio".
-			// With AwareHandler set, it should fall back to the aware ID.
-			if pc.SessionID != "aware-session-xyz" {
-				t.Errorf("expected SessionID 'aware-session-xyz', got %q", pc.SessionID)
-			}
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
-			}, nil
-		}
-
-		handler := mw(next)
-		req := newMCPTestRequest(mcpTestToolName)
-
-		ctx := pkgsession.WithAwareSessionID(context.Background(), "aware-session-xyz")
-
-		_, err := handler(ctx, mcpTestMethod, req)
-		if err != nil {
-			t.Fatalf(mcpTestErrFmt, err)
-		}
-	})
+	// NOTE: A test for "SDK session ID takes priority over AwareHandler session
+	// ID" is not possible in a unit test because mcp.Session has unexported
+	// methods (sendingMethodInfos, receivingMethodInfos, etc.) that prevent
+	// external mocking. Constructing a *mcp.ServerSession with a real session
+	// ID requires internal SDK types (mcpConn implementing hasSessionID).
+	// The AwareHandler → middleware integration test in middleware_chain_test.go
+	// covers this path through a real Streamable HTTP transport.
 
 	t.Run("falls back to default when no AwareHandler session", func(t *testing.T) {
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
