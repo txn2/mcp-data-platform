@@ -943,6 +943,44 @@ func TestBrowserRedirectMiddleware(t *testing.T) {
 	})
 }
 
+func TestMountRootHandler_AuthWithPortalUI_BrowserRedirects(t *testing.T) {
+	mux := http.NewServeMux()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mountRootHandler(mux, inner, httpConfig{requireAuth: true, portalUI: true}, "")
+
+	// Browser request should redirect to /portal/ instead of getting 401.
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Errorf("browser request: expected 307 redirect, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/portal/" {
+		t.Errorf("Location = %q, want /portal/", loc)
+	}
+}
+
+func TestMountRootHandler_AuthWithPortalUI_MCPStillRequiresAuth(t *testing.T) {
+	mux := http.NewServeMux()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mountRootHandler(mux, inner, httpConfig{requireAuth: true, portalUI: true}, "")
+
+	// MCP request (POST, no Accept: text/html) should still hit auth gateway.
+	req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Error("MCP request should still be rejected by auth gateway")
+	}
+}
+
 func TestMountBrowserAuth_NilPlatform(_ *testing.T) {
 	mux := http.NewServeMux()
 	mountBrowserAuth(mux, nil) // should not panic
