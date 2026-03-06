@@ -106,6 +106,15 @@ func TestValidateEntityTypeForChange(t *testing.T) {
 			change: ApplyChange{ChangeType: "update_description", Detail: "desc"},
 		},
 
+		// update_description on unsupported entity types
+		{
+			name:       "update_description on tag (unsupported)",
+			urn:        tagURN,
+			change:     ApplyChange{ChangeType: "update_description", Detail: "desc"},
+			wantErr:    true,
+			errContain: "update_description is not supported for tag entities",
+		},
+
 		// Column-level descriptions: dataset only
 		{
 			name:   "column description on dataset",
@@ -288,8 +297,9 @@ func TestWrapUnsupportedEntityTypeError(t *testing.T) {
 		require.Error(t, got)
 		assert.Contains(t, got.Error(), "update_description is not supported for tag entities")
 		assert.Contains(t, got.Error(), "Supported operations for tag")
-		// Should NOT be the same error object (wrapped)
+		// Should NOT be the same error object but must preserve the error chain.
 		assert.NotEqual(t, orig, got)
+		assert.True(t, errors.Is(got, dhclient.ErrUnsupportedEntityType), "wrapped error should preserve error chain")
 	})
 
 	t.Run("wrapped ErrUnsupportedEntityType", func(t *testing.T) {

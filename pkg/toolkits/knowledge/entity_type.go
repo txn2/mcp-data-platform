@@ -3,13 +3,19 @@ package knowledge
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 )
 
-// entityTypeDataset is the DataHub entity type string for datasets.
-const entityTypeDataset = "dataset"
+const (
+	// entityTypeDataset is the DataHub entity type string for datasets.
+	entityTypeDataset = "dataset"
+
+	// opsSeparator is the delimiter used when joining supported operations in error messages.
+	opsSeparator = ", "
+)
 
 // entityTypeFromURN extracts the entity type from a DataHub URN.
 // For example, "urn:li:dataset:(...)" returns "dataset".
@@ -37,7 +43,7 @@ func supportedOpsForType(entityType string) []string {
 	}
 
 	if descriptionSupportedTypes[entityType] {
-		ops = append([]string{"update_description"}, ops...)
+		ops = slices.Insert(ops, 0, "update_description")
 	}
 
 	if entityType == entityTypeDataset {
@@ -48,7 +54,7 @@ func supportedOpsForType(entityType string) []string {
 }
 
 // descriptionSupportedTypes are entity types that support update_description.
-// This matches the upstream mcp-datahub descriptionAspectMap.
+// Must stay in sync with the upstream mcp-datahub descriptionAspectMap.
 var descriptionSupportedTypes = map[string]bool{
 	"dataset":      true,
 	"dashboard":    true,
@@ -73,23 +79,32 @@ func validateEntityTypeForChange(urn string, c ApplyChange) error {
 	// Column-level descriptions are dataset-only (schema metadata is a dataset concept).
 	if c.ChangeType == string(actionUpdateDescription) {
 		if _, isColumn := parseColumnTarget(c.Target); isColumn {
-			if entityType != "dataset" {
+			if entityType != entityTypeDataset {
 				return fmt.Errorf(
 					"column-level update_description is only supported for datasets, not %s entities. "+
 						"Supported operations for %s: %s",
-					entityType, entityType, strings.Join(supportedOpsForType(entityType), ", "),
+					entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
 				)
 			}
 			return nil
 		}
+
+		// Entity-level update_description is only supported for specific entity types.
+		if !descriptionSupportedTypes[entityType] {
+			return fmt.Errorf(
+				"update_description is not supported for %s entities. "+
+					"Supported operations for %s: %s",
+				entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
+			)
+		}
 	}
 
 	// Dataset-only operations.
-	if datasetOnlyOperations[actionType(c.ChangeType)] && entityType != "dataset" {
+	if datasetOnlyOperations[actionType(c.ChangeType)] && entityType != entityTypeDataset {
 		return fmt.Errorf(
 			"%s is only supported for datasets, not %s entities. "+
 				"Supported operations for %s: %s",
-			c.ChangeType, entityType, entityType, strings.Join(supportedOpsForType(entityType), ", "),
+			c.ChangeType, entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
 		)
 	}
 
@@ -114,8 +129,8 @@ func wrapUnsupportedEntityTypeError(err error, urn string) error {
 
 	return fmt.Errorf(
 		"update_description is not supported for %s entities. "+
-			"Supported operations for %s: %s",
-		entityType, entityType, strings.Join(supportedOpsForType(entityType), ", "),
+			"Supported operations for %s: %s: %w",
+		entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator), err,
 	)
 }
 
