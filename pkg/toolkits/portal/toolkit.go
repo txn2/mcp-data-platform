@@ -173,10 +173,11 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 
 	s3Key := t.buildS3Key(userID, assetID, input.ContentType)
 
-	if t.s3Client != nil {
-		if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), input.ContentType); err != nil {
-			return errorResult("failed to upload content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
-		}
+	if t.s3Client == nil {
+		return errorResult("content storage not configured"), nil, nil
+	}
+	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), input.ContentType); err != nil {
+		return errorResult("failed to upload content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	prov := buildProvenance(ctx, userID, sessionID)
@@ -314,10 +315,11 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	ext := extensionForContentType(ct)
 	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, "content"+ext)
 
-	if t.s3Client != nil {
-		if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), ct); err != nil {
-			return fmt.Errorf("s3 put: %w", err)
-		}
+	if t.s3Client == nil {
+		return fmt.Errorf("content storage not configured")
+	}
+	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), ct); err != nil {
+		return fmt.Errorf("s3 put: %w", err)
 	}
 	updates.S3Key = s3Key
 	updates.SizeBytes = int64(len(input.Content))
