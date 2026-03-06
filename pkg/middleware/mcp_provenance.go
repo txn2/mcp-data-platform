@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -53,8 +54,10 @@ func NewProvenanceTracker() *ProvenanceTracker {
 // Each session is capped at maxCallsPerSession entries (oldest are evicted).
 func (pt *ProvenanceTracker) Record(sessionID, toolName string, params map[string]any) {
 	if sessionID == "" {
+		slog.Debug("provenance: skipping record for empty session ID", "tool", toolName)
 		return
 	}
+	slog.Debug("provenance.record", "session_id", sessionID, "tool", toolName)
 
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
@@ -80,6 +83,7 @@ func (pt *ProvenanceTracker) Harvest(sessionID string) []ProvenanceToolCall {
 
 	calls := pt.sessions[sessionID]
 	delete(pt.sessions, sessionID)
+	slog.Info("provenance.harvest", "session_id", sessionID, "count", len(calls))
 	return calls
 }
 
@@ -136,6 +140,8 @@ func MCPProvenanceMiddleware(tracker *ProvenanceTracker, saveToolName string) mc
 			sessionID := ""
 			if pc != nil {
 				sessionID = pc.SessionID
+			} else {
+				slog.Warn("provenance: PlatformContext missing, cannot track tool call", "tool", toolName)
 			}
 
 			if toolName == saveToolName {

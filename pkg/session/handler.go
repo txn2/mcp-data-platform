@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+// awareSessionKey is the context key for the AwareHandler session ID.
+type awareSessionKey struct{}
+
+// AwareSessionID returns the session ID set by AwareHandler, or "".
+func AwareSessionID(ctx context.Context) string {
+	if id, ok := ctx.Value(awareSessionKey{}).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// WithAwareSessionID returns a context carrying the given session ID.
+// This is used by AwareHandler internally and exposed for middleware that
+// needs to read the session ID via AwareSessionID.
+func WithAwareSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, awareSessionKey{}, sessionID)
+}
+
 const (
 	// sessionIDHeader is the MCP session header name.
 	sessionIDHeader = "Mcp-Session-Id"
@@ -101,6 +119,7 @@ func (h *AwareHandler) handleInitialize(w http.ResponseWriter, r *http.Request) 
 		sessionID:      sessionID,
 	}
 	r.Header.Set(sessionIDHeader, sessionID)
+	r = r.WithContext(WithAwareSessionID(r.Context(), sessionID))
 	h.inner.ServeHTTP(sw, r)
 }
 
@@ -145,6 +164,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		}
 	}()
 
+	r = r.WithContext(WithAwareSessionID(r.Context(), sessionID))
 	h.inner.ServeHTTP(w, r)
 }
 

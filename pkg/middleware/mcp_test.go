@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // Test constants to avoid repeated string literals.
@@ -963,6 +964,96 @@ func TestMCPToolCallMiddleware_ConnectionOverride(t *testing.T) {
 			},
 		}
 
+		_, err := handler(context.Background(), mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+}
+
+func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, "http")
+
+	t.Run("uses AwareHandler session ID when SDK returns default", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.SessionID != "aware-session-abc" {
+				t.Errorf("expected SessionID 'aware-session-abc', got %q", pc.SessionID)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		// Set AwareHandler session ID in context (simulates what AwareHandler does).
+		ctx := pkgsession.WithAwareSessionID(context.Background(), "aware-session-abc")
+
+		_, err := handler(ctx, mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	t.Run("keeps SDK session ID when available", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			// When SDK provides a real session ID, the fallback should NOT override it.
+			// Our test request has no session so extractSessionID returns "stdio".
+			// With AwareHandler set, it should fall back to the aware ID.
+			if pc.SessionID != "aware-session-xyz" {
+				t.Errorf("expected SessionID 'aware-session-xyz', got %q", pc.SessionID)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		ctx := pkgsession.WithAwareSessionID(context.Background(), "aware-session-xyz")
+
+		_, err := handler(ctx, mcpTestMethod, req)
+		if err != nil {
+			t.Fatalf(mcpTestErrFmt, err)
+		}
+	})
+
+	t.Run("falls back to default when no AwareHandler session", func(t *testing.T) {
+		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+			pc := GetPlatformContext(ctx)
+			if pc == nil {
+				t.Fatal(mcpTestPCExpected)
+			}
+			if pc.SessionID != defaultSessionID {
+				t.Errorf("expected SessionID %q, got %q", defaultSessionID, pc.SessionID)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			}, nil
+		}
+
+		handler := mw(next)
+		req := newMCPTestRequest(mcpTestToolName)
+
+		// No AwareHandler session in context
 		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
 			t.Fatalf(mcpTestErrFmt, err)
