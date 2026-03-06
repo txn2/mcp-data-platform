@@ -30,6 +30,7 @@ type Deps struct {
 	PublicBaseURL string
 	RateLimit     RateLimitConfig
 	OIDCEnabled   bool
+	AdminRoles    []string // roles that grant admin access in the portal
 }
 
 // Handler provides portal REST API endpoints.
@@ -97,7 +98,7 @@ type meResponse struct {
 	IsAdmin bool     `json:"is_admin"`
 }
 
-func (*Handler) getMe(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -107,7 +108,7 @@ func (*Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, meResponse{
 		UserID:  user.UserID,
 		Roles:   user.Roles,
-		IsAdmin: slices.Contains(user.Roles, "admin"),
+		IsAdmin: hasAnyRole(user.Roles, h.deps.AdminRoles),
 	})
 }
 
@@ -205,6 +206,11 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
+	}
+
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		return
 	}
 
 	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
@@ -508,6 +514,16 @@ func generateToken() (string, error) {
 		return "", fmt.Errorf("generating random token: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// hasAnyRole returns true if any role in userRoles is also in targetRoles.
+func hasAnyRole(userRoles, targetRoles []string) bool {
+	for _, r := range userRoles {
+		if slices.Contains(targetRoles, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // isSharedWithUser checks whether an asset has been shared with a specific user.

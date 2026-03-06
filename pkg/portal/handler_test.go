@@ -449,6 +449,23 @@ func TestGetAssetContentNoUser(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestGetAssetContentNilS3Client(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{},
+		S3Client:   nil, // no S3 configured
+		S3Bucket:   "test-bucket",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	req := httptest.NewRequest("GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "content storage not configured")
+}
+
 // --- updateAsset ---
 
 func TestUpdateAssetSuccess(t *testing.T) {
@@ -1107,6 +1124,28 @@ func TestListSharedWithMeNoUser(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+// --- hasAnyRole ---
+
+func TestHasAnyRole(t *testing.T) {
+	tests := []struct {
+		name        string
+		userRoles   []string
+		targetRoles []string
+		expected    bool
+	}{
+		{"match", []string{"dp_admin", "dp_analyst"}, []string{"dp_admin"}, true},
+		{"no match", []string{"dp_analyst"}, []string{"dp_admin"}, false},
+		{"empty user roles", nil, []string{"dp_admin"}, false},
+		{"empty target roles", []string{"dp_admin"}, nil, false},
+		{"both empty", nil, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, hasAnyRole(tt.userRoles, tt.targetRoles))
+		})
+	}
+}
+
 // --- intParam ---
 
 func TestIntParam(t *testing.T) {
@@ -1221,8 +1260,14 @@ func TestIsSharedWithUserError(t *testing.T) {
 // --- Me handler tests ---
 
 func TestGetMeSuccess(t *testing.T) {
-	user := &User{UserID: "user-42", Roles: []string{"admin", "analyst"}}
-	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, user)
+	user := &User{UserID: "user-42", Roles: []string{"dp_admin", "analyst"}}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{},
+		S3Client:   &mockS3Client{},
+		S3Bucket:   "test-bucket",
+		AdminRoles: []string{"dp_admin"},
+	}, testAuthMiddleware(user))
 
 	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
 	w := httptest.NewRecorder()
@@ -1234,7 +1279,28 @@ func TestGetMeSuccess(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "user-42", resp.UserID)
 	assert.True(t, resp.IsAdmin)
-	assert.Contains(t, resp.Roles, "admin")
+	assert.Contains(t, resp.Roles, "dp_admin")
+}
+
+func TestGetMeNonAdminWithPrefixedRoles(t *testing.T) {
+	// Verify that roles like "dp_analyst" do NOT match admin when AdminRoles is ["dp_admin"]
+	user := &User{UserID: "user-99", Roles: []string{"dp_analyst"}}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{},
+		S3Client:   &mockS3Client{},
+		AdminRoles: []string{"dp_admin"},
+	}, testAuthMiddleware(user))
+
+	req := httptest.NewRequest("GET", "/api/v1/portal/me", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp meResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.False(t, resp.IsAdmin)
 }
 
 func TestGetMeNonAdmin(t *testing.T) {
