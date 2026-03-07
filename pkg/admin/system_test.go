@@ -33,9 +33,9 @@ func TestGetSystemInfo(t *testing.T) {
 		cfg.OAuth.Enabled = true
 		cfg.Knowledge.Enabled = true
 		cfg.Admin.Enabled = true
-		cfg.Admin.PortalLogo = "https://cdn.example.com/logo.svg"
-		cfg.Admin.PortalLogoLight = "https://cdn.example.com/logo-light.svg"
-		cfg.Admin.PortalLogoDark = "https://cdn.example.com/logo-dark.svg"
+		cfg.Portal.Logo = "https://cdn.example.com/logo.svg"
+		cfg.Portal.LogoLight = "https://cdn.example.com/logo-light.svg"
+		cfg.Portal.LogoDark = "https://cdn.example.com/logo-dark.svg"
 
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
@@ -127,10 +127,10 @@ func TestGetPublicBranding(t *testing.T) {
 	t.Run("returns platform name from config", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Server.Name = "acme-platform"
-		cfg.Admin.PortalTitle = "ACME Admin"
-		cfg.Admin.PortalLogo = "https://cdn.example.com/acme-logo.svg"
-		cfg.Admin.PortalLogoLight = "https://cdn.example.com/acme-light.svg"
-		cfg.Admin.PortalLogoDark = "https://cdn.example.com/acme-dark.svg"
+		cfg.Portal.Title = "ACME Admin"
+		cfg.Portal.Logo = "https://cdn.example.com/acme-logo.svg"
+		cfg.Portal.LogoLight = "https://cdn.example.com/acme-light.svg"
+		cfg.Portal.LogoDark = "https://cdn.example.com/acme-dark.svg"
 
 		h := NewHandler(Deps{Config: cfg}, nil)
 

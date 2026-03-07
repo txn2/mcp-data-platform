@@ -203,7 +203,6 @@ knowledge:
 
 admin:
   enabled: true
-  portal: true
   persona: admin
   path_prefix: /api/v1/admin
 

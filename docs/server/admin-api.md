@@ -32,31 +32,40 @@ make swagger
 ## Configuration
 
 ```yaml
+portal:
+  enabled: true               # Enable portal SPA + API
+  title: "ACME Data Platform" # Sidebar/branding title
+  logo: https://example.com/logo.svg
+  logo_light: https://example.com/logo-for-light-bg.svg
+  logo_dark: https://example.com/logo-for-dark-bg.svg
+
 admin:
   enabled: true
-  portal: true                # Enable the admin web portal
   persona: admin              # Persona required for admin access
   path_prefix: /api/v1/admin  # URL prefix for all admin endpoints
-  portal_title: "ACME Data Platform"
-  portal_logo: https://example.com/logo.svg
-  portal_logo_light: https://example.com/logo-for-light-bg.svg
-  portal_logo_dark: https://example.com/logo-for-dark-bg.svg
 ```
+
+**Admin configuration:**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable admin REST API |
-| `portal` | bool | `false` | Enable the admin web portal |
-| `persona` | string | `admin` | Persona required for admin access |
-| `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
-| `portal_title` | string | `Admin Portal` | Sidebar title text |
-| `portal_logo` | string | `""` | Logo URL (fallback for both themes) |
-| `portal_logo_light` | string | `""` | Logo URL for light theme |
-| `portal_logo_dark` | string | `""` | Logo URL for dark theme |
+| `admin.enabled` | bool | `false` | Enable admin REST API |
+| `admin.persona` | string | `admin` | Persona required for admin access |
+| `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
+
+**Portal/branding configuration:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `portal.enabled` | bool | `false` | Enable portal SPA + API |
+| `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.logo` | string | `""` | Logo URL (fallback for both themes) |
+| `portal.logo_light` | string | `""` | Logo URL for light theme |
+| `portal.logo_dark` | string | `""` | Logo URL for dark theme |
 
 ## Admin Portal
 
-When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix (e.g., `http://localhost:8080/api/v1/admin/`). The portal provides:
+When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. The portal provides:
 
 - **Dashboard**: Real-time platform health with activity timelines, top tools/users, performance percentiles, and error monitoring
 - **Tools**: Connection overview, tool inventory with descriptions, and interactive tool execution with semantic enrichment display

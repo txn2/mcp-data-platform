@@ -999,7 +999,7 @@ func TestMountBrowserAuth_NilFlow(t *testing.T) {
 func TestMountPortalUI_Disabled(t *testing.T) {
 	p := newTestPlatform(t, &platform.Config{
 		Server: platform.ServerConfig{Name: "test"},
-		Portal: platform.PortalConfig{UI: false},
+		Portal: platform.PortalConfig{Enabled: false},
 	})
 	defer func() { _ = p.Close() }()
 
@@ -1010,7 +1010,7 @@ func TestMountPortalUI_Disabled(t *testing.T) {
 func TestMountPortalUI_NoAssets(t *testing.T) {
 	p := newTestPlatform(t, &platform.Config{
 		Server: platform.ServerConfig{Name: "test"},
-		Portal: platform.PortalConfig{UI: true},
+		Portal: platform.PortalConfig{Enabled: true},
 	})
 	defer func() { _ = p.Close() }()
 

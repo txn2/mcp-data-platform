@@ -357,15 +357,20 @@ Portal requires `database.dsn` for metadata storage and at least one S3 toolkit 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `admin.enabled` | bool | `false` | Enable admin REST API |
-| `admin.portal` | bool | `false` | Enable the admin web portal UI |
 | `admin.persona` | string | `admin` | Persona required for admin access |
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
-| `admin.portal_title` | string | `Admin Portal` | Sidebar title text |
-| `admin.portal_logo` | string | `""` | Logo URL (fallback for both themes) |
-| `admin.portal_logo_light` | string | `""` | Logo URL for light theme |
-| `admin.portal_logo_dark` | string | `""` | Logo URL for dark theme |
 
-When `admin.portal: true`, an interactive web dashboard is served at the admin path prefix. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `portal_logo_light` → `portal_logo` → built-in default; dark theme uses `portal_logo_dark` → `portal_logo` → built-in default. The resolved logo is also used as the browser favicon.
+Branding fields have moved to the `portal:` section:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `portal.enabled` | bool | `false` | Enable portal SPA frontend and artifact API |
+| `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.logo` | string | `""` | Logo URL (fallback for both themes) |
+| `portal.logo_light` | string | `""` | Logo URL for light theme |
+| `portal.logo_dark` | string | `""` | Logo URL for dark theme |
+
+When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `logo_light` → `logo` → built-in default; dark theme uses `logo_dark` → `logo` → built-in default. The resolved logo is also used as the browser favicon.
 
 ## Resource Templates Configuration
 
@@ -1587,7 +1592,7 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 
 # Admin Portal
 
-The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `admin.portal: true` in configuration.
+The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.
 
 ## Dashboard
 

@@ -292,7 +292,6 @@ The `admin` block enables and configures the REST API for system health, configu
 ```yaml
 admin:
   enabled: true
-  portal: true
   persona: admin
   path_prefix: /api/v1/admin
 ```
@@ -300,14 +299,13 @@ admin:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable admin REST API |
-| `portal` | bool | `false` | Enable the admin web portal UI |
 | `persona` | string | `admin` | Persona required for admin access |
 | `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
 
 !!! note "HTTP transport required"
     The admin API is served over HTTP. It is not available when running in `stdio` transport mode.
 
-The admin portal provides a web-based dashboard for audit log exploration, tool execution testing, and system monitoring. When enabled, it is served at the admin path prefix (e.g., `/api/v1/admin/`). See [Admin API](admin-api.md) for the full endpoint reference.
+The admin portal provides a web-based dashboard for audit log exploration, tool execution testing, and system monitoring. Enable with `portal.enabled: true`. When enabled, it is served at `/portal/`. See [Admin API](admin-api.md) for the full endpoint reference and [Admin Portal](admin-portal.md) for the visual guide.
 
 ## Audit Configuration
 
@@ -765,9 +763,11 @@ database:
 config_store:
   mode: database
 
+portal:
+  enabled: true
+
 admin:
   enabled: true
-  portal: true
   persona: admin
 
 # Hide unused tools from tools/list to save LLM tokens

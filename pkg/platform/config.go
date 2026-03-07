@@ -83,14 +83,9 @@ type Config struct {
 
 // AdminConfig configures the admin REST API.
 type AdminConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	Portal          bool   `yaml:"portal"`            // enable admin UI portal (default: false)
-	Persona         string `yaml:"persona"`           // required admin persona (default: "admin")
-	PathPrefix      string `yaml:"path_prefix"`       // URL prefix (default: "/api/v1/admin")
-	PortalTitle     string `yaml:"portal_title"`      // sidebar title (default: "Admin Portal")
-	PortalLogo      string `yaml:"portal_logo"`       // URL to logo (fallback for both themes)
-	PortalLogoLight string `yaml:"portal_logo_light"` // URL to logo for light theme
-	PortalLogoDark  string `yaml:"portal_logo_dark"`  // URL to logo for dark theme
+	Enabled    bool   `yaml:"enabled"`
+	Persona    string `yaml:"persona"`     // required admin persona (default: "admin")
+	PathPrefix string `yaml:"path_prefix"` // URL prefix (default: "/api/v1/admin")
 }
 
 // KnowledgeConfig configures the knowledge capture feature.
@@ -109,7 +104,10 @@ type KnowledgeApplyConfig struct {
 // PortalConfig configures the asset portal for saving AI-generated artifacts.
 type PortalConfig struct {
 	Enabled        bool                  `yaml:"enabled"`
-	UI             bool                  `yaml:"ui"`               // enable portal SPA frontend (default: false)
+	Title          string                `yaml:"title"`            // sidebar/branding title (default: "MCP Data Platform")
+	Logo           string                `yaml:"logo"`             // URL to logo (fallback for both themes)
+	LogoLight      string                `yaml:"logo_light"`       // URL to logo for light theme
+	LogoDark       string                `yaml:"logo_dark"`        // URL to logo for dark theme
 	S3Connection   string                `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
 	S3Bucket       string                `yaml:"s3_bucket"`        // bucket for artifact storage
 	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket
@@ -739,6 +737,9 @@ func applyDefaults(cfg *Config) {
 
 // applyPortalDefaults sets defaults for portal config.
 func applyPortalDefaults(cfg *Config) {
+	if cfg.Portal.Title == "" {
+		cfg.Portal.Title = "MCP Data Platform"
+	}
 	if cfg.Portal.MaxContentSize == 0 {
 		cfg.Portal.MaxContentSize = defaultMaxContentSize
 	}
@@ -782,9 +783,6 @@ func applyAdminDefaults(cfg *Config) {
 	}
 	if cfg.Admin.PathPrefix == "" {
 		cfg.Admin.PathPrefix = "/api/v1/admin"
-	}
-	if cfg.Admin.PortalTitle == "" {
-		cfg.Admin.PortalTitle = "Admin Portal"
 	}
 }
 

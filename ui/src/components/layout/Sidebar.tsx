@@ -47,7 +47,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse }
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches);
 
-  const portalTitle = branding?.portal_title || "MCP Platform";
+  const portalTitle = branding?.portal_title || "MCP Data Platform";
   const base = import.meta.env.BASE_URL;
   const defaultLogo = isDark
     ? `${base}images/activity-svgrepo-com-white.svg`

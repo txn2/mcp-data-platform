@@ -57,10 +57,10 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		resp.Name = cfg.Server.Name
 		resp.Description = cfg.Server.Description
 		resp.Transport = cfg.Server.Transport
-		resp.PortalTitle = cfg.Admin.PortalTitle
-		resp.PortalLogo = cfg.Admin.PortalLogo
-		resp.PortalLogoLight = cfg.Admin.PortalLogoLight
-		resp.PortalLogoDark = cfg.Admin.PortalLogoDark
+		resp.PortalTitle = cfg.Portal.Title
+		resp.PortalLogo = cfg.Portal.Logo
+		resp.PortalLogoLight = cfg.Portal.LogoLight
+		resp.PortalLogoDark = cfg.Portal.LogoDark
 		resp.Features = systemFeatures{
 			Audit:     h.deps.AuditQuerier != nil,
 			OAuth:     cfg.OAuth.Enabled,
@@ -97,10 +97,10 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 	resp := publicBrandingResponse{}
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name
-		resp.PortalTitle = h.deps.Config.Admin.PortalTitle
-		resp.PortalLogo = h.deps.Config.Admin.PortalLogo
-		resp.PortalLogoLight = h.deps.Config.Admin.PortalLogoLight
-		resp.PortalLogoDark = h.deps.Config.Admin.PortalLogoDark
+		resp.PortalTitle = h.deps.Config.Portal.Title
+		resp.PortalLogo = h.deps.Config.Portal.Logo
+		resp.PortalLogoLight = h.deps.Config.Portal.LogoLight
+		resp.PortalLogoDark = h.deps.Config.Portal.LogoDark
 		resp.OIDCEnabled = h.deps.Config.Auth.BrowserSession.Enabled && h.deps.Config.Auth.OIDC.Enabled
 	}
 	writeJSON(w, http.StatusOK, resp)
