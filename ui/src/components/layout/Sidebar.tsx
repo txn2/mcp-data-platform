@@ -9,6 +9,8 @@ import {
   LogOut,
   LayoutGrid,
   Share2,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -17,6 +19,8 @@ import { useBranding } from "@/api/portal/hooks";
 interface Props {
   currentPath: string;
   onNavigate: (path: string) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 const portalNavItems = [
@@ -32,7 +36,7 @@ const adminNavItems = [
   { path: "/admin/personas", label: "Personas", icon: Users },
 ];
 
-export function Sidebar({ currentPath, onNavigate }: Props) {
+export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse }: Props) {
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const { data: branding } = useBranding();
@@ -66,14 +70,18 @@ export function Sidebar({ currentPath, onNavigate }: Props) {
   const route = currentPath.split("#")[0] ?? "/";
 
   function isActive(itemPath: string) {
-    // Exact match for root paths, startsWith for /admin sub-routes
     if (itemPath === "/" || itemPath === "/shared") return route === itemPath;
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 
   return (
-    <aside className="flex h-screen w-[var(--sidebar-width)] flex-col border-r bg-card">
-      <div className="flex h-14 items-center gap-2 border-b px-4">
+    <aside
+      className={cn(
+        "flex h-screen flex-col border-r bg-card transition-[width] duration-200 overflow-hidden",
+        collapsed ? "w-[var(--sidebar-width-collapsed)]" : "w-[var(--sidebar-width)]",
+      )}
+    >
+      <div className={cn("flex h-14 items-center border-b shrink-0", collapsed ? "justify-center px-2" : "gap-2 px-4")}>
         {portalLogo && (
           <img
             src={portalLogo}
@@ -84,63 +92,85 @@ export function Sidebar({ currentPath, onNavigate }: Props) {
             }}
           />
         )}
-        <span className="text-sm font-semibold truncate">{portalTitle}</span>
+        {!collapsed && (
+          <span className="text-sm font-semibold truncate">{portalTitle}</span>
+        )}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-auto p-2">
-        {/* Portal section — everyone */}
         {portalNavItems.map((item) => (
           <button
             key={item.path}
             type="button"
             onClick={() => onNavigate(item.path)}
+            title={collapsed ? item.label : undefined}
             className={cn(
-              "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "flex w-full items-center rounded-md text-sm font-medium transition-colors",
+              collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
               isActive(item.path)
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <item.icon className="h-4 w-4" />
-            {item.label}
+            <item.icon className="h-4 w-4 shrink-0" />
+            {!collapsed && item.label}
           </button>
         ))}
 
-        {/* Admin section — admins only */}
         {isAdmin && (
           <>
             <div className="my-2 border-t" />
-            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Admin
-            </p>
+            {!collapsed && (
+              <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Admin
+              </p>
+            )}
             {adminNavItems.map((item) => (
               <button
                 key={item.path}
                 type="button"
                 onClick={() => onNavigate(item.path)}
+                title={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex w-full items-center rounded-md text-sm font-medium transition-colors",
+                  collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
                   isActive(item.path)
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                {item.label}
+                <item.icon className="h-4 w-4 shrink-0" />
+                {!collapsed && item.label}
               </button>
             ))}
           </>
         )}
       </nav>
 
-      <div className="border-t p-2">
+      <div className="border-t p-2 space-y-1">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={cn(
+            "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
+          )}
+        >
+          {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
+          {!collapsed && "Collapse"}
+        </button>
         <button
           type="button"
           onClick={logout}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title={collapsed ? "Sign Out" : undefined}
+          className={cn(
+            "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
+          )}
         >
-          <LogOut className="h-4 w-4" />
-          Sign Out
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && "Sign Out"}
         </button>
       </div>
     </aside>

@@ -115,9 +115,9 @@ export function JsxRenderer({ content }: { content: string }) {
       // If Sucrase fails, show the error in the iframe via textContent (safe).
       const errMsg =
         e instanceof Error ? e.message : "JSX transform failed";
-      const html = `<!DOCTYPE html><html><body><pre id="e" style="${ERROR_STYLE}"></pre>
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><pre id="e" style="${ERROR_STYLE}"></pre>
 <script>document.getElementById('e').textContent=${JSON.stringify(errMsg)};</script></body></html>`;
-      return URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     }
 
     if (hasMountCode(content)) {
@@ -126,6 +126,7 @@ export function JsxRenderer({ content }: { content: string }) {
       const html = `<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${CSP}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>
@@ -147,7 +148,7 @@ ${transformed}
   </script>
 </body>
 </html>`;
-      return URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     }
 
     // Auto-mount path: detect component name and render it.
@@ -159,6 +160,7 @@ ${transformed}
     const html = `<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${CSP}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>
@@ -190,7 +192,7 @@ try {
   </script>
 </body>
 </html>`;
-    return URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
   }, [content]);
 
   useEffect(() => {
