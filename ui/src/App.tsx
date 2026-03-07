@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth";
 import { LoginForm } from "@/components/LoginForm";
 import { AppShell } from "@/components/layout/AppShell";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +26,7 @@ function AuthGate() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <LoadingIndicator />
       </div>
     );
   }

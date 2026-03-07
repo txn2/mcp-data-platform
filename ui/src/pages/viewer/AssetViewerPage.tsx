@@ -4,6 +4,7 @@ import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset } from "@/api
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { ShareDialog } from "@/components/ShareDialog";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { formatBytes } from "@/lib/format";
 
 interface Props {
@@ -17,18 +18,14 @@ export function AssetViewerPage({ assetId, onNavigate }: Props) {
   const updateAsset = useUpdateAsset();
   const deleteAsset = useDeleteAsset();
   const [shareOpen, setShareOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editTags, setEditTags] = useState("");
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        Loading...
-      </div>
-    );
+    return <LoadingIndicator />;
   }
 
   if (!asset) {
@@ -105,9 +102,7 @@ export function AssetViewerPage({ assetId, onNavigate }: Props) {
         {content !== undefined ? (
           <ContentRenderer contentType={asset.content_type} content={content} />
         ) : (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            Loading content...
-          </div>
+          <LoadingIndicator />
         )}
       </div>
 

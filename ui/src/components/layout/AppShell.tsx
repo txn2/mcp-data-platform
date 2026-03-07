@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useAuthStore } from "@/stores/auth";
@@ -26,6 +26,8 @@ const pageTitles: Record<string, string> = {
   "/admin/personas": "Personas",
 };
 
+const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
+
 /** Vite base path — must match vite.config.ts `base`. */
 const BASE = import.meta.env.BASE_URL.replace(/\/+$/, "");
 
@@ -37,6 +39,11 @@ function readPath(): string {
     : pathname;
   if (hash) route += hash;
   return route;
+}
+
+function isAssetRoute(path: string): boolean {
+  const route = path.split("#")[0] ?? "";
+  return /^\/assets\/.+$/.test(route);
 }
 
 function AccessDenied() {
@@ -52,6 +59,37 @@ function AccessDenied() {
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+
+  // Sidebar collapsed state: auto-collapse on asset deep-link, otherwise restore from localStorage
+  const initialPath = useRef(readPath()).current;
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (isAssetRoute(initialPath)) return true;
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+  });
+  // Track whether we auto-collapsed so we can restore on navigation away
+  const autoCollapsed = useRef(isAssetRoute(initialPath));
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      autoCollapsed.current = false; // user explicitly toggled
+      return next;
+    });
+  }, []);
+
+  // Auto-collapse when entering asset routes, restore when leaving
+  useEffect(() => {
+    const onAsset = isAssetRoute(currentPath);
+    if (onAsset && !sidebarCollapsed) {
+      setSidebarCollapsed(true);
+      autoCollapsed.current = true;
+    } else if (!onAsset && autoCollapsed.current && sidebarCollapsed) {
+      const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+      setSidebarCollapsed(stored);
+      autoCollapsed.current = false;
+    }
+  }, [currentPath, sidebarCollapsed]);
 
   const navigate = useCallback((path: string) => {
     setCurrentPath(path);
@@ -83,7 +121,12 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar currentPath={currentPath} onNavigate={navigate} />
+      <Sidebar
+        currentPath={currentPath}
+        onNavigate={navigate}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebar}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header title={title} />
         <main className="flex-1 overflow-auto bg-muted/40 p-6">
