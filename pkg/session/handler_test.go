@@ -463,19 +463,17 @@ func TestAwareSessionID_Roundtrip(t *testing.T) {
 	assert.Equal(t, "test-session-123", got)
 }
 
-// contextCapturingHandler captures the AwareSessionID and ReplacedSessionID from the request context.
+// contextCapturingHandler captures the AwareSessionID from the request context.
 type contextCapturingHandler struct {
-	mu                sync.Mutex
-	awareSessionID    string
-	replacedSessionID string
-	capturedCalled    bool
+	mu             sync.Mutex
+	awareSessionID string
+	capturedCalled bool
 }
 
 func (h *contextCapturingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.capturedCalled = true
 	h.awareSessionID = AwareSessionID(r.Context())
-	h.replacedSessionID = ReplacedSessionID(r.Context())
 	h.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
@@ -555,17 +553,6 @@ func TestHandler_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestReplacedSessionID_EmptyContext(t *testing.T) {
-	got := ReplacedSessionID(context.Background())
-	assert.Empty(t, got, "plain context should return empty string")
-}
-
-func TestReplacedSessionID_Roundtrip(t *testing.T) {
-	ctx := WithReplacedSessionID(context.Background(), "old-session-abc")
-	got := ReplacedSessionID(ctx)
-	assert.Equal(t, "old-session-abc", got)
-}
-
 func TestHandler_SessionRevive_KeepsSameID(t *testing.T) {
 	store := NewMemoryStore(handlerTestTTL)
 	capture := &contextCapturingHandler{}
@@ -591,34 +578,6 @@ func TestHandler_SessionRevive_KeepsSameID(t *testing.T) {
 	assert.True(t, capture.capturedCalled, "inner handler should be called")
 	assert.Equal(t, "old-session-for-revive", capture.awareSessionID,
 		"revived session should keep the original ID")
-	assert.Empty(t, capture.replacedSessionID,
-		"same-ID revive should not set ReplacedSessionID")
-}
-
-func TestHandler_NormalSession_NoReplacedSessionID(t *testing.T) {
-	store := NewMemoryStore(handlerTestTTL)
-	capture := &contextCapturingHandler{}
-	handler := NewAwareHandler(capture, HandlerConfig{
-		Store: store,
-		TTL:   handlerTestTTL,
-	})
-
-	// Create a valid (non-expired) session
-	sess := newTestSession("normal-session", handlerTestTTL)
-	sess.UserID = ""
-	require.NoError(t, store.Create(context.Background(), sess))
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
-	req.Header.Set(sessionIDHeader, "normal-session")
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	capture.mu.Lock()
-	defer capture.mu.Unlock()
-	assert.True(t, capture.capturedCalled)
-	assert.Empty(t, capture.replacedSessionID,
-		"normal sessions should not have a replaced session ID")
 }
 
 func TestHandler_SessionStability_AcrossMultipleRequests(t *testing.T) {
@@ -664,8 +623,6 @@ func TestHandler_SessionStability_AcrossMultipleRequests(t *testing.T) {
 	assert.True(t, capture.capturedCalled, "second request should be handled")
 	assert.Equal(t, sessionID, capture.awareSessionID,
 		"second request should use the same session ID")
-	assert.Empty(t, capture.replacedSessionID,
-		"second request should not trigger replacement")
 }
 
 func TestHandler_ReviveSession_UpdatesTimestamps(t *testing.T) {

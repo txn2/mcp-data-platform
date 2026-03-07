@@ -33,7 +33,9 @@ func New(db *sql.DB, cfg Config) *Store {
 	}
 }
 
-// Create persists a new session.
+// Create persists a new session. If a row with the same ID already exists
+// (e.g. an expired row not yet cleaned up), it is replaced via upsert to
+// avoid unique constraint violations during session revival.
 func (s *Store) Create(ctx context.Context, sess *session.Session) error {
 	stateJSON, err := json.Marshal(sess.State)
 	if err != nil {
@@ -43,6 +45,12 @@ func (s *Store) Create(ctx context.Context, sess *session.Session) error {
 	query := `
 		INSERT INTO sessions (id, user_id, created_at, last_active_at, expires_at, state)
 		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO UPDATE SET
+			user_id = EXCLUDED.user_id,
+			created_at = EXCLUDED.created_at,
+			last_active_at = EXCLUDED.last_active_at,
+			expires_at = EXCLUDED.expires_at,
+			state = EXCLUDED.state
 	`
 	_, err = s.db.ExecContext(ctx, query,
 		sess.ID, sess.UserID, sess.CreatedAt, sess.LastActiveAt, sess.ExpiresAt, stateJSON,

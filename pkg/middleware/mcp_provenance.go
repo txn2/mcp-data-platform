@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // provenanceContextKey is the context key for provenance tool calls.
@@ -124,15 +122,9 @@ func summarizeParams(params map[string]any) string {
 	return s
 }
 
-// harvestProvenance collects tool calls from the current session and, if a
-// session replacement occurred, also from the old (replaced) session.
-func harvestProvenance(ctx context.Context, tracker *ProvenanceTracker, sessionID string) []ProvenanceToolCall {
-	calls := tracker.Harvest(sessionID)
-	if replacedID := pkgsession.ReplacedSessionID(ctx); replacedID != "" {
-		oldCalls := tracker.Harvest(replacedID)
-		calls = append(oldCalls, calls...)
-	}
-	return calls
+// harvestProvenance collects tool calls from the current session.
+func harvestProvenance(_ context.Context, tracker *ProvenanceTracker, sessionID string) []ProvenanceToolCall {
+	return tracker.Harvest(sessionID)
 }
 
 // MCPProvenanceMiddleware tracks tool calls per session and injects
