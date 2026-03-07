@@ -12,7 +12,7 @@ export const mockSystemInfo: SystemInfo = {
   description: "ACME Corporation Retail Data Platform",
   transport: "http",
   config_mode: "database",
-  portal_title: "Admin Portal",
+  portal_title: "MCP Data Platform",
   portal_logo: "",
   portal_logo_light: "",
   portal_logo_dark: "",

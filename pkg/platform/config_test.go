@@ -759,6 +759,54 @@ injection:
 	}
 }
 
+func TestApplyDefaults_PortalTitle(t *testing.T) {
+	t.Run("defaults to MCP Data Platform", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.Portal.Title != "MCP Data Platform" {
+			t.Errorf("Portal.Title = %q, want %q", cfg.Portal.Title, "MCP Data Platform")
+		}
+	})
+
+	t.Run("preserves explicit title", func(t *testing.T) {
+		cfg := &Config{
+			Portal: PortalConfig{Title: "My Custom Platform"},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.Title != "My Custom Platform" {
+			t.Errorf("Portal.Title = %q, want %q (should preserve)", cfg.Portal.Title, "My Custom Platform")
+		}
+	})
+}
+
+func TestLoadConfig_PortalBrandingFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+portal:
+  enabled: true
+  title: "ACME Data Platform"
+  logo: "https://cdn.example.com/logo.svg"
+  logo_light: "https://cdn.example.com/logo-light.svg"
+  logo_dark: "https://cdn.example.com/logo-dark.svg"
+`)
+	if !cfg.Portal.Enabled {
+		t.Error("Portal.Enabled = false, want true")
+	}
+	if cfg.Portal.Title != "ACME Data Platform" {
+		t.Errorf("Portal.Title = %q, want %q", cfg.Portal.Title, "ACME Data Platform")
+	}
+	if cfg.Portal.Logo != "https://cdn.example.com/logo.svg" {
+		t.Errorf("Portal.Logo = %q", cfg.Portal.Logo)
+	}
+	if cfg.Portal.LogoLight != "https://cdn.example.com/logo-light.svg" {
+		t.Errorf("Portal.LogoLight = %q", cfg.Portal.LogoLight)
+	}
+	if cfg.Portal.LogoDark != "https://cdn.example.com/logo-dark.svg" {
+		t.Errorf("Portal.LogoDark = %q", cfg.Portal.LogoDark)
+	}
+}
+
 func TestApplyDefaults_AdminConfig(t *testing.T) {
 	t.Run("defaults applied", func(t *testing.T) {
 		cfg := &Config{}

@@ -140,7 +140,7 @@ Add custom authentication, rate limiting, or logging. Swap providers to integrat
 
 ## Admin Portal
 
-A built-in web dashboard for monitoring, auditing, and exploring the platform. Enable with `admin.portal: true`.
+A built-in web dashboard for monitoring, auditing, and exploring the platform. Enable with `portal.enabled: true`.
 
 ![Admin Dashboard](docs/images/screenshots/admin-dashboard.png)
 

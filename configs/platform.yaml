@@ -309,16 +309,22 @@ tuning:
 #     datahub_connection: primary  # Which DataHub instance to write to
 #     require_confirmation: true   # Require confirm: true on apply (default: false)
 
+# Portal UI and branding
+# portal:
+#   enabled: true                                             # single flag to enable portal SPA + API
+#   title: "My Data Platform"                                 # sidebar/branding title (default: "MCP Data Platform")
+#   logo: https://example.com/logo.svg                        # logo URL, used if no light/dark specified
+#   logo_light: https://example.com/logo-dark.svg             # logo for light theme
+#   logo_dark: https://example.com/logo-white.svg             # logo for dark theme
+#   public_base_url: "https://portal.example.com"
+#   s3_connection: data_lake                                   # S3 toolkit instance for artifact storage
+#   s3_bucket: portal-assets                                   # bucket for artifact storage
+
 # Admin REST API
 # admin:
 #   enabled: true
-#   portal: true                # enable admin UI portal (default: false)
 #   persona: admin              # persona required for admin access (default: "admin")
 #   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
-#   portal_title: "My Data Platform"                        # sidebar title (default: "Admin Portal")
-#   portal_logo: https://example.com/logo.svg               # logo URL, used if no light/dark specified
-#   portal_logo_light: https://example.com/logo-dark.svg   # logo for light theme
-#   portal_logo_dark: https://example.com/logo-white.svg   # logo for dark theme
 
 # Resource templates (RFC 6570 URI templates)
 # Exposes platform data as browseable, parameterized MCP resources.

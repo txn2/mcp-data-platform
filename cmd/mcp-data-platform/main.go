@@ -220,7 +220,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 	if p != nil && p.Config() != nil {
 		c := p.Config()
 		cfg.requireAuth = !c.Auth.AllowAnonymous
-		cfg.portalUI = c.Portal.UI && ui.Available()
+		cfg.portalUI = c.Portal.Enabled && ui.Available()
 		cfg.tlsEnabled = c.Server.TLS.Enabled
 		cfg.tlsCertFile = c.Server.TLS.CertFile
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
@@ -519,7 +519,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 // mountPortalUI registers the unified portal SPA frontend on the mux when the
 // portal UI config gate is enabled and assets are available.
 func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
-	if p == nil || !p.Config().Portal.UI || !assetsAvailable {
+	if p == nil || !p.Config().Portal.Enabled || !assetsAvailable {
 		return
 	}
 	mux.Handle("/portal/", http.StripPrefix("/portal", ui.Handler()))

@@ -633,6 +633,10 @@ The asset portal persists AI-generated artifacts (JSX dashboards, HTML reports, 
 ```yaml
 portal:
   enabled: true
+  title: "ACME Data Platform"                    # Sidebar/branding title
+  logo: https://example.com/logo.svg             # Logo URL (fallback for both themes)
+  logo_light: https://example.com/logo-light.svg # Logo for light theme
+  logo_dark: https://example.com/logo-dark.svg   # Logo for dark theme
   s3_connection: primary        # S3 toolkit instance for artifact storage
   s3_bucket: portal-artifacts   # Bucket for artifact content
   s3_prefix: "artifacts/"       # Key prefix within the bucket
@@ -642,7 +646,11 @@ portal:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `portal.enabled` | bool | `false` | Enable the portal toolkit and `save_artifact`/`manage_artifact` tools |
+| `portal.enabled` | bool | `false` | Enable the portal SPA frontend and artifact API |
+| `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.logo` | string | `""` | URL to logo image (used for both themes if no theme-specific logo is set) |
+| `portal.logo_light` | string | `""` | URL to logo for light theme (overrides `logo`) |
+| `portal.logo_dark` | string | `""` | URL to logo for dark theme (overrides `logo`) |
 | `portal.s3_connection` | string | - | Name of the S3 toolkit instance to use for artifact storage |
 | `portal.s3_bucket` | string | - | S3 bucket for storing artifact content |
 | `portal.s3_prefix` | string | `""` | Key prefix within the bucket (e.g., `artifacts/`) |
@@ -657,25 +665,15 @@ portal:
 ```yaml
 admin:
   enabled: true
-  portal: true
   persona: admin
   path_prefix: /api/v1/admin
-  portal_title: "ACME Data Platform"
-  portal_logo: https://example.com/logo.svg
-  portal_logo_light: https://example.com/logo-for-light-bg.svg
-  portal_logo_dark: https://example.com/logo-for-dark-bg.svg
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `admin.enabled` | bool | `false` | Enable admin REST API |
-| `admin.portal` | bool | `false` | Enable the admin web portal UI |
 | `admin.persona` | string | `admin` | Persona required for admin access |
 | `admin.path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
-| `admin.portal_title` | string | `Admin Portal` | Sidebar title text |
-| `admin.portal_logo` | string | `""` | URL to logo image (used for both themes if no theme-specific logo is set) |
-| `admin.portal_logo_light` | string | `""` | URL to logo for light theme (overrides `portal_logo`) |
-| `admin.portal_logo_dark` | string | `""` | URL to logo for dark theme (overrides `portal_logo`) |
 
 ## Injection Configuration
 
