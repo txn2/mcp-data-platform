@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -11,6 +12,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errStore wraps MemoryStore to inject errors for specific operations.
+type errStore struct {
+	*MemoryStore
+	getErr    error
+	createErr error
+}
+
+func (s *errStore) Get(ctx context.Context, id string) (*Session, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	return s.MemoryStore.Get(ctx, id)
+}
+
+func (s *errStore) Create(ctx context.Context, sess *Session) error {
+	if s.createErr != nil {
+		return s.createErr
+	}
+	return s.MemoryStore.Create(ctx, sess)
+}
 
 const (
 	handlerTestTTL           = 30 * time.Minute
@@ -185,16 +207,15 @@ func TestHandler_ExpiredSession_RecoveryWithBearer(t *testing.T) {
 	assert.True(t, inner.wasCalled(), "inner handler should be called after session recovery")
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// A new session should have been created (different ID from the expired one)
-	newSessionID := w.Header().Get(sessionIDHeader)
-	assert.NotEmpty(t, newSessionID, "replacement session ID should be in response")
-	assert.NotEqual(t, "expired-bearer", newSessionID, "replacement session should have new ID")
+	// Session should be revived with the SAME ID (not a new random one)
+	assert.Equal(t, "expired-bearer", inner.getSessionID(),
+		"revived session should keep the original ID")
 
-	// New session should exist in store
-	newSess, err := store.Get(ctx, newSessionID)
+	// Revived session should exist in store with correct owner
+	revived, err := store.Get(ctx, "expired-bearer")
 	require.NoError(t, err)
-	assert.NotNil(t, newSess, "replacement session should exist in store")
-	assert.Equal(t, hashToken("my-bearer-token"), newSess.UserID)
+	assert.NotNil(t, revived, "revived session should exist in store")
+	assert.Equal(t, hashToken("my-bearer-token"), revived.UserID)
 }
 
 func TestHandler_MissingSession_RecoveryWithAPIKey(t *testing.T) {
@@ -211,14 +232,14 @@ func TestHandler_MissingSession_RecoveryWithAPIKey(t *testing.T) {
 	assert.True(t, inner.wasCalled(), "inner handler should be called after session recovery")
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	newSessionID := w.Header().Get(sessionIDHeader)
-	assert.NotEmpty(t, newSessionID, "replacement session ID should be in response")
-	assert.NotEqual(t, "does-not-exist", newSessionID, "replacement session should have new ID")
+	// Session should be revived with the SAME ID
+	assert.Equal(t, "does-not-exist", inner.getSessionID(),
+		"revived session should keep the original ID")
 
-	newSess, err := store.Get(context.Background(), newSessionID)
+	revived, err := store.Get(context.Background(), "does-not-exist")
 	require.NoError(t, err)
-	assert.NotNil(t, newSess, "replacement session should exist in store")
-	assert.Equal(t, hashToken(handlerTestAPIKey), newSess.UserID)
+	assert.NotNil(t, revived, "revived session should exist in store")
+	assert.Equal(t, hashToken(handlerTestAPIKey), revived.UserID)
 }
 
 func TestHandler_ExpiredSession_NoCredentials_Returns404(t *testing.T) {
@@ -442,19 +463,17 @@ func TestAwareSessionID_Roundtrip(t *testing.T) {
 	assert.Equal(t, "test-session-123", got)
 }
 
-// contextCapturingHandler captures the AwareSessionID and ReplacedSessionID from the request context.
+// contextCapturingHandler captures the AwareSessionID from the request context.
 type contextCapturingHandler struct {
-	mu                sync.Mutex
-	awareSessionID    string
-	replacedSessionID string
-	capturedCalled    bool
+	mu             sync.Mutex
+	awareSessionID string
+	capturedCalled bool
 }
 
 func (h *contextCapturingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.capturedCalled = true
 	h.awareSessionID = AwareSessionID(r.Context())
-	h.replacedSessionID = ReplacedSessionID(r.Context())
 	h.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
@@ -534,18 +553,7 @@ func TestHandler_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestReplacedSessionID_EmptyContext(t *testing.T) {
-	got := ReplacedSessionID(context.Background())
-	assert.Empty(t, got, "plain context should return empty string")
-}
-
-func TestReplacedSessionID_Roundtrip(t *testing.T) {
-	ctx := WithReplacedSessionID(context.Background(), "old-session-abc")
-	got := ReplacedSessionID(ctx)
-	assert.Equal(t, "old-session-abc", got)
-}
-
-func TestHandler_SessionReplacement_SetsReplacedSessionID(t *testing.T) {
+func TestHandler_SessionRevive_KeepsSameID(t *testing.T) {
 	store := NewMemoryStore(handlerTestTTL)
 	capture := &contextCapturingHandler{}
 	handler := NewAwareHandler(capture, HandlerConfig{
@@ -554,13 +562,13 @@ func TestHandler_SessionReplacement_SetsReplacedSessionID(t *testing.T) {
 	})
 
 	// Create an expired session
-	sess := newTestSession("old-session-for-replace", -time.Second)
-	sess.UserID = hashToken("replace-token")
+	sess := newTestSession("old-session-for-revive", -time.Second)
+	sess.UserID = hashToken("revive-token")
 	require.NoError(t, store.Create(context.Background(), sess))
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
-	req.Header.Set(sessionIDHeader, "old-session-for-replace")
-	req.Header.Set(handlerTestAuthHeader, "Bearer replace-token")
+	req.Header.Set(sessionIDHeader, "old-session-for-revive")
+	req.Header.Set(handlerTestAuthHeader, "Bearer revive-token")
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -568,13 +576,11 @@ func TestHandler_SessionReplacement_SetsReplacedSessionID(t *testing.T) {
 	capture.mu.Lock()
 	defer capture.mu.Unlock()
 	assert.True(t, capture.capturedCalled, "inner handler should be called")
-	assert.NotEmpty(t, capture.awareSessionID, "new session ID should be set")
-	assert.NotEqual(t, "old-session-for-replace", capture.awareSessionID)
-	assert.Equal(t, "old-session-for-replace", capture.replacedSessionID,
-		"replaced session ID should carry the old session ID")
+	assert.Equal(t, "old-session-for-revive", capture.awareSessionID,
+		"revived session should keep the original ID")
 }
 
-func TestHandler_NormalSession_NoReplacedSessionID(t *testing.T) {
+func TestHandler_SessionStability_AcrossMultipleRequests(t *testing.T) {
 	store := NewMemoryStore(handlerTestTTL)
 	capture := &contextCapturingHandler{}
 	handler := NewAwareHandler(capture, HandlerConfig{
@@ -582,20 +588,112 @@ func TestHandler_NormalSession_NoReplacedSessionID(t *testing.T) {
 		TTL:   handlerTestTTL,
 	})
 
-	// Create a valid (non-expired) session
-	sess := newTestSession("normal-session", handlerTestTTL)
-	sess.UserID = ""
+	const sessionID = "stable-session-id"
+	const token = "stable-token"
+
+	// Create an expired session
+	sess := newTestSession(sessionID, -time.Second)
+	sess.UserID = hashToken(token)
 	require.NoError(t, store.Create(context.Background(), sess))
 
+	// First request: triggers revive
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	req1.Header.Set(sessionIDHeader, sessionID)
+	req1.Header.Set(handlerTestAuthHeader, "Bearer "+token)
+	w1 := httptest.NewRecorder()
+
+	handler.ServeHTTP(w1, req1)
+
+	capture.mu.Lock()
+	assert.Equal(t, sessionID, capture.awareSessionID,
+		"first request should revive with same ID")
+	capture.capturedCalled = false
+	capture.mu.Unlock()
+
+	// Second request: session now exists, should be handled normally (no revive)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	req2.Header.Set(sessionIDHeader, sessionID)
+	req2.Header.Set(handlerTestAuthHeader, "Bearer "+token)
+	w2 := httptest.NewRecorder()
+
+	handler.ServeHTTP(w2, req2)
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	assert.True(t, capture.capturedCalled, "second request should be handled")
+	assert.Equal(t, sessionID, capture.awareSessionID,
+		"second request should use the same session ID")
+}
+
+func TestHandler_ReviveSession_UpdatesTimestamps(t *testing.T) {
+	handler, store, _ := newTestHandler()
+	ctx := context.Background()
+
+	const sessionID = "revive-timestamps"
+	const token = "ts-token"
+
+	// Create an expired session
+	oldSess := newTestSession(sessionID, -time.Second)
+	oldSess.UserID = hashToken(token)
+	require.NoError(t, store.Create(ctx, oldSess))
+
+	before := time.Now()
+
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
-	req.Header.Set(sessionIDHeader, "normal-session")
+	req.Header.Set(sessionIDHeader, sessionID)
+	req.Header.Set(handlerTestAuthHeader, "Bearer "+token)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
 
-	capture.mu.Lock()
-	defer capture.mu.Unlock()
-	assert.True(t, capture.capturedCalled)
-	assert.Empty(t, capture.replacedSessionID,
-		"normal sessions should not have a replaced session ID")
+	after := time.Now()
+
+	// Verify the revived session has correct fields
+	revived, err := store.Get(ctx, sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, revived, "revived session should exist")
+
+	assert.Equal(t, sessionID, revived.ID, "ID should be preserved")
+	assert.Equal(t, hashToken(token), revived.UserID, "UserID should match token")
+	assert.True(t, !revived.CreatedAt.Before(before) && !revived.CreatedAt.After(after),
+		"CreatedAt should be recent")
+	assert.True(t, !revived.ExpiresAt.Before(before.Add(handlerTestTTL)),
+		"ExpiresAt should be TTL from now")
+}
+
+func TestHandler_HandleExisting_StoreGetError(t *testing.T) {
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		getErr:      errors.New("db connection lost"),
+	}
+	inner := &testInnerHandler{}
+	handler := NewAwareHandler(inner, HandlerConfig{Store: es, TTL: handlerTestTTL})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "any-session")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.False(t, inner.wasCalled(), "inner handler should not be called on store error")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestHandler_ReviveSession_CreateError(t *testing.T) {
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		createErr:   errors.New("insert failed"),
+	}
+	inner := &testInnerHandler{}
+	handler := NewAwareHandler(inner, HandlerConfig{Store: es, TTL: handlerTestTTL})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "revive-fail")
+	req.Header.Set(handlerTestAuthHeader, "Bearer some-token")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.False(t, inner.wasCalled(), "inner handler should not be called when revive fails")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

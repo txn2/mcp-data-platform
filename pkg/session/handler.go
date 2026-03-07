@@ -15,10 +15,6 @@ import (
 // awareSessionKey is the context key for the AwareHandler session ID.
 type awareSessionKey struct{}
 
-// replacedSessionKey is the context key for the old session ID that was replaced
-// during session recovery (expired session → new session with auth credentials).
-type replacedSessionKey struct{}
-
 // AwareSessionID returns the session ID set by AwareHandler, or "".
 func AwareSessionID(ctx context.Context) string {
 	if id, ok := ctx.Value(awareSessionKey{}).(string); ok {
@@ -34,22 +30,6 @@ func WithAwareSessionID(ctx context.Context, sessionID string) context.Context {
 	return context.WithValue(ctx, awareSessionKey{}, sessionID)
 }
 
-// ReplacedSessionID returns the old session ID that was replaced during session
-// recovery, or "" if no replacement occurred.
-func ReplacedSessionID(ctx context.Context) string {
-	if id, ok := ctx.Value(replacedSessionKey{}).(string); ok {
-		return id
-	}
-	return ""
-}
-
-// WithReplacedSessionID returns a context carrying the old session ID that was
-// replaced. This allows downstream middleware (e.g. provenance) to recover data
-// recorded under the old session.
-func WithReplacedSessionID(ctx context.Context, oldSessionID string) context.Context {
-	return context.WithValue(ctx, replacedSessionKey{}, oldSessionID)
-}
-
 const (
 	// sessionIDHeader is the MCP session header name.
 	sessionIDHeader = "Mcp-Session-Id"
@@ -62,6 +42,9 @@ const (
 
 	// slogKeyError is the slog attribute key for error values.
 	slogKeyError = "error"
+
+	// httpErrInternal is the response body for HTTP 500 errors.
+	httpErrInternal = "internal server error"
 
 	// touchTimeout is the maximum time for async session touch operations.
 	touchTimeout = 5 * time.Second
@@ -112,7 +95,7 @@ func (h *AwareHandler) handleInitialize(w http.ResponseWriter, r *http.Request) 
 	sessionID, err := generateSessionID()
 	if err != nil {
 		slog.Error("session: failed to generate ID", slogKeyError, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, httpErrInternal, http.StatusInternalServerError)
 		return
 	}
 
@@ -128,7 +111,7 @@ func (h *AwareHandler) handleInitialize(w http.ResponseWriter, r *http.Request) 
 
 	if err := h.store.Create(r.Context(), sess); err != nil {
 		slog.Error("session: failed to create", slogKeyError, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, httpErrInternal, http.StatusInternalServerError)
 		return
 	}
 
@@ -151,19 +134,26 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 	sess, err := h.store.Get(r.Context(), sessionID)
 	if err != nil {
 		slog.Error("session: store error", slogKeyError, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, httpErrInternal, http.StatusInternalServerError)
 		return
 	}
 	if sess == nil {
 		// Session expired or was cleaned up. If the request carries auth
-		// credentials, create a replacement session transparently instead
-		// of forcing the client to re-initialize (which the Go SDK client
-		// does not do automatically).
+		// credentials, revive the session using the SAME ID. Clients like
+		// Claude Desktop do not update their stored session ID from
+		// response headers, so generating a new ID would cause every
+		// subsequent request to trigger another revive — breaking
+		// provenance tracking and enrichment dedup.
 		if extractToken(r) != "" {
-			slog.Info("session: expired, creating replacement",
-				"old_session_id", sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
-			r = r.WithContext(WithReplacedSessionID(r.Context(), sessionID))
-			h.handleInitialize(w, r)
+			slog.Info("session: reviving expired session",
+				"session_id", sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+			if err := h.reviveSession(r.Context(), sessionID, r); err != nil {
+				slog.Error("session: failed to revive", slogKeyError, err)
+				http.Error(w, httpErrInternal, http.StatusInternalServerError)
+				return
+			}
+			r = r.WithContext(WithAwareSessionID(r.Context(), sessionID))
+			h.inner.ServeHTTP(w, r)
 			return
 		}
 		http.Error(w, "session not found or expired", http.StatusNotFound)
@@ -198,6 +188,28 @@ func (h *AwareHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.inner.ServeHTTP(w, r)
+}
+
+// reviveSession recreates an expired or missing session using the same ID.
+// This ensures session stability when clients don't update their Mcp-Session-Id
+// from response headers (e.g. Claude Desktop). The expired row (if any) is
+// deleted first to avoid unique constraint violations in the database store.
+func (h *AwareHandler) reviveSession(ctx context.Context, sessionID string, r *http.Request) error {
+	// Remove expired-but-not-yet-cleaned row (if any) to avoid INSERT conflict.
+	_ = h.store.Delete(ctx, sessionID)
+
+	now := time.Now()
+	if err := h.store.Create(ctx, &Session{
+		ID:           sessionID,
+		UserID:       hashToken(extractToken(r)),
+		CreatedAt:    now,
+		LastActiveAt: now,
+		ExpiresAt:    now.Add(h.ttl),
+		State:        make(map[string]any),
+	}); err != nil {
+		return fmt.Errorf("reviving session: %w", err)
+	}
+	return nil
 }
 
 // validateOwnership checks that the request token matches the session owner.
