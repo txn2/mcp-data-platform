@@ -34,6 +34,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      useAuthStore.getState().expireSession();
+    }
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new ApiError(res.status, body.detail || res.statusText);
   }
@@ -47,7 +50,11 @@ async function apiFetchRaw(path: string): Promise<Response> {
   if (authMethod === "apikey" && apiKey) {
     headers["X-API-Key"] = apiKey;
   }
-  return fetch(`${BASE_URL}${path}`, { headers, credentials: "include" });
+  const res = await fetch(`${BASE_URL}${path}`, { headers, credentials: "include" });
+  if (res.status === 401) {
+    useAuthStore.getState().expireSession();
+  }
+  return res;
 }
 
 export { apiFetch, apiFetchRaw, ApiError, BASE_URL };

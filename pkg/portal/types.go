@@ -4,6 +4,7 @@ package portal
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,7 @@ type Share struct {
 	Token            string     `json:"token"`
 	CreatedBy        string     `json:"created_by"`
 	SharedWithUserID string     `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail  string     `json:"shared_with_email,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	Revoked          bool       `json:"revoked"`
 	AccessCount      int        `json:"access_count"`
@@ -147,6 +149,24 @@ func ValidateTags(tags []string) error {
 func ValidateDescription(desc string) error {
 	if len(desc) > maxDescriptionLength {
 		return fmt.Errorf("description exceeds %d characters", maxDescriptionLength)
+	}
+	return nil
+}
+
+// maxEmailLength is the maximum length for an email address (RFC 5321).
+const maxEmailLength = 254
+
+// ValidateEmail checks that an email address has a basic valid format.
+func ValidateEmail(email string) error {
+	if len(email) > maxEmailLength {
+		return fmt.Errorf("email exceeds %d characters", maxEmailLength)
+	}
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("invalid email address")
+	}
+	if !strings.Contains(parts[1], ".") {
+		return fmt.Errorf("invalid email address")
 	}
 	return nil
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
+import { useBranding } from "@/api/portal/hooks";
 import { Wrench, ScrollText, Lightbulb, Users, Settings } from "lucide-react";
 
 type Tab = "dashboard" | "help";
@@ -16,6 +17,8 @@ export function HomePage({
   initialTab?: string;
   onNavigate: (path: string) => void;
 }) {
+  const { data: branding } = useBranding();
+  const title = branding?.portal_title || "MCP Data Platform";
   const [tab, setTab] = useState<Tab>(
     initialTab === "help" ? "help" : "dashboard",
   );
@@ -39,7 +42,7 @@ export function HomePage({
       </div>
 
       {tab === "dashboard" && <DashboardPage onNavigate={onNavigate} />}
-      {tab === "help" && <HelpTab onNavigate={onNavigate} />}
+      {tab === "help" && <HelpTab onNavigate={onNavigate} title={title} />}
     </div>
   );
 }
@@ -86,20 +89,24 @@ const sections = [
   },
 ];
 
-function HelpTab({ onNavigate }: { onNavigate: (path: string) => void }) {
+function HelpTab({
+  onNavigate,
+  title,
+}: {
+  onNavigate: (path: string) => void;
+  title: string;
+}) {
   return (
     <div className="max-w-3xl space-y-8">
       {/* Platform Overview */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">
-          MCP Data Platform Overview
-        </h2>
+        <h2 className="mb-2 text-lg font-semibold">{title} Overview</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The MCP Data Platform is a semantic data platform server that composes
-          multiple MCP toolkits (Trino, DataHub, S3) with a required semantic
-          layer. It provides <strong>bidirectional cross-injection</strong> where
-          tool responses automatically include critical context from other
-          services, giving AI assistants richer, more accurate information.
+          The {title} is a semantic data platform server that composes multiple
+          MCP toolkits (Trino, DataHub, S3) with a required semantic layer. It
+          provides <strong>bidirectional cross-injection</strong> where tool
+          responses automatically include critical context from other services,
+          giving AI assistants richer, more accurate information.
         </p>
       </section>
 

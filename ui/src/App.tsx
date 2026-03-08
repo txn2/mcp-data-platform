@@ -8,7 +8,13 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: (failureCount, error) => {
+        // Don't retry on 401 — the session is expired.
+        if (error && "status" in error && (error as { status: number }).status === 401) {
+          return false;
+        }
+        return failureCount < 1;
+      },
       staleTime: 10_000,
     },
   },
