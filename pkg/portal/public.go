@@ -190,28 +190,13 @@ func publicCSP(contentType string) string {
 	return "default-src 'none'; style-src 'unsafe-inline'; img-src data:;"
 }
 
-// jsxIframe produces an iframe with a full client-side React environment
-// that transpiles JSX with Sucrase (loaded from esm.sh) and renders it.
-// This mirrors the authenticated portal's JsxRenderer.tsx behavior.
-func jsxIframe(data []byte) string {
-	// Encode JSX source as a JSON string to safely embed in <script>.
-	encoded, _ := json.Marshal(string(data)) // #nosec G104 -- string marshaling cannot fail
-
-	var buf bytes.Buffer
-	buf.WriteString(`<iframe sandbox="allow-scripts" `)
-	buf.WriteString(`style="width:100%;height:80vh;border:none;" `)
-	buf.WriteString(`srcdoc="`)
-
-	// Build the iframe srcdoc — a complete HTML page with import maps and Sucrase.
-	inner := jsxIframeSrcdoc(string(encoded))
-	buf.WriteString(template.HTMLEscapeString(inner))
-	buf.WriteString(`"></iframe>`)
-	return buf.String()
-}
-
-// jsxIframeSrcdoc returns the HTML content for the JSX rendering iframe.
-func jsxIframeSrcdoc(jsonSource string) string {
-	return `<!DOCTYPE html>
+// jsxSrcdocTpl is parsed once at init. It renders the JSX viewer HTML
+// with the user's source safely injected via html/template (which escapes
+// for both HTML-element and HTML-attribute contexts, satisfying CodeQL's
+// go/unsafe-quoting check).
+//
+//nolint:lll // HTML template lines are necessarily long
+var jsxSrcdocTpl = template.Must(template.New("jsx").Parse(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -233,8 +218,9 @@ func jsxIframeSrcdoc(jsonSource string) string {
 </head>
 <body>
 <div id="root"><p style="color:#888;font-family:system-ui,sans-serif;padding:16px">Loading component...</p></div>
+<script type="application/json" id="jsx-source">{{.Source}}</script>
 <script type="module">
-const ERROR_STYLE = "color:#ef4444;background:#1e1e1e;padding:16px;font-size:13px;white-space:pre-wrap;overflow:auto;height:100%;font-family:monospace";
+var ERROR_STYLE = "color:#ef4444;background:#1e1e1e;padding:16px;font-size:13px;white-space:pre-wrap;overflow:auto;height:100%;font-family:monospace";
 
 function showError(text) {
   var el = document.createElement("pre");
@@ -252,51 +238,48 @@ window.addEventListener("unhandledrejection", function(e) {
   showError("Module load error: " + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
 });
 
-const jsxSource = ` + jsonSource + `;
-
 try {
-  const { transform } = await import("https://esm.sh/sucrase@3?bundle");
-  const React = await import("react");
-  const { createRoot } = await import("react-dom/client");
+  var jsxSource = JSON.parse(document.getElementById("jsx-source").textContent);
 
-  const result = transform(jsxSource, {
+  var sucrase = await import("https://esm.sh/sucrase@3?bundle");
+  var React = await import("react");
+  var ReactDOMClient = await import("react-dom/client");
+
+  var result = sucrase.transform(jsxSource, {
     transforms: ["jsx"],
     jsxRuntime: "automatic",
     production: true,
   });
 
-  // Detect component name
-  let componentName = null;
-  let m = jsxSource.match(/export\s+default\s+(?:function|class)\s+([A-Z][A-Za-z0-9]*)/);
+  var componentName = null;
+  var m = jsxSource.match(/export\s+default\s+(?:function|class)\s+([A-Z][A-Za-z0-9]*)/);
   if (m) componentName = m[1];
   if (!componentName) {
     m = jsxSource.match(/export\s+default\s+([A-Z][A-Za-z0-9]*)\s*;/);
     if (m) componentName = m[1];
   }
   if (!componentName) {
-    const matches = [...jsxSource.matchAll(/(?:function|const|let|class)\s+([A-Z][A-Za-z0-9]*)/g)];
+    var matches = Array.from(jsxSource.matchAll(/(?:function|var|let|const|class)\s+([A-Z][A-Za-z0-9]*)/g));
     if (matches.length) componentName = matches[matches.length - 1][1];
   }
 
-  // Check for self-mounting code
-  const selfMounting = /\bcreateRoot\s*\(/.test(jsxSource) || /\bReactDOM\s*\.\s*render\s*\(/.test(jsxSource);
+  var selfMounting = /\bcreateRoot\s*\(/.test(jsxSource) || /\bReactDOM\s*\.\s*render\s*\(/.test(jsxSource);
 
-  // Create module blob and import it
-  const moduleCode = selfMounting
+  var moduleCode = selfMounting
     ? result.code
     : result.code + "\n" + (componentName
         ? "export { " + componentName + " as __Component__ };"
         : "");
 
-  const blob = new Blob([moduleCode], { type: "text/javascript" });
-  const url = URL.createObjectURL(blob);
-  const mod = await import(url);
+  var blob = new Blob([moduleCode], { type: "text/javascript" });
+  var url = URL.createObjectURL(blob);
+  var mod = await import(url);
   URL.revokeObjectURL(url);
 
   if (!selfMounting) {
-    const Comp = mod.__Component__ || mod.default;
+    var Comp = mod.__Component__ || mod.default;
     if (Comp) {
-      createRoot(document.getElementById("root")).render(React.createElement(Comp));
+      ReactDOMClient.createRoot(document.getElementById("root")).render(React.createElement(Comp));
     } else {
       showError("No component found. Use: export default function MyComponent() { ... }");
     }
@@ -304,9 +287,35 @@ try {
 } catch (e) {
   showError(e.stack || e.message || String(e));
 }
-<\/script>
+</script>
 </body>
-</html>`
+</html>`))
+
+// jsxIframe produces an iframe with a full client-side React environment
+// that transpiles JSX with Sucrase (loaded from esm.sh) and renders it.
+// This mirrors the authenticated portal's JsxRenderer.tsx behavior.
+func jsxIframe(data []byte) string {
+	// Encode JSX source as a JSON string for the data element.
+	encoded, _ := json.Marshal(string(data)) // #nosec G104 -- string marshaling cannot fail
+
+	// Render the srcdoc HTML via html/template (safe injection).
+	// json.Marshal escapes <, >, & as \u003c, \u003e, \u0026 — so </script>
+	// breakout is impossible. template.JS marks the value as pre-sanitized
+	// to prevent double-escaping inside the <script> context.
+	var inner bytes.Buffer
+	_ = jsxSrcdocTpl.Execute(&inner, map[string]template.JS{ // #nosec G104
+		"Source": template.JS(encoded), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe for JS
+	})
+
+	// Wrap in a sandboxed iframe. HTMLEscapeString encodes the inner HTML
+	// for safe embedding in the srcdoc="" attribute.
+	var buf bytes.Buffer
+	buf.WriteString(`<iframe sandbox="allow-scripts" `)
+	buf.WriteString(`style="width:100%;height:80vh;border:none;" `)
+	buf.WriteString(`srcdoc="`)
+	buf.WriteString(template.HTMLEscapeString(inner.String()))
+	buf.WriteString(`"></iframe>`)
+	return buf.String()
 }
 
 func sandboxedIframe(data []byte) string {
