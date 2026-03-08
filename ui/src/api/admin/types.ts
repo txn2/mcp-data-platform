@@ -348,3 +348,17 @@ export interface PersonaCreateRequest {
   priority?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Assets (admin-scoped)
+// ---------------------------------------------------------------------------
+
+export { type Asset, type ShareSummary } from "@/api/portal/types";
+
+export interface AdminAssetListResponse {
+  data: import("@/api/portal/types").Asset[];
+  total: number;
+  limit: number;
+  offset: number;
+  share_summaries?: Record<string, import("@/api/portal/types").ShareSummary>;
+}
+

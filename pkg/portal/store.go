@@ -29,6 +29,7 @@ type ShareStore interface {
 	GetByToken(ctx context.Context, token string) (*Share, error)
 	ListByAsset(ctx context.Context, assetID string) ([]Share, error)
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
+	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
 	Revoke(ctx context.Context, id string) error
 	IncrementAccess(ctx context.Context, id string) error
 }
@@ -394,6 +395,44 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 	return results, total, nil
 }
 
+func (s *postgresShareStore) ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
+	if len(assetIDs) == 0 {
+		return map[string]ShareSummary{}, nil
+	}
+
+	query := `
+		SELECT asset_id,
+		       BOOL_OR(shared_with_user_id IS NOT NULL OR shared_with_email IS NOT NULL),
+		       BOOL_OR(shared_with_user_id IS NULL AND shared_with_email IS NULL)
+		FROM portal_shares
+		WHERE asset_id = ANY($1)
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		GROUP BY asset_id
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, assetIDs) //nolint:gosec // query is a constant with parameterized placeholders
+	if err != nil {
+		return nil, fmt.Errorf("querying share summaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	result := make(map[string]ShareSummary)
+	for rows.Next() {
+		var assetID string
+		var summary ShareSummary
+		if err := rows.Scan(&assetID, &summary.HasUserShare, &summary.HasPublicLink); err != nil {
+			return nil, fmt.Errorf("scanning share summary row: %w", err)
+		}
+		result[assetID] = summary
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating share summary rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (s *postgresShareStore) Revoke(ctx context.Context, id string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_shares SET revoked = TRUE WHERE id = $1 AND revoked = FALSE`
 	result, err := s.db.ExecContext(ctx, query, id)
@@ -500,6 +539,10 @@ func (*noopShareStore) ListByAsset(_ context.Context, _ string) ([]Share, error)
 
 func (*noopShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
+}
+
+func (*noopShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
+	return map[string]ShareSummary{}, nil
 }
 
 func (*noopShareStore) Revoke(_ context.Context, _ string) error          { return nil } //nolint:revive // interface impl

@@ -32,6 +32,7 @@ const basePortalNavItems = [
 
 const adminNavItems = [
   { path: "/admin", label: "Dashboard", icon: Home },
+  { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { path: "/admin/knowledge", label: "Knowledge", icon: Lightbulb },

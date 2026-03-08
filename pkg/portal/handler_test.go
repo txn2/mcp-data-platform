@@ -57,6 +57,8 @@ type mockShareStore struct {
 	sharedWithErr error
 	revokeErr     error
 	incrementErr  error
+	summaries     map[string]ShareSummary
+	summariesErr  error
 }
 
 func (m *mockShareStore) Insert(_ context.Context, _ Share) error { return m.insertErr }
@@ -77,6 +79,9 @@ func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _
 }
 func (m *mockShareStore) Revoke(_ context.Context, _ string) error          { return m.revokeErr }
 func (m *mockShareStore) IncrementAccess(_ context.Context, _ string) error { return m.incrementErr }
+func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
+	return m.summaries, m.summariesErr
+}
 
 type mockS3Client struct {
 	getData   []byte
@@ -129,6 +134,10 @@ func (c *captureShareStore) Revoke(ctx context.Context, id string) error {
 
 func (c *captureShareStore) IncrementAccess(ctx context.Context, id string) error {
 	return c.inner.IncrementAccess(ctx, id)
+}
+
+func (c *captureShareStore) ListActiveShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
+	return c.inner.ListActiveShareSummaries(ctx, ids)
 }
 
 // authMiddleware injects a User into the context for testing.
@@ -258,6 +267,42 @@ func TestListAssetsStoreError(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListAssetsIncludesShareSummaries(t *testing.T) {
+	now := time.Now()
+	assets := &mockAssetStore{
+		listRes: []Asset{{
+			ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+			Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+		}},
+		listTotal: 1,
+	}
+	shares := &mockShareStore{
+		summaries: map[string]ShareSummary{
+			"a1": {HasUserShare: true, HasPublicLink: false},
+		},
+	}
+	h := newTestHandler(assets, shares, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw map[string]json.RawMessage
+	err := json.NewDecoder(w.Body).Decode(&raw)
+	require.NoError(t, err)
+
+	// share_summaries key must be present
+	_, hasSummaries := raw["share_summaries"]
+	assert.True(t, hasSummaries, "response should include share_summaries")
+
+	var summaries map[string]ShareSummary
+	require.NoError(t, json.Unmarshal(raw["share_summaries"], &summaries))
+	assert.True(t, summaries["a1"].HasUserShare)
+	assert.False(t, summaries["a1"].HasPublicLink)
 }
 
 func TestListAssetsNilResult(t *testing.T) {

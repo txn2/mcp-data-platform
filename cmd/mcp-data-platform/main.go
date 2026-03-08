@@ -582,6 +582,10 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		BrowserAuth:       p.BrowserSessionAuth(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
 		PlatformTools:     p.PlatformTools(),
+		AssetStore:        p.PortalAssetStore(),
+		ShareStore:        p.PortalShareStore(),
+		S3Client:          p.PortalS3Client(),
+		S3Bucket:          p.Config().Portal.S3Bucket,
 	}
 
 	if p.AuditStore() != nil {

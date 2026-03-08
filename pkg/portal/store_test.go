@@ -410,6 +410,10 @@ func TestNoopShareStore(t *testing.T) {
 
 	assert.NoError(t, store.Revoke(ctx, "any"))
 	assert.NoError(t, store.IncrementAccess(ctx, "any"))
+
+	summaries, err := store.ListActiveShareSummaries(ctx, []string{"a1"})
+	assert.NoError(t, err)
+	assert.Empty(t, summaries)
 }
 
 // --- Type tests ---

@@ -63,6 +63,12 @@ type SharedAsset struct {
 	SharedAt time.Time `json:"shared_at"`
 }
 
+// ShareSummary indicates what kinds of active shares exist for an asset.
+type ShareSummary struct {
+	HasUserShare  bool `json:"has_user_share"`
+	HasPublicLink bool `json:"has_public_link"`
+}
+
 // AssetFilter defines filtering criteria for listing assets.
 type AssetFilter struct {
 	OwnerID     string `json:"owner_id,omitempty"`

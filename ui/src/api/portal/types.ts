@@ -48,11 +48,17 @@ export interface SharedAsset {
   shared_at: string;
 }
 
+export interface ShareSummary {
+  has_user_share: boolean;
+  has_public_link: boolean;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
   limit: number;
   offset: number;
+  share_summaries?: Record<string, ShareSummary>;
 }
 
 export interface ShareResponse {
