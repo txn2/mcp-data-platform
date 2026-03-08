@@ -83,6 +83,7 @@ function getResolution(preset: TimeRangePreset): Resolution {
 }
 
 function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
+  const titleMap = useToolTitleMap();
   const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
     () => ({ startTime: getStartTime(), endTime: getEndTime() }),
@@ -161,7 +162,7 @@ function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Top Tools</h2>
-          <BreakdownBarChart data={toolBreakdown.data} isLoading={toolBreakdown.isLoading} />
+          <BreakdownBarChart data={toolBreakdown.data} isLoading={toolBreakdown.isLoading} labelMap={titleMap} />
         </div>
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Top Users</h2>
@@ -211,7 +212,7 @@ function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
         {/* Recent Errors */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Recent Errors</h2>
-          <RecentErrorsList events={recentErrors.data?.data} onNavigate={onNavigate} />
+          <RecentErrorsList events={recentErrors.data?.data} onNavigate={onNavigate} titleMap={titleMap} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { useMyInsights, useMyInsightStats } from "@/api/portal/hooks";
 import { StatCard } from "@/components/cards/StatCard";
 import { Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Insight } from "@/api/portal/types";
+import { formatEntityUrn } from "@/lib/formatEntityUrn";
 
 const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
   pending: {
@@ -75,9 +76,10 @@ function InsightCard({ insight }: { insight: Insight }) {
           {insight.entity_urns.map((urn) => (
             <span
               key={urn}
+              title={urn}
               className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
             >
-              {urn.split(",").pop()?.replace(")", "") ?? urn}
+              {formatEntityUrn(urn)}
             </span>
           ))}
         </div>

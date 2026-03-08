@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -80,6 +81,7 @@ type Deps struct {
 	AuditMetricsQuerier AuditMetricsQuerier
 	Knowledge           *KnowledgeHandler
 	APIKeyManager       APIKeyManager
+	BrowserAuth         *browsersession.Authenticator
 	DatabaseAvailable   bool
 	PlatformTools       []platform.ToolInfo
 }

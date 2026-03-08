@@ -25,7 +25,7 @@ interface Props {
 }
 
 const basePortalNavItems = [
-  { path: "/activity", label: "Activity", icon: Activity },
+  { path: "/activity", label: "My Activity", icon: Activity },
   { path: "/", label: "My Assets", icon: LayoutGrid },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];

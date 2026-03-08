@@ -2,13 +2,15 @@ import { useState } from "react";
 import type { AuditEvent } from "@/api/admin/types";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { EventDrawer } from "@/components/EventDrawer";
+import { formatToolName } from "@/lib/formatToolName";
 
 interface RecentErrorsListProps {
   events: AuditEvent[] | undefined;
   onNavigate?: (path: string) => void;
+  titleMap?: Record<string, string>;
 }
 
-export function RecentErrorsList({ events, onNavigate }: RecentErrorsListProps) {
+export function RecentErrorsList({ events, onNavigate, titleMap }: RecentErrorsListProps) {
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
 
   if (!events || events.length === 0) {
@@ -26,7 +28,7 @@ export function RecentErrorsList({ events, onNavigate }: RecentErrorsListProps) 
           >
             <StatusBadge variant="error">Error</StatusBadge>
             <div className="min-w-0 flex-1">
-              <p className="font-medium">{e.tool_name}</p>
+              <p className="font-medium">{formatToolName(e.tool_name, titleMap?.[e.tool_name])}</p>
               <p className="truncate text-muted-foreground">
                 {e.error_message || "Unknown error"}
               </p>
