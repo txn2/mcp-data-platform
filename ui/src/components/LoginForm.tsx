@@ -27,6 +27,7 @@ export function LoginForm() {
   const [platformName, setPlatformName] = useState(DEFAULT_PLATFORM_NAME);
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const loginApiKey = useAuthStore((s) => s.loginApiKey);
   const loginOIDC = useAuthStore((s) => s.loginOIDC);
 
@@ -81,6 +82,12 @@ export function LoginForm() {
         <p className="mb-4 text-sm text-muted-foreground">
           Sign in to access the platform.
         </p>
+
+        {sessionExpired && !error && (
+          <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            Your session has expired. Please sign in again.
+          </p>
+        )}
 
         {error && (
           <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">

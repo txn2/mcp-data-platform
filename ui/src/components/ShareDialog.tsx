@@ -1,6 +1,6 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Copy, Link, Trash2, Check } from "lucide-react";
+import { X, Link, Trash2, Check, Copy } from "lucide-react";
 import { useShares, useCreateShare, useRevokeShare } from "@/api/portal/hooks";
 
 interface Props {
@@ -9,12 +9,26 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+function formatTimeRemaining(expiresAt?: string): string {
+  if (!expiresAt) return "No expiration";
+  const remaining = new Date(expiresAt).getTime() - Date.now();
+  if (remaining <= 0) return "Expired";
+  const hours = Math.floor(remaining / 3600000);
+  if (hours < 1) {
+    const minutes = Math.max(1, Math.floor(remaining / 60000));
+    return `Expires in ${minutes}m`;
+  }
+  if (hours < 24) return `Expires in ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `Expires in ${days}d`;
+}
+
 export function ShareDialog({ assetId, open, onOpenChange }: Props) {
   const { data: shares = [] } = useShares(assetId);
   const createShare = useCreateShare();
   const revokeShare = useRevokeShare();
   const [ttl, setTtl] = useState("24h");
-  const [userId, setUserId] = useState("");
+  const [email, setEmail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
 
   function handleCreatePublicLink() {
@@ -22,13 +36,23 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
   }
 
   function handleShareWithUser() {
-    if (!userId.trim()) return;
-    createShare.mutate({ assetId, shared_with_user_id: userId.trim() });
-    setUserId("");
+    if (!email.trim()) return;
+    createShare.mutate({ assetId, shared_with_email: email.trim() });
+    setEmail("");
   }
 
   function handleCopy(text: string, id: string) {
     navigator.clipboard.writeText(text).then(() => {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    }).catch(() => {
+      // Fallback: select a temporary input for manual copy.
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
       setCopied(id);
       setTimeout(() => setCopied(null), 2000);
     });
@@ -79,16 +103,16 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
             <h3 className="text-sm font-medium mb-2">Share with User</h3>
             <div className="flex gap-2">
               <input
-                type="text"
-                placeholder="User ID"
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
+                type="email"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
               />
               <button
                 type="button"
                 onClick={handleShareWithUser}
-                disabled={!userId.trim() || createShare.isPending}
+                disabled={!email.trim() || createShare.isPending}
                 className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
               >
                 Share
@@ -107,21 +131,24 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                     className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
                   >
                     <div className="min-w-0 flex-1">
-                      {share.shared_with_user_id ? (
+                      {share.shared_with_user_id || share.shared_with_email ? (
                         <span className="text-muted-foreground">
-                          User: {share.shared_with_user_id}
+                          User: {share.shared_with_email || share.shared_with_user_id}
                         </span>
                       ) : (
-                        <span className="font-mono text-xs text-muted-foreground truncate block">
-                          {share.token.slice(0, 16)}...
+                        <span className="text-muted-foreground">
+                          Public Link
                         </span>
                       )}
                       <span className="text-xs text-muted-foreground ml-2">
                         ({share.access_count} views)
                       </span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {formatTimeRemaining(share.expires_at)}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1 ml-2">
-                      {!share.shared_with_user_id && (
+                      {!share.shared_with_user_id && !share.shared_with_email && (
                         <button
                           type="button"
                           onClick={() =>
@@ -130,13 +157,19 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                               share.id,
                             )
                           }
-                          className="rounded p-1 hover:bg-accent"
-                          title="Copy link"
+                          className="flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-accent"
+                          title="Copy public link"
                         >
                           {copied === share.id ? (
-                            <Check className="h-3.5 w-3.5 text-green-500" />
+                            <>
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                              Copied
+                            </>
                           ) : (
-                            <Copy className="h-3.5 w-3.5" />
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy Link
+                            </>
                           )}
                         </button>
                       )}

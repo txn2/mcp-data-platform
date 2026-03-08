@@ -3,6 +3,7 @@ import { create } from "zustand";
 /** User profile returned by GET /api/v1/portal/me. */
 export interface UserProfile {
   user_id: string;
+  email?: string;
   roles: string[];
   is_admin: boolean;
 }
@@ -18,6 +19,8 @@ interface AuthState {
   apiKey: string;
   /** True while the initial session check is in progress. */
   loading: boolean;
+  /** True when a previously valid session has expired (401 detected). */
+  sessionExpired: boolean;
 
   /**
    * Check for an existing session cookie by calling GET /api/v1/portal/me
@@ -35,6 +38,9 @@ interface AuthState {
   /** Log out: clear cookie (redirect to /portal/auth/logout) or clear API key. */
   logout: () => void;
 
+  /** Mark the session as expired and clear auth state. */
+  expireSession: () => void;
+
   /** Convenience: true when user is non-null. */
   isAuthenticated: () => boolean;
 
@@ -49,6 +55,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   authMethod: null,
   apiKey: sessionStorage.getItem(API_KEY_STORAGE) ?? "",
   loading: true,
+  sessionExpired: false,
 
   checkSession: async () => {
     set({ loading: true });
@@ -60,7 +67,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       if (res.ok) {
         const profile = (await res.json()) as UserProfile;
-        set({ user: profile, authMethod: "cookie", loading: false });
+        set({
+          user: profile,
+          authMethod: "cookie",
+          loading: false,
+          sessionExpired: false,
+        });
         return;
       }
     } catch {
@@ -81,6 +93,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             authMethod: "apikey",
             apiKey: storedKey,
             loading: false,
+            sessionExpired: false,
           });
           return;
         }
@@ -109,7 +122,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     const profile = (await res.json()) as UserProfile;
     sessionStorage.setItem(API_KEY_STORAGE, key);
-    set({ user: profile, authMethod: "apikey", apiKey: key, loading: false });
+    set({
+      user: profile,
+      authMethod: "apikey",
+      apiKey: key,
+      loading: false,
+      sessionExpired: false,
+    });
   },
 
   logout: () => {
@@ -122,6 +141,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // to the OIDC end_session_endpoint.
       window.location.href = "/portal/auth/logout";
     }
+  },
+
+  expireSession: () => {
+    sessionStorage.removeItem(API_KEY_STORAGE);
+    set({
+      user: null,
+      authMethod: null,
+      apiKey: "",
+      loading: false,
+      sessionExpired: true,
+    });
   },
 
   isAuthenticated: () => get().user !== null,
