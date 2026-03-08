@@ -183,9 +183,11 @@ func publicCSP(contentType string) string {
 	if strings.Contains(strings.ToLower(contentType), "jsx") {
 		return "default-src 'none'; " +
 			"frame-src blob: data:; " +
-			"script-src 'unsafe-inline'; " +
-			"style-src 'unsafe-inline'; " +
-			"img-src data:;"
+			"script-src 'unsafe-eval' 'unsafe-inline' blob: https://esm.sh; " +
+			"style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+			"img-src data: blob:; " +
+			"font-src data: https://fonts.gstatic.com; " +
+			"connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;"
 	}
 	return "default-src 'none'; style-src 'unsafe-inline'; img-src data:;"
 }
@@ -200,7 +202,7 @@ var jsxSrcdocTpl = template.Must(template.New("jsx").Parse(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline' blob: https://esm.sh; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;">
 <script type="importmap">
 {
   "imports": {
