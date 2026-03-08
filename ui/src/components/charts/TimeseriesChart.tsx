@@ -38,6 +38,9 @@ export function TimeseriesChart({
 }: TimeseriesChartProps) {
   if (isLoading || !data) return <ChartSkeleton height={height} />;
 
+  const nonZeroCount = data.filter((d) => d.count > 0).length;
+  const showDots = nonZeroCount > 0 && nonZeroCount <= 10;
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data}>
@@ -70,7 +73,7 @@ export function TimeseriesChart({
           dataKey="success_count"
           stroke="hsl(142, 76%, 36%)"
           strokeWidth={2}
-          dot={false}
+          dot={showDots ? { r: 3 } : false}
           name="Success"
         />
         <Line
@@ -78,7 +81,7 @@ export function TimeseriesChart({
           dataKey="error_count"
           stroke="hsl(0, 84%, 60%)"
           strokeWidth={2}
-          dot={false}
+          dot={showDots ? { r: 3 } : false}
           name="Errors"
         />
       </LineChart>

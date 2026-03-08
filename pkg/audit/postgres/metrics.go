@@ -81,6 +81,8 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 	if buckets == nil {
 		buckets = []audit.TimeseriesBucket{}
 	}
+
+	buckets = audit.ZeroFill(buckets, start, end, filter.Resolution)
 	return buckets, nil
 }
 
