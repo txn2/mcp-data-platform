@@ -722,407 +722,88 @@ function FormDrawer({
 function HelpTab() {
   return (
     <div className="max-w-3xl space-y-8">
-      {/* Intro */}
       <section>
         <h2 className="mb-2 text-lg font-semibold">What are Personas?</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Personas are the authorization and customization layer of the MCP Data
-          Platform. Each persona defines <strong>who</strong> can use{" "}
-          <strong>which tools</strong>, and <strong>how</strong> the AI assistant
-          behaves when interacting with that user. When a user connects, their
-          identity (via OIDC roles or API key) is mapped to a persona, which
-          controls tool access, system prompts, and tool-specific hints.
+          Personas control what each user can do on the platform. Every user
+          is assigned a persona based on their role, and that persona
+          determines which tools they can access and how the AI assistant
+          behaves for them.
         </p>
       </section>
 
-      {/* Tool Filtering */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Tool Filtering</h2>
+        <h2 className="mb-2 text-lg font-semibold">What You&apos;ll Find Here</h2>
+        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+          <li>
+            <strong>View all personas</strong> and how many tools each one
+            grants access to
+          </li>
+          <li>
+            <strong>See the resolved tool list</strong> for each persona
+            &mdash; exactly which tools a user with that persona can use
+          </li>
+          <li>
+            <strong>Create, edit, or remove personas</strong> (when the
+            platform is in database mode)
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">How Tool Access Works</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Each persona has <strong>allow</strong> and <strong>deny</strong> tool
-          patterns. The platform evaluates them for every tool call:
+          Each persona has <strong>allow</strong> and <strong>deny</strong>{" "}
+          rules that use wildcard patterns:
         </p>
         <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-muted-foreground">
           <li>
-            Check <strong>deny</strong> rules first &mdash; if any pattern
-            matches, access is <strong>denied</strong> (deny always wins).
+            <strong>Deny rules are checked first</strong> &mdash; if a tool
+            matches any deny pattern, access is blocked
           </li>
           <li>
-            Check <strong>allow</strong> rules &mdash; if any pattern matches,
-            access is <strong>granted</strong>.
+            <strong>Then allow rules</strong> &mdash; the tool must match an
+            allow pattern to be accessible
           </li>
           <li>
-            If no allow rule matches, access is <strong>denied</strong>{" "}
-            (fail-closed).
+            <strong>If nothing matches, access is denied</strong> &mdash;
+            users only get what they&apos;re explicitly granted
           </li>
         </ol>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Patterns support glob-style wildcards. For example:
-        </p>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Pattern</th>
-                <th className="px-3 py-2 text-left font-medium">Matches</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">*</td>
-                <td className="px-3 py-2 text-xs">All tools</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">trino_*</td>
-                <td className="px-3 py-2 text-xs">
-                  trino_query, trino_describe_table, trino_browse, etc.
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">s3_delete_*</td>
-                <td className="px-3 py-2 text-xs">
-                  s3_delete_object (useful in deny rules)
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">datahub_search</td>
-                <td className="px-3 py-2 text-xs">
-                  Exact match only &mdash; datahub_search
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Default Persona & Fail-Closed */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">
-          Default Persona & Fail-Closed Behavior
-        </h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          If no persona matches the user&apos;s roles, the platform assigns a{" "}
-          <strong>default persona</strong>. You can configure which persona is
-          the default via the{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            default_persona
-          </code>{" "}
-          setting. If no default is configured, a built-in &quot;no access&quot;
-          persona is used that <strong>denies all tools</strong>. This ensures
-          fail-closed behavior &mdash; users must be explicitly granted access.
-        </p>
-      </section>
-
-      {/* Role Mapping */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Role Mapping</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          The platform supports multiple strategies for mapping users to
-          personas:
-        </p>
-        <div className="space-y-3">
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">OIDC Role Mapping</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Roles are extracted from OIDC token claims at a configurable path
-              (e.g.{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                realm_access.roles
-              </code>
-              ). Roles with the configured prefix (e.g.{" "}
-              <code className="rounded bg-muted px-1 py-0.5">dp_</code>) are
-              matched against the{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                oidc_to_persona
-              </code>{" "}
-              mapping table. For example,{" "}
-              <code className="rounded bg-muted px-1 py-0.5">dp_admin</code>{" "}
-              maps to the{" "}
-              <code className="rounded bg-muted px-1 py-0.5">admin</code>{" "}
-              persona.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              Static User/Group Mapping
-            </h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Map specific users (by email or ID) directly to personas via the{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                user_personas
-              </code>{" "}
-              config. Useful for assigning personas to individual users
-              regardless of their OIDC roles.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">API Key Roles</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              API keys include a roles list. These roles are matched against
-              persona definitions the same way OIDC roles are. A key with{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                roles: [&quot;admin&quot;]
-              </code>{" "}
-              will map to the admin persona.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Priority */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Priority</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          When a user&apos;s roles match multiple personas, the persona with the{" "}
-          <strong>highest priority</strong> value wins. For example, if a user
-          has both{" "}
-          <code className="rounded bg-muted px-1 py-0.5">data_engineer</code>{" "}
-          and <code className="rounded bg-muted px-1 py-0.5">admin</code>{" "}
-          roles, and the admin persona has priority 100 while data-engineer has
-          priority 0, the user gets the admin persona. The default priority is 0.
+          For example, an analyst persona might allow all query and catalog
+          tools but deny any delete or write operations.
         </p>
       </section>
 
-      {/* Prompts */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Prompt Customization</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Each persona can customize the AI assistant&apos;s system prompt with
-          three fields, combined in order:
-        </p>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Field</th>
-                <th className="px-3 py-2 text-left font-medium">Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">system_prefix</td>
-                <td className="px-3 py-2 text-xs">
-                  Prepended to the system prompt. Sets the assistant&apos;s
-                  identity and focus area.
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">instructions</td>
-                <td className="px-3 py-2 text-xs">
-                  Additional instructions inserted between prefix and suffix.
-                  Specific guidance for this persona&apos;s tasks.
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-mono text-xs">system_suffix</td>
-                <td className="px-3 py-2 text-xs">
-                  Appended to the system prompt. Often used for constraints or
-                  reminders.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Hints */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Tool Hints</h2>
+        <h2 className="mb-2 text-lg font-semibold">How Users Get Assigned</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Hints are tool-specific guidance injected into tool call responses.
-          They help the AI assistant make better decisions for this persona. For
-          example, a data-engineer persona might have a hint on{" "}
-          <code className="rounded bg-muted px-1 py-0.5">trino_query</code>{" "}
-          saying &quot;Use iceberg catalog for production tables&quot;. Hints are
-          key-value pairs where the key is the tool name and the value is the
-          guidance text.
+          Users are matched to personas through their roles. When someone
+          logs in, the platform looks at their roles and assigns the
+          matching persona. If a user&apos;s roles match multiple personas,
+          the one with the highest priority wins. If no match is found,
+          they get the default persona.
         </p>
       </section>
 
-      {/* Config Modes */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Configuration Modes</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          The platform supports two configuration modes:
+        <h2 className="mb-2 text-lg font-semibold">Customizing the Assistant</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Each persona can include custom instructions that change how the AI
+          assistant behaves. You can set a system prompt (to establish the
+          assistant&apos;s focus area) and per-tool hints (to guide the
+          assistant toward best practices for that persona&apos;s workflow).
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              File Mode{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                config_mode: file
-              </code>
-            </h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Personas are defined in{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                platform.yaml
-              </code>{" "}
-              and loaded at startup. Changes require restarting the server. The
-              admin API is <strong>read-only</strong> &mdash; create, update, and
-              delete operations return 405 Method Not Allowed.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              Database Mode{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                config_mode: database
-              </code>
-            </h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Personas are stored in the database and managed via the admin API.
-              Full CRUD operations are available. Changes take effect
-              immediately. The initial configuration is seeded from{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                platform.yaml
-              </code>{" "}
-              on first run.
-            </p>
-          </div>
-        </div>
       </section>
 
-      {/* YAML Example */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">YAML Configuration Example</h2>
-        <pre className="overflow-auto rounded-lg border bg-muted p-4 text-xs leading-relaxed">
-{`personas:
-  data-engineer:
-    display_name: "Data Engineer"
-    roles:
-      - data_engineer
-    tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
-        - "s3_*"
-      deny:
-        - "s3_delete_*"
-    prompts:
-      system_prefix: |
-        You are helping a data engineer build
-        and maintain data pipelines.
-    hints:
-      trino_query: "Use iceberg catalog for production tables"
-      datahub_search: "Search the catalog before writing new queries"
-
-  store-manager:
-    display_name: "Store Manager"
-    roles:
-      - store_manager
-    tools:
-      allow:
-        - "trino_query"
-        - "trino_describe_table"
-        - "datahub_search"
-        - "s3_get_object"
-      deny: []
-    prompts:
-      system_prefix: |
-        You are helping a store manager access
-        store-level data.
-
-  default_persona: store-manager
-
-  role_mapping:
-    oidc_to_persona:
-      "dp_data_engineer": "data-engineer"
-      "dp_store_manager": "store-manager"
-    user_personas:
-      "marcus@acme.com": "data-engineer"
-      "kevin@acme.com": "store-manager"`}
-        </pre>
-      </section>
-
-      {/* Admin Persona */}
       <section>
         <h2 className="mb-2 text-lg font-semibold">The Admin Persona</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The admin persona has special protections. It is designated in the
-          platform config via{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            admin.persona
-          </code>{" "}
-          and <strong>cannot be deleted</strong> through the API (returns 409
-          Conflict). This ensures there is always at least one persona with full
-          access. The admin persona typically uses{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            allow: [&quot;*&quot;]
-          </code>{" "}
-          to grant access to all tools.
+          The admin persona has access to all tools and cannot be deleted.
+          This ensures there is always at least one persona with full
+          platform access.
         </p>
-      </section>
-
-      {/* API Reference */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Admin API Endpoints</h2>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Method</th>
-                <th className="px-3 py-2 text-left font-medium">Endpoint</th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Description
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2">
-                  <StatusBadge variant="success">GET</StatusBadge>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">/personas</td>
-                <td className="px-3 py-2 text-xs">
-                  List all personas with tool counts
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2">
-                  <StatusBadge variant="success">GET</StatusBadge>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  /personas/:name
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  Get persona detail with resolved tool list
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2">
-                  <StatusBadge variant="warning">POST</StatusBadge>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">/personas</td>
-                <td className="px-3 py-2 text-xs">
-                  Create persona (database mode only)
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2">
-                  <StatusBadge variant="warning">PUT</StatusBadge>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  /personas/:name
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  Update persona (database mode only)
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2">
-                  <StatusBadge variant="error">DELETE</StatusBadge>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  /personas/:name
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  Delete persona (database mode only, admin protected)
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
     </div>
   );

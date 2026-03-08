@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   useQuery,
   useMutation,
@@ -46,6 +47,18 @@ export function useTools() {
     queryKey: ["tools"],
     queryFn: () => apiFetch<ToolListResponse>("/tools"),
   });
+}
+
+/** Returns a stable map of tool name → title from the tools list. */
+export function useToolTitleMap(): Record<string, string> {
+  const { data } = useTools();
+  return useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of data?.tools ?? []) {
+      if (t.title) map[t.name] = t.title;
+    }
+    return map;
+  }, [data]);
 }
 
 export function useConnections() {

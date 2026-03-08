@@ -1255,31 +1255,38 @@ function KnowledgeHelpTab() {
   return (
     <div className="max-w-3xl space-y-8">
       <section>
-        <h2 className="mb-2 text-lg font-semibold">
-          What is the Knowledge System?
-        </h2>
+        <h2 className="mb-2 text-lg font-semibold">What is Knowledge?</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The knowledge system captures domain knowledge shared during AI
-          assistant sessions and integrates it back into the data catalog. When
-          users provide corrections to metadata, share business context about
-          data meaning, report data quality observations, or describe
-          relationships between datasets, the platform records these as{" "}
-          <strong>insights</strong>. Insights are then reviewed by admins and
-          applied to the catalog as <strong>changesets</strong>.
+          The knowledge system captures what your users know about your data
+          and feeds it back into the data catalog. When someone tells the AI
+          assistant something useful &mdash; a correction, a business
+          definition, a data quality issue &mdash; it gets recorded as an
+          insight for you to review and approve.
         </p>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Insight Categories</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Insights are categorized by the type of knowledge they represent:
-        </p>
+        <h2 className="mb-2 text-lg font-semibold">What You&apos;ll Find Here</h2>
+        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+          <li>
+            <strong>Insights tab</strong> &mdash; Browse, filter, and review
+            captured insights. Approve or reject them, then apply approved
+            changes to the data catalog.
+          </li>
+          <li>
+            <strong>Changesets tab</strong> &mdash; See the history of changes
+            applied to the catalog and roll back any that need to be reverted.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">Types of Insights</h2>
         <div className="overflow-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Category</th>
-                <th className="px-3 py-2 text-left font-medium">Description</th>
+                <th className="px-3 py-2 text-left font-medium">Type</th>
                 <th className="px-3 py-2 text-left font-medium">Example</th>
               </tr>
             </thead>
@@ -1287,17 +1294,11 @@ function KnowledgeHelpTab() {
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium text-xs">Correction</td>
                 <td className="px-3 py-2 text-xs">
-                  Fixes to existing metadata that is incorrect
-                </td>
-                <td className="px-3 py-2 text-xs">
                   &quot;The description says daily but this table is updated hourly&quot;
                 </td>
               </tr>
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium text-xs">Business Context</td>
-                <td className="px-3 py-2 text-xs">
-                  Information about what data means in business terms
-                </td>
                 <td className="px-3 py-2 text-xs">
                   &quot;Revenue excludes returns and store credits&quot;
                 </td>
@@ -1305,17 +1306,11 @@ function KnowledgeHelpTab() {
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium text-xs">Data Quality</td>
                 <td className="px-3 py-2 text-xs">
-                  Observations about data completeness, accuracy, or freshness
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;Store 47 has missing inventory data for Q3 2024&quot;
+                  &quot;Store 47 has missing inventory data for Q3&quot;
                 </td>
               </tr>
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium text-xs">Usage Guidance</td>
-                <td className="px-3 py-2 text-xs">
-                  Tips for querying or interpreting data correctly
-                </td>
                 <td className="px-3 py-2 text-xs">
                   &quot;Always filter by status=active for current inventory&quot;
                 </td>
@@ -1323,17 +1318,11 @@ function KnowledgeHelpTab() {
               <tr className="border-b">
                 <td className="px-3 py-2 font-medium text-xs">Relationship</td>
                 <td className="px-3 py-2 text-xs">
-                  Connections between datasets not captured in lineage
-                </td>
-                <td className="px-3 py-2 text-xs">
                   &quot;Join transactions with products on sku, not product_id&quot;
                 </td>
               </tr>
               <tr>
                 <td className="px-3 py-2 font-medium text-xs">Enhancement</td>
-                <td className="px-3 py-2 text-xs">
-                  Suggestions for adding new metadata (tags, glossary terms)
-                </td>
                 <td className="px-3 py-2 text-xs">
                   &quot;This table should be tagged as PII-containing&quot;
                 </td>
@@ -1344,71 +1333,27 @@ function KnowledgeHelpTab() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Confidence Levels</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Each insight is assigned a confidence level indicating how certain the
-          capture is:
-        </p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">High</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Explicitly stated by the user with clear intent. Can typically be
-              applied directly.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">Medium</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Inferred from user context or conversation. Should be reviewed
-              before applying.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">Low</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Speculative or derived from indirect signals. Requires careful
-              review and may need verification.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Insight Lifecycle</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Insights progress through a defined lifecycle:
-        </p>
+        <h2 className="mb-2 text-lg font-semibold">How It Works</h2>
         <div className="space-y-2">
           {[
             {
               status: "Pending",
-              detail: "Newly captured, awaiting admin review.",
+              detail: "A new insight arrives and awaits your review.",
             },
             {
               status: "Approved",
               detail:
-                "Reviewed and accepted. Ready to be applied to the catalog.",
+                "You&apos;ve reviewed it and confirmed it&apos;s correct. Ready to apply.",
             },
             {
               status: "Applied",
               detail:
-                "Changes have been made to the data catalog based on this insight.",
+                "The change has been made to the data catalog.",
             },
             {
               status: "Rejected",
               detail:
-                "Reviewed and declined. The insight was incorrect or not actionable.",
-            },
-            {
-              status: "Superseded",
-              detail:
-                "Replaced by a newer insight that covers the same correction.",
-            },
-            {
-              status: "Rolled Back",
-              detail:
-                "Applied changes were reverted. The insight remains for audit trail.",
+                "You&apos;ve reviewed it and determined it&apos;s not accurate or useful.",
             },
           ].map((step, i) => (
             <div key={step.status} className="flex gap-3 rounded-lg border p-3">
@@ -1425,95 +1370,13 @@ function KnowledgeHelpTab() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Suggested Actions</h2>
+        <h2 className="mb-2 text-lg font-semibold">Reverting Changes</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          When an insight is captured, the system may suggest specific actions
-          to take on the data catalog. Actions include adding descriptions,
-          updating tags, adding glossary terms, modifying lineage, and other
-          catalog operations. Each action specifies a type, target entity, and
-          detailed change description. Admins review these suggestions when
-          deciding whether to approve or reject an insight.
+          Every change applied to the catalog is tracked as a changeset. If a
+          change turns out to be incorrect, you can roll it back from the
+          Changesets tab. The original insight is preserved for the audit
+          trail.
         </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Changesets</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          When approved insights are applied to the catalog, each change creates
-          a <strong>changeset</strong> that records:
-        </p>
-        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
-          <li>
-            <strong>Target URN</strong> &mdash; The data catalog entity that was
-            modified
-          </li>
-          <li>
-            <strong>Change type</strong> &mdash; The kind of modification (add
-            description, update tag, etc.)
-          </li>
-          <li>
-            <strong>Previous value</strong> &mdash; What the field contained
-            before the change
-          </li>
-          <li>
-            <strong>New value</strong> &mdash; What the field was changed to
-          </li>
-          <li>
-            <strong>Source insights</strong> &mdash; The insight(s) that led to
-            this change
-          </li>
-        </ul>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Changesets can be <strong>rolled back</strong> to revert catalog
-          modifications. This creates a full audit trail of all changes made
-          through the knowledge system.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Admin API Endpoints</h2>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Endpoint</th>
-                <th className="px-3 py-2 text-left font-medium">Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /knowledge/insights</td>
-                <td className="px-3 py-2 text-xs">
-                  List insights with filter/pagination
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /knowledge/insights/stats</td>
-                <td className="px-3 py-2 text-xs">
-                  Aggregated statistics by status, category, confidence, entity
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">PUT /knowledge/insights/:id/status</td>
-                <td className="px-3 py-2 text-xs">
-                  Update insight status (approve, reject, etc.)
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /knowledge/changesets</td>
-                <td className="px-3 py-2 text-xs">
-                  List changesets with filter/pagination
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-mono text-xs">POST /knowledge/changesets/:id/rollback</td>
-                <td className="px-3 py-2 text-xs">
-                  Rollback a changeset, reverting catalog changes
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
     </div>
   );

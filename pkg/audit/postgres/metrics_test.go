@@ -320,7 +320,7 @@ func TestOverview_Success(t *testing.T) {
 		WithArgs(start, now).
 		WillReturnRows(rows)
 
-	result, err := store.Overview(context.Background(), &start, &now)
+	result, err := store.Overview(context.Background(), audit.MetricsFilter{StartTime: &start, EndTime: &now})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -347,7 +347,7 @@ func TestOverview_DefaultTimeRange(t *testing.T) {
 
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
-	result, err := store.Overview(context.Background(), nil, nil)
+	result, err := store.Overview(context.Background(), audit.MetricsFilter{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, 0, result.TotalCalls)
@@ -361,7 +361,7 @@ func TestOverview_QueryError(t *testing.T) {
 	store := New(db, Config{})
 	mock.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("db error"))
 
-	_, err = store.Overview(context.Background(), nil, nil)
+	_, err = store.Overview(context.Background(), audit.MetricsFilter{})
 	assert.ErrorContains(t, err, "querying overview")
 }
 
@@ -385,7 +385,7 @@ func TestPerformance_Success(t *testing.T) {
 		WithArgs(start, now).
 		WillReturnRows(rows)
 
-	result, err := store.Performance(context.Background(), &start, &now)
+	result, err := store.Performance(context.Background(), audit.MetricsFilter{StartTime: &start, EndTime: &now})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -412,7 +412,7 @@ func TestPerformance_DefaultTimeRange(t *testing.T) {
 
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
-	result, err := store.Performance(context.Background(), nil, nil)
+	result, err := store.Performance(context.Background(), audit.MetricsFilter{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }
@@ -425,7 +425,7 @@ func TestPerformance_QueryError(t *testing.T) {
 	store := New(db, Config{})
 	mock.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("db error"))
 
-	_, err = store.Performance(context.Background(), nil, nil)
+	_, err = store.Performance(context.Background(), audit.MetricsFilter{})
 	assert.ErrorContains(t, err, "querying performance")
 }
 

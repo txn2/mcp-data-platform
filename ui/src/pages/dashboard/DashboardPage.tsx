@@ -10,6 +10,7 @@ import {
   useAuditPerformance,
   useInsightStats,
   useInsights,
+  useToolTitleMap,
 } from "@/api/admin/hooks";
 import type { Resolution } from "@/api/admin/types";
 import { StatCard } from "@/components/cards/StatCard";
@@ -48,6 +49,7 @@ export function DashboardPage({ onNavigate }: { onNavigate?: (path: string) => v
   const overview = useAuditOverview({ startTime, endTime });
   const timeseries = useAuditTimeseries({ resolution: getResolution(preset), startTime, endTime });
   const toolBreakdown = useAuditBreakdown({ groupBy: "tool_name", limit: 8, startTime, endTime });
+  const toolTitleMap = useToolTitleMap();
   const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, startTime, endTime });
   const recentErrors = useAuditEvents({ perPage: 5, success: false });
   const connections = useConnections();
@@ -150,7 +152,7 @@ export function DashboardPage({ onNavigate }: { onNavigate?: (path: string) => v
         {/* Top Tools */}
         <div className="rounded-lg border bg-card p-4">
           <h2 className="mb-3 text-sm font-medium">Top Tools</h2>
-          <BreakdownBarChart data={toolBreakdown.data} isLoading={toolBreakdown.isLoading} />
+          <BreakdownBarChart data={toolBreakdown.data} isLoading={toolBreakdown.isLoading} labelMap={toolTitleMap} />
         </div>
 
         {/* Top Users */}

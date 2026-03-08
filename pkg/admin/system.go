@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -109,6 +111,7 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 // toolInfo describes a single tool and its owning toolkit.
 type toolInfo struct {
 	Name       string `json:"name"`
+	Title      string `json:"title,omitempty"`
 	Toolkit    string `json:"toolkit"`
 	Kind       string `json:"kind"`
 	Connection string `json:"connection"`
@@ -130,13 +133,17 @@ type toolListResponse struct {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /tools [get]
-func (h *Handler) listTools(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
+	// Build a title map from MCP ListTools if possible.
+	titleMap := h.buildToolTitleMap(r)
+
 	var tools []toolInfo
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
 			for _, name := range tk.Tools() {
 				tools = append(tools, toolInfo{
 					Name:       name,
+					Title:      titleMap[name],
 					Toolkit:    tk.Name(),
 					Kind:       tk.Kind(),
 					Connection: tk.Connection(),
@@ -146,8 +153,9 @@ func (h *Handler) listTools(w http.ResponseWriter, _ *http.Request) {
 	}
 	for _, pt := range h.deps.PlatformTools {
 		tools = append(tools, toolInfo{
-			Name: pt.Name,
-			Kind: pt.Kind,
+			Name:  pt.Name,
+			Title: titleMap[pt.Name],
+			Kind:  pt.Kind,
 		})
 	}
 	if tools == nil {
@@ -155,6 +163,33 @@ func (h *Handler) listTools(w http.ResponseWriter, _ *http.Request) {
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	writeJSON(w, http.StatusOK, toolListResponse{Tools: tools, Total: len(tools)})
+}
+
+// buildToolTitleMap returns a map of tool name → title from the MCP server.
+// Returns an empty map if the MCP server is unavailable.
+func (h *Handler) buildToolTitleMap(r *http.Request) map[string]string {
+	titles := make(map[string]string)
+	if h.deps.MCPServer == nil {
+		return titles
+	}
+
+	session, cleanup, err := h.connectInternalSession(r)
+	if err != nil {
+		return titles
+	}
+	defer cleanup()
+
+	listResult, err := session.ListTools(r.Context(), &mcp.ListToolsParams{})
+	if err != nil {
+		return titles
+	}
+
+	for _, tool := range listResult.Tools {
+		if tool.Title != "" {
+			titles[tool.Name] = tool.Title
+		}
+	}
+	return titles
 }
 
 // connectionInfo describes a toolkit connection.

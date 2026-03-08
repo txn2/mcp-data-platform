@@ -32,8 +32,8 @@ type AuditQuerier interface {
 type AuditMetricsQuerier interface {
 	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
 	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
-	Overview(ctx context.Context, startTime, endTime *time.Time) (*audit.Overview, error)
-	Performance(ctx context.Context, startTime, endTime *time.Time) (*audit.PerformanceStats, error)
+	Overview(ctx context.Context, filter audit.MetricsFilter) (*audit.Overview, error)
+	Performance(ctx context.Context, filter audit.MetricsFilter) (*audit.PerformanceStats, error)
 	Enrichment(ctx context.Context, startTime, endTime *time.Time) (*audit.EnrichmentStats, error)
 	Discovery(ctx context.Context, startTime, endTime *time.Time) (*audit.DiscoveryStats, error)
 }

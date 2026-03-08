@@ -28,6 +28,7 @@ type TimeseriesFilter struct {
 	Resolution Resolution
 	StartTime  *time.Time
 	EndTime    *time.Time
+	UserID     string
 }
 
 // TimeseriesBucket holds counts for a single time bucket.
@@ -74,6 +75,14 @@ type BreakdownFilter struct {
 	Limit     int
 	StartTime *time.Time
 	EndTime   *time.Time
+	UserID    string
+}
+
+// MetricsFilter provides common filtering for aggregate metric queries.
+type MetricsFilter struct {
+	StartTime *time.Time
+	EndTime   *time.Time
+	UserID    string
 }
 
 // BreakdownEntry holds aggregated stats for a single dimension value.

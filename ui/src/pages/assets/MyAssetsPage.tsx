@@ -83,10 +83,17 @@ export function MyAssetsPage({ onNavigate }: Props) {
       ) : assets.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <File className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm">No assets found</p>
-          <p className="text-xs mt-1">
-            Assets created via the MCP save_artifact tool will appear here.
-          </p>
+          <p className="text-sm font-medium">No assets yet</p>
+          <div className="mt-3 max-w-md text-center space-y-2">
+            <p className="text-xs">
+              Assets are interactive dashboards, visualizations, and documents
+              created during your conversations.
+            </p>
+            <p className="text-xs">
+              Try asking your assistant to <em>"create an interactive dashboard"</em> or{" "}
+              <em>"save this as an asset"</em> to get started.
+            </p>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

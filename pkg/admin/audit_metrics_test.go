@@ -40,11 +40,11 @@ func (m *mockAuditMetricsQuerier) Breakdown(_ context.Context, _ audit.Breakdown
 	return m.breakdownResult, m.breakdownErr
 }
 
-func (m *mockAuditMetricsQuerier) Overview(_ context.Context, _, _ *time.Time) (*audit.Overview, error) {
+func (m *mockAuditMetricsQuerier) Overview(_ context.Context, _ audit.MetricsFilter) (*audit.Overview, error) {
 	return m.overviewResult, m.overviewErr
 }
 
-func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _, _ *time.Time) (*audit.PerformanceStats, error) {
+func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _ audit.MetricsFilter) (*audit.PerformanceStats, error) {
 	return m.performanceResult, m.performanceErr
 }
 

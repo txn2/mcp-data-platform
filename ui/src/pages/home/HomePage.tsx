@@ -100,93 +100,83 @@ function HelpTab({
     <div className="max-w-3xl space-y-8">
       {/* Platform Overview */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">{title} Overview</h2>
+        <h2 className="mb-2 text-lg font-semibold">What is {title}?</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The {title} is a semantic data platform server that composes multiple
-          MCP toolkits (Trino, DataHub, S3) with a required semantic layer. It
-          provides <strong>bidirectional cross-injection</strong> where tool
-          responses automatically include critical context from other services,
-          giving AI assistants richer, more accurate information.
+          {title} connects your AI assistants to your data infrastructure.
+          When an assistant queries a database, searches a catalog, or reads
+          from storage, the platform automatically enriches every response
+          with business context &mdash; ownership, data quality, glossary
+          definitions, and more &mdash; so the assistant gives more accurate,
+          context-aware answers.
         </p>
       </section>
 
       {/* Key Capabilities */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Key Capabilities</h2>
+        <h2 className="mb-2 text-lg font-semibold">What You Can Do</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">Semantic Enrichment</h3>
+            <h3 className="mb-1 text-sm font-medium">Automatic Enrichment</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Every tool response is enriched with metadata from the semantic
-              layer. Trino query results include DataHub context (owners, tags,
-              glossary terms). DataHub searches include query availability from
-              Trino.
+              Every response includes relevant context from your data catalog.
+              Database results show who owns the data, how fresh it is, and
+              what the columns mean in business terms.
             </p>
           </div>
           <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              Role-Based Authorization
-            </h3>
+            <h3 className="mb-1 text-sm font-medium">Access Control</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Personas control which tools each user can access via allow/deny
-              patterns. Authentication supports OIDC, API keys, and OAuth 2.1.
-              Tool access is fail-closed by default.
+              Each user is assigned a persona that controls which tools they
+              can use. Analysts might query data but not modify it. Engineers
+              might have full access. Nobody gets access they shouldn&apos;t have.
             </p>
           </div>
           <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              Comprehensive Audit Trail
-            </h3>
+            <h3 className="mb-1 text-sm font-medium">Activity Tracking</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Every tool call is logged with full context: user, persona,
-              parameters, duration, enrichment status, and response size. Audit
-              data supports filtering, search, and CSV/JSON export.
+              Every action is logged with who did it, what they did, how long
+              it took, and whether it succeeded. Use the audit log to monitor
+              usage, troubleshoot issues, and ensure compliance.
             </p>
           </div>
           <div className="rounded-lg border p-3">
             <h3 className="mb-1 text-sm font-medium">Knowledge Capture</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Domain knowledge shared during sessions is captured as insights,
-              reviewed by admins, and applied to the data catalog. Corrections,
-              business context, and data quality observations are tracked.
+              When users share knowledge about their data &mdash; corrections,
+              tips, or context &mdash; it gets captured for review. Approved
+              insights are applied to your data catalog, improving it over time.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Architecture */}
+      {/* How It Works */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Architecture</h2>
+        <h2 className="mb-2 text-lg font-semibold">How It Works</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Requests flow through a middleware chain before reaching the toolkits.
-          Each layer adds capabilities:
+          When an AI assistant makes a request, it passes through several layers:
         </p>
         <div className="space-y-2">
           {[
             {
-              label: "Authentication",
+              label: "Identity Check",
               detail:
-                "Validates user identity via OIDC tokens, API keys, or OAuth 2.1 bearer tokens.",
+                "Confirms who the user is and ensures they have valid credentials.",
             },
             {
-              label: "Authorization",
+              label: "Access Control",
               detail:
-                "Maps the user to a persona and filters tool access based on allow/deny patterns.",
+                "Matches the user to their persona and verifies they can use the requested tool.",
             },
             {
-              label: "Audit",
+              label: "Logging",
               detail:
-                "Logs every tool call asynchronously with timing and context metadata.",
+                "Records the action for the audit trail, including timing and context.",
             },
             {
-              label: "Rule Enforcement",
+              label: "Enrichment",
               detail:
-                "Injects operational guidance and tuning rules into tool responses.",
-            },
-            {
-              label: "Semantic Enrichment",
-              detail:
-                "Appends metadata from the semantic layer (DataHub) and query engine (Trino).",
+                "Adds business context from the data catalog to make responses more useful.",
             },
           ].map((step, i) => (
             <div key={step.label} className="flex gap-3 rounded-lg border p-3">
@@ -202,50 +192,38 @@ function HelpTab({
         </div>
       </section>
 
-      {/* Toolkits */}
+      {/* Data Sources */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Toolkits</h2>
+        <h2 className="mb-2 text-lg font-semibold">Connected Services</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          The platform composes three toolkit families, each providing
-          specialized MCP tools:
+          The platform connects to three types of services, each providing
+          different capabilities:
         </p>
         <div className="overflow-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Toolkit</th>
-                <th className="px-3 py-2 text-left font-medium">Purpose</th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Example Tools
-                </th>
+                <th className="px-3 py-2 text-left font-medium">Service</th>
+                <th className="px-3 py-2 text-left font-medium">What It Does</th>
               </tr>
             </thead>
             <tbody>
               <tr className="border-b">
-                <td className="px-3 py-2 font-medium">Trino</td>
+                <td className="px-3 py-2 font-medium">SQL Engine</td>
                 <td className="px-3 py-2 text-xs">
-                  SQL query execution, schema exploration, catalog browsing
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  trino_query, trino_describe_table, trino_browse
+                  Run queries, explore database schemas, and browse data catalogs
                 </td>
               </tr>
               <tr className="border-b">
-                <td className="px-3 py-2 font-medium">DataHub</td>
+                <td className="px-3 py-2 font-medium">Data Catalog</td>
                 <td className="px-3 py-2 text-xs">
-                  Metadata catalog search, lineage, glossary, data products
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  datahub_search, datahub_get_entity, datahub_get_lineage
+                  Search for datasets, view data lineage, and look up business definitions
                 </td>
               </tr>
               <tr>
-                <td className="px-3 py-2 font-medium">S3</td>
+                <td className="px-3 py-2 font-medium">Object Storage</td>
                 <td className="px-3 py-2 text-xs">
-                  Object storage operations, bucket management, presigned URLs
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  s3_list_objects, s3_get_object, s3_put_object
+                  Browse and retrieve files, generate download links
                 </td>
               </tr>
             </tbody>
@@ -255,9 +233,9 @@ function HelpTab({
 
       {/* Section Deep Links */}
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Section Guides</h2>
+        <h2 className="mb-2 text-lg font-semibold">Explore Each Section</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Each section has detailed help documentation. Click to learn more:
+          Click any section to learn more about what it does:
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {sections.map((s) => (
@@ -276,57 +254,6 @@ function HelpTab({
             </button>
           ))}
         </div>
-      </section>
-
-      {/* Configuration Modes */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Configuration Modes</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              File Mode{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                config_mode: file
-              </code>
-            </h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              All configuration (personas, connections, toolkits) is loaded from{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                platform.yaml
-              </code>{" "}
-              at startup. Admin write operations return 405. Changes require a
-              server restart.
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">
-              Database Mode{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                config_mode: database
-              </code>
-            </h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Configuration is stored in the database with full CRUD via the
-              admin API. Changes take effect immediately. Initial data is seeded
-              from YAML on first run.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Admin API */}
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Admin API</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          This admin portal communicates with the platform via the Admin API,
-          served at{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            /api/v1/admin/
-          </code>
-          . All endpoints require an API key with admin role. The API provides
-          system info, tool management, audit log queries, knowledge management,
-          and persona CRUD operations.
-        </p>
       </section>
     </div>
   );

@@ -25,8 +25,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -491,8 +493,8 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 
 	var adminRoles []string
 	if pr := p.PersonaRegistry(); pr != nil {
-		if persona, ok := pr.Get(p.Config().Admin.Persona); ok {
-			adminRoles = persona.Roles
+		if adminP, ok := pr.Get(p.Config().Admin.Persona); ok {
+			adminRoles = adminP.Roles
 		}
 	}
 
@@ -510,10 +512,42 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 		AdminRoles:  adminRoles,
 	}
 
+	wirePortalOptionalDeps(&deps, p)
+
 	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	log.Println("Portal API enabled on /api/v1/portal/")
+}
+
+// wirePortalOptionalDeps populates optional portal dependencies (audit, knowledge, persona).
+func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
+	if p.AuditStore() != nil {
+		deps.AuditMetrics = p.AuditStore()
+	}
+	if p.KnowledgeInsightStore() != nil {
+		deps.InsightStore = p.KnowledgeInsightStore()
+	}
+	if pr := p.PersonaRegistry(); pr != nil {
+		tr := p.ToolkitRegistry()
+		deps.PersonaResolver = buildPersonaResolver(pr, tr)
+	}
+}
+
+// buildPersonaResolver creates a portal.PersonaResolver from the persona and toolkit registries.
+func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.PersonaResolver {
+	return func(roles []string) *portal.PersonaInfo {
+		per, ok := pr.GetForRoles(roles)
+		if !ok || per == nil {
+			return nil
+		}
+		info := &portal.PersonaInfo{Name: per.Name}
+		if tr != nil {
+			filter := persona.NewToolFilter(pr)
+			info.Tools = filter.FilterTools(per, tr.AllTools())
+		}
+		return info
+	}
 }
 
 // mountPortalUI registers the unified portal SPA frontend on the mux when the

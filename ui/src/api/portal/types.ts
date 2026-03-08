@@ -67,3 +67,73 @@ export interface Branding {
   portal_logo_light: string;
   portal_logo_dark: string;
 }
+
+// Activity types (user-scoped audit metrics)
+export interface ActivityOverview {
+  total_calls: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  unique_users: number;
+  unique_tools: number;
+  enrichment_rate: number;
+  error_count: number;
+}
+
+export interface TimeseriesBucket {
+  bucket: string;
+  count: number;
+  success_count: number;
+  error_count: number;
+  avg_duration_ms: number;
+}
+
+export interface BreakdownEntry {
+  dimension: string;
+  count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+}
+
+// Knowledge types (user-scoped insights)
+export interface Insight {
+  id: string;
+  created_at: string;
+  session_id: string;
+  captured_by: string;
+  persona: string;
+  source: string;
+  category: string;
+  insight_text: string;
+  confidence: string;
+  entity_urns: string[];
+  related_columns: RelatedColumn[];
+  suggested_actions: SuggestedAction[];
+  status: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  review_notes?: string;
+  applied_by?: string;
+  applied_at?: string;
+  changeset_ref?: string;
+}
+
+export interface RelatedColumn {
+  urn: string;
+  column: string;
+  relevance: string;
+}
+
+export interface SuggestedAction {
+  action_type: string;
+  target: string;
+  detail: string;
+  query_sql?: string;
+  query_description?: string;
+}
+
+export interface InsightStats {
+  total_pending: number;
+  by_status: Record<string, number>;
+  by_category: Record<string, number>;
+  by_confidence: Record<string, number>;
+}

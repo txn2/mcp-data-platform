@@ -6,6 +6,8 @@ export interface UserProfile {
   email?: string;
   roles: string[];
   is_admin: boolean;
+  persona?: string;
+  tools?: string[];
 }
 
 type AuthMethod = "cookie" | "apikey" | null;

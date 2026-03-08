@@ -134,8 +134,10 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 
 	overview, err := h.deps.AuditMetricsQuerier.Overview(
 		r.Context(),
-		parseTimeParam(q, paramStartTime),
-		parseTimeParam(q, paramEndTime),
+		audit.MetricsFilter{
+			StartTime: parseTimeParam(q, paramStartTime),
+			EndTime:   parseTimeParam(q, paramEndTime),
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query overview")
@@ -163,8 +165,10 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 
 	perf, err := h.deps.AuditMetricsQuerier.Performance(
 		r.Context(),
-		parseTimeParam(q, paramStartTime),
-		parseTimeParam(q, paramEndTime),
+		audit.MetricsFilter{
+			StartTime: parseTimeParam(q, paramStartTime),
+			EndTime:   parseTimeParam(q, paramEndTime),
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query performance")

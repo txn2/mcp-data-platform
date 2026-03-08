@@ -1,36 +1,67 @@
 package portal
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
-// Common error messages and path value keys used across handlers.
+// Common error messages, path value keys, and query parameter names.
 const (
 	errAuthRequired  = "authentication required"
 	errAssetNotFound = "asset not found"
 	pathKeyID        = "id"
+	paramLimit       = "limit"
 )
+
+// AuditMetrics provides aggregate audit metrics scoped to individual users.
+type AuditMetrics interface {
+	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
+	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
+	Overview(ctx context.Context, filter audit.MetricsFilter) (*audit.Overview, error)
+}
+
+// InsightReader provides read-only access to user insights.
+type InsightReader interface {
+	List(ctx context.Context, filter knowledge.InsightFilter) ([]knowledge.Insight, int, error)
+	Stats(ctx context.Context, filter knowledge.InsightFilter) (*knowledge.InsightStats, error)
+}
+
+// PersonaInfo holds resolved persona details for the current user.
+type PersonaInfo struct {
+	Name  string
+	Tools []string // resolved tool names from Allow/Deny patterns
+}
+
+// PersonaResolver resolves a user's roles to their persona info.
+type PersonaResolver func(roles []string) *PersonaInfo
 
 // Deps holds dependencies for the portal handler.
 type Deps struct {
-	AssetStore    AssetStore
-	ShareStore    ShareStore
-	S3Client      S3Client
-	S3Bucket      string
-	PublicBaseURL string
-	RateLimit     RateLimitConfig
-	OIDCEnabled   bool
-	AdminRoles    []string // roles that grant admin access in the portal
+	AssetStore      AssetStore
+	ShareStore      ShareStore
+	S3Client        S3Client
+	S3Bucket        string
+	PublicBaseURL   string
+	RateLimit       RateLimitConfig
+	OIDCEnabled     bool
+	AdminRoles      []string // roles that grant admin access in the portal
+	AuditMetrics    AuditMetrics
+	InsightStore    InsightReader
+	PersonaResolver PersonaResolver
 }
 
 // Handler provides portal REST API endpoints.
@@ -84,6 +115,19 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("DELETE /api/v1/portal/shares/{id}", h.revokeShare)
 	h.mux.HandleFunc("GET /api/v1/portal/shared-with-me", h.listSharedWithMe)
 
+	// Activity routes (user-scoped audit metrics)
+	if h.deps.AuditMetrics != nil {
+		h.mux.HandleFunc("GET /api/v1/portal/activity/overview", h.getActivityOverview)
+		h.mux.HandleFunc("GET /api/v1/portal/activity/timeseries", h.getActivityTimeseries)
+		h.mux.HandleFunc("GET /api/v1/portal/activity/breakdown", h.getActivityBreakdown)
+	}
+
+	// Knowledge routes (user-scoped insights)
+	if h.deps.InsightStore != nil {
+		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights", h.listMyInsights)
+		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights/stats", h.getMyInsightStats)
+	}
+
 	// Public route (rate limited)
 	h.publicMux.Handle("GET /portal/view/{token}",
 		h.rateLimiter.Middleware(http.HandlerFunc(h.publicView)))
@@ -97,6 +141,8 @@ type meResponse struct {
 	Email   string   `json:"email,omitempty"`
 	Roles   []string `json:"roles"`
 	IsAdmin bool     `json:"is_admin"`
+	Persona string   `json:"persona,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
@@ -106,12 +152,21 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, meResponse{
+	resp := meResponse{
 		UserID:  user.UserID,
 		Email:   user.Email,
 		Roles:   user.Roles,
 		IsAdmin: hasAnyRole(user.Roles, h.deps.AdminRoles),
-	})
+	}
+
+	if h.deps.PersonaResolver != nil {
+		if info := h.deps.PersonaResolver(user.Roles); info != nil {
+			resp.Persona = info.Name
+			resp.Tools = info.Tools
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- Asset handlers ---
@@ -135,7 +190,7 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		OwnerID:     user.UserID,
 		ContentType: r.URL.Query().Get("content_type"),
 		Tag:         r.URL.Query().Get("tag"),
-		Limit:       intParam(r, "limit", defaultLimit),
+		Limit:       intParam(r, paramLimit, defaultLimit),
 		Offset:      intParam(r, "offset", 0),
 	}
 
@@ -469,7 +524,7 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := intParam(r, "limit", defaultLimit)
+	limit := intParam(r, paramLimit, defaultLimit)
 	offset := intParam(r, "offset", 0)
 
 	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, strings.ToLower(user.Email), limit, offset)
@@ -484,6 +539,164 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, paginatedResponse{
 		Data: shared, Total: total, Limit: limit, Offset: offset,
 	})
+}
+
+// --- Activity handlers ---
+
+func (h *Handler) getActivityOverview(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	q := r.URL.Query()
+	overview, err := h.deps.AuditMetrics.Overview(r.Context(), audit.MetricsFilter{
+		StartTime: parseTimeParam(q, "start_time"),
+		EndTime:   parseTimeParam(q, "end_time"),
+		UserID:    user.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query activity overview")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (h *Handler) getActivityTimeseries(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	q := r.URL.Query()
+	resolution := audit.Resolution(q.Get("resolution"))
+	if resolution == "" {
+		resolution = audit.ResolutionHour
+	}
+	if !audit.ValidResolutions[resolution] {
+		writeError(w, http.StatusBadRequest, "invalid resolution: must be minute, hour, or day")
+		return
+	}
+
+	buckets, err := h.deps.AuditMetrics.Timeseries(r.Context(), audit.TimeseriesFilter{
+		Resolution: resolution,
+		StartTime:  parseTimeParam(q, "start_time"),
+		EndTime:    parseTimeParam(q, "end_time"),
+		UserID:     user.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query activity timeseries")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, buckets)
+}
+
+func (h *Handler) getActivityBreakdown(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	q := r.URL.Query()
+	groupBy := audit.BreakdownDimension(q.Get("group_by"))
+	if groupBy == "" {
+		groupBy = audit.BreakdownByToolName
+	}
+	if !audit.ValidBreakdownDimensions[groupBy] {
+		writeError(w, http.StatusBadRequest,
+			"invalid group_by: must be tool_name, user_id, persona, toolkit_kind, or connection")
+		return
+	}
+
+	var limit int
+	if v := q.Get(paramLimit); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	entries, err := h.deps.AuditMetrics.Breakdown(r.Context(), audit.BreakdownFilter{
+		GroupBy:   groupBy,
+		Limit:     limit,
+		StartTime: parseTimeParam(q, "start_time"),
+		EndTime:   parseTimeParam(q, "end_time"),
+		UserID:    user.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query activity breakdown")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// parseTimeParam parses an RFC 3339 time parameter from query values.
+func parseTimeParam(q url.Values, key string) *time.Time {
+	v := q.Get(key)
+	if v == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+// --- Knowledge handlers ---
+
+func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	q := r.URL.Query()
+	filter := knowledge.InsightFilter{
+		CapturedBy: user.UserID,
+		Status:     q.Get("status"),
+		Category:   q.Get("category"),
+		Limit:      intParam(r, paramLimit, knowledge.DefaultLimit),
+		Offset:     intParam(r, "offset", 0),
+	}
+
+	insights, total, err := h.deps.InsightStore.List(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list insights")
+		return
+	}
+
+	if insights == nil {
+		insights = []knowledge.Insight{}
+	}
+	writeJSON(w, http.StatusOK, paginatedResponse{
+		Data: insights, Total: total,
+		Limit: filter.EffectiveLimit(), Offset: filter.Offset,
+	})
+}
+
+func (h *Handler) getMyInsightStats(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	stats, err := h.deps.InsightStore.Stats(r.Context(), knowledge.InsightFilter{
+		CapturedBy: user.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query insight stats")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
 }
 
 // --- Helpers ---
