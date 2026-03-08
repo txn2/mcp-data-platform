@@ -94,6 +94,7 @@ func (h *Handler) registerRoutes() {
 // meResponse is returned by GET /api/v1/portal/me.
 type meResponse struct {
 	UserID  string   `json:"user_id"`
+	Email   string   `json:"email,omitempty"`
 	Roles   []string `json:"roles"`
 	IsAdmin bool     `json:"is_admin"`
 }
@@ -107,6 +108,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, meResponse{
 		UserID:  user.UserID,
+		Email:   user.Email,
 		Roles:   user.Roles,
 		IsAdmin: hasAnyRole(user.Roles, h.deps.AdminRoles),
 	})
@@ -173,7 +175,7 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 
 	// Owner can always access; also check if shared with user.
 	if asset.OwnerID != user.UserID {
-		if !h.isSharedWithUser(r, id, user.UserID) {
+		if !h.isSharedWithUser(r, id, user) {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -202,7 +204,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if asset.OwnerID != user.UserID {
-		if !h.isSharedWithUser(r, id, user.UserID) {
+		if !h.isSharedWithUser(r, id, user) {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -310,6 +312,7 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 type createShareRequest struct {
 	ExpiresIn        string `json:"expires_in,omitempty"` // duration string, e.g. "24h"
 	SharedWithUserID string `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail  string `json:"shared_with_email,omitempty"`
 }
 
 // shareResponse is the response for a created share.
@@ -354,6 +357,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		Token:            token,
 		CreatedBy:        user.UserID,
 		SharedWithUserID: req.SharedWithUserID,
+		SharedWithEmail:  req.SharedWithEmail,
 	}
 
 	if req.ExpiresIn != "" {
@@ -452,7 +456,7 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 	limit := intParam(r, "limit", defaultLimit)
 	offset := intParam(r, "offset", 0)
 
-	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, limit, offset)
+	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, user.Email, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list shared assets")
 		return
@@ -527,16 +531,23 @@ func hasAnyRole(userRoles, targetRoles []string) bool {
 }
 
 // isSharedWithUser checks whether an asset has been shared with a specific user.
-func (h *Handler) isSharedWithUser(r *http.Request, assetID, userID string) bool {
+func (h *Handler) isSharedWithUser(r *http.Request, assetID string, user *User) bool {
 	shares, err := h.deps.ShareStore.ListByAsset(r.Context(), assetID)
 	if err != nil {
 		return false
 	}
 	for _, s := range shares {
-		if s.SharedWithUserID == userID && !s.Revoked {
-			if s.ExpiresAt == nil || s.ExpiresAt.After(time.Now()) {
-				return true
-			}
+		if s.Revoked {
+			continue
+		}
+		if s.ExpiresAt != nil && s.ExpiresAt.Before(time.Now()) {
+			continue
+		}
+		if s.SharedWithUserID == user.UserID {
+			return true
+		}
+		if user.Email != "" && s.SharedWithEmail == user.Email {
+			return true
 		}
 	}
 	return false

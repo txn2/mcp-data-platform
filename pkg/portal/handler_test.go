@@ -69,7 +69,7 @@ func (m *mockShareStore) ListByAsset(_ context.Context, _ string) ([]Share, erro
 	return m.listByAsset, m.listByAssetE
 }
 
-func (m *mockShareStore) ListSharedWithUser(_ context.Context, _ string, _, _ int) ([]SharedAsset, int, error) {
+func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) {
 	return m.sharedWithRes, m.sharedWithTot, m.sharedWithErr
 }
 func (m *mockShareStore) Revoke(_ context.Context, _ string) error          { return m.revokeErr }
@@ -1196,7 +1196,7 @@ func TestIsSharedWithUserTrue(t *testing.T) {
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	assert.True(t, h.isSharedWithUser(req, "a1", "u1"))
+	assert.True(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
 }
 
 func TestIsSharedWithUserRevoked(t *testing.T) {
@@ -1211,7 +1211,7 @@ func TestIsSharedWithUserRevoked(t *testing.T) {
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
+	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
 }
 
 func TestIsSharedWithUserExpired(t *testing.T) {
@@ -1227,7 +1227,7 @@ func TestIsSharedWithUserExpired(t *testing.T) {
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
+	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
 }
 
 func TestIsSharedWithUserWrongUser(t *testing.T) {
@@ -1242,7 +1242,7 @@ func TestIsSharedWithUserWrongUser(t *testing.T) {
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
+	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
 }
 
 func TestIsSharedWithUserError(t *testing.T) {
@@ -1254,7 +1254,7 @@ func TestIsSharedWithUserError(t *testing.T) {
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	assert.False(t, h.isSharedWithUser(req, "a1", "u1"))
+	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
 }
 
 // --- Me handler tests ---

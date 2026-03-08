@@ -18,6 +18,7 @@ const portalUserKey contextKey = "portal_user"
 // User holds information about the authenticated portal user.
 type User struct {
 	UserID string
+	Email  string
 	Roles  []string
 }
 
@@ -61,7 +62,7 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 	// Try cookie-based auth first (browser sessions).
 	if pa.browserAuth != nil {
 		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {
-			return &User{UserID: info.UserID, Roles: info.Roles}, nil
+			return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles}, nil
 		}
 	}
 
@@ -83,6 +84,7 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 
 	return &User{
 		UserID: info.UserID,
+		Email:  info.Email,
 		Roles:  info.Roles,
 	}, nil
 }

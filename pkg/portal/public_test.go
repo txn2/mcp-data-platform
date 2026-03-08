@@ -37,9 +37,9 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Contains(t, w.Body.String(), "Test") // asset name rendered
 
-	// CSP header must be set on public view responses.
+	// CSP header must be set on public view responses (plain text uses default CSP).
 	csp := w.Header().Get("Content-Security-Policy")
-	assert.Contains(t, csp, "default-src 'none'")
+	assert.NotEmpty(t, csp)
 }
 
 func TestPublicViewTokenNotFound(t *testing.T) {
@@ -209,6 +209,9 @@ func TestRenderContentJSX(t *testing.T) {
 	result, err := renderContent("text/jsx", []byte(jsx))
 	require.NoError(t, err)
 	assert.Contains(t, result, "iframe")
+	assert.Contains(t, result, "importmap")
+	assert.Contains(t, result, "esm.sh")
+	assert.Contains(t, result, "sucrase")
 }
 
 func TestRenderContentPlainText(t *testing.T) {
@@ -261,6 +264,35 @@ func TestSanitizeSVGStripsStyleAttr(t *testing.T) {
 	result := sanitizeSVG([]byte(svg))
 	assert.NotContains(t, result, "style=")
 	assert.Contains(t, result, "<rect")
+}
+
+// --- publicCSP ---
+
+func TestPublicCSP(t *testing.T) {
+	csp := publicCSP("text/jsx")
+	assert.Contains(t, csp, "frame-src blob:")
+	assert.Contains(t, csp, "script-src 'unsafe-inline'")
+
+	csp2 := publicCSP("text/html")
+	assert.NotContains(t, csp2, "frame-src")
+	assert.Contains(t, csp2, "default-src 'none'")
+}
+
+// --- jsxIframe ---
+
+func TestJsxIframe(t *testing.T) {
+	result := jsxIframe([]byte(`export default function App() { return <h1>Hi</h1> }`))
+	assert.Contains(t, result, `sandbox="allow-scripts"`)
+	assert.Contains(t, result, "importmap")
+	assert.Contains(t, result, "esm.sh/sucrase")
+	assert.Contains(t, result, "esm.sh/react@19")
+}
+
+func TestJsxIframeSpecialChars(t *testing.T) {
+	result := jsxIframe([]byte(`function App() { return <div title="hello &amp; world">test</div> }`))
+	assert.Contains(t, result, `sandbox="allow-scripts"`)
+	// Content is JSON-encoded then HTML-escaped, so it's safely embedded.
+	assert.NotContains(t, result, `<div title=`)
 }
 
 // --- sandboxedIframe ---

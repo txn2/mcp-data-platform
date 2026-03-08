@@ -33,6 +33,7 @@ export interface Share {
   token: string;
   created_by: string;
   shared_with_user_id?: string;
+  shared_with_email?: string;
   expires_at?: string;
   revoked: boolean;
   access_count: number;
