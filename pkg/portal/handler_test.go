@@ -93,6 +93,41 @@ func (m *mockS3Client) GetObject(_ context.Context, _, _ string) (body []byte, c
 func (m *mockS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
 func (*mockS3Client) Close() error                                        { return nil }
 
+// captureShareStore wraps a mockShareStore and captures the Share passed to Insert.
+type captureShareStore struct {
+	inner    *mockShareStore
+	captured *Share
+}
+
+func (c *captureShareStore) Insert(ctx context.Context, share Share) error {
+	*c.captured = share
+	return c.inner.Insert(ctx, share)
+}
+
+func (c *captureShareStore) GetByID(ctx context.Context, id string) (*Share, error) {
+	return c.inner.GetByID(ctx, id)
+}
+
+func (c *captureShareStore) GetByToken(ctx context.Context, token string) (*Share, error) {
+	return c.inner.GetByToken(ctx, token)
+}
+
+func (c *captureShareStore) ListByAsset(ctx context.Context, assetID string) ([]Share, error) {
+	return c.inner.ListByAsset(ctx, assetID)
+}
+
+func (c *captureShareStore) ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error) {
+	return c.inner.ListSharedWithUser(ctx, userID, email, limit, offset)
+}
+
+func (c *captureShareStore) Revoke(ctx context.Context, id string) error {
+	return c.inner.Revoke(ctx, id)
+}
+
+func (c *captureShareStore) IncrementAccess(ctx context.Context, id string) error {
+	return c.inner.IncrementAccess(ctx, id)
+}
+
 // authMiddleware injects a User into the context for testing.
 func testAuthMiddleware(user *User) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -838,6 +873,62 @@ func TestCreateShareNoUser(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestCreateShareWithEmail(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	body := `{"shared_with_email":"user@example.com"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestCreateShareWithInvalidEmail(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	body := `{"shared_with_email":"not-an-email"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateShareEmailNormalized(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	var insertedShare Share
+	shares := &mockShareStore{}
+	shares.insertErr = nil
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &captureShareStore{inner: shares, captured: &insertedShare},
+		S3Client:      &mockS3Client{},
+		S3Bucket:      "test",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	body := `{"shared_with_email":"  User@Example.COM  "}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, "user@example.com", insertedShare.SharedWithEmail)
+}
+
 func TestCreateShareNoPublicBaseURL(t *testing.T) {
 	asset := &Asset{ID: "a1", OwnerID: "u1"}
 	h := NewHandler(Deps{
@@ -1243,6 +1334,52 @@ func TestIsSharedWithUserWrongUser(t *testing.T) {
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
 	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestIsSharedWithUserByEmail(t *testing.T) {
+	shares := []Share{
+		{ID: "s1", SharedWithEmail: "user@example.com", Revoked: false},
+	}
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: shares},
+		&mockS3Client{},
+		nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.True(t, h.isSharedWithUser(req, "a1", &User{UserID: "different-id", Email: "user@example.com"}))
+}
+
+func TestIsSharedWithUserByEmailCaseInsensitive(t *testing.T) {
+	shares := []Share{
+		{ID: "s1", SharedWithEmail: "User@Example.COM", Revoked: false},
+	}
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: shares},
+		&mockS3Client{},
+		nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.True(t, h.isSharedWithUser(req, "a1", &User{UserID: "different-id", Email: "user@example.com"}))
+}
+
+func TestIsSharedWithUserByEmailEmptyEmail(t *testing.T) {
+	shares := []Share{
+		{ID: "s1", SharedWithEmail: "user@example.com", Revoked: false},
+	}
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: shares},
+		&mockS3Client{},
+		nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	// User with empty email should not match email-based shares.
+	assert.False(t, h.isSharedWithUser(req, "a1", &User{UserID: "different-id", Email: ""}))
 }
 
 func TestIsSharedWithUserError(t *testing.T) {

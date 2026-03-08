@@ -14,6 +14,10 @@ function formatTimeRemaining(expiresAt?: string): string {
   const remaining = new Date(expiresAt).getTime() - Date.now();
   if (remaining <= 0) return "Expired";
   const hours = Math.floor(remaining / 3600000);
+  if (hours < 1) {
+    const minutes = Math.max(1, Math.floor(remaining / 60000));
+    return `Expires in ${minutes}m`;
+  }
   if (hours < 24) return `Expires in ${hours}h`;
   const days = Math.floor(hours / 24);
   return `Expires in ${days}d`;
@@ -39,6 +43,16 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
 
   function handleCopy(text: string, id: string) {
     navigator.clipboard.writeText(text).then(() => {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    }).catch(() => {
+      // Fallback: select a temporary input for manual copy.
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
       setCopied(id);
       setTimeout(() => setCopied(null), 2000);
     });

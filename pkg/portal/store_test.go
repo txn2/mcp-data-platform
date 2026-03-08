@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -474,6 +475,19 @@ func TestValidateDescription(t *testing.T) {
 		longDesc[i] = 'a'
 	}
 	assert.Error(t, ValidateDescription(string(longDesc)))
+}
+
+func TestValidateEmail(t *testing.T) {
+	assert.NoError(t, ValidateEmail("user@example.com"))
+	assert.NoError(t, ValidateEmail("a@b.co"))
+	assert.Error(t, ValidateEmail(""))               // empty
+	assert.Error(t, ValidateEmail("noatsign"))       // no @
+	assert.Error(t, ValidateEmail("@example.com"))   // no local part
+	assert.Error(t, ValidateEmail("user@"))          // no domain
+	assert.Error(t, ValidateEmail("user@localhost")) // no dot in domain
+
+	longEmail := strings.Repeat("a", 250) + "@b.co"
+	assert.Error(t, ValidateEmail(longEmail)) // exceeds 254
 }
 
 // --- Error path tests ---

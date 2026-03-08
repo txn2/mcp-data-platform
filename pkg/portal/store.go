@@ -329,7 +329,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		SELECT COUNT(*)
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND ps.shared_with_email = $2))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
 	`
 	var total int
@@ -351,7 +351,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		       ps.id, ps.created_by, ps.created_at
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND ps.shared_with_email = $2))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
 		ORDER BY ps.created_at DESC
 		LIMIT $3 OFFSET $4

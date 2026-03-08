@@ -345,29 +345,10 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := generateToken()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate share token")
+	share, buildErr := buildShare(assetID, user.UserID, req)
+	if buildErr != nil {
+		writeError(w, http.StatusBadRequest, buildErr.Error())
 		return
-	}
-
-	share := Share{
-		ID:               uuid.New().String(),
-		AssetID:          assetID,
-		Token:            token,
-		CreatedBy:        user.UserID,
-		SharedWithUserID: req.SharedWithUserID,
-		SharedWithEmail:  req.SharedWithEmail,
-	}
-
-	if req.ExpiresIn != "" {
-		dur, parseErr := time.ParseDuration(req.ExpiresIn)
-		if parseErr != nil {
-			writeError(w, http.StatusBadRequest, "invalid expires_in duration")
-			return
-		}
-		exp := time.Now().Add(dur)
-		share.ExpiresAt = &exp
 	}
 
 	if err := h.deps.ShareStore.Insert(r.Context(), share); err != nil {
@@ -381,6 +362,41 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// buildShare validates the request and constructs a Share, returning an error for invalid input.
+func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
+	token, err := generateToken()
+	if err != nil {
+		return Share{}, fmt.Errorf("failed to generate share token")
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.SharedWithEmail))
+	if email != "" {
+		if err := ValidateEmail(email); err != nil {
+			return Share{}, err
+		}
+	}
+
+	share := Share{
+		ID:               uuid.New().String(),
+		AssetID:          assetID,
+		Token:            token,
+		CreatedBy:        userID,
+		SharedWithUserID: req.SharedWithUserID,
+		SharedWithEmail:  email,
+	}
+
+	if req.ExpiresIn != "" {
+		dur, parseErr := time.ParseDuration(req.ExpiresIn)
+		if parseErr != nil {
+			return Share{}, fmt.Errorf("invalid expires_in duration")
+		}
+		exp := time.Now().Add(dur)
+		share.ExpiresAt = &exp
+	}
+
+	return share, nil
 }
 
 func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
@@ -456,7 +472,7 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 	limit := intParam(r, "limit", defaultLimit)
 	offset := intParam(r, "offset", 0)
 
-	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, user.Email, limit, offset)
+	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, strings.ToLower(user.Email), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list shared assets")
 		return
@@ -546,7 +562,7 @@ func (h *Handler) isSharedWithUser(r *http.Request, assetID string, user *User) 
 		if s.SharedWithUserID == user.UserID {
 			return true
 		}
-		if user.Email != "" && s.SharedWithEmail == user.Email {
+		if user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email) {
 			return true
 		}
 	}
