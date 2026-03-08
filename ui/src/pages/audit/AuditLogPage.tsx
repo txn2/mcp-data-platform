@@ -6,6 +6,7 @@ import {
   useAuditTimeseries,
   useAuditBreakdown,
   useAuditPerformance,
+  useToolTitleMap,
 } from "@/api/admin/hooks";
 import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
@@ -17,6 +18,7 @@ import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
 import type { AuditEvent, AuditSortColumn, SortOrder, Resolution } from "@/api/admin/types";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { formatDuration } from "@/lib/formatDuration";
+import { formatToolName } from "@/lib/formatToolName";
 import { formatUser } from "@/lib/formatUser";
 
 const PER_PAGE = 20;
@@ -245,6 +247,7 @@ function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
   const [sortBy, setSortBy] = useState<AuditSortColumn>("timestamp");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const titleMap = useToolTitleMap();
 
   const { data: filters } = useAuditFilters();
 
@@ -458,7 +461,7 @@ function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
                 <td className="px-3 py-2" title={event.user_id}>
                   {formatUser(event.user_id, event.user_email)}
                 </td>
-                <td className="px-3 py-2 font-mono text-xs">{event.tool_name}</td>
+                <td className="px-3 py-2 text-xs" title={event.tool_name}>{formatToolName(event.tool_name, titleMap[event.tool_name])}</td>
                 <td className="px-3 py-2">{event.toolkit_kind}</td>
                 <td className="px-3 py-2 text-xs">{event.connection}</td>
                 <td className="px-3 py-2 text-right">{formatDuration(event.duration_ms)}</td>
@@ -533,199 +536,68 @@ function AuditHelpTab() {
   return (
     <div className="max-w-3xl space-y-8">
       <section>
-        <h2 className="mb-2 text-lg font-semibold">What is Audit Logging?</h2>
+        <h2 className="mb-2 text-lg font-semibold">What is the Audit Log?</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The audit system records every MCP tool call made through the platform.
-          Each event captures who made the call, which tool was invoked, the
-          parameters used, how long it took, whether it succeeded, and whether
-          semantic enrichment was applied. This provides a complete trail of all
-          AI assistant activity for compliance, debugging, and analytics.
+          The audit log records every action AI assistants take through the
+          platform. Each entry shows who made the request, what tool was used,
+          how long it took, and whether it succeeded. Use it to monitor
+          activity, troubleshoot problems, and maintain compliance.
         </p>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">What Gets Logged</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Every tool call generates an audit event with these fields:
-        </p>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Field</th>
-                <th className="px-3 py-2 text-left font-medium">Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">timestamp</td>
-                <td className="px-3 py-2 text-xs">When the call was made (UTC)</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">user_id</td>
-                <td className="px-3 py-2 text-xs">Authenticated user identity (from token or API key name)</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">persona</td>
-                <td className="px-3 py-2 text-xs">The persona assigned to the user for this call</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">tool_name</td>
-                <td className="px-3 py-2 text-xs">The MCP tool that was called (e.g., trino_query)</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">toolkit_kind / toolkit_name</td>
-                <td className="px-3 py-2 text-xs">The toolkit type and instance name</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">connection</td>
-                <td className="px-3 py-2 text-xs">The connection identifier used for this call</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">duration_ms</td>
-                <td className="px-3 py-2 text-xs">Total execution time in milliseconds</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">success</td>
-                <td className="px-3 py-2 text-xs">Whether the call completed without error</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">enrichment_applied</td>
-                <td className="px-3 py-2 text-xs">Whether semantic enrichment was added to the response</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">parameters</td>
-                <td className="px-3 py-2 text-xs">The parameters passed to the tool (JSON)</td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">request_chars / response_chars</td>
-                <td className="px-3 py-2 text-xs">Size of the request and response payloads</td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-mono text-xs">error_message</td>
-                <td className="px-3 py-2 text-xs">Error details when the call fails</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Overview Dashboard</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          The Overview tab provides a visual summary of audit activity within a
-          selected time range (1h, 6h, 24h, 7d). It shows total calls, success
-          rate, average duration, unique users/tools, enrichment rate, and error
-          count. The activity chart visualizes call volume over time, and
-          breakdown charts show the most-used tools and most-active users.
-          Performance metrics (P50, P95, P99) help identify latency issues.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Events Table</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          The Events tab provides a detailed, sortable table of all audit events
-          with the following capabilities:
-        </p>
+        <h2 className="mb-2 text-lg font-semibold">What You&apos;ll Find Here</h2>
         <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
           <li>
-            <strong>Search</strong> &mdash; Full-text search across event fields
+            <strong>Overview tab</strong> &mdash; Summary charts showing
+            activity volume, top tools, top users, success rates, and
+            performance over a selected time range
           </li>
           <li>
-            <strong>Filters</strong> &mdash; Filter by user, tool name, and
-            success/failure status
-          </li>
-          <li>
-            <strong>Sorting</strong> &mdash; Click any column header to sort
-            ascending or descending
-          </li>
-          <li>
-            <strong>Pagination</strong> &mdash; Navigate through results 20 at a
-            time
-          </li>
-          <li>
-            <strong>Detail drawer</strong> &mdash; Click any row to view full
-            event details including parameters
-          </li>
-          <li>
-            <strong>Export</strong> &mdash; Download the current filtered view as
-            CSV or JSON
+            <strong>Events tab</strong> &mdash; A detailed, searchable table
+            of every action with filtering, sorting, and export capabilities
           </li>
         </ul>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Retention & Storage</h2>
+        <h2 className="mb-2 text-lg font-semibold">Each Event Captures</h2>
+        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+          <li>
+            <strong>Who</strong> &mdash; The user and their assigned persona
+          </li>
+          <li>
+            <strong>What</strong> &mdash; Which tool was called and the
+            parameters used
+          </li>
+          <li>
+            <strong>When</strong> &mdash; Timestamp and duration
+          </li>
+          <li>
+            <strong>Result</strong> &mdash; Success or failure, response size,
+            and whether enrichment was applied
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">Working with Events</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Audit events are stored in PostgreSQL. Retention is configurable via
-          the{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            audit.retention_days
-          </code>{" "}
-          setting (default: 90 days). Events older than the retention period are
-          automatically purged. Audit logging is enabled via{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            audit.enabled: true
-          </code>{" "}
-          and{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            audit.log_tool_calls: true
-          </code>{" "}
-          in the platform configuration.
+          In the Events tab, you can search across all fields, filter by user
+          or tool, sort by any column, and click a row to see full details
+          including the parameters that were sent. Use the export button to
+          download the current view as CSV or JSON for further analysis.
         </p>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Admin API Endpoints</h2>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Endpoint</th>
-                <th className="px-3 py-2 text-left font-medium">Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/events</td>
-                <td className="px-3 py-2 text-xs">
-                  Paginated event list with filter, sort, and search support
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/overview</td>
-                <td className="px-3 py-2 text-xs">
-                  Summary statistics for a time range
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/timeseries</td>
-                <td className="px-3 py-2 text-xs">
-                  Time-bucketed activity data for charting
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/breakdown</td>
-                <td className="px-3 py-2 text-xs">
-                  Group-by aggregations (tool_name, user_id, etc.)
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/performance</td>
-                <td className="px-3 py-2 text-xs">
-                  Latency percentiles (P50, P95, P99) and response size stats
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-mono text-xs">GET /audit/filters</td>
-                <td className="px-3 py-2 text-xs">
-                  Distinct values for filter dropdowns (users, tools)
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <h2 className="mb-2 text-lg font-semibold">Data Retention</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Audit events are retained for a configurable period (default: 90
+          days). Older events are automatically cleaned up. If you need
+          longer retention for compliance purposes, ask your platform
+          administrator to adjust the retention setting.
+        </p>
       </section>
     </div>
   );

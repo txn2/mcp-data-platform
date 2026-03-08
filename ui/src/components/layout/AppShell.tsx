@@ -4,8 +4,10 @@ import { Header } from "./Header";
 import { useAuthStore } from "@/stores/auth";
 
 // Portal pages (everyone)
+import { ActivityPage } from "@/pages/activity/ActivityPage";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { SharedWithMePage } from "@/pages/shared/SharedWithMePage";
+import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 
 // Admin pages (admin only)
@@ -17,8 +19,10 @@ import { PersonasPage } from "@/pages/personas/PersonasPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
+  "/activity": "Activity",
   "/": "My Assets",
   "/shared": "Shared With Me",
+  "/my-knowledge": "My Knowledge",
   "/admin": "Dashboard",
   "/admin/tools": "Tools",
   "/admin/audit": "Audit Log",
@@ -131,12 +135,14 @@ export function AppShell() {
         <Header title={title} />
         <main className="flex-1 overflow-auto bg-muted/40 p-6">
           {/* Portal routes — everyone */}
-          {!isAdminRoute && !assetMatch && route !== "/shared" && (
+          {!isAdminRoute && route === "/activity" && <ActivityPage />}
+          {!isAdminRoute && !assetMatch && route !== "/shared" && route !== "/activity" && route !== "/my-knowledge" && (
             <MyAssetsPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/shared" && (
             <SharedWithMePage onNavigate={navigate} />
           )}
+          {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {assetMatch && (
             <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} />
           )}

@@ -4,49 +4,30 @@ import {
   Search,
   FileText,
   Info,
-  Link2,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Provenance, ProvenanceToolCall } from "@/api/portal/types";
+import { formatToolName } from "@/lib/formatToolName";
 
 interface Props {
   provenance: Provenance;
 }
 
-interface ToolMeta {
-  label: string;
-  icon: LucideIcon;
-}
-
-const TOOL_LABELS: Record<string, ToolMeta> = {
-  trino_query: { label: "SQL Query", icon: Database },
-  trino_execute: { label: "SQL Execute", icon: Database },
-  trino_describe_table: { label: "Describe Table", icon: Database },
-  trino_list_tables: { label: "List Tables", icon: Database },
-  trino_list_schemas: { label: "List Schemas", icon: Database },
-  trino_list_catalogs: { label: "List Catalogs", icon: Database },
-  trino_explain: { label: "Query Plan", icon: Database },
-  datahub_search: { label: "Catalog Search", icon: Search },
-  datahub_get_schema: { label: "Schema Lookup", icon: FileText },
-  datahub_get_entity: { label: "Entity Details", icon: Info },
-  datahub_get_lineage: { label: "Lineage", icon: Link2 },
-  datahub_get_column_lineage: { label: "Column Lineage", icon: Link2 },
-  datahub_get_queries: { label: "Saved Queries", icon: FileText },
-  datahub_get_data_product: { label: "Data Product", icon: Info },
-  datahub_get_glossary_term: { label: "Glossary Term", icon: FileText },
-  datahub_list_data_products: { label: "Data Products", icon: Search },
-  datahub_list_domains: { label: "Domains", icon: Search },
-  datahub_list_tags: { label: "Tags", icon: Search },
-  platform_info: { label: "Platform Info", icon: Info },
-  s3_list_objects: { label: "List Files", icon: FileText },
-  s3_get_object: { label: "Get File", icon: FileText },
-  s3_list_buckets: { label: "List Buckets", icon: FileText },
+/** Map tool name prefixes to icons for provenance display. */
+const TOOL_ICONS: Record<string, LucideIcon> = {
+  trino_: Database,
+  datahub_: Search,
+  s3_: FileText,
+  platform_: Info,
 };
 
-function getToolMeta(toolName: string): ToolMeta {
-  return TOOL_LABELS[toolName] ?? { label: toolName, icon: Terminal };
+function getToolIcon(toolName: string): LucideIcon {
+  for (const [prefix, icon] of Object.entries(TOOL_ICONS)) {
+    if (toolName.startsWith(prefix)) return icon;
+  }
+  return Terminal;
 }
 
 /** Extract a human-readable summary from the raw summary JSON string. */
@@ -125,8 +106,7 @@ function ProvenanceCard({
   call: ProvenanceToolCall;
   onClick: () => void;
 }) {
-  const meta = getToolMeta(call.tool_name);
-  const Icon = meta.icon;
+  const Icon = getToolIcon(call.tool_name);
   const summary = extractSummary(call);
 
   return (
@@ -141,7 +121,7 @@ function ProvenanceCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium">{meta.label}</span>
+            <span className="text-sm font-medium">{formatToolName(call.tool_name)}</span>
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
               title={new Date(call.timestamp).toLocaleString()}
@@ -170,8 +150,7 @@ function DetailModal({
   onOpenChange: (open: boolean) => void;
 }) {
   if (!call) return null;
-  const meta = getToolMeta(call.tool_name);
-  const Icon = meta.icon;
+  const Icon = getToolIcon(call.tool_name);
   const detail = formatDetail(call.summary);
 
   return (
@@ -181,7 +160,7 @@ function DetailModal({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-card p-6 shadow-lg focus:outline-none">
           <Dialog.Title className="flex items-center gap-2 text-base font-semibold">
             <Icon className="h-4 w-4 text-muted-foreground" />
-            {meta.label}
+            {formatToolName(call.tool_name)}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-xs text-muted-foreground">
             {call.tool_name} &middot; {new Date(call.timestamp).toLocaleString()}

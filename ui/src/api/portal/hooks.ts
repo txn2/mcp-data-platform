@@ -6,6 +6,11 @@ import type {
   SharedAsset,
   PaginatedResponse,
   ShareResponse,
+  ActivityOverview,
+  TimeseriesBucket,
+  BreakdownEntry,
+  Insight,
+  InsightStats,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -163,5 +168,101 @@ export function useRevokeShare() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["shares"] });
     },
+  });
+}
+
+// --- Activity (user-scoped audit metrics) ---
+
+export function useMyActivityOverview(params?: {
+  startTime?: string;
+  endTime?: string;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.startTime) sp.set("start_time", params.startTime);
+  if (params?.endTime) sp.set("end_time", params.endTime);
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["my-activity-overview", params],
+    queryFn: () =>
+      apiFetch<ActivityOverview>(
+        `/activity/overview${qs ? `?${qs}` : ""}`,
+      ),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMyActivityTimeseries(params?: {
+  resolution?: string;
+  startTime?: string;
+  endTime?: string;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.resolution) sp.set("resolution", params.resolution);
+  if (params?.startTime) sp.set("start_time", params.startTime);
+  if (params?.endTime) sp.set("end_time", params.endTime);
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["my-activity-timeseries", params],
+    queryFn: () =>
+      apiFetch<TimeseriesBucket[]>(
+        `/activity/timeseries${qs ? `?${qs}` : ""}`,
+      ),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMyActivityBreakdown(params?: {
+  groupBy?: string;
+  limit?: number;
+  startTime?: string;
+  endTime?: string;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.groupBy) sp.set("group_by", params.groupBy);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.startTime) sp.set("start_time", params.startTime);
+  if (params?.endTime) sp.set("end_time", params.endTime);
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["my-activity-breakdown", params],
+    queryFn: () =>
+      apiFetch<BreakdownEntry[]>(
+        `/activity/breakdown${qs ? `?${qs}` : ""}`,
+      ),
+    refetchInterval: 30_000,
+  });
+}
+
+// --- Knowledge (user-scoped insights) ---
+
+export function useMyInsights(params?: {
+  status?: string;
+  category?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.status) sp.set("status", params.status);
+  if (params?.category) sp.set("category", params.category);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.offset) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["my-insights", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<Insight>>(
+        `/knowledge/insights${qs ? `?${qs}` : ""}`,
+      ),
+  });
+}
+
+export function useMyInsightStats() {
+  return useQuery({
+    queryKey: ["my-insight-stats"],
+    queryFn: () => apiFetch<InsightStats>("/knowledge/insights/stats"),
   });
 }

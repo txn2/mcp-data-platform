@@ -11,6 +11,7 @@ import {
   Share2,
   ChevronsLeft,
   ChevronsRight,
+  Activity,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -23,7 +24,8 @@ interface Props {
   onToggleCollapse: () => void;
 }
 
-const portalNavItems = [
+const basePortalNavItems = [
+  { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "My Assets", icon: LayoutGrid },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
@@ -39,6 +41,15 @@ const adminNavItems = [
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse }: Props) {
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const userTools = useAuthStore((s) => s.user?.tools);
+  const hasKnowledge = userTools?.includes("capture_insight") ?? false;
+
+  const portalNavItems = hasKnowledge
+    ? [
+        ...basePortalNavItems,
+        { path: "/my-knowledge", label: "My Knowledge", icon: Lightbulb },
+      ]
+    : basePortalNavItems;
   const { data: branding } = useBranding();
   const theme = useThemeStore((s) => s.theme);
   const isDark =
@@ -70,7 +81,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse }
   const route = currentPath.split("#")[0] ?? "/";
 
   function isActive(itemPath: string) {
-    if (itemPath === "/" || itemPath === "/shared") return route === itemPath;
+    if (itemPath === "/" || itemPath === "/shared" || itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge") return route === itemPath;
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 

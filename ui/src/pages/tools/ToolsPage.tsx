@@ -4,6 +4,7 @@ import {
   useConnections,
   useToolSchemas,
   useCallTool,
+  useToolTitleMap,
 } from "@/api/admin/hooks";
 import type { ToolSchema } from "@/api/admin/types";
 import type {
@@ -13,6 +14,7 @@ import type {
 import { useInspectorStore } from "@/stores/inspector";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
+import { formatToolName } from "@/lib/formatToolName";
 import { Eye, EyeOff, X } from "lucide-react";
 
 type Tab = "overview" | "explore" | "help";
@@ -61,6 +63,7 @@ function OverviewTab() {
   const { data: toolsData } = useTools();
   const { data: connectionsData } = useConnections();
   const { data: schemasData } = useToolSchemas();
+  const titleMap = useToolTitleMap();
 
   const tools = toolsData?.tools ?? [];
   const connections = connectionsData?.connections ?? [];
@@ -92,8 +95,9 @@ function OverviewTab() {
                     <span
                       key={toolName}
                       className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                      title={toolName}
                     >
-                      {toolName}
+                      {formatToolName(toolName, titleMap[toolName])}
                     </span>
                   ))}
                 </div>
@@ -112,7 +116,7 @@ function OverviewTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Name</th>
+                <th className="px-3 py-2 text-left font-medium">Tool</th>
                 <th className="px-3 py-2 text-left font-medium">Kind</th>
                 <th className="px-3 py-2 text-left font-medium">Connection</th>
                 <th className="px-3 py-2 text-left font-medium">Toolkit</th>
@@ -125,13 +129,15 @@ function OverviewTab() {
                 return (
                   <tr key={`${tool.name}-${tool.connection}-${idx}`} className="border-b">
                     <td className="px-3 py-2">
-                      <span className="flex items-center gap-1.5 font-mono text-xs">
+                      <span className="flex items-center gap-1.5 text-xs">
                         {isHidden ? (
                           <EyeOff className="h-3 w-3 shrink-0 opacity-40" />
                         ) : (
                           <Eye className="h-3 w-3 shrink-0 opacity-40" />
                         )}
-                        <span className={isHidden ? "opacity-50" : ""}>{tool.name}</span>
+                        <span className={isHidden ? "opacity-50" : ""}>
+                          {formatToolName(tool.name, tool.title)}
+                        </span>
                       </span>
                       {desc && (
                         <p className="mt-0.5 pl-[18px] text-[11px] leading-snug text-muted-foreground">
@@ -183,6 +189,7 @@ function ExploreTab() {
   const { data: connectionsData } = useConnections();
   const { data: schemasData } = useToolSchemas();
   const callTool = useCallTool();
+  const titleMap = useToolTitleMap();
 
   const connections = connectionsData?.connections ?? [];
   const schemas = schemasData?.schemas ?? {};
@@ -382,6 +389,7 @@ function ExploreTab() {
                     <button
                       key={`${conn.connection}-${toolName}`}
                       onClick={() => selectTool(toolName, conn)}
+                      title={toolName}
                       className={`flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
                         selectedTool === toolName &&
                         selectedConnection === conn.connection
@@ -394,7 +402,7 @@ function ExploreTab() {
                       ) : (
                         <Eye className="h-3 w-3 shrink-0 opacity-40" />
                       )}
-                      <span className={isHidden ? "opacity-50" : ""}>{toolName}</span>
+                      <span className={isHidden ? "opacity-50" : ""}>{formatToolName(toolName, titleMap[toolName])}</span>
                     </button>
                   );
                 })}
@@ -412,6 +420,7 @@ function ExploreTab() {
                   <button
                     key={`platform-${toolName}`}
                     onClick={() => selectTool(toolName, null)}
+                    title={toolName}
                     className={`flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors ${
                       selectedTool === toolName && selectedConnection === ""
                         ? "bg-primary/10 text-primary"
@@ -419,7 +428,7 @@ function ExploreTab() {
                     }`}
                   >
                     <Eye className="h-3 w-3 shrink-0 opacity-40" />
-                    {toolName}
+                    {formatToolName(toolName, titleMap[toolName])}
                   </button>
                 ))}
               </div>
@@ -937,121 +946,75 @@ function ToolsHelpTab() {
   return (
     <div className="max-w-3xl space-y-8">
       <section>
-        <h2 className="mb-2 text-lg font-semibold">What are MCP Tools?</h2>
+        <h2 className="mb-2 text-lg font-semibold">What are Tools?</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          MCP tools are the operations that AI assistants can invoke through the
-          platform. Each tool performs a specific action &mdash; querying a
-          database, searching a data catalog, reading from object storage, etc.
-          Tools are organized into <strong>toolkits</strong> (Trino, DataHub, S3)
-          and bound to <strong>connections</strong> (specific server instances).
+          Tools are the actions that AI assistants can perform through the
+          platform &mdash; running a SQL query, searching the data catalog,
+          browsing files in storage, and more. This page shows every tool
+          available and lets you test them interactively.
         </p>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Connections & Toolkits</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          A <strong>connection</strong> represents a configured instance of an
-          external service (e.g., a Trino cluster, a DataHub server, an S3
-          endpoint). Each connection belongs to a <strong>toolkit</strong> type
-          and exposes a set of tools. Multiple connections of the same type are
-          supported &mdash; for example, you could have separate Trino
-          connections for production and staging clusters.
-        </p>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Toolkit</th>
-                <th className="px-3 py-2 text-left font-medium">Tools Provided</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium">Trino</td>
-                <td className="px-3 py-2 text-xs">
-                  trino_query, trino_describe_table, trino_browse,
-                  trino_explain, trino_execute
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium">DataHub</td>
-                <td className="px-3 py-2 text-xs">
-                  datahub_search, datahub_get_entity, datahub_get_schema,
-                  datahub_get_lineage, datahub_browse,
-                  datahub_get_glossary_term, datahub_get_queries,
-                  datahub_get_data_product
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-medium">S3</td>
-                <td className="px-3 py-2 text-xs">
-                  s3_list_buckets, s3_list_objects, s3_get_object,
-                  s3_get_object_metadata, s3_put_object, s3_delete_object,
-                  s3_copy_object, s3_presign_url
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <h2 className="mb-2 text-lg font-semibold">What You&apos;ll Find Here</h2>
+        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+          <li>
+            <strong>Overview tab</strong> &mdash; See all connections and their
+            tools at a glance, with visibility indicators
+          </li>
+          <li>
+            <strong>Explore tab</strong> &mdash; Select a tool, fill in parameters,
+            and run it to see the results in real time
+          </li>
+          <li>
+            <strong>Connections</strong> &mdash; Each connection represents a
+            service instance (a database cluster, a catalog server, a storage
+            endpoint) and provides a set of tools
+          </li>
+        </ul>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Semantic Enrichment</h2>
+        <h2 className="mb-2 text-lg font-semibold">Enrichment</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          A key differentiator of this platform is <strong>bidirectional
-          cross-injection</strong>. Tool responses are automatically enriched
-          with context from other services:
+          Responses are automatically enriched with context from other services:
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">Trino &rarr; DataHub</h3>
+            <h3 className="mb-1 text-sm font-medium">Database &rarr; Catalog</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              When you describe a table or run a query in Trino, the response
-              includes DataHub metadata: table owners, tags, glossary terms,
-              deprecation warnings, and data quality scores.
+              When you describe or query a table, the response includes who
+              owns it, what the columns mean, any deprecation warnings, and
+              data quality scores.
             </p>
           </div>
           <div className="rounded-lg border p-3">
-            <h3 className="mb-1 text-sm font-medium">DataHub &rarr; Trino</h3>
+            <h3 className="mb-1 text-sm font-medium">Catalog &rarr; Database</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              When searching DataHub, results include query availability: can
-              this entity be queried? How many rows? What sample SQL to use?
-              This helps the AI assistant know what data is actionable.
+              When searching the catalog, results show whether data is
+              queryable, how many rows it has, and sample SQL to get started.
             </p>
           </div>
         </div>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Tool Access Control</h2>
+        <h2 className="mb-2 text-lg font-semibold">Access Control</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Tool access is controlled by <strong>personas</strong>. Each persona
-          defines allow/deny patterns that filter which tools a user can invoke.
-          When a tool call is attempted, the platform checks the user&apos;s
-          persona and either permits or blocks the call. See the{" "}
-          <strong>Personas</strong> section for details on how filtering works.
+          Not every user can use every tool. Personas control which tools each
+          user has access to. If a tool appears dimmed with a crossed-out eye
+          icon, it has been hidden by the platform&apos;s visibility settings.
+          See the <strong>Personas</strong> section for details.
         </p>
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">The Explore Tab</h2>
+        <h2 className="mb-2 text-lg font-semibold">Using the Explore Tab</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The Explore tab provides an interactive tool testing interface. Select
-          a tool from the left panel, fill in parameters using the auto-generated
-          form, and execute the call. Results are displayed with formatted output
-          and enrichment blocks shown separately. A history panel tracks all
-          calls made during the session with timing and status information.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Tool Schemas</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Each tool has a JSON Schema that defines its parameters (name, type,
-          required, description, default values). The Explore tab uses these
-          schemas to generate dynamic input forms. Parameter types include
-          string, integer, boolean, and special formats like SQL, URN, and
-          enum selections.
+          Pick a tool from the left panel, fill in the form fields, and click
+          Execute. Results appear on the right, with any enrichment data shown
+          separately. Your call history is saved for the session so you can
+          review previous results or re-run queries.
         </p>
       </section>
     </div>

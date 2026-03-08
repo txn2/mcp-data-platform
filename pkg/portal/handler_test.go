@@ -12,6 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 // --- Mock stores for handler tests ---
@@ -1464,4 +1467,418 @@ func TestGetMeNoUser(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// --- Activity handler tests ---
+
+type mockAuditMetrics struct {
+	overviewResult       *audit.Overview
+	overviewErr          error
+	timeseriesResult     []audit.TimeseriesBucket
+	timeseriesErr        error
+	breakdownResult      []audit.BreakdownEntry
+	breakdownErr         error
+	lastOverviewFilter   audit.MetricsFilter
+	lastTimeseriesFilter audit.TimeseriesFilter
+	lastBreakdownFilter  audit.BreakdownFilter
+}
+
+func (m *mockAuditMetrics) Overview(_ context.Context, f audit.MetricsFilter) (*audit.Overview, error) {
+	m.lastOverviewFilter = f
+	return m.overviewResult, m.overviewErr
+}
+
+func (m *mockAuditMetrics) Timeseries(_ context.Context, f audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
+	m.lastTimeseriesFilter = f
+	return m.timeseriesResult, m.timeseriesErr
+}
+
+func (m *mockAuditMetrics) Breakdown(_ context.Context, f audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+	m.lastBreakdownFilter = f
+	return m.breakdownResult, m.breakdownErr
+}
+
+var _ AuditMetrics = (*mockAuditMetrics)(nil)
+
+func newActivityTestHandler(metrics *mockAuditMetrics, user *User) *Handler {
+	return NewHandler(Deps{
+		AssetStore:   &mockAssetStore{},
+		ShareStore:   &mockShareStore{},
+		AuditMetrics: metrics,
+		RateLimit:    RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, testAuthMiddleware(user))
+}
+
+func TestActivityOverview_Success(t *testing.T) {
+	metrics := &mockAuditMetrics{
+		overviewResult: &audit.Overview{
+			TotalCalls:  42,
+			SuccessRate: 0.95,
+		},
+	}
+	user := &User{UserID: "user-1", Email: "test@example.com"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/overview?start_time=2024-01-01T00:00:00Z", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-1", metrics.lastOverviewFilter.UserID)
+	assert.NotNil(t, metrics.lastOverviewFilter.StartTime)
+
+	var result audit.Overview
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+	assert.Equal(t, 42, result.TotalCalls)
+}
+
+func TestActivityOverview_Unauthenticated(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	h := newActivityTestHandler(metrics, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/overview", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestActivityOverview_Error(t *testing.T) {
+	metrics := &mockAuditMetrics{overviewErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/overview", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestActivityTimeseries_Success(t *testing.T) {
+	now := time.Now()
+	metrics := &mockAuditMetrics{
+		timeseriesResult: []audit.TimeseriesBucket{
+			{Bucket: now, Count: 10, SuccessCount: 9, ErrorCount: 1},
+		},
+	}
+	user := &User{UserID: "user-2"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries?resolution=hour", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-2", metrics.lastTimeseriesFilter.UserID)
+	assert.Equal(t, audit.ResolutionHour, metrics.lastTimeseriesFilter.Resolution)
+}
+
+func TestActivityTimeseries_DefaultResolution(t *testing.T) {
+	metrics := &mockAuditMetrics{timeseriesResult: []audit.TimeseriesBucket{}}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, audit.ResolutionHour, metrics.lastTimeseriesFilter.Resolution)
+}
+
+func TestActivityTimeseries_Error(t *testing.T) {
+	metrics := &mockAuditMetrics{timeseriesErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestActivityTimeseries_InvalidResolution(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries?resolution=invalid", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestActivityBreakdown_Success(t *testing.T) {
+	metrics := &mockAuditMetrics{
+		breakdownResult: []audit.BreakdownEntry{
+			{Dimension: "trino_query", Count: 20, SuccessRate: 1.0},
+		},
+	}
+	user := &User{UserID: "user-3"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown?group_by=tool_name&limit=5", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-3", metrics.lastBreakdownFilter.UserID)
+	assert.Equal(t, audit.BreakdownByToolName, metrics.lastBreakdownFilter.GroupBy)
+	assert.Equal(t, 5, metrics.lastBreakdownFilter.Limit)
+}
+
+func TestActivityBreakdown_Error(t *testing.T) {
+	metrics := &mockAuditMetrics{breakdownErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestActivityBreakdown_DefaultGroupBy(t *testing.T) {
+	metrics := &mockAuditMetrics{breakdownResult: []audit.BreakdownEntry{}}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, audit.BreakdownByToolName, metrics.lastBreakdownFilter.GroupBy)
+}
+
+func TestActivityBreakdown_InvalidGroupBy(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown?group_by=invalid", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestActivityTimeseries_Unauthenticated(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	h := newActivityTestHandler(metrics, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestActivityBreakdown_Unauthenticated(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	h := newActivityTestHandler(metrics, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestActivityOverview_WithTimeParams(t *testing.T) {
+	metrics := &mockAuditMetrics{overviewResult: &audit.Overview{TotalCalls: 5}}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	// Valid time param + invalid time param (should be treated as nil).
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/activity/overview?start_time=2026-01-01T00:00:00Z&end_time=not-a-time", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotNil(t, metrics.lastOverviewFilter.StartTime)
+	assert.Nil(t, metrics.lastOverviewFilter.EndTime) // invalid string → nil
+}
+
+func TestActivityNotRegisteredWithoutMetrics(t *testing.T) {
+	// When AuditMetrics is nil, activity routes should not be registered.
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "user-1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/overview", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Without activity routes, the mux should return 404.
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- Knowledge handler tests ---
+
+type mockInsightStore struct {
+	listResult  []knowledge.Insight
+	listTotal   int
+	listErr     error
+	statsResult *knowledge.InsightStats
+	statsErr    error
+	lastFilter  knowledge.InsightFilter
+}
+
+func (m *mockInsightStore) List(_ context.Context, f knowledge.InsightFilter) ([]knowledge.Insight, int, error) {
+	m.lastFilter = f
+	return m.listResult, m.listTotal, m.listErr
+}
+
+func (m *mockInsightStore) Stats(_ context.Context, f knowledge.InsightFilter) (*knowledge.InsightStats, error) {
+	m.lastFilter = f
+	return m.statsResult, m.statsErr
+}
+
+var _ InsightReader = (*mockInsightStore)(nil)
+
+func newKnowledgeTestHandler(store *mockInsightStore, user *User) *Handler {
+	return NewHandler(Deps{
+		AssetStore:   &mockAssetStore{},
+		ShareStore:   &mockShareStore{},
+		InsightStore: store,
+	}, testAuthMiddleware(user))
+}
+
+func TestListMyInsights_Success(t *testing.T) {
+	store := &mockInsightStore{
+		listResult: []knowledge.Insight{{ID: "ins-1", CapturedBy: "user-1", Status: "pending"}},
+		listTotal:  1,
+	}
+	user := &User{UserID: "user-1"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights?status=pending&limit=10", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-1", store.lastFilter.CapturedBy)
+	assert.Equal(t, "pending", store.lastFilter.Status)
+	assert.Equal(t, 10, store.lastFilter.Limit)
+}
+
+func TestListMyInsights_Unauthenticated(t *testing.T) {
+	store := &mockInsightStore{}
+	h := newKnowledgeTestHandler(store, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestListMyInsights_Error(t *testing.T) {
+	store := &mockInsightStore{listErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListMyInsights_EmptyResult(t *testing.T) {
+	store := &mockInsightStore{listResult: nil, listTotal: 0}
+	user := &User{UserID: "user-1"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp paginatedResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, 0, resp.Total)
+}
+
+func TestGetMyInsightStats_Success(t *testing.T) {
+	store := &mockInsightStore{
+		statsResult: &knowledge.InsightStats{
+			TotalPending: 3,
+			ByStatus:     map[string]int{"pending": 3, "approved": 1},
+			ByCategory:   map[string]int{"correction": 2},
+			ByConfidence: map[string]int{"high": 1},
+		},
+	}
+	user := &User{UserID: "user-1"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-1", store.lastFilter.CapturedBy)
+}
+
+func TestGetMyInsightStats_Unauthenticated(t *testing.T) {
+	store := &mockInsightStore{}
+	h := newKnowledgeTestHandler(store, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetMyInsightStats_Error(t *testing.T) {
+	store := &mockInsightStore{statsErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestKnowledgeNotRegisteredWithoutStore(t *testing.T) {
+	// When InsightStore is nil, knowledge routes should not be registered.
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "user-1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetMe_WithPersonaResolver(t *testing.T) {
+	user := &User{UserID: "user-1", Roles: []string{"analyst"}}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{},
+		PersonaResolver: func(roles []string) *PersonaInfo {
+			if len(roles) > 0 && roles[0] == "analyst" {
+				return &PersonaInfo{Name: "analyst", Tools: []string{"trino_query", "datahub_search"}}
+			}
+			return nil
+		},
+	}, testAuthMiddleware(user))
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp meResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "analyst", resp.Persona)
+	assert.Contains(t, resp.Tools, "trino_query")
+	assert.Contains(t, resp.Tools, "datahub_search")
 }

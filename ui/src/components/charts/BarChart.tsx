@@ -16,6 +16,8 @@ interface BarChartProps {
   isLoading: boolean;
   height?: number;
   color?: string;
+  /** Optional map of dimension value → display label (e.g. tool name → title). */
+  labelMap?: Record<string, string>;
 }
 
 /** Shorten an email to just the local part (before @). */
@@ -36,15 +38,16 @@ export function BreakdownBarChart({
   isLoading,
   height = 250,
   color = "hsl(var(--primary))",
+  labelMap,
 }: BarChartProps) {
-  // Pre-process: shorten emails to local part for display.
+  // Pre-process: apply labelMap, then shorten emails for display.
   const chartData = useMemo(
     () =>
       data?.map((d) => ({
         ...d,
-        label: shortenEmail(d.dimension),
+        label: shortenEmail(labelMap?.[d.dimension] ?? d.dimension),
       })),
-    [data],
+    [data, labelMap],
   );
 
   // Compute YAxis width from the longest label — no truncation needed.

@@ -20,6 +20,7 @@ type toolSchemaResponse struct {
 // toolSchema describes a single tool's schema for the admin UI.
 type toolSchema struct {
 	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
 	Parameters  any    `json:"parameters"`
@@ -65,6 +66,7 @@ func (h *Handler) getToolSchemas(w http.ResponseWriter, r *http.Request) {
 		}
 		schemas[tool.Name] = toolSchema{
 			Name:        tool.Name,
+			Title:       tool.Title,
 			Kind:        kind,
 			Description: tool.Description,
 			Parameters:  tool.InputSchema,

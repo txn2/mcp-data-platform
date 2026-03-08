@@ -239,9 +239,30 @@ export const handlers = [
 
   http.get(`${PORTAL_BASE}/me`, () =>
     HttpResponse.json({
-      user_id: "msw-user",
+      user_id: "sarah.chen@acme-corp.com",
+      email: "sarah.chen@acme-corp.com",
       roles: ["admin"],
       is_admin: true,
+      persona: "admin",
+      tools: [
+        "trino_query",
+        "trino_describe_table",
+        "trino_browse",
+        "trino_explain",
+        "trino_execute",
+        "datahub_search",
+        "datahub_get_entity",
+        "datahub_get_schema",
+        "datahub_get_lineage",
+        "datahub_browse",
+        "s3_list_objects",
+        "s3_get_object",
+        "s3_list_buckets",
+        "capture_insight",
+        "apply_knowledge",
+        "save_artifact",
+        "manage_artifact",
+      ],
     }),
   ),
 
@@ -735,6 +756,78 @@ export const handlers = [
     return HttpResponse.json({
       data: page,
       total: mockSharedWithMe.length,
+      limit,
+      offset,
+    });
+  }),
+
+  // =========================================================================
+  // Portal — Activity (user-scoped audit metrics)
+  // =========================================================================
+
+  http.get(`${PORTAL_BASE}/activity/overview`, ({ request }) => {
+    const url = new URL(request.url);
+    const userEvents = filterByTimeRange(
+      url,
+      mockAuditEvents.filter((e) => e.user_id === "sarah.chen@acme-corp.com"),
+    );
+    return HttpResponse.json(computeOverview(userEvents));
+  }),
+
+  http.get(`${PORTAL_BASE}/activity/timeseries`, ({ request }) => {
+    const url = new URL(request.url);
+    const userEvents = filterByTimeRange(
+      url,
+      mockAuditEvents.filter((e) => e.user_id === "sarah.chen@acme-corp.com"),
+    );
+    const resolution = url.searchParams.get("resolution") ?? "hour";
+    const startTime = url.searchParams.get("start_time");
+    const endTime = url.searchParams.get("end_time");
+    if (!startTime || !endTime) return HttpResponse.json([]);
+    return HttpResponse.json(
+      computeTimeseries(userEvents, startTime, endTime, resolution),
+    );
+  }),
+
+  http.get(`${PORTAL_BASE}/activity/breakdown`, ({ request }) => {
+    const url = new URL(request.url);
+    const userEvents = filterByTimeRange(
+      url,
+      mockAuditEvents.filter((e) => e.user_id === "sarah.chen@acme-corp.com"),
+    );
+    const groupBy = url.searchParams.get("group_by") ?? "tool_name";
+    const limit = parseInt(url.searchParams.get("limit") ?? "10", 10);
+    return HttpResponse.json(computeBreakdown(userEvents, groupBy, limit));
+  }),
+
+  // =========================================================================
+  // Portal — Knowledge (user-scoped insights)
+  // =========================================================================
+
+  http.get(`${PORTAL_BASE}/knowledge/insights/stats`, () => {
+    const userInsights = mockInsights.filter(
+      (i) => i.captured_by === "sarah.chen@acme-corp.com",
+    );
+    return HttpResponse.json(computeInsightStats(userInsights));
+  }),
+
+  http.get(`${PORTAL_BASE}/knowledge/insights`, ({ request }) => {
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status");
+    const category = url.searchParams.get("category");
+    const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+    const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+    let filtered = mockInsights.filter(
+      (i) => i.captured_by === "sarah.chen@acme-corp.com",
+    );
+    if (status) filtered = filtered.filter((i) => i.status === status);
+    if (category) filtered = filtered.filter((i) => i.category === category);
+
+    const data = filtered.slice(offset, offset + limit);
+    return HttpResponse.json({
+      data,
+      total: filtered.length,
       limit,
       offset,
     });

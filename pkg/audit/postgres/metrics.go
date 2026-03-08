@@ -40,8 +40,13 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 	).From("audit_logs").
 		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end}).
-		GroupBy("bucket").
+		Where(sq.LtOrEq{"timestamp": end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+	}
+
+	qb = qb.GroupBy("bucket").
 		OrderBy("bucket ASC")
 
 	query, args, err := qb.ToSql()
@@ -115,8 +120,13 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 	).From("audit_logs").
 		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end}).
-		GroupBy("dimension").
+		Where(sq.LtOrEq{"timestamp": end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+	}
+
+	qb = qb.GroupBy("dimension").
 		OrderBy("count DESC").
 		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 
@@ -154,9 +164,9 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 	return entries, nil
 }
 
-// Overview returns aggregate statistics for the given time range.
-func (s *Store) Overview(ctx context.Context, startTime, endTime *time.Time) (*audit.Overview, error) {
-	start, end := defaultTimeRange(startTime, endTime)
+// Overview returns aggregate statistics for the given filter.
+func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audit.Overview, error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
 
 	qb := psq.Select(
 		"COUNT(*) AS total_calls",
@@ -169,6 +179,10 @@ func (s *Store) Overview(ctx context.Context, startTime, endTime *time.Time) (*a
 	).From("audit_logs").
 		Where(sq.GtOrEq{"timestamp": start}).
 		Where(sq.LtOrEq{"timestamp": end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+	}
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -191,9 +205,9 @@ func (s *Store) Overview(ctx context.Context, startTime, endTime *time.Time) (*a
 	return &o, nil
 }
 
-// Performance returns latency percentile statistics for the given time range.
-func (s *Store) Performance(ctx context.Context, startTime, endTime *time.Time) (*audit.PerformanceStats, error) {
-	start, end := defaultTimeRange(startTime, endTime)
+// Performance returns latency percentile statistics for the given filter.
+func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*audit.PerformanceStats, error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
 
 	qb := psq.Select(
 		"COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0) AS p50_ms",
@@ -206,6 +220,10 @@ func (s *Store) Performance(ctx context.Context, startTime, endTime *time.Time) 
 	).From("audit_logs").
 		Where(sq.GtOrEq{"timestamp": start}).
 		Where(sq.LtOrEq{"timestamp": end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+	}
 
 	query, args, err := qb.ToSql()
 	if err != nil {

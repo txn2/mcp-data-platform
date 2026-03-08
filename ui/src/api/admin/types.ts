@@ -27,6 +27,7 @@ export interface SystemFeatures {
 
 export interface ToolInfo {
   name: string;
+  title?: string;
   toolkit: string;
   kind: string;
   connection: string;
@@ -266,6 +267,7 @@ export interface ToolParameterSchema {
 /** Full schema for a tool including input parameters. */
 export interface ToolSchema {
   name: string;
+  title?: string;
   kind: string;
   description: string;
   parameters: {
