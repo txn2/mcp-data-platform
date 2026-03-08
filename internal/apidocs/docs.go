@@ -2361,6 +2361,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "title": {
+                    "type": "string"
+                },
                 "toolkit": {
                     "type": "string"
                 }
@@ -2392,7 +2395,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "parameters": {}
+                "parameters": {},
+                "title": {
+                    "type": "string"
+                }
             }
         },
         "admin.toolSchemaResponse": {
