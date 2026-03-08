@@ -271,7 +271,11 @@ func TestSanitizeSVGStripsStyleAttr(t *testing.T) {
 func TestPublicCSP(t *testing.T) {
 	csp := publicCSP("text/jsx")
 	assert.Contains(t, csp, "frame-src blob:")
-	assert.Contains(t, csp, "script-src 'unsafe-inline'")
+	assert.Contains(t, csp, "script-src 'unsafe-eval' 'unsafe-inline' blob: https://esm.sh")
+	assert.Contains(t, csp, "connect-src https://esm.sh")
+	assert.Contains(t, csp, "font-src data: https://fonts.gstatic.com")
+	assert.Contains(t, csp, "style-src 'unsafe-inline' https://fonts.googleapis.com")
+	assert.Contains(t, csp, "img-src data: blob:")
 
 	csp2 := publicCSP("text/html")
 	assert.NotContains(t, csp2, "frame-src")
@@ -286,6 +290,9 @@ func TestJsxIframe(t *testing.T) {
 	assert.Contains(t, result, "importmap")
 	assert.Contains(t, result, "esm.sh/sucrase")
 	assert.Contains(t, result, "esm.sh/react@19")
+	// blob: must be in script-src so the dynamic import of the transformed-code blob works.
+	// The CSP is inside a meta tag within the srcdoc attribute, so quotes are HTML-escaped.
+	assert.Contains(t, result, "script-src &#39;unsafe-eval&#39; &#39;unsafe-inline&#39; blob: https://esm.sh")
 }
 
 func TestJsxIframeSpecialChars(t *testing.T) {
