@@ -1667,6 +1667,44 @@ func TestActivityBreakdown_InvalidGroupBy(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestActivityTimeseries_Unauthenticated(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	h := newActivityTestHandler(metrics, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/timeseries", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestActivityBreakdown_Unauthenticated(t *testing.T) {
+	metrics := &mockAuditMetrics{}
+	h := newActivityTestHandler(metrics, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/activity/breakdown", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestActivityOverview_WithTimeParams(t *testing.T) {
+	metrics := &mockAuditMetrics{overviewResult: &audit.Overview{TotalCalls: 5}}
+	user := &User{UserID: "user-1"}
+	h := newActivityTestHandler(metrics, user)
+
+	// Valid time param + invalid time param (should be treated as nil).
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/activity/overview?start_time=2026-01-01T00:00:00Z&end_time=not-a-time", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotNil(t, metrics.lastOverviewFilter.StartTime)
+	assert.Nil(t, metrics.lastOverviewFilter.EndTime) // invalid string → nil
+}
+
 func TestActivityNotRegisteredWithoutMetrics(t *testing.T) {
 	// When AuditMetrics is nil, activity routes should not be registered.
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "user-1"})

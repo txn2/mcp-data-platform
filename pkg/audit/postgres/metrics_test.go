@@ -429,6 +429,119 @@ func TestPerformance_QueryError(t *testing.T) {
 	assert.ErrorContains(t, err, "querying performance")
 }
 
+// --- UserID filter tests ---
+
+func TestTimeseries_WithUserID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
+		AddRow(now.Truncate(time.Hour), 3, 3, 0, 15.0)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "user-42").
+		WillReturnRows(rows)
+
+	result, err := store.Timeseries(context.Background(), audit.TimeseriesFilter{
+		Resolution: audit.ResolutionHour,
+		StartTime:  &start,
+		EndTime:    &now,
+		UserID:     "user-42",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, 3, result[0].Count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestBreakdown_WithUserID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("trino_query", 10, 1.0, 20.0)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "user-42").
+		WillReturnRows(rows)
+
+	result, err := store.Breakdown(context.Background(), audit.BreakdownFilter{
+		GroupBy:   audit.BreakdownByToolName,
+		StartTime: &start,
+		EndTime:   &now,
+		UserID:    "user-42",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestOverview_WithUserID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{
+		"total_calls", "success_rate", "avg_duration_ms",
+		"unique_users", "unique_tools", "enrichment_rate", "error_count",
+	}).AddRow(5, 1.0, 30.0, 1, 2, 0.8, 0)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "user-42").
+		WillReturnRows(rows)
+
+	result, err := store.Overview(context.Background(), audit.MetricsFilter{
+		StartTime: &start,
+		EndTime:   &now,
+		UserID:    "user-42",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 5, result.TotalCalls)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPerformance_WithUserID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{
+		"p50_ms", "p95_ms", "p99_ms", "avg_ms", "max_ms",
+		"avg_response_chars", "avg_request_chars",
+	}).AddRow(50.0, 200.0, 500.0, 80.0, 1000.0, 3000.0, 200.0)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "user-42").
+		WillReturnRows(rows)
+
+	result, err := store.Performance(context.Background(), audit.MetricsFilter{
+		StartTime: &start,
+		EndTime:   &now,
+		UserID:    "user-42",
+	})
+
+	require.NoError(t, err)
+	assert.InDelta(t, 50.0, result.P50MS, 0.01)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // --- defaultTimeRange tests ---
 
 func TestDefaultTimeRange_BothNil(t *testing.T) {
