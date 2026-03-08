@@ -980,3 +980,102 @@ func TestPostgresAssetStoreGetWithDeletedAt(t *testing.T) {
 	assert.NotNil(t, asset.DeletedAt)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// --- ListActiveShareSummaries tests ---
+
+func TestPostgresShareStoreListActiveShareSummaries(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	rows := sqlmock.NewRows([]string{"asset_id", "has_user_share", "has_public_link"}).
+		AddRow("a1", true, false).
+		AddRow("a2", false, true)
+
+	mock.ExpectQuery("SELECT asset_id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	result, err := store.ListActiveShareSummaries(context.Background(), []string{"a1", "a2", "a3"})
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+	assert.True(t, result["a1"].HasUserShare)
+	assert.False(t, result["a1"].HasPublicLink)
+	assert.False(t, result["a2"].HasUserShare)
+	assert.True(t, result["a2"].HasPublicLink)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListActiveShareSummariesEmpty(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	result, err := store.ListActiveShareSummaries(context.Background(), []string{})
+	require.NoError(t, err)
+	assert.Empty(t, result)
+	// No query should be executed for empty input
+}
+
+func TestPostgresShareStoreListActiveShareSummariesQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("SELECT asset_id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnError(fmt.Errorf("db error"))
+
+	_, err = store.ListActiveShareSummaries(context.Background(), []string{"a1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying share summaries")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListActiveShareSummariesScanError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	// Return a row with wrong column type to trigger scan error
+	rows := sqlmock.NewRows([]string{"asset_id", "has_user_share", "has_public_link"}).
+		AddRow("a1", "not-a-bool", false)
+
+	mock.ExpectQuery("SELECT asset_id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	_, err = store.ListActiveShareSummaries(context.Background(), []string{"a1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "scanning share summary row")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListActiveShareSummariesRowsErr(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+
+	rows := sqlmock.NewRows([]string{"asset_id", "has_user_share", "has_public_link"}).
+		AddRow("a1", true, false).
+		RowError(0, fmt.Errorf("row iteration error"))
+
+	mock.ExpectQuery("SELECT asset_id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	_, err = store.ListActiveShareSummaries(context.Background(), []string{"a1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "iterating share summary rows")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

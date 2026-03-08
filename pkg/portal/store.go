@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/lib/pq"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -411,7 +412,7 @@ func (s *postgresShareStore) ListActiveShareSummaries(ctx context.Context, asset
 		GROUP BY asset_id
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, assetIDs) //nolint:gosec // query is a constant with parameterized placeholders
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(assetIDs)) //nolint:gosec // query is a constant with parameterized placeholders
 	if err != nil {
 		return nil, fmt.Errorf("querying share summaries: %w", err)
 	}

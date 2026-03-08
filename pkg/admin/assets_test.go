@@ -475,6 +475,13 @@ func TestValidateAdminAssetUpdate(t *testing.T) {
 	validName := "Valid Name"
 	emptyName := ""
 	validDesc := "A description"
+	longDesc := string(make([]byte, 2001))
+	longTag := string(make([]byte, 101))
+
+	tooManyTags := make([]string, 21)
+	for i := range tooManyTags {
+		tooManyTags[i] = fmt.Sprintf("tag%d", i)
+	}
 
 	tests := []struct {
 		name    string
@@ -497,9 +504,24 @@ func TestValidateAdminAssetUpdate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "description too long fails",
+			updates: portal.AssetUpdate{Description: &longDesc},
+			wantErr: true,
+		},
+		{
 			name:    "valid tags",
 			updates: portal.AssetUpdate{Tags: []string{"tag1", "tag2"}},
 			wantErr: false,
+		},
+		{
+			name:    "too many tags fails",
+			updates: portal.AssetUpdate{Tags: tooManyTags},
+			wantErr: true,
+		},
+		{
+			name:    "tag too long fails",
+			updates: portal.AssetUpdate{Tags: []string{longTag}},
+			wantErr: true,
 		},
 		{
 			name:    "no fields is valid",
