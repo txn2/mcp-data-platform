@@ -246,7 +246,7 @@ func TestConnectInternalSessionCookieFallback(t *testing.T) {
 	t.Run("falls back to browser session id_token when no header token", func(t *testing.T) {
 		h := NewHandler(Deps{
 			MCPServer:   newTestMCPServer(),
-			BrowserAuth: newTestBrowserAuth("test-oidc-id-token"),
+			BrowserAuth: newTestBrowserAuth(),
 		}, nil)
 
 		body, _ := json.Marshal(toolCallRequest{
@@ -270,7 +270,7 @@ func TestConnectInternalSessionCookieFallback(t *testing.T) {
 	t.Run("prefers header token over cookie", func(t *testing.T) {
 		h := NewHandler(Deps{
 			MCPServer:   newTestMCPServer(),
-			BrowserAuth: newTestBrowserAuth("cookie-token"),
+			BrowserAuth: newTestBrowserAuth(),
 		}, nil)
 
 		body, _ := json.Marshal(toolCallRequest{
@@ -312,12 +312,11 @@ func TestConnectInternalSessionCookieFallback(t *testing.T) {
 }
 
 // newTestBrowserAuth creates a browsersession.Authenticator for testing.
-func newTestBrowserAuth(idToken string) *browsersession.Authenticator {
+func newTestBrowserAuth() *browsersession.Authenticator {
 	cfg := browsersession.CookieConfig{
 		Key: []byte("test-key-at-least-32-bytes-long!!"),
 		TTL: time.Hour,
 	}
-	_ = idToken // stored in the cookie, not in the authenticator
 	return browsersession.NewAuthenticator(cfg)
 }
 

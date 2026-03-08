@@ -217,6 +217,10 @@ func (h *Handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	if token := extractToken(r); token != "" {
 		ctx = middleware.WithToken(ctx, token)
 	} else if h.deps.BrowserAuth != nil {
+		// Fall back to the OIDC id_token stored in the browser session cookie.
+		// Note: the id_token may expire before the session cookie (IdP TTL is
+		// typically shorter than the 8h session TTL). In that case the MCP auth
+		// middleware will reject the call and the user must re-authenticate.
 		if idToken := h.deps.BrowserAuth.ExtractIDToken(r); idToken != "" {
 			ctx = middleware.WithToken(ctx, idToken)
 		}
