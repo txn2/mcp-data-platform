@@ -21,30 +21,43 @@ func TestTimeseries_Success(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	now := time.Now()
-	start := now.Add(-24 * time.Hour)
+	// Use fixed times so zero-fill produces a predictable number of buckets.
+	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC) // 4h range → 5 buckets
 
 	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow(now.Truncate(time.Hour), 10, 8, 2, 42.5).
-		AddRow(now.Truncate(time.Hour).Add(time.Hour), 5, 5, 0, 30.0)
+		AddRow(time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), 10, 8, 2, 42.5).
+		AddRow(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), 5, 5, 0, 30.0)
 
 	mock.ExpectQuery("SELECT").
-		WithArgs(start, now).
+		WithArgs(start, end).
 		WillReturnRows(rows)
 
 	result, err := store.Timeseries(context.Background(), audit.TimeseriesFilter{
 		Resolution: audit.ResolutionHour,
 		StartTime:  &start,
-		EndTime:    &now,
+		EndTime:    &end,
 	})
 
 	require.NoError(t, err)
-	require.Len(t, result, 2)
+	require.Len(t, result, 5) // zero-filled: 10:00, 11:00, 12:00, 13:00, 14:00
+
+	// First bucket has data.
 	assert.Equal(t, 10, result[0].Count)
 	assert.Equal(t, 8, result[0].SuccessCount)
 	assert.Equal(t, 2, result[0].ErrorCount)
 	assert.InDelta(t, 42.5, result[0].AvgDurationMS, 0.01)
-	assert.Equal(t, 5, result[1].Count)
+
+	// Second bucket is zero-filled.
+	assert.Equal(t, 0, result[1].Count)
+
+	// Third bucket has data.
+	assert.Equal(t, 5, result[2].Count)
+
+	// Remaining buckets are zero-filled.
+	assert.Equal(t, 0, result[3].Count)
+	assert.Equal(t, 0, result[4].Count)
+
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -66,17 +79,27 @@ func TestTimeseries_EmptyResult(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
+	// Use fixed 1h range with hour resolution so zero-fill produces exactly 2 buckets.
+	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC)
 
 	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
-	mock.ExpectQuery("SELECT").WillReturnRows(rows)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, end).
+		WillReturnRows(rows)
 
 	result, err := store.Timeseries(context.Background(), audit.TimeseriesFilter{
-		Resolution: audit.ResolutionDay,
+		Resolution: audit.ResolutionHour,
+		StartTime:  &start,
+		EndTime:    &end,
 	})
 
 	require.NoError(t, err)
-	assert.Empty(t, result)
-	assert.NotNil(t, result) // must return empty slice, not nil
+	assert.NotNil(t, result) // must return non-nil slice
+	// Zero-fill produces 2 zero-valued buckets (10:00, 11:00).
+	require.Len(t, result, 2)
+	assert.Equal(t, 0, result[0].Count)
+	assert.Equal(t, 0, result[1].Count)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -437,25 +460,30 @@ func TestTimeseries_WithUserID(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	now := time.Now()
-	start := now.Add(-24 * time.Hour)
+	// Use fixed 3h range for predictable zero-fill output.
+	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 
 	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow(now.Truncate(time.Hour), 3, 3, 0, 15.0)
+		AddRow(time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC), 3, 3, 0, 15.0)
 	mock.ExpectQuery("SELECT").
-		WithArgs(start, now, "user-42").
+		WithArgs(start, end, "user-42").
 		WillReturnRows(rows)
 
 	result, err := store.Timeseries(context.Background(), audit.TimeseriesFilter{
 		Resolution: audit.ResolutionHour,
 		StartTime:  &start,
-		EndTime:    &now,
+		EndTime:    &end,
 		UserID:     "user-42",
 	})
 
 	require.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, 3, result[0].Count)
+	require.Len(t, result, 3) // zero-filled: 10:00, 11:00, 12:00
+
+	// Data is in the second bucket.
+	assert.Equal(t, 0, result[0].Count)
+	assert.Equal(t, 3, result[1].Count)
+	assert.Equal(t, 0, result[2].Count)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
