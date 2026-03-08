@@ -110,6 +110,70 @@ func TestAuthenticatorWrongKey(t *testing.T) {
 	}
 }
 
+func TestExtractIDTokenValidCookie(t *testing.T) {
+	cfg := CookieConfig{Key: testKey(), TTL: time.Hour}
+	claims := SessionClaims{
+		UserID:  "u1",
+		IDToken: "eyJhbGciOiJSUzI1NiJ9.test-id-token",
+	}
+	token, err := SignSession(claims, &cfg)
+	if err != nil {
+		t.Fatalf("SignSession: %v", err)
+	}
+
+	auth := NewAuthenticator(cfg)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+
+	idToken := auth.ExtractIDToken(req)
+	if idToken != claims.IDToken {
+		t.Errorf("ExtractIDToken = %q, want %q", idToken, claims.IDToken)
+	}
+}
+
+func TestExtractIDTokenNoCookie(t *testing.T) {
+	auth := NewAuthenticator(CookieConfig{Key: testKey()})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+
+	idToken := auth.ExtractIDToken(req)
+	if idToken != "" {
+		t.Errorf("ExtractIDToken = %q, want empty", idToken)
+	}
+}
+
+func TestExtractIDTokenNoIDToken(t *testing.T) {
+	cfg := CookieConfig{Key: testKey(), TTL: time.Hour}
+	claims := SessionClaims{UserID: "u1"}
+	token, err := SignSession(claims, &cfg)
+	if err != nil {
+		t.Fatalf("SignSession: %v", err)
+	}
+
+	auth := NewAuthenticator(cfg)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+
+	idToken := auth.ExtractIDToken(req)
+	if idToken != "" {
+		t.Errorf("ExtractIDToken = %q, want empty for session without id_token", idToken)
+	}
+}
+
+func TestExtractIDTokenExpiredCookie(t *testing.T) {
+	cfg := CookieConfig{Key: testKey(), TTL: -time.Hour}
+	token, _ := SignSession(SessionClaims{UserID: "u", IDToken: "some-token"}, &cfg)
+
+	auth := NewAuthenticator(CookieConfig{Key: testKey()})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+
+	idToken := auth.ExtractIDToken(req)
+	if idToken != "" {
+		t.Errorf("ExtractIDToken = %q, want empty for expired cookie", idToken)
+	}
+}
+
 func TestAuthenticatorCustomCookieName(t *testing.T) {
 	cfg := CookieConfig{Name: "custom_session", Key: testKey(), TTL: time.Hour}
 	token, _ := SignSession(SessionClaims{UserID: "u"}, &cfg)

@@ -216,6 +216,10 @@ func (h *Handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	ctx := r.Context()
 	if token := extractToken(r); token != "" {
 		ctx = middleware.WithToken(ctx, token)
+	} else if h.deps.BrowserAuth != nil {
+		if idToken := h.deps.BrowserAuth.ExtractIDToken(r); idToken != "" {
+			ctx = middleware.WithToken(ctx, idToken)
+		}
 	}
 
 	serverSession, err := h.deps.MCPServer.Connect(ctx, t1, nil)

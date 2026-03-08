@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 )
 
 // newTestMCPServer creates an MCP server with test tools registered.
@@ -238,6 +240,103 @@ func TestCallTool(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.False(t, resp.IsError)
 	})
+}
+
+func TestConnectInternalSessionCookieFallback(t *testing.T) {
+	t.Run("falls back to browser session id_token when no header token", func(t *testing.T) {
+		h := NewHandler(Deps{
+			MCPServer:   newTestMCPServer(),
+			BrowserAuth: newTestBrowserAuth("test-oidc-id-token"),
+		}, nil)
+
+		body, _ := json.Marshal(toolCallRequest{
+			ToolName:   "trino_query",
+			Parameters: map[string]any{"sql": "SELECT 1"},
+		})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		// Add the session cookie (no Authorization header)
+		req.AddCookie(newTestSessionCookie("test-oidc-id-token"))
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp toolCallResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		// The tool call should succeed — the id_token was injected into context
+		assert.False(t, resp.IsError)
+	})
+
+	t.Run("prefers header token over cookie", func(t *testing.T) {
+		h := NewHandler(Deps{
+			MCPServer:   newTestMCPServer(),
+			BrowserAuth: newTestBrowserAuth("cookie-token"),
+		}, nil)
+
+		body, _ := json.Marshal(toolCallRequest{
+			ToolName:   "trino_query",
+			Parameters: map[string]any{"sql": "SELECT 1"},
+		})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer header-token")
+		req.AddCookie(newTestSessionCookie("cookie-token"))
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp toolCallResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.False(t, resp.IsError)
+	})
+
+	t.Run("works without BrowserAuth configured", func(t *testing.T) {
+		h := NewHandler(Deps{
+			MCPServer: newTestMCPServer(),
+		}, nil)
+
+		body, _ := json.Marshal(toolCallRequest{
+			ToolName:   "trino_query",
+			Parameters: map[string]any{"sql": "SELECT 1"},
+		})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp toolCallResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.False(t, resp.IsError)
+	})
+}
+
+// newTestBrowserAuth creates a browsersession.Authenticator for testing.
+func newTestBrowserAuth(idToken string) *browsersession.Authenticator {
+	cfg := browsersession.CookieConfig{
+		Key: []byte("test-key-at-least-32-bytes-long!!"),
+		TTL: time.Hour,
+	}
+	_ = idToken // stored in the cookie, not in the authenticator
+	return browsersession.NewAuthenticator(cfg)
+}
+
+// newTestSessionCookie creates a session cookie with the given id_token.
+func newTestSessionCookie(idToken string) *http.Cookie {
+	cfg := browsersession.CookieConfig{
+		Key: []byte("test-key-at-least-32-bytes-long!!"),
+		TTL: time.Hour,
+	}
+	token, _ := browsersession.SignSession(browsersession.SessionClaims{
+		UserID:  "test-user",
+		Email:   "test@example.com",
+		Roles:   []string{"admin"},
+		IDToken: idToken,
+	}, &cfg)
+	return &http.Cookie{
+		Name:  browsersession.DefaultCookieName,
+		Value: token,
+	}
 }
 
 func TestExtractContentBlocks(t *testing.T) {

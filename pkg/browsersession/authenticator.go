@@ -19,6 +19,16 @@ func NewAuthenticator(cfg CookieConfig) *Authenticator {
 	return &Authenticator{cfg: cfg}
 }
 
+// ExtractIDToken extracts the OIDC id_token from the session cookie.
+// Returns empty string if no valid session exists or no id_token is stored.
+func (a *Authenticator) ExtractIDToken(r *http.Request) string {
+	claims, _ := ParseFromRequest(r, &a.cfg)
+	if claims == nil {
+		return ""
+	}
+	return claims.IDToken
+}
+
 // AuthenticateHTTP checks the HTTP request for a valid session cookie.
 // Returns nil, nil when no valid cookie is found (no error, just unauthenticated).
 func (a *Authenticator) AuthenticateHTTP(r *http.Request) (*middleware.UserInfo, error) {

@@ -579,6 +579,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		PersonaRegistry:   p.PersonaRegistry(),
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		MCPServer:         p.MCPServer(),
+		BrowserAuth:       p.BrowserSessionAuth(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
 		PlatformTools:     p.PlatformTools(),
 	}
