@@ -29,7 +29,9 @@ import type {
   PersonaListResponse,
   PersonaDetail,
   PersonaCreateRequest,
+  AdminAssetListResponse,
 } from "./types";
+import type { Asset } from "@/api/portal/types";
 
 // Refresh interval for auto-updating queries (30 seconds)
 const REFETCH_INTERVAL = 30_000;
@@ -380,6 +382,94 @@ export function useDeletePersona() {
       apiFetch(`/personas/${name}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["personas"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Assets (admin-scoped)
+// ---------------------------------------------------------------------------
+
+interface AdminAssetsParams {
+  contentType?: string;
+  tag?: string;
+  ownerId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function useAdminAssets(params: AdminAssetsParams = {}) {
+  const searchParams = new URLSearchParams();
+  if (params.contentType) searchParams.set("content_type", params.contentType);
+  if (params.tag) searchParams.set("tag", params.tag);
+  if (params.ownerId) searchParams.set("owner_id", params.ownerId);
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.offset) searchParams.set("offset", String(params.offset));
+
+  const qs = searchParams.toString();
+  return useQuery({
+    queryKey: ["admin", "assets", params],
+    queryFn: () =>
+      apiFetch<AdminAssetListResponse>(
+        `/assets${qs ? `?${qs}` : ""}`,
+      ),
+    refetchInterval: REFETCH_INTERVAL,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminAsset(id: string | null) {
+  return useQuery({
+    queryKey: ["admin", "asset", id],
+    queryFn: () => apiFetch<Asset>(`/assets/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useAdminAssetContent(id: string | null) {
+  return useQuery({
+    queryKey: ["admin", "asset-content", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/v1/admin/assets/${id}/content`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch content");
+      return res.text();
+    },
+    enabled: !!id,
+  });
+}
+
+export function useAdminUpdateAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      name?: string;
+      description?: string;
+      tags?: string[];
+    }) =>
+      apiFetch(`/assets/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
+    },
+  });
+}
+
+export function useAdminDeleteAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/assets/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
   });
 }

@@ -509,6 +509,103 @@ func TestLogoutHandler(t *testing.T) {
 	}
 }
 
+func TestLogoutHandlerUsesPostLogoutRedirect(t *testing.T) {
+	srv := mockOIDCProvider(t, nil)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+	cfg.PostLogoutRedirect = "https://app.example.com/portal/"
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
+	w := httptest.NewRecorder()
+
+	flow.LogoutHandler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)
+	}
+
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, srv.URL+"/logout") {
+		t.Errorf("redirect = %q, should start with end_session_endpoint", loc)
+	}
+	parsed, parseErr := url.Parse(loc)
+	if parseErr != nil {
+		t.Fatalf("invalid redirect URL: %v", parseErr)
+	}
+	redirectURI := parsed.Query().Get("post_logout_redirect_uri")
+	if redirectURI != "https://app.example.com/portal/" {
+		t.Errorf("post_logout_redirect_uri = %q, want https://app.example.com/portal/", redirectURI)
+	}
+}
+
+func TestLogoutHandlerDefaultsPostLogoutToPostLogin(t *testing.T) {
+	// When PostLogoutRedirect is empty, it should default to PostLoginRedirect
+	srv := mockOIDCProvider(t, nil)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+	// Do NOT set PostLogoutRedirect — should fall back to PostLoginRedirect ("/portal/")
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	if flow.cfg.PostLogoutRedirect != cfg.PostLoginRedirect {
+		t.Errorf("PostLogoutRedirect = %q, want %q (fallback to PostLoginRedirect)",
+			flow.cfg.PostLogoutRedirect, cfg.PostLoginRedirect)
+	}
+}
+
+func TestLogoutHandlerNoEndSessionUsesPostLogoutRedirect(t *testing.T) {
+	// When there's no end_session_endpoint, the fallback should use PostLogoutRedirect
+	mux := http.NewServeMux()
+	var serverURL string
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"authorization_endpoint": serverURL + "/auth",
+			"token_endpoint":         serverURL + "/token",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	serverURL = srv.URL
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+	cfg.PostLogoutRedirect = "https://app.example.com/portal/"
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
+	w := httptest.NewRecorder()
+
+	flow.LogoutHandler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)
+	}
+
+	loc := resp.Header.Get("Location")
+	if loc != "https://app.example.com/portal/" {
+		t.Errorf("redirect = %q, want https://app.example.com/portal/", loc)
+	}
+}
+
 func TestLogoutHandlerNoEndSession(t *testing.T) {
 	// Provider without end_session_endpoint
 	mux := http.NewServeMux()

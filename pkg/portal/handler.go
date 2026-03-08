@@ -173,10 +173,11 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 
 // paginatedResponse wraps paginated results.
 type paginatedResponse struct {
-	Data   any `json:"data"`
-	Total  int `json:"total"`
-	Limit  int `json:"limit"`
-	Offset int `json:"offset"`
+	Data           any                     `json:"data"`
+	Total          int                     `json:"total"`
+	Limit          int                     `json:"limit"`
+	Offset         int                     `json:"offset"`
+	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
 }
 
 func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
@@ -203,9 +204,21 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 	if assets == nil {
 		assets = []Asset{}
 	}
+
+	// Fetch share summaries for the returned assets.
+	var summaries map[string]ShareSummary
+	if len(assets) > 0 {
+		ids := make([]string, len(assets))
+		for i, a := range assets {
+			ids[i] = a.ID
+		}
+		summaries, _ = h.deps.ShareStore.ListActiveShareSummaries(r.Context(), ids)
+	}
+
 	writeJSON(w, http.StatusOK, paginatedResponse{
 		Data: assets, Total: total,
 		Limit: filter.EffectiveLimit(), Offset: filter.Offset,
+		ShareSummaries: summaries,
 	})
 }
 

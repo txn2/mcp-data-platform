@@ -12,6 +12,8 @@ import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 
 // Admin pages (admin only)
 import { HomePage } from "@/pages/home/HomePage";
+import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
+import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
@@ -24,6 +26,7 @@ const pageTitles: Record<string, string> = {
   "/shared": "Shared With Me",
   "/my-knowledge": "My Knowledge",
   "/admin": "Dashboard",
+  "/admin/assets": "Assets",
   "/admin/tools": "Tools",
   "/admin/audit": "Audit Log",
   "/admin/knowledge": "Knowledge",
@@ -47,7 +50,7 @@ function readPath(): string {
 
 function isAssetRoute(path: string): boolean {
   const route = path.split("#")[0] ?? "";
-  return /^\/assets\/.+$/.test(route);
+  return /^\/assets\/.+$/.test(route) || /^\/admin\/assets\/.+$/.test(route);
 }
 
 function AccessDenied() {
@@ -113,12 +116,15 @@ export function AppShell() {
   const route = hashIdx >= 0 ? currentPath.slice(0, hashIdx) : currentPath;
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
 
-  // Asset viewer route: /assets/:id
+  // Asset viewer routes: /assets/:id and /admin/assets/:id
   const assetMatch = route.match(/^\/assets\/(.+)$/);
+  const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
 
   const title = assetMatch
     ? "Asset Viewer"
-    : (pageTitles[route] ?? "My Assets");
+    : adminAssetMatch
+      ? "Asset Viewer"
+      : (pageTitles[route] ?? "My Assets");
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -155,6 +161,15 @@ export function AppShell() {
                 <HomePage
                   key={currentPath}
                   initialTab={initialTab}
+                  onNavigate={navigate}
+                />
+              )}
+              {route === "/admin/assets" && (
+                <AdminAssetsPage onNavigate={navigate} />
+              )}
+              {adminAssetMatch && (
+                <AdminAssetViewerPage
+                  assetId={adminAssetMatch[1]!}
                   onNavigate={navigate}
                 />
               )}

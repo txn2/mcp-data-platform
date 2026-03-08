@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, FileText, Image, Code, File } from "lucide-react";
+import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 
@@ -99,13 +99,24 @@ export function MyAssetsPage({ onNavigate }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {assets.map((asset) => {
             const Icon = contentTypeIcon(asset.content_type);
+            const summary = data?.share_summaries?.[asset.id];
             return (
               <button
                 key={asset.id}
                 type="button"
                 onClick={() => onNavigate(`/assets/${asset.id}`)}
-                className="flex flex-col items-start rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50 hover:border-primary/30"
+                className="relative flex flex-col items-start rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50 hover:border-primary/30"
               >
+                {summary && (summary.has_user_share || summary.has_public_link) && (
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    {summary.has_user_share && (
+                      <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                    )}
+                    {summary.has_public_link && (
+                      <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mb-2 w-full">
                   <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
                   <span className="text-sm font-medium truncate flex-1">

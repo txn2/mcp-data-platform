@@ -59,6 +59,11 @@ type FlowConfig struct {
 	// PostLoginRedirect is where to redirect after successful login (default: "/portal/").
 	PostLoginRedirect string
 
+	// PostLogoutRedirect is the absolute URL sent as post_logout_redirect_uri
+	// to the OIDC provider. Must be an absolute URL (Keycloak rejects relative paths).
+	// Falls back to PostLoginRedirect if empty.
+	PostLogoutRedirect string
+
 	// HTTPClient is used for OIDC discovery and token exchange.
 	// If nil, http.DefaultClient is used.
 	HTTPClient *http.Client
@@ -98,6 +103,9 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 	}
 	if cfg.PostLoginRedirect == "" {
 		cfg.PostLoginRedirect = "/portal/"
+	}
+	if cfg.PostLogoutRedirect == "" {
+		cfg.PostLogoutRedirect = cfg.PostLoginRedirect
 	}
 
 	f := &Flow{cfg: cfg}
@@ -291,7 +299,7 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	if f.endpoints.EndSessionEndpoint != "" {
 		params := url.Values{
 			"client_id":                {f.cfg.ClientID},
-			"post_logout_redirect_uri": {f.cfg.PostLoginRedirect},
+			"post_logout_redirect_uri": {f.cfg.PostLogoutRedirect},
 		}
 		if idTokenHint != "" {
 			params.Set("id_token_hint", idTokenHint)
@@ -300,7 +308,7 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, f.cfg.PostLoginRedirect, http.StatusFound)
+	http.Redirect(w, r, f.cfg.PostLogoutRedirect, http.StatusFound)
 }
 
 // tokenResponse holds the token endpoint response.

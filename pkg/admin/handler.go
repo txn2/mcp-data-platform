@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
@@ -84,6 +85,10 @@ type Deps struct {
 	BrowserAuth         *browsersession.Authenticator
 	DatabaseAvailable   bool
 	PlatformTools       []platform.ToolInfo
+	AssetStore          portal.AssetStore
+	ShareStore          portal.ShareStore
+	S3Client            portal.S3Client
+	S3Bucket            string
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -155,6 +160,7 @@ func (h *Handler) registerRoutes() {
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
+	h.registerAssetRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

@@ -446,15 +446,16 @@ func (p *Platform) initBrowserSession() error {
 	redirectURI := p.config.Portal.PublicBaseURL + "/portal/auth/callback"
 
 	flowCfg := browsersession.FlowConfig{
-		Issuer:            oidcCfg.Issuer,
-		ClientID:          oidcCfg.ClientID,
-		ClientSecret:      oidcCfg.ClientSecret,
-		RedirectURI:       redirectURI,
-		Scopes:            oidcCfg.Scopes,
-		RoleClaim:         oidcCfg.RoleClaimPath,
-		RolePrefix:        oidcCfg.RolePrefix,
-		Cookie:            cookieCfg,
-		PostLoginRedirect: "/portal/",
+		Issuer:             oidcCfg.Issuer,
+		ClientID:           oidcCfg.ClientID,
+		ClientSecret:       oidcCfg.ClientSecret,
+		RedirectURI:        redirectURI,
+		Scopes:             oidcCfg.Scopes,
+		RoleClaim:          oidcCfg.RoleClaimPath,
+		RolePrefix:         oidcCfg.RolePrefix,
+		Cookie:             cookieCfg,
+		PostLoginRedirect:  "/portal/",
+		PostLogoutRedirect: p.config.Portal.PublicBaseURL + "/portal/",
 	}
 
 	flow, err := browsersession.NewFlow(context.Background(), flowCfg)
