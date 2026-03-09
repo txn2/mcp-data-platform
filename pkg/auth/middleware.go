@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -31,12 +32,17 @@ func NewChainedAuthenticator(cfg ChainedAuthConfig, authenticators ...middleware
 func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	var lastErr error
 
-	for _, auth := range c.authenticators {
+	for i, auth := range c.authenticators {
 		userInfo, err := auth.Authenticate(ctx)
 		if err == nil && userInfo != nil {
 			return userInfo, nil
 		}
 		if err != nil {
+			slog.Debug("chained auth: authenticator rejected",
+				"index", i,
+				"type", fmt.Sprintf("%T", auth),
+				"error", err.Error(),
+			)
 			lastErr = err
 		}
 	}

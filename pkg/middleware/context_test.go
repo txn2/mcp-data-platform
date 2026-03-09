@@ -93,6 +93,38 @@ func TestTokenContext(t *testing.T) {
 	})
 }
 
+func TestPreAuthenticatedUserContext(t *testing.T) {
+	t.Run("round-trip", func(t *testing.T) {
+		info := &UserInfo{
+			UserID:   "user-123",
+			Email:    "user@example.com",
+			Roles:    []string{"admin"},
+			AuthType: "browser_session",
+		}
+		ctx := WithPreAuthenticatedUser(context.Background(), info)
+		got := GetPreAuthenticatedUser(ctx)
+		if got == nil {
+			t.Fatal("GetPreAuthenticatedUser() returned nil")
+		}
+		if got.UserID != "user-123" {
+			t.Errorf("UserID = %q, want %q", got.UserID, "user-123")
+		}
+		if got.Email != "user@example.com" {
+			t.Errorf("Email = %q, want %q", got.Email, "user@example.com")
+		}
+		if got.AuthType != "browser_session" {
+			t.Errorf("AuthType = %q, want %q", got.AuthType, "browser_session")
+		}
+	})
+
+	t.Run("not set returns nil", func(t *testing.T) {
+		got := GetPreAuthenticatedUser(context.Background())
+		if got != nil {
+			t.Error("GetPreAuthenticatedUser() expected nil for empty context")
+		}
+	})
+}
+
 func TestServerSessionContext(t *testing.T) {
 	t.Run("round-trip", func(t *testing.T) {
 		// We can't construct a real ServerSession (private fields), but we can

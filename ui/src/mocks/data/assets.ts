@@ -16,6 +16,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-001",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "Q4 Revenue Dashboard",
     description: "Interactive revenue breakdown by region and product line for Q4 2025.",
     content_type: "text/html",
@@ -39,6 +40,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-002",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "Sales Pipeline Chart",
     description: "SVG visualization of the current sales pipeline stages.",
     content_type: "image/svg+xml",
@@ -61,6 +63,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-003",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "Weekly Inventory Report",
     description: "Markdown summary of inventory levels across all warehouses.",
     content_type: "text/markdown",
@@ -83,6 +86,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-004",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "KPI Scorecard Component",
     description: "React component showing key performance indicators with trend arrows.",
     content_type: "text/jsx",
@@ -106,6 +110,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-005",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "Customer Segmentation Analysis",
     description: "HTML report showing customer segments with purchasing behavior patterns.",
     content_type: "text/html",
@@ -129,6 +134,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-006",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "Data Quality Summary",
     description: "Overview of data quality metrics across key tables.",
     content_type: "text/markdown",
@@ -151,6 +157,7 @@ export const mockAssets: Asset[] = [
   {
     id: "ast-007",
     owner_id: "user-alice",
+    owner_email: "alice@example.com",
     name: "ACME Corp Sales Dashboard",
     description: "Full interactive sales dashboard with recharts, tabs, KPI cards, and regional breakdowns. Tests complex JSX rendering.",
     content_type: "text/jsx",
@@ -218,6 +225,7 @@ export const mockSharedWithMe: SharedAsset[] = [
     asset: {
       id: "ast-ext-001",
       owner_id: "user-carol",
+      owner_email: "carol@example.com",
       name: "Monthly Sales Trends",
       description: "Line chart showing month-over-month sales growth.",
       content_type: "image/svg+xml",
@@ -238,6 +246,7 @@ export const mockSharedWithMe: SharedAsset[] = [
     asset: {
       id: "ast-ext-002",
       owner_id: "user-dave",
+      owner_email: "dave@example.com",
       name: "API Latency Report",
       description: "Performance analysis of API response times by endpoint.",
       content_type: "text/html",
