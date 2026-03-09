@@ -173,7 +173,7 @@ export function AssetViewer({
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <h2 className="text-lg font-semibold truncate flex-1">{asset.name}</h2>
+          <h2 className="text-lg font-semibold truncate flex-1 min-w-0">{asset.name}</h2>
           {toolbarExtra}
           <button
             type="button"
