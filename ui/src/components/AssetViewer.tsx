@@ -64,17 +64,19 @@ export function AssetViewer({
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
+  const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
 
   const canEditSource = !!contentUpdateMutation && !!asset && isTextContent(asset.content_type);
   const contentStr = typeof content === "string" ? content : "";
-  const hasChanges = editedContent !== contentStr;
+  const hasChanges = dirty && editedContent !== contentStr;
 
   // Only sync editedContent when the server content changes (initial load or post-save refetch),
   // NOT on tab switches — so unsaved edits survive Preview/Source toggling.
   useEffect(() => {
     if (content !== undefined) {
       setEditedContent(contentStr);
+      setDirty(false);
       setSaveStatus("idle");
     }
   }, [contentStr]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -257,7 +259,7 @@ export function AssetViewer({
               <SourceEditor
                 content={editedContent}
                 contentType={asset.content_type}
-                onChange={setEditedContent}
+                onChange={(v) => { setEditedContent(v); setDirty(true); }}
               />
             </Suspense>
           ) : (
