@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
 import { useAdminAssets } from "@/api/admin/hooks";
 import { formatBytes } from "@/lib/format";
@@ -15,55 +15,36 @@ function contentTypeIcon(ct: string) {
   return File;
 }
 
+function formatOwner(asset: { owner_email: string; owner_id: string }) {
+  return asset.owner_email || asset.owner_id;
+}
+
 export function AdminAssetsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
-  const [contentType, setContentType] = useState("");
-  const [ownerId, setOwnerId] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const { data, isLoading } = useAdminAssets({
-    contentType: contentType || undefined,
-    ownerId: ownerId || undefined,
+    search: debouncedSearch || undefined,
   });
 
-  const assets = (data?.data ?? []).filter(
-    (a) =>
-      !search ||
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.description.toLowerCase().includes(search.toLowerCase()) ||
-      a.owner_id.toLowerCase().includes(search.toLowerCase()),
-  );
+  const assets = data?.data ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, description, or owner..."
-            className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          />
-        </div>
-        <select
-          value={contentType}
-          onChange={(e) => setContentType(e.target.value)}
-          className="rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          <option value="">All types</option>
-          <option value="text/html">HTML</option>
-          <option value="text/jsx">JSX</option>
-          <option value="image/svg+xml">SVG</option>
-          <option value="text/markdown">Markdown</option>
-        </select>
+      {/* Search */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          value={ownerId}
-          onChange={(e) => setOwnerId(e.target.value)}
-          placeholder="Filter by owner..."
-          className="rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, description, owner, or tag..."
+          className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
         />
       </div>
 
@@ -79,15 +60,15 @@ export function AdminAssetsPage({ onNavigate }: Props) {
         </div>
       ) : (
         <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Owner</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Type</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Size</th>
-                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground">Shared</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[40%]">Name</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[20%]">Owner</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Type</th>
+                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-[8%]">Size</th>
+                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Created</th>
               </tr>
             </thead>
             <tbody>
@@ -100,14 +81,14 @@ export function AdminAssetsPage({ onNavigate }: Props) {
                     onClick={() => onNavigate(`/admin/assets/${asset.id}`)}
                     className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
                   >
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2.5 max-w-0">
                       <div className="flex items-center gap-2">
                         <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium truncate max-w-[250px]">{asset.name}</span>
+                        <span className="font-medium truncate">{asset.name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[160px]">
-                      {asset.owner_id}
+                    <td className="px-4 py-2.5 max-w-0">
+                      <span className="text-muted-foreground truncate block">{formatOwner(asset)}</span>
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="font-mono text-xs text-muted-foreground">{asset.content_type}</span>

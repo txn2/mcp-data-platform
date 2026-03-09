@@ -12,6 +12,7 @@ import (
 type Asset struct {
 	ID          string     `json:"id"`
 	OwnerID     string     `json:"owner_id"`
+	OwnerEmail  string     `json:"owner_email"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
 	ContentType string     `json:"content_type"`
@@ -74,6 +75,7 @@ type AssetFilter struct {
 	OwnerID     string `json:"owner_id,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Tag         string `json:"tag,omitempty"`
+	Search      string `json:"search,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
 }

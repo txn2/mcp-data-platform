@@ -596,6 +596,100 @@ export const handlers = [
     return HttpResponse.json({ status: "deleted" });
   }),
 
+  // =========================================================================
+  // Admin — Assets
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/assets`, ({ request }) => {
+    const url = new URL(request.url);
+    const search = url.searchParams.get("search")?.toLowerCase();
+    const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+    let filtered = portalAssets.filter((a) => !a.deleted_at);
+    if (search) {
+      filtered = filtered.filter(
+        (a) =>
+          a.name.toLowerCase().includes(search) ||
+          a.description.toLowerCase().includes(search) ||
+          a.owner_email.toLowerCase().includes(search) ||
+          a.owner_id.toLowerCase().includes(search) ||
+          a.tags.some((t: string) => t.toLowerCase().includes(search)),
+      );
+    }
+
+    const page = filtered.slice(offset, offset + limit);
+    return HttpResponse.json({
+      data: page,
+      total: filtered.length,
+      limit,
+      offset,
+    });
+  }),
+
+  http.get(`${ADMIN_BASE}/assets/:id`, ({ params }) => {
+    const asset = portalAssets.find(
+      (a) => a.id === params.id && !a.deleted_at,
+    );
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    return HttpResponse.json(asset);
+  }),
+
+  http.get(`${ADMIN_BASE}/assets/:id/content`, ({ params }) => {
+    const id = params.id as string;
+    const asset = portalAssets.find((a) => a.id === id && !a.deleted_at);
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = mockContent[id] ?? `[Mock content for ${asset.name}]`;
+    return new HttpResponse(body, {
+      headers: { "Content-Type": asset.content_type },
+    });
+  }),
+
+  http.put(`${ADMIN_BASE}/assets/:id/content`, async ({ params, request }) => {
+    const id = params.id as string;
+    const idx = portalAssets.findIndex((a) => a.id === id && !a.deleted_at);
+    if (idx === -1) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = await request.text();
+    mockContent[id] = body;
+    portalAssets[idx]!.size_bytes = body.length;
+    portalAssets[idx]!.updated_at = new Date().toISOString();
+    return HttpResponse.json({ status: "updated" });
+  }),
+
+  http.put(`${ADMIN_BASE}/assets/:id`, async ({ params, request }) => {
+    const idx = portalAssets.findIndex(
+      (a) => a.id === params.id && !a.deleted_at,
+    );
+    if (idx === -1) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = (await request.json()) as Record<string, unknown>;
+    if (body.name !== undefined) portalAssets[idx]!.name = body.name as string;
+    if (body.description !== undefined)
+      portalAssets[idx]!.description = body.description as string;
+    if (body.tags !== undefined)
+      portalAssets[idx]!.tags = body.tags as string[];
+    portalAssets[idx]!.updated_at = new Date().toISOString();
+    return HttpResponse.json(portalAssets[idx]);
+  }),
+
+  http.delete(`${ADMIN_BASE}/assets/:id`, ({ params }) => {
+    const idx = portalAssets.findIndex(
+      (a) => a.id === params.id && !a.deleted_at,
+    );
+    if (idx === -1) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    portalAssets[idx]!.deleted_at = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.get(`${ADMIN_BASE}/tools/schemas`, () => {
     return HttpResponse.json({ schemas: mockToolSchemas });
   }),
@@ -638,11 +732,26 @@ export const handlers = [
     }
 
     const page = filtered.slice(offset, offset + limit);
+
+    // Build share summaries for the returned assets
+    const share_summaries: Record<string, { has_user_share: boolean; has_public_link: boolean }> = {};
+    for (const asset of page) {
+      const shares = portalShares[asset.id];
+      if (shares && shares.length > 0) {
+        const active = shares.filter((s) => !s.revoked);
+        share_summaries[asset.id] = {
+          has_user_share: active.some((s) => !!s.shared_with_user_id),
+          has_public_link: active.some((s) => !s.shared_with_user_id),
+        };
+      }
+    }
+
     return HttpResponse.json({
       data: page,
       total: filtered.length,
       limit,
       offset,
+      share_summaries,
     });
   }),
 
@@ -666,6 +775,19 @@ export const handlers = [
     return new HttpResponse(body, {
       headers: { "Content-Type": asset.content_type },
     });
+  }),
+
+  http.put(`${PORTAL_BASE}/assets/:id/content`, async ({ params, request }) => {
+    const id = params.id as string;
+    const idx = portalAssets.findIndex((a) => a.id === id && !a.deleted_at);
+    if (idx === -1) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = await request.text();
+    mockContent[id] = body;
+    portalAssets[idx]!.size_bytes = body.length;
+    portalAssets[idx]!.updated_at = new Date().toISOString();
+    return HttpResponse.json({ status: "updated" });
   }),
 
   http.put(`${PORTAL_BASE}/assets/:id`, async ({ params, request }) => {
