@@ -6,8 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
+	"strings"
 	"time"
 
 	// PostgreSQL driver for database/sql.
@@ -965,10 +968,11 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 	return nil
 }
 
-// injectPortalLogo auto-populates the logo_url field in the platform-info
-// app config from portal.logo when the operator hasn't set logo_svg or
-// logo_url explicitly. This avoids requiring operators to duplicate their
-// portal logo configuration in the mcpapps config.
+// injectPortalLogo auto-populates the logo in the platform-info app config
+// from portal.logo when the operator hasn't set logo_svg or logo_url
+// explicitly. When the logo is an SVG URL, it is fetched and inlined as
+// logo_svg so the logo renders in sandboxed contexts (MCP App iframes)
+// that block external resource loading.
 func (p *Platform) injectPortalLogo(cfg any) any {
 	portalLogo := p.config.Portal.Logo
 	if portalLogo == "" {
@@ -982,8 +986,53 @@ func (p *Platform) injectPortalLogo(cfg any) any {
 	if m["logo_svg"] != nil || m["logo_url"] != nil {
 		return m
 	}
-	m["logo_url"] = portalLogo
+
+	// Fetch SVG content for inline rendering; fall back to URL on failure.
+	if svg, err := fetchLogoSVG(portalLogo); err == nil {
+		m["logo_svg"] = svg
+	} else {
+		slog.Debug("portal logo fetch failed, using URL", "url", portalLogo, "err", err)
+		m["logo_url"] = portalLogo
+	}
 	return m
+}
+
+// logoFetchTimeout is the maximum duration for fetching a portal logo SVG.
+const logoFetchTimeout = 10 * time.Second
+
+// logoMaxBytes is the maximum size of fetched logo content (1 MB).
+const logoMaxBytes = 1 << 20
+
+// fetchLogoSVG downloads an SVG from the given URL and returns its content.
+// Returns an error if the URL is unreachable, returns a non-SVG content type,
+// or exceeds the size limit.
+func fetchLogoSVG(url string) (string, error) {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "", fmt.Errorf("unsupported scheme")
+	}
+
+	client := &http.Client{Timeout: logoFetchTimeout}
+	resp, err := client.Get(url) //nolint:gosec,noctx // URL comes from operator config, not user input
+	if err != nil {
+		return "", fmt.Errorf("fetch: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "svg") {
+		return "", fmt.Errorf("not SVG: %s", ct)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, logoMaxBytes))
+	if err != nil {
+		return "", fmt.Errorf("read: %w", err)
+	}
+
+	return string(body), nil
 }
 
 // registerMCPApp creates, validates, and registers a single MCP app.

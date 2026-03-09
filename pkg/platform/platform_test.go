@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3699,14 +3701,56 @@ func mustMap(t *testing.T, v any) map[string]any {
 }
 
 func TestInjectPortalLogo(t *testing.T) {
-	t.Run("injects logo_url from portal.logo", func(t *testing.T) {
+	svgContent := `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="10"/></svg>`
+
+	t.Run("fetches SVG and injects as logo_svg", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(svgContent))
+		}))
+		defer srv.Close()
+
 		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+			Portal: PortalConfig{Logo: srv.URL + "/logo.svg"},
 		}}
 		cfg := map[string]any{"brand_name": "Test"}
 		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != "https://example.com/logo.svg" {
-			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://example.com/logo.svg")
+		if m["logo_svg"] != svgContent {
+			t.Errorf("logo_svg = %v, want %q", m["logo_svg"], svgContent)
+		}
+		if m["logo_url"] != nil {
+			t.Error("logo_url should be nil when SVG was fetched")
+		}
+	})
+
+	t.Run("falls back to logo_url on non-SVG content type", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("not-svg"))
+		}))
+		defer srv.Close()
+
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: srv.URL + "/logo.png"},
+		}}
+		cfg := map[string]any{"brand_name": "Test"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != srv.URL+"/logo.png" {
+			t.Errorf("logo_url = %v, want %q", m["logo_url"], srv.URL+"/logo.png")
+		}
+		if m["logo_svg"] != nil {
+			t.Error("logo_svg should be nil for non-SVG")
+		}
+	})
+
+	t.Run("falls back to logo_url on fetch error", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: "http://127.0.0.1:1/unreachable.svg"},
+		}}
+		cfg := map[string]any{"brand_name": "Test"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != "http://127.0.0.1:1/unreachable.svg" {
+			t.Errorf("logo_url = %v, want unreachable URL", m["logo_url"])
 		}
 	})
 
@@ -3716,8 +3760,8 @@ func TestInjectPortalLogo(t *testing.T) {
 		}}
 		cfg := map[string]any{"logo_svg": "<svg>custom</svg>"}
 		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != nil {
-			t.Errorf("logo_url should be nil when logo_svg is set, got %v", m["logo_url"])
+		if m["logo_svg"] != "<svg>custom</svg>" {
+			t.Errorf("logo_svg was overwritten: %v", m["logo_svg"])
 		}
 	})
 
@@ -3742,12 +3786,86 @@ func TestInjectPortalLogo(t *testing.T) {
 	})
 
 	t.Run("creates map when config is nil", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(svgContent))
+		}))
+		defer srv.Close()
+
 		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+			Portal: PortalConfig{Logo: srv.URL + "/logo.svg"},
 		}}
 		m := mustMap(t, p.injectPortalLogo(nil))
-		if m["logo_url"] != "https://example.com/logo.svg" {
-			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://example.com/logo.svg")
+		if m["logo_svg"] != svgContent {
+			t.Errorf("logo_svg = %v, want %q", m["logo_svg"], svgContent)
+		}
+	})
+}
+
+func TestFetchLogoSVG(t *testing.T) {
+	svgContent := `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="10"/></svg>`
+
+	t.Run("returns SVG content", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(svgContent))
+		}))
+		defer srv.Close()
+
+		got, err := fetchLogoSVG(srv.URL + "/logo.svg")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != svgContent {
+			t.Errorf("got %q, want %q", got, svgContent)
+		}
+	})
+
+	t.Run("rejects non-SVG content type", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("PNG"))
+		}))
+		defer srv.Close()
+
+		_, err := fetchLogoSVG(srv.URL + "/logo.png")
+		if err == nil {
+			t.Fatal("expected error for non-SVG content type")
+		}
+	})
+
+	t.Run("rejects non-200 status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		_, err := fetchLogoSVG(srv.URL + "/missing.svg")
+		if err == nil {
+			t.Fatal("expected error for 404")
+		}
+	})
+
+	t.Run("rejects non-HTTP scheme", func(t *testing.T) {
+		_, err := fetchLogoSVG("ftp://example.com/logo.svg")
+		if err == nil {
+			t.Fatal("expected error for non-HTTP scheme")
+		}
+	})
+
+	t.Run("handles SVG with charset in content type", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+			_, _ = w.Write([]byte(svgContent))
+		}))
+		defer srv.Close()
+
+		got, err := fetchLogoSVG(srv.URL + "/logo.svg")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != svgContent {
+			t.Errorf("got %q, want %q", got, svgContent)
 		}
 	})
 }
