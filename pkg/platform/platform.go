@@ -6,8 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
+	"strings"
 	"time"
 
 	// PostgreSQL driver for database/sql.
@@ -965,10 +968,50 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 	return nil
 }
 
-// injectPortalLogo auto-populates the logo_url field in the platform-info
-// app config from portal.logo when the operator hasn't set logo_svg or
-// logo_url explicitly. This avoids requiring operators to duplicate their
-// portal logo configuration in the mcpapps config.
+// fetchLogoSVGMaxBody is the maximum response body size for SVG fetches (1 MB).
+const fetchLogoSVGMaxBody = 1 << 20
+
+// fetchLogoSVG fetches SVG content from a URL. It validates that the response
+// is an SVG by checking the Content-Type header or the response body prefix.
+// Returns the SVG string on success.
+func fetchLogoSVG(url string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching logo: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchLogoSVGMaxBody))
+	if err != nil {
+		return "", fmt.Errorf("reading body: %w", err)
+	}
+
+	content := strings.TrimSpace(string(body))
+	ct := resp.Header.Get("Content-Type")
+	isSVG := strings.Contains(ct, "svg") || strings.HasPrefix(content, "<svg")
+	if !isSVG {
+		return "", fmt.Errorf("not SVG: content-type %q", ct)
+	}
+
+	return content, nil
+}
+
+// injectPortalLogo auto-populates the logo in the platform-info app config
+// from portal.logo when the operator hasn't set logo_svg or logo_url
+// explicitly. It fetches the SVG content from the URL at startup so the
+// inline SVG works inside sandboxed iframes that block external resources.
 func (p *Platform) injectPortalLogo(cfg any) any {
 	portalLogo := p.config.Portal.Logo
 	if portalLogo == "" {
@@ -982,7 +1025,17 @@ func (p *Platform) injectPortalLogo(cfg any) any {
 	if m["logo_svg"] != nil || m["logo_url"] != nil {
 		return m
 	}
-	m["logo_url"] = portalLogo
+
+	svg, err := fetchLogoSVG(portalLogo)
+	if err != nil {
+		slog.Warn("failed to fetch portal logo SVG, falling back to logo_url",
+			"url", portalLogo, "error", err)
+		m["logo_url"] = portalLogo
+		return m
+	}
+
+	slog.Info("fetched portal logo SVG for platform-info app", "url", portalLogo)
+	m["logo_svg"] = svg
 	return m
 }
 

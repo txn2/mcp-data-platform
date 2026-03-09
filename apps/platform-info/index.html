@@ -719,7 +719,8 @@
         if (logoSvg) {
             logoMarkup = logoSvg;
         } else if (logoUrl) {
-            logoMarkup = '<img src="' + esc(logoUrl) + '" alt="' + esc(brandName) + '">';
+            logoMarkup = '<img src="' + esc(logoUrl) + '" alt="' + esc(brandName)
+                + '" onerror="this.parentElement.innerHTML=DEFAULT_LOGO;this.remove();">';
         } else {
             logoMarkup = DEFAULT_LOGO;
         }
