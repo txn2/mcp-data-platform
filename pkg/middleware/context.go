@@ -19,6 +19,7 @@ type contextKey int
 const (
 	platformContextKey contextKey = iota
 	tokenContextKey
+	preAuthUserKey
 )
 
 // PlatformContext holds platform-specific context for a request.
@@ -103,6 +104,23 @@ func GetToken(ctx context.Context) string {
 		return token
 	}
 	return ""
+}
+
+// WithPreAuthenticatedUser adds a pre-authenticated user to the context.
+// When present, the MCP auth middleware skips token validation and uses
+// this user info directly. This is used by the admin API when the HTTP
+// middleware has already authenticated the user (e.g. via browser session
+// cookie) and the OIDC id_token may have expired.
+func WithPreAuthenticatedUser(ctx context.Context, info *UserInfo) context.Context {
+	return context.WithValue(ctx, preAuthUserKey, info)
+}
+
+// GetPreAuthenticatedUser retrieves a pre-authenticated user from the context.
+func GetPreAuthenticatedUser(ctx context.Context) *UserInfo {
+	if info, ok := ctx.Value(preAuthUserKey).(*UserInfo); ok {
+		return info
+	}
+	return nil
 }
 
 // WithServerSession adds a ServerSession to the context.
