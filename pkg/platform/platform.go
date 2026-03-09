@@ -948,6 +948,9 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 		}
 	}
 
+	// Auto-inject portal logo when the operator hasn't set one explicitly.
+	app.Config = p.injectPortalLogo(app.Config)
+
 	if app.AssetsPath != "" {
 		if err := app.ValidateAssets(); err != nil {
 			return fmt.Errorf("app %s: %w", builtinPlatformInfoName, err)
@@ -960,6 +963,27 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 
 	slog.Info("registered MCP app", "app", builtinPlatformInfoName, "resource_uri", app.ResourceURI)
 	return nil
+}
+
+// injectPortalLogo auto-populates the logo_url field in the platform-info
+// app config from portal.logo when the operator hasn't set logo_svg or
+// logo_url explicitly. This avoids requiring operators to duplicate their
+// portal logo configuration in the mcpapps config.
+func (p *Platform) injectPortalLogo(cfg any) any {
+	portalLogo := p.config.Portal.Logo
+	if portalLogo == "" {
+		return cfg
+	}
+
+	m, ok := cfg.(map[string]any)
+	if !ok {
+		m = make(map[string]any)
+	}
+	if m["logo_svg"] != nil || m["logo_url"] != nil {
+		return m
+	}
+	m["logo_url"] = portalLogo
+	return m
 }
 
 // registerMCPApp creates, validates, and registers a single MCP app.

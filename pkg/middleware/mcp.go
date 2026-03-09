@@ -23,6 +23,9 @@ const (
 
 	// methodToolsCall is the MCP method name for tool invocations.
 	methodToolsCall = "tools/call"
+
+	// logKeyTool is the slog key for tool name in log messages.
+	logKeyTool = "tool"
 )
 
 // Error categories for structured error handling and audit queries.
@@ -189,7 +192,7 @@ func authenticateAndAuthorize(
 	userInfo := GetPreAuthenticatedUser(ctx)
 	if userInfo != nil {
 		slog.Debug("using pre-authenticated user",
-			"tool", params.toolName,
+			logKeyTool, params.toolName,
 			"user_id", userInfo.UserID,
 			"auth_type", userInfo.AuthType,
 		)
@@ -198,7 +201,7 @@ func authenticateAndAuthorize(
 		userInfo, err = params.authenticator.Authenticate(ctx)
 		if err != nil {
 			slog.Warn("tool call authentication failed",
-				"tool", params.toolName,
+				logKeyTool, params.toolName,
 				"request_id", params.pc.RequestID,
 				"error", err.Error(),
 			)
@@ -219,7 +222,7 @@ func authenticateAndAuthorize(
 	if !authorized {
 		params.pc.AuthzError = reason
 		slog.Warn("tool call authorization denied",
-			"tool", params.toolName,
+			logKeyTool, params.toolName,
 			"user_id", params.pc.UserID,
 			"email", params.pc.UserEmail,
 			"roles", params.pc.Roles,

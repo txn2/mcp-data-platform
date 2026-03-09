@@ -3689,6 +3689,69 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 	}
 }
 
+func mustMap(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", v)
+	}
+	return m
+}
+
+func TestInjectPortalLogo(t *testing.T) {
+	t.Run("injects logo_url from portal.logo", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+		}}
+		cfg := map[string]any{"brand_name": "Test"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != "https://example.com/logo.svg" {
+			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://example.com/logo.svg")
+		}
+	})
+
+	t.Run("does not overwrite explicit logo_svg", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+		}}
+		cfg := map[string]any{"logo_svg": "<svg>custom</svg>"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != nil {
+			t.Errorf("logo_url should be nil when logo_svg is set, got %v", m["logo_url"])
+		}
+	})
+
+	t.Run("does not overwrite explicit logo_url", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+		}}
+		cfg := map[string]any{"logo_url": "https://other.com/logo.png"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != "https://other.com/logo.png" {
+			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://other.com/logo.png")
+		}
+	})
+
+	t.Run("no-op when portal logo is empty", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		cfg := map[string]any{"brand_name": "Test"}
+		m := mustMap(t, p.injectPortalLogo(cfg))
+		if m["logo_url"] != nil {
+			t.Errorf("logo_url should be nil when portal logo is empty, got %v", m["logo_url"])
+		}
+	})
+
+	t.Run("creates map when config is nil", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
+		}}
+		m := mustMap(t, p.injectPortalLogo(nil))
+		if m["logo_url"] != "https://example.com/logo.svg" {
+			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://example.com/logo.svg")
+		}
+	})
+}
+
 func TestNew_WorkflowGatingDisabled(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
