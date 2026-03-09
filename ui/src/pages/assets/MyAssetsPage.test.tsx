@@ -49,7 +49,7 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
         },
       },
       isLoading: false,
-    } as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -89,7 +89,7 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
         },
       },
       isLoading: false,
-    } as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -115,7 +115,7 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
         },
       },
       isLoading: false,
-    } as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -139,7 +139,7 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
         share_summaries: {},
       },
       isLoading: false,
-    } as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
