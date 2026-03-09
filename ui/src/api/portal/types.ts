@@ -1,6 +1,7 @@
 export interface Asset {
   id: string;
   owner_id: string;
+  owner_email: string;
   name: string;
   description: string;
   content_type: string;

@@ -58,11 +58,11 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 
 	query := `
 		INSERT INTO portal_assets
-		(id, owner_id, name, description, content_type, s3_bucket, s3_key, size_bytes, tags, provenance, session_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		(id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key, size_bytes, tags, provenance, session_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err = s.db.ExecContext(ctx, query,
-		asset.ID, asset.OwnerID, asset.Name, asset.Description,
+		asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
 		asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
 		tags, prov, asset.SessionID,
 	)
@@ -74,7 +74,7 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 
 func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, owner_id, name, description, content_type, s3_bucket, s3_key,
+		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       size_bytes, tags, provenance, session_id, created_at, updated_at, deleted_at
 		FROM portal_assets WHERE id = $1
 	`
@@ -83,7 +83,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 	var deletedAt sql.NullTime
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&asset.ID, &asset.OwnerID, &asset.Name, &asset.Description,
+		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
 		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 	)
@@ -117,7 +117,7 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
-		"id", "owner_id", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
@@ -347,7 +347,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 	}
 
 	selectQuery := `
-		SELECT pa.id, pa.owner_id, pa.name, pa.description, pa.content_type,
+		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
 		       pa.s3_bucket, pa.s3_key, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.created_at, pa.updated_at, pa.deleted_at,
 		       ps.id, ps.created_by, ps.created_at
@@ -372,7 +372,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		var deletedAt sql.NullTime
 
 		if err := rows.Scan(
-			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.Name, &sa.Asset.Description,
+			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
 			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt,
@@ -572,6 +572,15 @@ func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder 
 		tagJSON, _ := json.Marshal([]string{filter.Tag})
 		qb = qb.Where(sq.Expr("tags @> ?::jsonb", string(tagJSON)))
 	}
+	if filter.Search != "" {
+		like := "%" + filter.Search + "%"
+		qb = qb.Where(sq.Or{
+			sq.ILike{"name": like},
+			sq.ILike{"description": like},
+			sq.ILike{"owner_email": like},
+			sq.Expr("tags::text ILIKE ?", like),
+		})
+	}
 	return qb
 }
 
@@ -581,7 +590,7 @@ func scanAssetRow(rows *sql.Rows) (Asset, error) {
 	var deletedAt sql.NullTime
 
 	if err := rows.Scan(
-		&asset.ID, &asset.OwnerID, &asset.Name, &asset.Description,
+		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
 		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 	); err != nil {

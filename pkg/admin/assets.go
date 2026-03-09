@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,9 @@ import (
 
 // pathValueID is the URL path parameter name for asset identifiers.
 const pathValueID = "id"
+
+// errAdminAssetNotFound is the error message for missing assets.
+const errAdminAssetNotFound = "asset not found"
 
 // registerAssetRoutes registers asset management routes if stores are available.
 func (h *Handler) registerAssetRoutes() {
@@ -21,6 +25,7 @@ func (h *Handler) registerAssetRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}", h.getAdminAsset)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/content", h.getAdminAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}", h.updateAdminAsset)
+	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/content", h.updateAdminAssetContent)
 	h.mux.HandleFunc("DELETE /api/v1/admin/assets/{id}", h.deleteAdminAsset)
 }
 
@@ -31,11 +36,9 @@ func (h *Handler) listAllAssets(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 
 	filter := portal.AssetFilter{
-		OwnerID:     q.Get("owner_id"),
-		ContentType: q.Get("content_type"),
-		Tag:         q.Get("tag"),
-		Limit:       limit,
-		Offset:      offset,
+		Search: q.Get("search"),
+		Limit:  limit,
+		Offset: offset,
 	}
 
 	assets, total, err := h.deps.AssetStore.List(r.Context(), filter)
@@ -79,7 +82,7 @@ func (h *Handler) getAdminAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	asset, err := h.deps.AssetStore.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
@@ -95,7 +98,7 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	asset, err := h.deps.AssetStore.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
 		return
 	}
 
@@ -125,7 +128,7 @@ type adminUpdateAssetRequest struct {
 func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
 		return
 	}
 
@@ -148,6 +151,49 @@ func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+}
+
+// updateAdminAssetContent replaces an asset's S3 content (no owner check for admins).
+func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request) {
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		return
+	}
+
+	id := r.PathValue(pathValueID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, "asset has been deleted")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, portal.MaxContentUploadBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	if int64(len(data)) > portal.MaxContentUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit")
+		return
+	}
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, asset.S3Key, data, asset.ContentType); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
+		return
+	}
+
+	updates := portal.AssetUpdate{HasContent: true, SizeBytes: int64(len(data))}
+	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return
 	}
 

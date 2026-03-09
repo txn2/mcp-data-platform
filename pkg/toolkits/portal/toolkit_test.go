@@ -62,6 +62,7 @@ func TestSaveArtifact_Success(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID:    "user1",
+		UserEmail: "user1@example.com",
 		SessionID: "sess1",
 	})
 
@@ -89,6 +90,7 @@ func TestSaveArtifact_Success(t *testing.T) {
 	asset, getErr := store.Get(context.Background(), output.AssetID)
 	require.NoError(t, getErr)
 	assert.Equal(t, "user1", asset.OwnerID)
+	assert.Equal(t, "user1@example.com", asset.OwnerEmail)
 	assert.Equal(t, "My Dashboard", asset.Name)
 	assert.Equal(t, int64(len("<div>Hello</div>")), asset.SizeBytes)
 }
@@ -812,6 +814,21 @@ func TestManageArtifact_DeleteNoAuthDenied(t *testing.T) {
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "you can only delete your own artifacts")
+}
+
+func TestResolveOwnerEmail(t *testing.T) {
+	// With email in context
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserEmail: "test@example.com",
+	})
+	assert.Equal(t, "test@example.com", resolveOwnerEmail(ctx))
+
+	// Empty email
+	ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{})
+	assert.Equal(t, "", resolveOwnerEmail(ctx))
+
+	// No platform context
+	assert.Equal(t, "", resolveOwnerEmail(context.Background()))
 }
 
 func TestManageArtifact_SoftDeleteError(t *testing.T) {

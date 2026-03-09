@@ -138,6 +138,23 @@ export function useDeleteAsset() {
   });
 }
 
+export function useUpdateAssetContent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      apiFetch(`/assets/${id}/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "text/plain" },
+        body: content,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["asset-content"] });
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
 export function useCreateShare() {
   const qc = useQueryClient();
   return useMutation({

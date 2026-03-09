@@ -391,18 +391,14 @@ export function useDeletePersona() {
 // ---------------------------------------------------------------------------
 
 interface AdminAssetsParams {
-  contentType?: string;
-  tag?: string;
-  ownerId?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }
 
 export function useAdminAssets(params: AdminAssetsParams = {}) {
   const searchParams = new URLSearchParams();
-  if (params.contentType) searchParams.set("content_type", params.contentType);
-  if (params.tag) searchParams.set("tag", params.tag);
-  if (params.ownerId) searchParams.set("owner_id", params.ownerId);
+  if (params.search) searchParams.set("search", params.search);
   if (params.limit) searchParams.set("limit", String(params.limit));
   if (params.offset) searchParams.set("offset", String(params.offset));
 
@@ -469,6 +465,23 @@ export function useAdminDeleteAsset() {
     mutationFn: (id: string) =>
       apiFetch(`/assets/${id}`, { method: "DELETE" }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+    },
+  });
+}
+
+export function useAdminUpdateAssetContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      apiFetch(`/assets/${id}/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "text/plain" },
+        body: content,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
   });

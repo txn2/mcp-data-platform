@@ -8,10 +8,14 @@ import (
 	"time"
 )
 
+// MaxContentUploadBytes is the maximum size for content uploads (10 MB).
+const MaxContentUploadBytes = 10 << 20
+
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
 	ID          string     `json:"id"`
 	OwnerID     string     `json:"owner_id"`
+	OwnerEmail  string     `json:"owner_email"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
 	ContentType string     `json:"content_type"`
@@ -74,6 +78,7 @@ type AssetFilter struct {
 	OwnerID     string `json:"owner_id,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Tag         string `json:"tag,omitempty"`
+	Search      string `json:"search,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
 }
