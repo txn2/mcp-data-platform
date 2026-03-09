@@ -117,7 +117,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     )}
                   </div>
                 )}
-                <div className="flex items-center gap-2 mb-2 w-full">
+                <div className="flex items-center gap-2 mb-2 w-full pr-12">
                   <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
                   <span className="text-sm font-medium truncate flex-1">
                     {asset.name}
