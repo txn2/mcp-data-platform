@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -108,6 +109,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
+	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/shares", h.createShare)
@@ -296,6 +298,59 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type, not rendered as HTML
+}
+
+func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, "asset has been deleted")
+		return
+	}
+
+	if asset.OwnerID != user.UserID {
+		writeError(w, http.StatusForbidden, "only the owner can update this asset")
+		return
+	}
+
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, MaxContentUploadBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	if int64(len(data)) > MaxContentUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit")
+		return
+	}
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, asset.S3Key, data, asset.ContentType); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
+		return
+	}
+
+	updates := AssetUpdate{HasContent: true, SizeBytes: int64(len(data))}
+	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
 
 // updateAssetRequest is the request body for updating an asset.

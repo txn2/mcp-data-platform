@@ -108,7 +108,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                 className="relative flex flex-col items-start rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50 hover:border-primary/30"
               >
                 {summary && (summary.has_user_share || summary.has_public_link) && (
-                  <div className="absolute top-2 right-2 flex gap-1">
+                  <div className="absolute top-4 right-4 flex gap-1">
                     {summary.has_user_share && (
                       <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
                     )}

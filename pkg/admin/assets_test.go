@@ -158,7 +158,7 @@ func TestListAllAssetsSuccess(t *testing.T) {
 	h := newAdminTestHandler(assets, &mockAdminShareStore{}, &mockAdminS3Client{})
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET",
-		"/api/v1/admin/assets?limit=10&offset=0&content_type=text/html&owner_id=u1", http.NoBody)
+		"/api/v1/admin/assets?limit=10&offset=0&search=Test", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -433,6 +433,128 @@ func TestUpdateAdminAssetStoreError(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- updateAdminAssetContent ---
+
+func TestUpdateAdminAssetContentSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("<html>Updated</html>"))
+	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp statusResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "updated", resp.Status)
+}
+
+func TestUpdateAdminAssetContentNoS3(t *testing.T) {
+	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUpdateAdminAssetContentAssetNotFound(t *testing.T) {
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUpdateAdminAssetContentDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+		DeletedAt: &now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestUpdateAdminAssetContentTooLarge(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	// Send content that exceeds 10 MB
+	oversize := strings.Repeat("x", portal.MaxContentUploadBytes+1)
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader(oversize))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestUpdateAdminAssetContentS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockAdminS3Client{putErr: fmt.Errorf("s3 error")}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, s3)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUpdateAdminAssetContentUpdateError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getAsset: asset, updateErr: fmt.Errorf("db error")},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("data"))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 

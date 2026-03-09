@@ -184,14 +184,26 @@ func authenticateAndAuthorize(
 	next mcp.MethodHandler,
 	params authParams,
 ) (mcp.Result, error) {
-	userInfo, err := params.authenticator.Authenticate(ctx)
-	if err != nil {
-		slog.Warn("tool call authentication failed",
+	// Check for pre-authenticated user first (e.g. admin tool calls where
+	// the HTTP middleware already validated the browser session cookie).
+	userInfo := GetPreAuthenticatedUser(ctx)
+	if userInfo != nil {
+		slog.Debug("using pre-authenticated user",
 			"tool", params.toolName,
-			"request_id", params.pc.RequestID,
-			"error", err.Error(),
+			"user_id", userInfo.UserID,
+			"auth_type", userInfo.AuthType,
 		)
-		return createCategorizedErrorResult(ErrCategoryAuth, "authentication failed: "+err.Error()), nil
+	} else {
+		var err error
+		userInfo, err = params.authenticator.Authenticate(ctx)
+		if err != nil {
+			slog.Warn("tool call authentication failed",
+				"tool", params.toolName,
+				"request_id", params.pc.RequestID,
+				"error", err.Error(),
+			)
+			return createCategorizedErrorResult(ErrCategoryAuth, "authentication failed: "+err.Error()), nil
+		}
 	}
 
 	if userInfo != nil {

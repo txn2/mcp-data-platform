@@ -165,6 +165,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	}
 
 	userID := resolveOwnerID(ctx)
+	userEmail := resolveOwnerEmail(ctx)
 	sessionID := resolveSessionID(ctx)
 
 	assetID, err := generateID()
@@ -196,6 +197,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	asset := portal.Asset{
 		ID:          assetID,
 		OwnerID:     userID,
+		OwnerEmail:  userEmail,
 		Name:        input.Name,
 		Description: input.Description,
 		ContentType: input.ContentType,
@@ -368,6 +370,15 @@ func resolveOwnerID(ctx context.Context) string {
 		return pc.UserID
 	}
 	return "anonymous"
+}
+
+// resolveOwnerEmail returns the authenticated user's email from the context.
+func resolveOwnerEmail(ctx context.Context) string {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil {
+		return pc.UserEmail
+	}
+	return ""
 }
 
 func (t *Toolkit) validateAndCheckSize(input saveArtifactInput) error {

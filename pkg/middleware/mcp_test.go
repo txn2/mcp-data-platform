@@ -1040,3 +1040,100 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 		}
 	})
 }
+
+func TestMCPToolCallMiddleware_PreAuthenticatedUser(t *testing.T) {
+	// The authenticator should NOT be called when a pre-authenticated user
+	// is present in the context — this verifies the bypass path.
+	authenticator := &mcpTestAuthenticator{
+		err: errors.New("should not be called"),
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal(mcpTestPCExpected)
+		}
+		if pc.UserID != "preauth-user" {
+			t.Errorf("UserID = %q, want %q", pc.UserID, "preauth-user")
+		}
+		if pc.UserEmail != "preauth@example.com" {
+			t.Errorf("UserEmail = %q, want %q", pc.UserEmail, "preauth@example.com")
+		}
+		if !pc.Authorized {
+			t.Error("expected Authorized to be true")
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
+
+	handler := mw(next)
+	req := newMCPTestRequest(mcpTestToolName)
+
+	// Inject a pre-authenticated user into the context.
+	preAuth := &UserInfo{
+		UserID:   "preauth-user",
+		Email:    "preauth@example.com",
+		Roles:    []string{mcpTestPersona},
+		AuthType: "browser_session",
+	}
+	ctx := WithPreAuthenticatedUser(context.Background(), preAuth)
+
+	result, err := handler(ctx, mcpTestMethod, req)
+	if err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+
+	toolResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf(mcpTestResultFmt, result)
+	}
+	if toolResult.IsError {
+		t.Error("expected IsError to be false")
+	}
+}
+
+func TestMCPToolCallMiddleware_PreAuthenticatedUser_AuthzDenied(t *testing.T) {
+	// Pre-authenticated user still goes through authorization.
+	authenticator := &mcpTestAuthenticator{
+		err: errors.New("should not be called"),
+	}
+	authorizer := &mcpTestAuthorizer{
+		authorized:  false,
+		personaName: "viewer",
+		reason:      "tool not allowed",
+	}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		t.Fatal("next should not be called on authz failure")
+		return nil, nil //nolint:nilnil // unreachable
+	}
+
+	handler := mw(next)
+	req := newMCPTestRequest(mcpTestToolName)
+
+	preAuth := &UserInfo{
+		UserID:   "preauth-user",
+		Roles:    []string{"viewer"},
+		AuthType: "browser_session",
+	}
+	ctx := WithPreAuthenticatedUser(context.Background(), preAuth)
+
+	result, err := handler(ctx, mcpTestMethod, req)
+	if err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+
+	toolResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf(mcpTestResultFmt, result)
+	}
+	if !toolResult.IsError {
+		t.Error("expected IsError to be true for denied pre-auth user")
+	}
+}

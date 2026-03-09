@@ -549,6 +549,136 @@ func TestGetAssetContentNilS3Client(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "content storage not configured")
 }
 
+// --- updateAssetContent ---
+
+func TestUpdateAssetContentSuccess(t *testing.T) {
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k",
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("<html>Updated</html>"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp statusResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "updated", resp.Status)
+}
+
+func TestUpdateAssetContentNoUser(t *testing.T) {
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUpdateAssetContentNotFound(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{getErr: fmt.Errorf("not found")},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUpdateAssetContentDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", DeletedAt: &now}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestUpdateAssetContentNotOwner(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u2", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateAssetContentTooLarge(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	oversize := strings.Repeat("x", MaxContentUploadBytes+1)
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader(oversize))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestUpdateAssetContentNilS3(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{},
+		S3Client:   nil,
+		S3Bucket:   "test-bucket",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUpdateAssetContentS3Error(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	s3 := &mockS3Client{putErr: fmt.Errorf("s3 error")}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUpdateAssetContentUpdateError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset, updateErr: fmt.Errorf("db error")},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("data"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 // --- updateAsset ---
 
 func TestUpdateAssetSuccess(t *testing.T) {
