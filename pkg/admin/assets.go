@@ -10,9 +10,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// maxContentUploadBytes is the maximum size for content uploads (10 MB).
-const maxContentUploadBytes = 10 << 20
-
 // pathValueID is the URL path parameter name for asset identifiers.
 const pathValueID = "id"
 
@@ -174,12 +171,17 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxContentUploadBytes+1))
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, "asset has been deleted")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, portal.MaxContentUploadBytes+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	if int64(len(data)) > maxContentUploadBytes {
+	if int64(len(data)) > portal.MaxContentUploadBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit")
 		return
 	}

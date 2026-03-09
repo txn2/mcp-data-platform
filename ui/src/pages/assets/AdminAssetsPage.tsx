@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
 import { useAdminAssets } from "@/api/admin/hooks";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatOwner } from "@/lib/format";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -13,10 +13,6 @@ function contentTypeIcon(ct: string) {
   if (lower.includes("svg") || lower.includes("image")) return Image;
   if (lower.includes("markdown") || lower.includes("text")) return FileText;
   return File;
-}
-
-function formatOwner(asset: { owner_email: string; owner_id: string }) {
-  return asset.owner_email || asset.owner_id;
 }
 
 export function AdminAssetsPage({ onNavigate }: Props) {

@@ -687,7 +687,7 @@ export const handlers = [
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
     portalAssets[idx]!.deleted_at = new Date().toISOString();
-    return new HttpResponse(null, { status: 204 });
+    return HttpResponse.json({ status: "deleted" });
   }),
 
   http.get(`${ADMIN_BASE}/tools/schemas`, () => {

@@ -300,9 +300,6 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type, not rendered as HTML
 }
 
-// maxContentUploadBytes is the maximum size for content uploads (10 MB).
-const maxContentUploadBytes = 10 << 20
-
 func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -332,12 +329,12 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxContentUploadBytes+1))
+	data, err := io.ReadAll(io.LimitReader(r.Body, MaxContentUploadBytes+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	if int64(len(data)) > maxContentUploadBytes {
+	if int64(len(data)) > MaxContentUploadBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit")
 		return
 	}

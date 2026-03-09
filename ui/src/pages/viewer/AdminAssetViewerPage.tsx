@@ -1,13 +1,10 @@
 import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent } from "@/api/admin/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
+import { formatOwner } from "@/lib/format";
 
 interface Props {
   assetId: string;
   onNavigate: (path: string) => void;
-}
-
-function formatOwner(asset: { owner_email: string; owner_id: string }) {
-  return asset.owner_email || asset.owner_id;
 }
 
 export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {

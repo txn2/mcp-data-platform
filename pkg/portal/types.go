@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// MaxContentUploadBytes is the maximum size for content uploads (10 MB).
+const MaxContentUploadBytes = 10 << 20
+
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
 	ID          string     `json:"id"`
