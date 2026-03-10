@@ -44,6 +44,27 @@ type ToolkitFactory func(name string, config map[string]any) (Toolkit, error)
 // (e.g., Trino with multiserver.Manager).
 type AggregateToolkitFactory func(defaultName string, instances map[string]map[string]any) (Toolkit, error)
 
+// PromptInfo describes a registered MCP prompt for metadata collection.
+type PromptInfo struct {
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Arguments   []PromptArgumentInfo `json:"arguments,omitempty"`
+}
+
+// PromptArgumentInfo describes an argument for a registered MCP prompt.
+type PromptArgumentInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
+// PromptDescriber is an optional interface that toolkits can implement
+// to advertise the prompts they register. This allows the platform to
+// include toolkit-registered prompts in the platform_info response.
+type PromptDescriber interface {
+	PromptInfos() []PromptInfo
+}
+
 // ToolkitConfig holds configuration for a toolkit instance.
 type ToolkitConfig struct {
 	Kind    string

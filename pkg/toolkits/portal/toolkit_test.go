@@ -853,3 +853,58 @@ func TestManageArtifact_SoftDeleteError(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "failed to delete asset")
 }
+
+// --- Prompt tests ---
+
+func TestPromptInfos(t *testing.T) {
+	tk := &Toolkit{}
+	infos := tk.PromptInfos()
+	require.Len(t, infos, 2)
+
+	assert.Equal(t, saveAssetPromptName, infos[0].Name)
+	assert.NotEmpty(t, infos[0].Description)
+
+	assert.Equal(t, showAssetsPromptName, infos[1].Name)
+	assert.NotEmpty(t, infos[1].Description)
+}
+
+func TestRegisterPrompts(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+
+	tk := &Toolkit{}
+	tk.registerPrompts(s)
+
+	// Connect an in-memory client
+	ctx := context.Background()
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSess, err := s.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSess.Close() }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	clientSess, err := client.Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = clientSess.Close() }()
+
+	// List prompts
+	listResp, err := clientSess.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	require.NoError(t, err)
+	require.Len(t, listResp.Prompts, 2)
+
+	names := make(map[string]bool)
+	for _, p := range listResp.Prompts {
+		names[p.Name] = true
+	}
+	assert.True(t, names[saveAssetPromptName])
+	assert.True(t, names[showAssetsPromptName])
+
+	// Get each prompt and verify content
+	for _, name := range []string{saveAssetPromptName, showAssetsPromptName} {
+		resp, err := clientSess.GetPrompt(ctx, &mcp.GetPromptParams{Name: name})
+		require.NoError(t, err, "prompt %s", name)
+		require.Len(t, resp.Messages, 1)
+		textContent, ok := resp.Messages[0].Content.(*mcp.TextContent)
+		require.True(t, ok)
+		assert.NotEmpty(t, textContent.Text)
+	}
+}

@@ -590,6 +590,110 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             flex-shrink: 0;
         }
 
+        /* Prompt cards */
+        .prompt-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .prompt-card {
+            padding: 14px 16px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: border-color .15s;
+        }
+        .prompt-card:hover {
+            border-color: var(--accent-border);
+        }
+
+        .prompt-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .prompt-card-name {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .prompt-card-desc {
+            font-size: 12.5px;
+            color: var(--muted);
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .prompt-card-args {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .prompt-arg-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .prompt-arg-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--muted);
+            white-space: nowrap;
+            min-width: 80px;
+        }
+        .prompt-arg-label .req {
+            color: var(--accent);
+            margin-left: 2px;
+        }
+
+        .prompt-arg-input {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 4px 8px;
+            outline: none;
+            transition: border-color .15s;
+        }
+        .prompt-arg-input:focus {
+            border-color: var(--accent);
+        }
+
+        .prompt-copy-btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent);
+            background: var(--accent-bg);
+            border: 1px solid var(--accent-border);
+            border-radius: 5px;
+            padding: 4px 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .15s, border-color .15s;
+            flex-shrink: 0;
+        }
+        .prompt-copy-btn:hover {
+            background: var(--accent-border);
+            border-color: var(--accent);
+        }
+        .prompt-copy-btn.copied {
+            color: var(--success);
+            background: var(--success-bg);
+            border-color: var(--success);
+        }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -622,6 +726,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             <div id="tab-bar" class="tab-bar">
                 <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
                 <button class="tab-btn" data-tab="platform" onclick="showTab('platform')">Platform</button>
+                <button class="tab-btn hidden" id="tab-btn-prompts" data-tab="prompts" onclick="showTab('prompts')">Prompts</button>
                 <button class="tab-btn hidden" id="tab-btn-agent-instructions" data-tab="agent-instructions" onclick="showTab('agent-instructions')">Agent Instructions</button>
             </div>
             <div id="tab-overview" class="tab-pane active">
@@ -643,6 +748,10 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                 <div id="subtab-tags" class="sub-tab-pane">
                     <div id="tags" class="tags"></div>
                 </div>
+            </div>
+            <div id="tab-prompts" class="tab-pane">
+                <div class="tab-intro">Available prompts — select one to copy the prompt text with arguments filled in.</div>
+                <div id="prompt-list" class="prompt-cards"></div>
             </div>
             <div id="tab-agent-instructions" class="tab-pane">
                 <div class="info-banner">
@@ -968,11 +1077,87 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             document.getElementById('personas-sec').classList.remove('hidden');
         }
 
+        // Prompts tab
+        if (d.prompts && d.prompts.length) {
+            renderPrompts(d.prompts);
+            document.getElementById('tab-btn-prompts').classList.remove('hidden');
+        }
+
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('content').classList.remove('hidden');
 
         send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
                params: { width: document.body.scrollWidth, height: document.body.scrollHeight } });
+    }
+
+    // Prompt data stored for copy
+    var _prompts = [];
+
+    function renderPrompts(prompts) {
+        _prompts = prompts;
+        var el = document.getElementById('prompt-list');
+        el.innerHTML = prompts.map(function(p, idx) {
+            var argsHtml = '';
+            if (p.arguments && p.arguments.length) {
+                argsHtml = '<div class="prompt-card-args">'
+                    + p.arguments.map(function(a) {
+                        return '<div class="prompt-arg-row">'
+                            + '<span class="prompt-arg-label">' + esc(a.name)
+                            + (a.required ? '<span class="req">*</span>' : '')
+                            + '</span>'
+                            + '<input class="prompt-arg-input" data-prompt="' + idx
+                            + '" data-arg="' + esc(a.name)
+                            + '" placeholder="' + esc(a.description || a.name) + '">'
+                            + '</div>';
+                    }).join('')
+                    + '</div>';
+            }
+            return '<div class="prompt-card">'
+                + '<div class="prompt-card-header">'
+                + '<span class="prompt-card-name">' + esc(p.name) + '</span>'
+                + '<button class="prompt-copy-btn" onclick="copyPrompt(' + idx + ', this)">Copy</button>'
+                + '</div>'
+                + (p.description ? '<div class="prompt-card-desc">' + esc(p.description) + '</div>' : '')
+                + argsHtml
+                + '</div>';
+        }).join('');
+    }
+
+    function copyPrompt(idx, btn) {
+        var p = _prompts[idx];
+        if (!p) { return; }
+        // Resolve prompt name as the text to copy (users paste as /prompt invocation)
+        var text = p.name;
+        // If prompt has args, collect values and append
+        if (p.arguments && p.arguments.length) {
+            var inputs = document.querySelectorAll('input[data-prompt="' + idx + '"]');
+            var parts = [];
+            inputs.forEach(function(inp) {
+                var val = inp.value.trim();
+                if (val) {
+                    parts.push(inp.getAttribute('data-arg') + ': ' + val);
+                }
+            });
+            if (parts.length) {
+                text += ' (' + parts.join(', ') + ')';
+            }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+        } else {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+        }, 2000);
     }
 
     function showErr(msg) {
