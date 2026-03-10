@@ -714,6 +714,32 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             border-color: var(--success);
         }
 
+        .prompt-template-toggle {
+            font-size: 11px;
+            color: var(--accent);
+            cursor: pointer;
+            margin-top: 4px;
+            user-select: none;
+        }
+        .prompt-template-toggle:hover { text-decoration: underline; }
+
+        .prompt-template {
+            margin-top: 8px;
+        }
+        .prompt-template pre {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+        }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -1173,6 +1199,12 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                 }).join('')
                 + '</div>';
         }
+        var templateHtml = '';
+        if (p.content) {
+            templateHtml = '<div class="prompt-template-toggle" onclick="toggleTemplate(' + idx + ', this)">Show prompt template</div>'
+                + '<div class="prompt-template" id="prompt-tpl-' + idx + '" style="display:none">'
+                + '<pre>' + esc(p.content) + '</pre></div>';
+        }
         return '<div class="prompt-card">'
             + '<div class="prompt-card-header">'
             + '<div>'
@@ -1183,7 +1215,16 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             + '</div>'
             + (p.description ? '<div class="prompt-card-desc">' + esc(p.description) + '</div>' : '')
             + argsHtml
+            + templateHtml
             + '</div>';
+    }
+
+    function toggleTemplate(idx, el) {
+        var tpl = document.getElementById('prompt-tpl-' + idx);
+        if (!tpl) { return; }
+        var hidden = tpl.style.display === 'none';
+        tpl.style.display = hidden ? 'block' : 'none';
+        el.textContent = hidden ? 'Hide prompt template' : 'Show prompt template';
     }
 
     function copyPrompt(idx, btn) {
