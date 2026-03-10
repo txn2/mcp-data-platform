@@ -788,11 +788,13 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 			Name:        promptName,
 			Description: "Guidance on when and how to capture domain knowledge insights",
 			Category:    "toolkit",
+			Content:     knowledgeCapturePrompt,
 		},
 		{
 			Name:        userPromptName,
 			Description: "Record insights from this conversation for data catalog improvement",
 			Category:    "toolkit",
+			Content:     captureKnowledgePromptContent,
 		},
 	}
 }
