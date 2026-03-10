@@ -10,21 +10,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 // Info contains information about the platform deployment.
 type Info struct {
-	Name                string            `json:"name"`
-	Version             string            `json:"version"`
-	Description         string            `json:"description,omitempty"`
-	Tags                []string          `json:"tags,omitempty"`
-	AgentInstructions   string            `json:"agent_instructions,omitempty"`
-	Toolkits            []string          `json:"toolkits"`
-	ToolkitDescriptions map[string]string `json:"toolkit_descriptions,omitempty"`
-	PortalURL           string            `json:"portal_url,omitempty"`
-	Persona             *PersonaInfo      `json:"persona,omitempty"`
-	Features            Features          `json:"features"`
-	ConfigVersion       ConfigVersionInfo `json:"config_version"`
+	Name                string                `json:"name"`
+	Version             string                `json:"version"`
+	Description         string                `json:"description,omitempty"`
+	Tags                []string              `json:"tags,omitempty"`
+	AgentInstructions   string                `json:"agent_instructions,omitempty"`
+	Toolkits            []string              `json:"toolkits"`
+	ToolkitDescriptions map[string]string     `json:"toolkit_descriptions,omitempty"`
+	PortalURL           string                `json:"portal_url,omitempty"`
+	Persona             *PersonaInfo          `json:"persona,omitempty"`
+	Prompts             []registry.PromptInfo `json:"prompts,omitempty"`
+	Features            Features              `json:"features"`
+	ConfigVersion       ConfigVersionInfo     `json:"config_version"`
 }
 
 // ConfigVersionInfo provides information about the config API version.
@@ -195,6 +197,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		ToolkitDescriptions: toolkitDescriptions,
 		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
+		Prompts:             p.allPromptInfos(),
 		Features:            p.buildFeatures(),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,

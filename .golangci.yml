@@ -370,6 +370,10 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      - path: pkg/registry/
+        linters:
+          - revive
+        text: "max-public-structs"
 
 
 issues:

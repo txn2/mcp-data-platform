@@ -36,6 +36,8 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Icons**: Visual metadata for tools, resources, and prompts. Upstream toolkits provide default icons; deployers can override via configuration.
 
+- **Dynamic Prompts**: Three-tier prompt system: auto-registered `platform-overview` built from description and enabled toolkits, operator-configured prompts with `{placeholder}` argument substitution, and conditional workflow prompts (explore-available-data, create-interactive-dashboard, create-a-report, trace-data-lineage) registered when required toolkits are present. Toolkits implement `PromptDescriber` to advertise their own prompts. Operator prompts override auto-registered ones by name. All prompts included in `platform_info` response and the platform-info app Prompts tab.
+
 ---
 
 # Ecosystem
@@ -261,7 +263,8 @@ injection:
 | `server.description` | string | - | Explains when to use this MCP - what business, products, or domains it covers. Agents use this to route questions to the right MCP server. |
 | `server.tags` | array | `[]` | Keywords for discovery: company names, product names, business domains. Agents match these against user questions. |
 | `server.agent_instructions` | string | - | Operational guidance: data conventions, required filters, unit conversions. Returned in `platform_info` response. |
-| `server.prompts` | array | `[]` | Platform-level MCP prompts (name, description, content) registered via `prompts/list` |
+| `server.prompts` | array | `[]` | Platform-level MCP prompts registered via `prompts/list`. Support `{arg_name}` placeholder substitution. Operator-defined prompts override auto-registered workflow prompts with the same name. |
+| `server.prompts[].arguments` | array | `[]` | Typed arguments: name, description, required. Substituted into content as `{name}` placeholders. |
 | `server.transport` | string | `stdio` | Transport: `stdio` or `http` (`sse` accepted for backward compatibility) |
 | `server.address` | string | `:8080` | Listen address for HTTP transports |
 | `server.streamable.session_timeout` | duration | `30m` | How long an idle Streamable HTTP session persists before cleanup |

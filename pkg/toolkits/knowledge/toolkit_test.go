@@ -3010,3 +3010,57 @@ func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {
 	assert.Empty(t, writer.WriteCalls, "no writes should occur when pre-flight validation fails")
 	assert.Empty(t, csStore.Changesets, "no changeset should be recorded")
 }
+
+// --- Prompt tests ---
+
+func TestPromptInfos(t *testing.T) {
+	tk := &Toolkit{}
+	infos := tk.PromptInfos()
+	require.Len(t, infos, 2)
+
+	assert.Equal(t, promptName, infos[0].Name)
+	assert.NotEmpty(t, infos[0].Description)
+
+	assert.Equal(t, userPromptName, infos[1].Name)
+	assert.NotEmpty(t, infos[1].Description)
+}
+
+func TestRegisterPrompts(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+
+	tk := &Toolkit{}
+	tk.registerPrompt(s)
+
+	ctx := context.Background()
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSess, err := s.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSess.Close() }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	clientSess, err := client.Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = clientSess.Close() }()
+
+	// List prompts
+	listResp, err := clientSess.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	require.NoError(t, err)
+	require.Len(t, listResp.Prompts, 2)
+
+	names := make(map[string]bool)
+	for _, p := range listResp.Prompts {
+		names[p.Name] = true
+	}
+	assert.True(t, names[promptName])
+	assert.True(t, names[userPromptName])
+
+	// Get each prompt and verify content
+	for _, name := range []string{promptName, userPromptName} {
+		resp, err := clientSess.GetPrompt(ctx, &mcp.GetPromptParams{Name: name})
+		require.NoError(t, err, "prompt %s", name)
+		require.Len(t, resp.Messages, 1)
+		textContent, ok := resp.Messages[0].Content.(*mcp.TextContent)
+		require.True(t, ok)
+		assert.NotEmpty(t, textContent.Text)
+	}
+}

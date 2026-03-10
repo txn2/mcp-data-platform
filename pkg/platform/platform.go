@@ -136,6 +136,9 @@ type Platform struct {
 	// Session gate
 	sessionGate *middleware.SessionGate
 
+	// Prompt metadata collected during registration
+	promptInfos []registry.PromptInfo
+
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 

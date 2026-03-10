@@ -162,11 +162,19 @@ type StreamableConfig struct {
 	Stateless bool `yaml:"stateless"`
 }
 
-// PromptConfig defines a platform-level MCP prompt.
-type PromptConfig struct {
+// PromptArgumentConfig defines an argument for a platform-level MCP prompt.
+type PromptArgumentConfig struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Content     string `yaml:"content"`
+	Required    bool   `yaml:"required"`
+}
+
+// PromptConfig defines a platform-level MCP prompt.
+type PromptConfig struct {
+	Name        string                 `yaml:"name"`
+	Description string                 `yaml:"description"`
+	Content     string                 `yaml:"content"`
+	Arguments   []PromptArgumentConfig `yaml:"arguments"`
 }
 
 // TLSConfig configures TLS.

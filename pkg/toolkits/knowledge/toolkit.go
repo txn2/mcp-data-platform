@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -29,6 +30,9 @@ const (
 
 	// promptName is the MCP prompt name for knowledge capture guidance.
 	promptName = "knowledge_capture_guidance"
+
+	// userPromptName is the user-facing prompt for capturing knowledge.
+	userPromptName = "capture-this-as-knowledge"
 )
 
 // captureInsightInput defines the input schema for the capture_insight tool.
@@ -745,7 +749,8 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-// registerPrompt registers the knowledge capture guidance prompt.
+// registerPrompt registers the knowledge capture guidance prompt
+// and the user-facing capture prompt.
 func (*Toolkit) registerPrompt(s *mcp.Server) {
 	s.AddPrompt(&mcp.Prompt{
 		Name:        promptName,
@@ -760,7 +765,42 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 			},
 		}, nil
 	})
+
+	s.AddPrompt(&mcp.Prompt{
+		Name:        userPromptName,
+		Description: "Record insights from this conversation for data catalog improvement",
+	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{
+				{
+					Role:    "user",
+					Content: &mcp.TextContent{Text: captureKnowledgePromptContent},
+				},
+			},
+		}, nil
+	})
 }
+
+// PromptInfos returns metadata for prompts registered by the knowledge toolkit.
+func (*Toolkit) PromptInfos() []registry.PromptInfo {
+	return []registry.PromptInfo{
+		{
+			Name:        promptName,
+			Description: "Guidance on when and how to capture domain knowledge insights",
+		},
+		{
+			Name:        userPromptName,
+			Description: "Record insights from this conversation for data catalog improvement",
+		},
+	}
+}
+
+const captureKnowledgePromptContent = `Capture the key insights from this conversation as domain knowledge for the data catalog.
+
+1. Review our conversation for corrections, business context, data quality observations, or relationships discovered
+2. Identify which datasets and columns the insights relate to
+3. Record each insight with appropriate categorization and confidence level
+4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)`
 
 // Helper functions
 
@@ -912,3 +952,6 @@ var _ interface {
 	SetQueryProvider(provider query.Provider)
 	Close() error
 } = (*Toolkit)(nil)
+
+// Verify PromptDescriber compliance.
+var _ registry.PromptDescriber = (*Toolkit)(nil)

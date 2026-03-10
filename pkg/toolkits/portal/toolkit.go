@@ -17,12 +17,17 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/query"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
 const (
 	saveToolName   = "save_artifact"
 	manageToolName = "manage_artifact"
+
+	// Prompt names registered by the portal toolkit.
+	saveAssetPromptName  = "save-this-as-an-asset"
+	showAssetsPromptName = "show-my-saved-assets"
 
 	// idLength is the number of random bytes for asset IDs (32 hex chars).
 	idLength = 16
@@ -141,7 +146,71 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"update (change name/description/tags/content), delete (soft-delete).",
 		InputSchema: manageArtifactSchema,
 	}, t.handleManageArtifact)
+
+	t.registerPrompts(s)
 }
+
+// registerPrompts registers user-facing prompts for the portal toolkit.
+func (*Toolkit) registerPrompts(s *mcp.Server) {
+	s.AddPrompt(&mcp.Prompt{
+		Name:        saveAssetPromptName,
+		Description: "Save an artifact from this conversation as a viewable, shareable asset",
+	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: saveAssetPromptContent,
+					},
+				},
+			},
+		}, nil
+	})
+
+	s.AddPrompt(&mcp.Prompt{
+		Name:        showAssetsPromptName,
+		Description: "Browse your saved artifacts and assets",
+	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: showAssetsPromptContent,
+					},
+				},
+			},
+		}, nil
+	})
+}
+
+// PromptInfos returns metadata for prompts registered by the portal toolkit.
+func (*Toolkit) PromptInfos() []registry.PromptInfo {
+	return []registry.PromptInfo{
+		{
+			Name:        saveAssetPromptName,
+			Description: "Save an artifact from this conversation as a viewable, shareable asset",
+		},
+		{
+			Name:        showAssetsPromptName,
+			Description: "Browse your saved artifacts and assets",
+		},
+	}
+}
+
+const saveAssetPromptContent = `Save the most recent artifact or analysis from this conversation as a shareable asset.
+
+1. Identify the key output from our conversation (dashboard, report, chart, or analysis)
+2. Package it with an appropriate name, description, and tags
+3. Save it as an artifact so it can be viewed and shared
+4. Return the link to the saved asset`
+
+const showAssetsPromptContent = `List my saved assets and artifacts.
+
+1. Retrieve all assets I have saved
+2. Present them with names, descriptions, tags, and creation dates
+3. Highlight the most recent items`
 
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
@@ -521,3 +590,6 @@ var _ interface {
 	SetQueryProvider(provider query.Provider)
 	Close() error
 } = (*Toolkit)(nil)
+
+// Verify PromptDescriber compliance.
+var _ registry.PromptDescriber = (*Toolkit)(nil)

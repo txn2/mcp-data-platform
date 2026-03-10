@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 const (
@@ -100,6 +101,7 @@ func TestHandleInfo(t *testing.T) {
 			p := &Platform{
 				config:          &tt.config,
 				personaRegistry: persona.NewRegistry(),
+				toolkitRegistry: registry.NewRegistry(),
 			}
 
 			result, extra, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
@@ -145,6 +147,7 @@ func TestInfoFeatures(t *testing.T) {
 	p := &Platform{
 		config:          &config,
 		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: registry.NewRegistry(),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -169,6 +172,7 @@ func TestInfoConfigVersion(t *testing.T) {
 	p := &Platform{
 		config:          &config,
 		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: registry.NewRegistry(),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -321,7 +325,7 @@ func TestInfoToolkitDescriptions(t *testing.T) {
 		},
 	}
 
-	p := &Platform{config: &config, personaRegistry: persona.NewRegistry()}
+	p := &Platform{config: &config, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
@@ -341,7 +345,7 @@ func TestInfoToolkitDescriptionsNilWhenNone(t *testing.T) {
 		},
 	}
 
-	p := &Platform{config: &config, personaRegistry: persona.NewRegistry()}
+	p := &Platform{config: &config, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 	require.NoError(t, err)
@@ -369,6 +373,7 @@ func TestInfoToolkits(t *testing.T) {
 	p := &Platform{
 		config:          &config,
 		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: registry.NewRegistry(),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -406,7 +411,7 @@ func TestInfoPersona(t *testing.T) {
 
 	t.Run("shows caller's persona from context", func(t *testing.T) {
 		reg := newPersonaRegistry(t)
-		p := &Platform{config: &cfg, personaRegistry: reg}
+		p := &Platform{config: &cfg, personaRegistry: reg, toolkitRegistry: registry.NewRegistry()}
 
 		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 			PersonaName: "analyst",
@@ -425,7 +430,7 @@ func TestInfoPersona(t *testing.T) {
 	t.Run("falls back to default persona when no context", func(t *testing.T) {
 		reg := newPersonaRegistry(t)
 		reg.SetDefault("admin")
-		p := &Platform{config: &cfg, personaRegistry: reg}
+		p := &Platform{config: &cfg, personaRegistry: reg, toolkitRegistry: registry.NewRegistry()}
 
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -438,7 +443,7 @@ func TestInfoPersona(t *testing.T) {
 
 	t.Run("no persona when no context and no default", func(t *testing.T) {
 		reg := newPersonaRegistry(t)
-		p := &Platform{config: &cfg, personaRegistry: reg}
+		p := &Platform{config: &cfg, personaRegistry: reg, toolkitRegistry: registry.NewRegistry()}
 
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -455,7 +460,7 @@ func TestInfoPortalURL(t *testing.T) {
 			Server: ServerConfig{Name: "portal-test", Version: testInfoVersion},
 			Portal: PortalConfig{PublicBaseURL: "https://portal.example.com"},
 		}
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 		require.NoError(t, err)
@@ -467,7 +472,7 @@ func TestInfoPortalURL(t *testing.T) {
 		cfg := Config{
 			Server: ServerConfig{Name: "no-portal-test", Version: testInfoVersion},
 		}
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 		require.NoError(t, err)
@@ -481,7 +486,7 @@ func TestInfoPlatformToolkitPrepended(t *testing.T) {
 		cfg := Config{
 			Server: ServerConfig{Name: "empty-tk-test", Version: testInfoVersion},
 		}
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 		require.NoError(t, err)
@@ -501,7 +506,7 @@ func TestInfoPlatformToolkitPrepended(t *testing.T) {
 				"trino": map[string]any{},
 			},
 		}
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
 		require.NoError(t, err)
@@ -516,13 +521,13 @@ func TestResolveCallerPersona(t *testing.T) {
 	cfg := Config{Server: ServerConfig{Name: "test"}}
 
 	t.Run("returns nil when registry is empty and no context", func(t *testing.T) {
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		result := p.resolveCallerPersona(context.Background())
 		assert.Nil(t, result)
 	})
 
 	t.Run("returns nil when persona name not found in registry", func(t *testing.T) {
-		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry(), toolkitRegistry: registry.NewRegistry()}
 		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 			PersonaName: "nonexistent",
 		})
