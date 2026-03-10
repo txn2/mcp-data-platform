@@ -15,7 +15,7 @@ import (
 
 const (
 	testInfoVersion      = "1.0.0"
-	testInfoToolkitCount = 3
+	testInfoToolkitCount = 4 // 3 configured + 1 prepended "platform"
 	testInfoVersionV1    = "v1"
 )
 
@@ -347,7 +347,10 @@ func TestInfoToolkitDescriptionsNilWhenNone(t *testing.T) {
 	require.NoError(t, err)
 	info := requireInfoFromResult(t, result)
 
-	assert.Nil(t, info.ToolkitDescriptions, "should be nil when no descriptions are configured")
+	// Only the auto-injected platform description should be present
+	require.NotNil(t, info.ToolkitDescriptions)
+	assert.Len(t, info.ToolkitDescriptions, 1, "only platform description should be present")
+	assert.NotEmpty(t, info.ToolkitDescriptions["platform"])
 }
 
 func TestInfoToolkits(t *testing.T) {
@@ -373,9 +376,11 @@ func TestInfoToolkits(t *testing.T) {
 	info := requireInfoFromResult(t, result)
 
 	assert.Len(t, info.Toolkits, testInfoToolkitCount)
+	assert.Equal(t, "platform", info.Toolkits[0], "platform should be prepended first")
 	assert.Contains(t, info.Toolkits, "trino")
 	assert.Contains(t, info.Toolkits, "datahub")
 	assert.Contains(t, info.Toolkits, "s3")
+	assert.NotEmpty(t, info.ToolkitDescriptions["platform"], "platform toolkit should have a description")
 }
 
 func newPersonaRegistry(t *testing.T) *persona.Registry {
@@ -441,6 +446,69 @@ func TestInfoPersona(t *testing.T) {
 		info := requireInfoFromResult(t, result)
 
 		assert.Nil(t, info.Persona)
+	})
+}
+
+func TestInfoPortalURL(t *testing.T) {
+	t.Run("includes portal_url when configured", func(t *testing.T) {
+		cfg := Config{
+			Server: ServerConfig{Name: "portal-test", Version: testInfoVersion},
+			Portal: PortalConfig{PublicBaseURL: "https://portal.example.com"},
+		}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+		assert.Equal(t, "https://portal.example.com", info.PortalURL)
+	})
+
+	t.Run("omits portal_url when not configured", func(t *testing.T) {
+		cfg := Config{
+			Server: ServerConfig{Name: "no-portal-test", Version: testInfoVersion},
+		}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+		assert.Empty(t, info.PortalURL)
+	})
+}
+
+func TestInfoPlatformToolkitPrepended(t *testing.T) {
+	t.Run("platform is always first even with no configured toolkits", func(t *testing.T) {
+		cfg := Config{
+			Server: ServerConfig{Name: "empty-tk-test", Version: testInfoVersion},
+		}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+		require.NotEmpty(t, info.Toolkits)
+		assert.Equal(t, "platform", info.Toolkits[0])
+		assert.NotEmpty(t, info.ToolkitDescriptions["platform"])
+	})
+
+	t.Run("does not override operator-provided platform description", func(t *testing.T) {
+		cfg := Config{
+			Server: ServerConfig{Name: "custom-desc-test", Version: testInfoVersion},
+			Toolkits: map[string]any{
+				"platform": map[string]any{
+					"description": "Our custom platform description",
+				},
+				"trino": map[string]any{},
+			},
+		}
+		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		info := requireInfoFromResult(t, result)
+		assert.Equal(t, "platform", info.Toolkits[0])
+		assert.Equal(t, "Our custom platform description", info.ToolkitDescriptions["platform"])
+		assert.Contains(t, info.Toolkits, "trino")
 	})
 }
 
