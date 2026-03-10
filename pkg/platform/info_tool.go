@@ -21,6 +21,7 @@ type Info struct {
 	AgentInstructions   string            `json:"agent_instructions,omitempty"`
 	Toolkits            []string          `json:"toolkits"`
 	ToolkitDescriptions map[string]string `json:"toolkit_descriptions,omitempty"`
+	PortalURL           string            `json:"portal_url,omitempty"`
 	Persona             *PersonaInfo      `json:"persona,omitempty"`
 	Features            Features          `json:"features"`
 	ConfigVersion       ConfigVersionInfo `json:"config_version"`
@@ -170,6 +171,15 @@ func (p *Platform) collectToolkits() (names []string, descriptions map[string]st
 func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
 	toolkits, toolkitDescriptions := p.collectToolkits()
 
+	// Prepend "platform" — always-present toolkit for platform_info, list_connections, etc.
+	toolkits = append([]string{"platform"}, toolkits...)
+	if toolkitDescriptions == nil {
+		toolkitDescriptions = make(map[string]string)
+	}
+	if toolkitDescriptions["platform"] == "" {
+		toolkitDescriptions["platform"] = "Core platform tools: deployment info, connection listing, and resource access."
+	}
+
 	// Resolve the caller's persona: prefer the one set by auth middleware,
 	// fall back to the configured default.
 	persona := p.resolveCallerPersona(ctx)
@@ -183,6 +193,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		AgentInstructions:   p.config.Server.AgentInstructions,
 		Toolkits:            toolkits,
 		ToolkitDescriptions: toolkitDescriptions,
+		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
 		Features:            p.buildFeatures(),
 		ConfigVersion: ConfigVersionInfo{

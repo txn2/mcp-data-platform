@@ -138,9 +138,8 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         /* Hero */
         .hero {
             position: relative;
-            padding: 20px 20px 18px;
+            padding: 22px 20px 20px;
             border-bottom: 1px solid var(--border);
-            overflow: hidden;
         }
 
         .hero::before {
@@ -219,25 +218,50 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             text-overflow: ellipsis;
         }
 
-        .vpill {
+        .hero-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             flex-shrink: 0;
+            align-self: flex-start;
+            margin-top: 2px;
+        }
+
+        .vpill {
             font-family: var(--font-mono);
             font-size: 11px;
+            line-height: 1;
             color: var(--muted);
             background: var(--surface-2);
             border: 1px solid var(--border);
             border-radius: 5px;
-            padding: 3px 8px;
+            padding: 4px 8px;
             white-space: nowrap;
-            align-self: flex-start;
-            margin-top: 2px;
+        }
+
+        .portal-btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1;
+            color: var(--accent);
+            background: var(--accent-bg);
+            border: 1px solid var(--accent-border);
+            border-radius: 5px;
+            padding: 4px 8px;
+            white-space: nowrap;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background .15s, border-color .15s;
+        }
+        .portal-btn:hover {
+            background: var(--accent-border);
+            border-color: var(--accent);
         }
 
         .tags {
             display: flex;
             flex-wrap: wrap;
             gap: 5px;
-            margin-top: 12px;
             position: relative;
         }
 
@@ -253,11 +277,11 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         /* Sections */
         .sec {
-            padding: 16px 20px;
+            padding: 20px 20px;
             border-bottom: 1px solid var(--border);
             width: 100%;
         }
-        .sec:last-child { border-bottom: none; }
+        .sec:last-child { border-bottom: none; padding-bottom: 40px; }
 
         /* Tabs */
         .tab-bar {
@@ -286,6 +310,64 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
+
+        /* Sub-tabs (nested inside a top-level tab pane) */
+        .sub-tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 14px;
+        }
+        .sub-tab-btn {
+            padding: 5px 12px;
+            font-size: 11.5px;
+            font-weight: 500;
+            color: var(--muted);
+            border: none;
+            background: transparent;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            margin-bottom: -1px;
+            transition: color .15s, border-color .15s;
+        }
+        .sub-tab-btn.active {
+            color: var(--text);
+            border-bottom-color: var(--accent);
+        }
+        .sub-tab-btn:hover:not(.active) { color: var(--text-secondary); }
+
+        .sub-tab-pane { display: none; }
+        .sub-tab-pane.active { display: block; }
+
+        /* Tab intro text */
+        .tab-intro {
+            font-size: 12.5px;
+            color: var(--muted);
+            line-height: 1.6;
+            margin-bottom: 14px;
+            max-width: 640px;
+        }
+
+        /* Info banner */
+        .info-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            background: var(--accent-bg);
+            border: 1px solid var(--accent-border);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            max-width: 640px;
+        }
+        .info-banner-icon {
+            flex-shrink: 0;
+            width: 16px; height: 16px;
+            color: var(--accent);
+            margin-top: 1px;
+        }
 
         /* Description / welcome text */
         .desc-text {
@@ -528,29 +610,49 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                         <div id="impl-name" class="impl-name"></div>
                     </div>
                 </div>
-                <div id="vpill" class="vpill">—</div>
+                <div class="hero-actions">
+                    <a id="portal-btn" class="portal-btn hidden">Open Portal</a>
+                    <div id="vpill" class="vpill">—</div>
+                </div>
             </div>
-            <div id="tags" class="tags hidden"></div>
         </div>
 
-        <!-- Tabs: Overview / Toolkits / Capabilities / Agent Instructions -->
+        <!-- Tabs: Overview / Platform / Agent Instructions -->
         <div class="sec">
             <div id="tab-bar" class="tab-bar">
                 <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
-                <button class="tab-btn" data-tab="toolkits" onclick="showTab('toolkits')">Toolkits</button>
-                <button class="tab-btn" data-tab="capabilities" onclick="showTab('capabilities')">Capabilities</button>
+                <button class="tab-btn" data-tab="platform" onclick="showTab('platform')">Platform</button>
                 <button class="tab-btn hidden" id="tab-btn-agent-instructions" data-tab="agent-instructions" onclick="showTab('agent-instructions')">Agent Instructions</button>
             </div>
             <div id="tab-overview" class="tab-pane active">
                 <div id="desc" class="desc-text"></div>
             </div>
-            <div id="tab-toolkits" class="tab-pane">
-                <div id="tk-list"></div>
-            </div>
-            <div id="tab-capabilities" class="tab-pane">
-                <div id="feat-list"></div>
+            <div id="tab-platform" class="tab-pane">
+                <div class="tab-intro">Current capabilities configured for this MCP platform instance.</div>
+                <div id="sub-tab-bar" class="sub-tab-bar">
+                    <button class="sub-tab-btn active" data-subtab="toolkits" onclick="showSubTab('toolkits')">Toolkits</button>
+                    <button class="sub-tab-btn" data-subtab="capabilities" onclick="showSubTab('capabilities')">Capabilities</button>
+                    <button class="sub-tab-btn hidden" id="sub-tab-btn-tags" data-subtab="tags" onclick="showSubTab('tags')">Tags</button>
+                </div>
+                <div id="subtab-toolkits" class="sub-tab-pane active">
+                    <div id="tk-list"></div>
+                </div>
+                <div id="subtab-capabilities" class="sub-tab-pane">
+                    <div id="feat-list"></div>
+                </div>
+                <div id="subtab-tags" class="sub-tab-pane">
+                    <div id="tags" class="tags"></div>
+                </div>
             </div>
             <div id="tab-agent-instructions" class="tab-pane">
+                <div class="info-banner">
+                    <svg class="info-banner-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.3"/>
+                        <line x1="8" y1="7" x2="8" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <circle cx="8" cy="4.5" r="0.9" fill="currentColor"/>
+                    </svg>
+                    <span>These instructions guide the AI agent at the start of each session. General semantic data for enrichment comes from DataHub automatically; these instructions provide additional operator-specific guidance and may be tuned over time.</span>
+                </div>
                 <div id="agent-instructions" class="desc-text"></div>
             </div>
         </div>
@@ -588,6 +690,11 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
     // Toolkit icons (18×18)
     var TK_ICONS = {
+        platform: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            + '<circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.3"/>'
+            + '<circle cx="9" cy="9" r="2" fill="currentColor" opacity=".6"/>'
+            + '<path d="M9 2.5V5M9 13v2.5M2.5 9H5M13 9h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
+            + '</svg>',
         trino: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
             + '<ellipse cx="9" cy="4.5" rx="6" ry="2.2" stroke="currentColor" stroke-width="1.3"/>'
             + '<path d="M3 4.5v4.5c0 1.2 2.69 2.2 6 2.2s6-1 6-2.2V4.5" stroke="currentColor" stroke-width="1.3"/>'
@@ -617,6 +724,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     // Default toolkit descriptions — dry technical facts.
     // Override per-toolkit via config: toolkits.<name>.description
     var TK_DEFAULTS = {
+        platform:   'Core platform tools: deployment info, connection listing, and resource access.',
         trino:      'Distributed SQL query engine. Federated queries across catalogs via ANSI SQL. Supports catalog/schema/table addressing.',
         datahub:    'Metadata platform. Provides dataset search, schema inspection, ownership, tags, glossary terms, lineage, and quality scores.',
         s3:         'S3-compatible object storage. Supports bucket and object listing, retrieval, metadata inspection, and presigned URL generation.',
@@ -681,10 +789,13 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         }
     }
 
-    // Markdown renderer using marked (CommonMark + GFM)
+    // Markdown renderer — explicit Marked instance bypasses the UMD
+    // lazy-getter chain that misresolves in sandboxed-iframe / Blob-URL
+    // contexts (block elements not rendered).
+    var md = new marked.Marked({ gfm: true, breaks: false });
     function renderMd(text) {
         if (!text) { return ''; }
-        return marked.parse(text);
+        return md.parse(text);
     }
 
     // Tab switching
@@ -694,6 +805,15 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         var pane = document.getElementById('tab-' + name);
         if (pane) { pane.classList.add('active'); }
         var btn = document.querySelector('[data-tab="' + name + '"]');
+        if (btn) { btn.classList.add('active'); }
+    }
+
+    function showSubTab(name) {
+        document.querySelectorAll('.sub-tab-pane').forEach(function(p) { p.classList.remove('active'); });
+        document.querySelectorAll('.sub-tab-btn').forEach(function(t) { t.classList.remove('active'); });
+        var pane = document.getElementById('subtab-' + name);
+        if (pane) { pane.classList.add('active'); }
+        var btn = document.querySelector('[data-subtab="' + name + '"]');
         if (btn) { btn.classList.add('active'); }
     }
 
@@ -738,13 +858,37 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         // Version pill
         document.getElementById('vpill').textContent = d.version ? ('v' + d.version) : '—';
 
-        // Tags
+        // Portal button — tries MCP Apps ui/open-link, falls back to window.open
+        if (d.portal_url) {
+            var portalBtn = document.getElementById('portal-btn');
+            portalBtn.href = d.portal_url;
+            portalBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                var openId = rid++;
+                var fallbackTimer = setTimeout(function() {
+                    window.open(d.portal_url, '_blank');
+                }, 300);
+                // If host responds to ui/open-link, cancel the fallback
+                function onOpenResponse(ev) {
+                    if (ev.data && ev.data.id === openId) {
+                        clearTimeout(fallbackTimer);
+                        window.removeEventListener('message', onOpenResponse);
+                    }
+                }
+                window.addEventListener('message', onOpenResponse);
+                send({ jsonrpc: '2.0', id: openId, method: 'ui/open-link',
+                       params: { url: d.portal_url } });
+            });
+            portalBtn.classList.remove('hidden');
+        }
+
+        // Tags — rendered in a sub-tab under Platform
         if (d.tags && d.tags.length) {
             var tagEl = document.getElementById('tags');
             tagEl.innerHTML = d.tags.map(function(t) {
                 return '<span class="tag">' + esc(t) + '</span>';
             }).join('');
-            tagEl.classList.remove('hidden');
+            document.getElementById('sub-tab-btn-tags').classList.remove('hidden');
         }
 
         // Description rendered as Markdown
