@@ -124,6 +124,56 @@ server:
 !!! warning "HTTP Transport Security"
     When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.
 
+### Prompts
+
+The platform registers MCP prompts at three levels:
+
+1. **Auto-registered `platform-overview`** — Built dynamically from `server.description` and enabled toolkits. Lists what the platform can do based on which toolkits (DataHub, Trino, S3, Portal, Knowledge) are configured.
+
+2. **Operator-configured prompts** — Defined in `server.prompts`. Support typed arguments with `{placeholder}` substitution in content.
+
+3. **Workflow prompts** — Registered automatically when required toolkits are present. Provide guided multi-step workflows (e.g., `explore-available-data`, `create-interactive-dashboard`, `create-a-report`, `trace-data-lineage`).
+
+Operator-configured prompts override any auto-registered prompt with the same name. Toolkits (Portal, Knowledge) may also register their own prompts via the `PromptDescriber` interface.
+
+```yaml
+server:
+  description: "ACME Corp analytics platform"
+  prompts:
+    - name: routing_rules
+      description: "How to route queries between systems"
+      content: |
+        Before querying, determine if you need ENTITY STATE or ANALYTICS...
+    - name: explore-topic
+      description: "Explore data about a specific topic"
+      content: "Find all datasets related to {topic} and summarize key metrics."
+      arguments:
+        - name: topic
+          description: "The topic to explore"
+          required: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `server.prompts[].name` | string | required | Prompt name |
+| `server.prompts[].description` | string | - | Prompt description |
+| `server.prompts[].content` | string | required | Prompt content (supports `{arg_name}` placeholders) |
+| `server.prompts[].arguments` | array | `[]` | Typed arguments for the prompt |
+| `server.prompts[].arguments[].name` | string | required | Argument name (maps to `{name}` in content) |
+| `server.prompts[].arguments[].description` | string | - | Argument description shown to clients |
+| `server.prompts[].arguments[].required` | bool | `false` | Whether the argument is required |
+
+**Built-in workflow prompts:**
+
+| Prompt | Required Toolkits | Description |
+|--------|-------------------|-------------|
+| `explore-available-data` | DataHub | Discover datasets about a topic |
+| `create-interactive-dashboard` | DataHub, Trino, Portal | Full workflow: discover, query, visualize, save |
+| `create-a-report` | DataHub, Trino | Discover data, query it, produce a Markdown report |
+| `trace-data-lineage` | DataHub | Trace upstream/downstream lineage for a dataset |
+
+All registered prompts (platform + toolkit) are included in the `platform_info` tool response and visible in the platform-info app's Prompts tab.
+
 ### Streamable HTTP Configuration
 
 The HTTP transport serves both legacy SSE (`/sse`, `/message`) and Streamable HTTP (`/`) endpoints. Streamable HTTP session behavior is configured under `server.streamable`:

@@ -3,6 +3,7 @@ package platform
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -73,9 +74,9 @@ func (p *Platform) buildDynamicOverviewContent() string {
 	capabilities := p.collectCapabilityBullets()
 	if len(capabilities) > 0 {
 		b.WriteString("With this platform you can:\n")
-		for _, cap := range capabilities {
+		for _, bullet := range capabilities {
 			b.WriteString("- ")
-			b.WriteString(cap)
+			b.WriteString(bullet)
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -166,14 +167,21 @@ func (p *Platform) registerPrompt(cfg PromptConfig) {
 }
 
 // substituteArgs replaces {arg_name} placeholders in content with values from
-// the arguments map. Unresolved placeholders are left as-is.
+// the arguments map. Unresolved placeholders are left as-is. Keys are sorted
+// to ensure deterministic output when values contain other argument placeholders.
 func substituteArgs(content string, args map[string]string) string {
 	if len(args) == 0 {
 		return content
 	}
+	keys := make([]string, 0, len(args))
+	for name := range args {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+
 	result := content
-	for name, value := range args {
-		result = strings.ReplaceAll(result, "{"+name+"}", value)
+	for _, name := range keys {
+		result = strings.ReplaceAll(result, "{"+name+"}", args[name])
 	}
 	return result
 }

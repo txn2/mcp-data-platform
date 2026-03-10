@@ -76,6 +76,12 @@ func TestSubstituteArgs(t *testing.T) {
 			args:    map[string]string{},
 			want:    "{topic}",
 		},
+		{
+			name:    "deterministic when value contains other placeholder",
+			content: "{a} and {b}",
+			args:    map[string]string{"a": "{b}", "b": "hello"},
+			want:    "hello and hello",
+		},
 	}
 
 	for _, tt := range tests {

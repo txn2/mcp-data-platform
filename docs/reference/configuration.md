@@ -46,6 +46,13 @@ server:
       content: |
         - ARR: Annual Recurring Revenue
         - MRR: Monthly Recurring Revenue
+    - name: explore-topic
+      description: "Explore data about a specific topic"
+      content: "Find all datasets related to {topic} and summarize key metrics."
+      arguments:
+        - name: topic
+          description: "The topic to explore"
+          required: true
   transport: stdio
   address: ":8080"
   tls:
@@ -61,10 +68,14 @@ server:
 | `server.description` | string | - | Explains when to use this MCP - what business, products, or domains it covers. Agents use this to route questions to the right MCP server. |
 | `server.tags` | array | `[]` | Keywords for discovery: company names, product names, business domains. Agents match these against user questions. |
 | `server.agent_instructions` | string | - | Operational guidance: data conventions, required filters, unit conversions. Returned in `platform_info` response. |
-| `server.prompts` | array | `[]` | Platform-level MCP prompts registered via `prompts/list` |
+| `server.prompts` | array | `[]` | Platform-level MCP prompts registered via `prompts/list`. Operator-defined prompts override auto-registered workflow prompts with the same name. |
 | `server.prompts[].name` | string | required | Prompt name |
 | `server.prompts[].description` | string | - | Prompt description |
-| `server.prompts[].content` | string | required | Prompt content returned by `prompts/get` |
+| `server.prompts[].content` | string | required | Prompt content returned by `prompts/get`. Supports `{arg_name}` placeholders substituted from arguments. |
+| `server.prompts[].arguments` | array | `[]` | Typed arguments for the prompt |
+| `server.prompts[].arguments[].name` | string | required | Argument name (used as `{name}` placeholder in content) |
+| `server.prompts[].arguments[].description` | string | - | Argument description shown to clients |
+| `server.prompts[].arguments[].required` | bool | `false` | Whether the argument is required |
 | `server.transport` | string | `stdio` | Transport: `stdio`, `http` (`sse` accepted for backward compatibility) |
 | `server.address` | string | `:8080` | Listen address for HTTP transports |
 | `server.streamable.session_timeout` | duration | `30m` | How long an idle Streamable HTTP session persists before cleanup |
