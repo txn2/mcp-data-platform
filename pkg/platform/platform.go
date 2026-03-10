@@ -940,6 +940,11 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 		Content:     subFS,
 		EntryPoint:  "index.html",
 		ResourceURI: "ui://platform-info",
+		CSP: &mcpapps.CSPConfig{
+			Permissions: &mcpapps.PermissionsConfig{
+				ClipboardWrite: &struct{}{},
+			},
+		},
 	}
 
 	// Merge operator config (branding) if present.
