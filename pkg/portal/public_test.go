@@ -40,6 +40,143 @@ func TestPublicViewSuccess(t *testing.T) {
 	// CSP header must be set on public view responses (plain text uses default CSP).
 	csp := w.Header().Get("Content-Security-Policy")
 	assert.NotEmpty(t, csp)
+
+	// Default brand on right: logo + "MCP Data Platform"
+	body := w.Body.String()
+	assert.Contains(t, body, "MCP Data Platform")
+	assert.Contains(t, body, `class="brand-logo"`)
+	assert.Contains(t, body, defaultLogoSVG)
+	assert.Contains(t, body, `brand-platform`)
+
+	// No implementor on left by default
+	assert.NotContains(t, body, `brand-implementor`)
+}
+
+func TestPublicViewCustomBrand(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	customLogo := `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>`
+	implLogo := `<svg viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`
+	h := NewHandler(Deps{
+		AssetStore:         &mockAssetStore{getAsset: asset},
+		ShareStore:         &mockShareStore{getByTokenRes: share},
+		S3Client:           &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:           "test",
+		BrandName:          "Plexara",
+		BrandLogoSVG:       customLogo,
+		BrandURL:           "https://plexara.io",
+		ImplementorName:    "ACME Corp",
+		ImplementorLogoSVG: implLogo,
+		ImplementorURL:     "https://acme.com",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Right side: custom platform brand
+	assert.Contains(t, body, "Plexara")
+	assert.Contains(t, body, customLogo)
+	assert.NotContains(t, body, defaultLogoSVG)
+	assert.Contains(t, body, `href="https://plexara.io"`)
+
+	// Left side: implementor
+	assert.Contains(t, body, "ACME Corp")
+	assert.Contains(t, body, implLogo)
+	assert.Contains(t, body, `href="https://acme.com"`)
+	assert.Contains(t, body, `brand-implementor`)
+}
+
+func TestPublicViewImplementorOnly(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		S3Client:        &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:        "test",
+		ImplementorName: "ACME Corp",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Left side: implementor name shown (no logo, no link)
+	assert.Contains(t, body, "ACME Corp")
+	assert.Contains(t, body, `brand-implementor`)
+
+	// Right side: default platform brand
+	assert.Contains(t, body, "MCP Data Platform")
+	assert.Contains(t, body, defaultLogoSVG)
+	assert.Contains(t, body, `brand-platform`)
+}
+
+func TestPublicViewBrandLinks(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	t.Run("with URLs", func(t *testing.T) {
+		h := NewHandler(Deps{
+			AssetStore:      &mockAssetStore{getAsset: asset},
+			ShareStore:      &mockShareStore{getByTokenRes: share},
+			S3Client:        &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+			S3Bucket:        "test",
+			BrandURL:        "https://platform.io",
+			ImplementorName: "Impl",
+			ImplementorURL:  "https://impl.com",
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		assert.Contains(t, body, `href="https://platform.io"`)
+		assert.Contains(t, body, `href="https://impl.com"`)
+	})
+
+	t.Run("without URLs", func(t *testing.T) {
+		h := NewHandler(Deps{
+			AssetStore:      &mockAssetStore{getAsset: asset},
+			ShareStore:      &mockShareStore{getByTokenRes: share},
+			S3Client:        &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+			S3Bucket:        "test",
+			ImplementorName: "Impl",
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		// No <a> links should be present for brands without URLs
+		assert.NotContains(t, body, `href="https://platform.io"`)
+		assert.NotContains(t, body, `href="https://impl.com"`)
+		// But brand names should still render
+		assert.Contains(t, body, "MCP Data Platform")
+		assert.Contains(t, body, "Impl")
+	})
 }
 
 func TestPublicViewTokenNotFound(t *testing.T) {
@@ -280,6 +417,12 @@ func TestPublicCSP(t *testing.T) {
 	csp2 := publicCSP("text/html")
 	assert.NotContains(t, csp2, "frame-src")
 	assert.Contains(t, csp2, "default-src 'none'")
+	assert.Contains(t, csp2, "script-src 'unsafe-inline'")
+	assert.Contains(t, csp2, "style-src 'unsafe-inline'")
+	assert.Contains(t, csp2, "img-src data: blob:")
+	assert.Contains(t, csp2, "font-src data:")
+	assert.NotContains(t, csp2, "'unsafe-eval'")
+	assert.NotContains(t, csp2, "connect-src")
 }
 
 // --- jsxIframe ---
@@ -300,6 +443,14 @@ func TestJsxIframeSpecialChars(t *testing.T) {
 	assert.Contains(t, result, `sandbox="allow-scripts"`)
 	// Content is JSON-encoded then HTML-escaped, so it's safely embedded.
 	assert.NotContains(t, result, `<div title=`)
+}
+
+// --- defaultLogoSVG ---
+
+func TestDefaultLogoSVG(t *testing.T) {
+	assert.Contains(t, defaultLogoSVG, "<svg")
+	assert.Contains(t, defaultLogoSVG, "</svg>")
+	assert.Contains(t, defaultLogoSVG, "viewBox")
 }
 
 // --- sandboxedIframe ---

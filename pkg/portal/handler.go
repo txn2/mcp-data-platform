@@ -63,6 +63,15 @@ type Deps struct {
 	AuditMetrics    AuditMetrics
 	InsightStore    InsightReader
 	PersonaResolver PersonaResolver
+	// Platform brand (far right of public viewer header)
+	BrandName    string // display name (default: "MCP Data Platform")
+	BrandLogoSVG string // inline SVG for header logo (empty = default icon)
+	BrandURL     string // link URL (e.g., "https://plexara.io"); empty = no link
+
+	// Implementor brand (far left of public viewer header, optional)
+	ImplementorName    string // display name (e.g., "ACME Corp"); empty = hidden
+	ImplementorLogoSVG string // inline SVG; empty = hidden
+	ImplementorURL     string // link URL; empty = no link
 }
 
 // Handler provides portal REST API endpoints.

@@ -319,6 +319,10 @@ tuning:
 #   public_base_url: "https://portal.example.com"
 #   s3_connection: data_lake                                   # S3 toolkit instance for artifact storage
 #   s3_bucket: portal-assets                                   # bucket for artifact storage
+#   implementor:                                               # optional implementor brand (far-left header zone)
+#     name: "ACME Corp"
+#     logo: "https://acme.com/logo.svg"
+#     url: "https://acme.com"
 
 # Admin REST API
 # admin:

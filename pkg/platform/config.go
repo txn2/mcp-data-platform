@@ -113,7 +113,16 @@ type PortalConfig struct {
 	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket
 	PublicBaseURL  string                `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
 	MaxContentSize int                   `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
+	Implementor    ImplementorConfig     `yaml:"implementor"`      // optional implementor brand (far-left header zone)
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
+}
+
+// ImplementorConfig configures the optional implementor brand shown in the
+// far-left zone of the public viewer header (e.g., "ACME Corp").
+type ImplementorConfig struct {
+	Name string `yaml:"name"` // display name (e.g., "ACME Corp")
+	Logo string `yaml:"logo"` // URL to logo SVG (fetched at startup for inline rendering)
+	URL  string `yaml:"url"`  // link URL (e.g., "https://acme.com")
 }
 
 // PortalRateLimitConfig configures rate limiting for the public portal viewer.

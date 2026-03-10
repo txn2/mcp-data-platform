@@ -1017,3 +1017,55 @@ func TestMountPortalUI_NoAssets(t *testing.T) {
 	mux := http.NewServeMux()
 	mountPortalUI(mux, p, false) // no assets available
 }
+
+func TestMcpappsBrandName(t *testing.T) {
+	t.Run("returns brand_name from mcpapps config", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			MCPApps: platform.MCPAppsConfig{
+				Apps: map[string]platform.AppConfig{
+					"platform-info": {
+						Config: map[string]any{"brand_name": "Plexara"},
+					},
+				},
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		got := mcpappsBrandName(p)
+		if got != "Plexara" {
+			t.Errorf("mcpappsBrandName() = %q, want %q", got, "Plexara")
+		}
+	})
+
+	t.Run("returns empty when no platform-info app", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+		})
+		defer func() { _ = p.Close() }()
+
+		got := mcpappsBrandName(p)
+		if got != "" {
+			t.Errorf("mcpappsBrandName() = %q, want empty", got)
+		}
+	})
+
+	t.Run("returns empty when brand_name not in config", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "test"},
+			MCPApps: platform.MCPAppsConfig{
+				Apps: map[string]platform.AppConfig{
+					"platform-info": {
+						Config: map[string]any{"other_key": "value"},
+					},
+				},
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		got := mcpappsBrandName(p)
+		if got != "" {
+			t.Errorf("mcpappsBrandName() = %q, want empty", got)
+		}
+	})
+}

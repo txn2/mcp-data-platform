@@ -498,6 +498,15 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 		}
 	}
 
+	// Platform brand (far right): prefer mcpapps platform-info config, then portal title.
+	brandName := mcpappsBrandName(p)
+	if brandName == "" {
+		brandName = p.Config().Portal.Title
+	}
+	if brandName == "" {
+		brandName = p.Config().Server.Name
+	}
+
 	deps := portal.Deps{
 		AssetStore:    p.PortalAssetStore(),
 		ShareStore:    p.PortalShareStore(),
@@ -508,8 +517,14 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
 		},
-		OIDCEnabled: p.BrowserSessionFlow() != nil,
-		AdminRoles:  adminRoles,
+		OIDCEnabled:        p.BrowserSessionFlow() != nil,
+		AdminRoles:         adminRoles,
+		BrandName:          brandName,
+		BrandLogoSVG:       p.BrandLogoSVG(),
+		BrandURL:           p.BrandURL(),
+		ImplementorName:    p.Config().Portal.Implementor.Name,
+		ImplementorLogoSVG: p.ResolveImplementorLogo(),
+		ImplementorURL:     p.Config().Portal.Implementor.URL,
 	}
 
 	wirePortalOptionalDeps(&deps, p)
@@ -518,6 +533,17 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	log.Println("Portal API enabled on /api/v1/portal/")
+}
+
+// mcpappsBrandName extracts brand_name from the mcpapps platform-info config,
+// or returns empty string if not configured.
+func mcpappsBrandName(p *platform.Platform) string {
+	appCfg, ok := p.Config().MCPApps.Apps["platform-info"]
+	if !ok {
+		return ""
+	}
+	name, _ := appCfg.Config["brand_name"].(string)
+	return name
 }
 
 // wirePortalOptionalDeps populates optional portal dependencies (audit, knowledge, persona).
