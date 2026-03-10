@@ -126,6 +126,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Save Artifact",
 		Description: "Saves an AI-generated artifact (JSX dashboard, HTML report, SVG chart, etc.) " +
 			"to the asset portal for persistence, viewing, and sharing. " +
+			"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
+			"rather than first outputting it to the conversation and then saving separately — " +
+			"this avoids regenerating the entire artifact. " +
 			"Automatically captures provenance (which tool calls produced this artifact).",
 		InputSchema: saveArtifactSchema,
 	}, t.handleSaveArtifact)
