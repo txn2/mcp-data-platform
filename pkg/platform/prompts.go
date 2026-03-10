@@ -155,6 +155,7 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 		Name:        cfg.Name,
 		Description: cfg.Description,
 		Category:    category,
+		Content:     cfg.Content,
 	}
 	for _, arg := range cfg.Arguments {
 		info.Arguments = append(info.Arguments, registry.PromptArgumentInfo{

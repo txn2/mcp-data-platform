@@ -540,6 +540,7 @@ func TestPromptMetadataCollection(t *testing.T) {
 		}
 		customFound = true
 		assert.Equal(t, "A custom prompt", info.Description)
+		assert.Equal(t, "Do {thing}.", info.Content)
 		require.Len(t, info.Arguments, 1)
 		assert.Equal(t, "thing", info.Arguments[0].Name)
 		assert.True(t, info.Arguments[0].Required)
@@ -551,9 +552,10 @@ func TestPromptMetadataCollection(t *testing.T) {
 		assert.NotEqual(t, autoPromptName, info.Name, "platform-overview should not be in collected infos")
 	}
 
-	// Verify categories are set
+	// Verify categories and content are set
 	for _, info := range infos {
 		assert.NotEmpty(t, info.Category, "prompt %q should have a category", info.Name)
+		assert.NotEmpty(t, info.Content, "prompt %q should have content", info.Name)
 	}
 }
 
