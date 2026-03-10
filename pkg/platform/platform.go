@@ -125,10 +125,13 @@ type Platform struct {
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
 	// Portal stores (exposed for REST API in Phase 3)
-	portalAssetStore  portal.AssetStore
-	portalShareStore  portal.ShareStore
-	portalS3Client    portal.S3Client
-	provenanceTracker *middleware.ProvenanceTracker
+	portalAssetStore        portal.AssetStore
+	portalShareStore        portal.ShareStore
+	portalS3Client          portal.S3Client
+	provenanceTracker       *middleware.ProvenanceTracker
+	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
+	resolvedBrandURL        string // cached brand_url from mcpapps platform-info config
+	resolvedImplementorLogo string // cached SVG fetched from portal.implementor.logo
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
@@ -981,23 +984,40 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 // explicitly. When the logo is an SVG URL, it is fetched and inlined as
 // logo_svg so the logo renders in sandboxed contexts (MCP App iframes)
 // that block external resource loading.
+//
+// Also caches brand_url from the app config for use by BrandURL().
 func (p *Platform) injectPortalLogo(cfg any) any {
-	portalLogo := p.config.Portal.Logo
-	if portalLogo == "" {
-		return cfg
-	}
-
 	m, ok := cfg.(map[string]any)
 	if !ok {
 		m = make(map[string]any)
 	}
-	if m["logo_svg"] != nil || m["logo_url"] != nil {
+
+	// Cache brand_url from the mcpapps platform-info config.
+	if brandURL, _ := m["brand_url"].(string); brandURL != "" {
+		p.resolvedBrandURL = brandURL
+	}
+
+	portalLogo := p.config.Portal.Logo
+	if portalLogo == "" {
+		// Still cache logo_svg if present in the app config.
+		if svg, _ := m["logo_svg"].(string); svg != "" {
+			p.resolvedBrandLogoSVG = svg
+		}
+		return m
+	}
+
+	if svg, _ := m["logo_svg"].(string); svg != "" {
+		p.resolvedBrandLogoSVG = svg
+		return m
+	}
+	if m["logo_url"] != nil {
 		return m
 	}
 
 	// Fetch SVG content for inline rendering; fall back to URL on failure.
 	if svg, err := fetchLogoSVG(portalLogo); err == nil {
 		m["logo_svg"] = svg
+		p.resolvedBrandLogoSVG = svg
 	} else {
 		slog.Debug("portal logo fetch failed, using URL", "url", portalLogo, "err", err)
 		m["logo_url"] = portalLogo
@@ -1704,6 +1724,39 @@ func (p *Platform) PortalShareStore() portal.ShareStore {
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.
 func (p *Platform) PortalS3Client() portal.S3Client {
 	return p.portalS3Client
+}
+
+// BrandLogoSVG returns the resolved brand logo SVG content (from portal.logo
+// or mcpapps platform-info config), or empty string if none is configured.
+func (p *Platform) BrandLogoSVG() string {
+	return p.resolvedBrandLogoSVG
+}
+
+// BrandURL returns the resolved brand URL from the mcpapps platform-info
+// config (brand_url), or empty string if not configured.
+func (p *Platform) BrandURL() string {
+	return p.resolvedBrandURL
+}
+
+// ResolveImplementorLogo fetches the implementor logo SVG from the URL
+// configured in portal.implementor.logo. The result is cached so subsequent
+// calls return the same value without another HTTP request. Returns empty
+// string if no logo URL is configured or the fetch fails.
+func (p *Platform) ResolveImplementorLogo() string {
+	logoURL := p.config.Portal.Implementor.Logo
+	if logoURL == "" {
+		return ""
+	}
+	if p.resolvedImplementorLogo != "" {
+		return p.resolvedImplementorLogo
+	}
+	svg, err := fetchLogoSVG(logoURL)
+	if err != nil {
+		slog.Debug("implementor logo fetch failed", "url", logoURL, "err", err)
+		return ""
+	}
+	p.resolvedImplementorLogo = svg
+	return svg
 }
 
 // BrowserSessionFlow returns the OIDC login flow, or nil if browser sessions are disabled.

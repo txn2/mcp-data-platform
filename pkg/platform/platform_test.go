@@ -3870,6 +3870,101 @@ func TestFetchLogoSVG(t *testing.T) {
 	})
 }
 
+func TestBrandURL(t *testing.T) {
+	t.Run("returns empty when not set", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		if got := p.BrandURL(); got != "" {
+			t.Errorf("BrandURL() = %q, want empty", got)
+		}
+	})
+
+	t.Run("returns cached value from injectPortalLogo", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		cfg := map[string]any{"brand_url": "https://example.com"}
+		_ = p.injectPortalLogo(cfg)
+		if got := p.BrandURL(); got != "https://example.com" {
+			t.Errorf("BrandURL() = %q, want %q", got, "https://example.com")
+		}
+	})
+}
+
+func TestInjectPortalLogo_CachesBrandURL(t *testing.T) {
+	t.Run("caches brand_url from config", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		cfg := map[string]any{"brand_url": "https://platform.io"}
+		_ = p.injectPortalLogo(cfg)
+		if p.resolvedBrandURL != "https://platform.io" {
+			t.Errorf("resolvedBrandURL = %q, want %q", p.resolvedBrandURL, "https://platform.io")
+		}
+	})
+
+	t.Run("caches brand_url even without portal logo", func(t *testing.T) {
+		p := &Platform{config: &Config{}} // no Portal.Logo
+		cfg := map[string]any{"brand_url": "https://noportallogo.io", "logo_svg": "<svg/>"}
+		_ = p.injectPortalLogo(cfg)
+		if p.resolvedBrandURL != "https://noportallogo.io" {
+			t.Errorf("resolvedBrandURL = %q, want %q", p.resolvedBrandURL, "https://noportallogo.io")
+		}
+		// Also verify logo_svg was cached even without portal.Logo
+		if p.resolvedBrandLogoSVG != "<svg/>" {
+			t.Errorf("resolvedBrandLogoSVG = %q, want %q", p.resolvedBrandLogoSVG, "<svg/>")
+		}
+	})
+
+	t.Run("does not set brand_url when absent", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		cfg := map[string]any{"brand_name": "Test"}
+		_ = p.injectPortalLogo(cfg)
+		if p.resolvedBrandURL != "" {
+			t.Errorf("resolvedBrandURL = %q, want empty", p.resolvedBrandURL)
+		}
+	})
+}
+
+func TestResolveImplementorLogo(t *testing.T) {
+	svgContent := `<svg viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`
+
+	t.Run("fetches and caches SVG", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(svgContent))
+		}))
+		defer srv.Close()
+
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Implementor: ImplementorConfig{Logo: srv.URL + "/impl.svg"}},
+		}}
+
+		got := p.ResolveImplementorLogo()
+		if got != svgContent {
+			t.Errorf("ResolveImplementorLogo() = %q, want %q", got, svgContent)
+		}
+
+		// Second call should return cached value (no HTTP request)
+		srv.Close()
+		got2 := p.ResolveImplementorLogo()
+		if got2 != svgContent {
+			t.Errorf("cached ResolveImplementorLogo() = %q, want %q", got2, svgContent)
+		}
+	})
+
+	t.Run("returns empty when logo URL is empty", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		if got := p.ResolveImplementorLogo(); got != "" {
+			t.Errorf("ResolveImplementorLogo() = %q, want empty", got)
+		}
+	})
+
+	t.Run("returns empty on fetch failure", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Portal: PortalConfig{Implementor: ImplementorConfig{Logo: "http://127.0.0.1:1/unreachable.svg"}},
+		}}
+		if got := p.ResolveImplementorLogo(); got != "" {
+			t.Errorf("ResolveImplementorLogo() = %q, want empty on fetch failure", got)
+		}
+	})
+}
+
 func TestNew_WorkflowGatingDisabled(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},

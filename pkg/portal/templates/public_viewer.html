@@ -19,9 +19,55 @@
             align-items: center;
             gap: 12px;
         }
-        .header h1 {
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #374151;
+            flex-shrink: 0;
+        }
+        .brand a {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: inherit;
+            text-decoration: none;
+        }
+        .brand a:hover { opacity: 0.8; }
+        .brand-logo {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+        }
+        .brand-logo svg {
+            width: 24px;
+            height: 24px;
+        }
+        .brand-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: #6b7280;
+        }
+        .separator {
+            width: 1px;
+            height: 20px;
+            background: #e5e5e5;
+            flex-shrink: 0;
+        }
+        .header-center {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+        }
+        .header-center h1 {
             font-size: 16px;
             font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .badge {
             font-size: 11px;
@@ -29,6 +75,7 @@
             color: #374151;
             padding: 2px 8px;
             border-radius: 10px;
+            flex-shrink: 0;
         }
         .content {
             max-width: 1200px;
@@ -55,8 +102,26 @@
 </head>
 <body>
     <div class="header">
-        <h1>{{.Name}}</h1>
-        <span class="badge">{{.ContentType}}</span>
+        {{if or .ImplementorName .ImplementorLogoSVG}}
+        <div class="brand brand-implementor">
+            {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+            {{if .ImplementorLogoSVG}}<div class="brand-logo">{{.ImplementorLogoSVG}}</div>{{end}}
+            {{if .ImplementorName}}<span class="brand-name">{{.ImplementorName}}</span>{{end}}
+            {{if .ImplementorURL}}</a>{{end}}
+        </div>
+        <div class="separator"></div>
+        {{end}}
+        <div class="header-center">
+            <h1>{{.Name}}</h1>
+            <span class="badge">{{.ContentType}}</span>
+        </div>
+        <div class="separator"></div>
+        <div class="brand brand-platform">
+            {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+            <div class="brand-logo">{{.BrandLogoSVG}}</div>
+            <span class="brand-name">{{.BrandName}}</span>
+            {{if .BrandURL}}</a>{{end}}
+        </div>
     </div>
     <div class="content">
         {{.Content}}

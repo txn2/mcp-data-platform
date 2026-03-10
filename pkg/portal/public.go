@@ -21,6 +21,26 @@ import (
 // share access counters after the HTTP response has been sent.
 const incrementAccessTimeout = 5 * time.Second
 
+// defaultLogoSVG is the MCP Data Platform logo used in the public viewer header
+// when no brand logo is configured. Matches the platform-info app's default icon.
+//
+//nolint:lll // SVG markup
+const defaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">` +
+	`<circle cx="20" cy="20" r="4.5" fill="currentColor" opacity=".95"/>` +
+	`<circle cx="6"  cy="11" r="3"   fill="currentColor" opacity=".65"/>` +
+	`<circle cx="34" cy="11" r="3"   fill="currentColor" opacity=".65"/>` +
+	`<circle cx="6"  cy="29" r="3"   fill="currentColor" opacity=".45"/>` +
+	`<circle cx="34" cy="29" r="3"   fill="currentColor" opacity=".45"/>` +
+	`<circle cx="20" cy="4"  r="2.2" fill="currentColor" opacity=".55"/>` +
+	`<circle cx="20" cy="36" r="2.2" fill="currentColor" opacity=".35"/>` +
+	`<line x1="20" y1="20" x2="6"  y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>` +
+	`<line x1="20" y1="20" x2="34" y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>` +
+	`<line x1="20" y1="20" x2="6"  y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>` +
+	`<line x1="20" y1="20" x2="34" y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>` +
+	`<line x1="20" y1="20" x2="20" y2="4"  stroke="currentColor" stroke-width="1.4" opacity=".28"/>` +
+	`<line x1="20" y1="20" x2="20" y2="36" stroke="currentColor" stroke-width="1.4" opacity=".18"/>` +
+	`</svg>`
+
 //go:embed templates/public_viewer.html
 var templateFS embed.FS
 
@@ -70,10 +90,26 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 	csp := publicCSP(asset.ContentType)
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	brandName := h.deps.BrandName
+	if brandName == "" {
+		brandName = "MCP Data Platform"
+	}
+	brandLogo := h.deps.BrandLogoSVG
+	if brandLogo == "" {
+		brandLogo = defaultLogoSVG
+	}
+
 	_ = viewerTemplate.Execute(w, map[string]any{
-		"Name":        asset.Name,
-		"ContentType": asset.ContentType,
-		"Content":     template.HTML(rendered), // #nosec G203 -- content is sanitized by renderContent
+		"Name":               asset.Name,
+		"ContentType":        asset.ContentType,
+		"Content":            template.HTML(rendered), // #nosec G203 -- content is sanitized by renderContent
+		"BrandName":          brandName,
+		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator-provided SVG from config, not user input
+		"BrandURL":           h.deps.BrandURL,
+		"ImplementorName":    h.deps.ImplementorName,
+		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
+		"ImplementorURL":     h.deps.ImplementorURL,
 	})
 }
 
@@ -189,7 +225,7 @@ func publicCSP(contentType string) string {
 			"font-src data: https://fonts.gstatic.com; " +
 			"connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;"
 	}
-	return "default-src 'none'; style-src 'unsafe-inline'; img-src data:;"
+	return "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;"
 }
 
 // jsxSrcdocTpl is parsed once at init. It renders the JSX viewer HTML
