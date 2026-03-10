@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -556,6 +557,54 @@ func TestPromptMetadataCollection(t *testing.T) {
 	for _, info := range infos {
 		assert.NotEmpty(t, info.Category, "prompt %q should have a category", info.Name)
 		assert.NotEmpty(t, info.Content, "prompt %q should have content", info.Name)
+	}
+}
+
+func TestPromptContentInJSON(t *testing.T) {
+	reg := registry.NewRegistry()
+	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{
+		Name:    "test-server",
+		Version: "1.0.0",
+	}, nil)
+
+	p := &Platform{
+		mcpServer:       mcpServer,
+		toolkitRegistry: reg,
+		config: &Config{
+			Server: ServerConfig{
+				Description: "Test.",
+				Prompts: []PromptConfig{
+					{
+						Name:        "my-prompt",
+						Description: "My prompt",
+						Content:     "Do the thing about {topic}.",
+						Arguments: []PromptArgumentConfig{
+							{Name: "topic", Description: "The topic", Required: true},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p.registerPlatformPrompts()
+
+	infos := p.allPromptInfos()
+
+	data, err := json.Marshal(infos)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+	assert.Contains(t, jsonStr, `"content"`, "JSON output must include content field")
+	assert.Contains(t, jsonStr, "Do the thing about {topic}.", "JSON output must include prompt template text")
+
+	// Workflow prompts should also have content in the JSON
+	for _, info := range infos {
+		if info.Category == "workflow" {
+			assert.NotEmpty(t, info.Content, "workflow prompt %q must have content", info.Name)
+		}
 	}
 }
 

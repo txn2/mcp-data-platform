@@ -192,11 +192,13 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 			Name:        saveAssetPromptName,
 			Description: "Save an artifact from this conversation as a viewable, shareable asset",
 			Category:    "toolkit",
+			Content:     saveAssetPromptContent,
 		},
 		{
 			Name:        showAssetsPromptName,
 			Description: "Browse your saved artifacts and assets",
 			Category:    "toolkit",
+			Content:     showAssetsPromptContent,
 		},
 	}
 }
