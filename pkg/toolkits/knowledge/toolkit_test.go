@@ -3020,9 +3020,11 @@ func TestPromptInfos(t *testing.T) {
 
 	assert.Equal(t, promptName, infos[0].Name)
 	assert.NotEmpty(t, infos[0].Description)
+	assert.Equal(t, "toolkit", infos[0].Category)
 
 	assert.Equal(t, userPromptName, infos[1].Name)
 	assert.NotEmpty(t, infos[1].Description)
+	assert.Equal(t, "toolkit", infos[1].Category)
 }
 
 func TestRegisterPrompts(t *testing.T) {

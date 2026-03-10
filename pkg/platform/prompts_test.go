@@ -546,14 +546,15 @@ func TestPromptMetadataCollection(t *testing.T) {
 	}
 	assert.True(t, customFound, "custom-prompt should be in collected infos")
 
-	// Find platform-overview (auto-registered because Description is set)
-	var overviewFound bool
+	// platform-overview should NOT be in collected infos (excluded for copy UX)
 	for _, info := range infos {
-		if info.Name == autoPromptName {
-			overviewFound = true
-		}
+		assert.NotEqual(t, autoPromptName, info.Name, "platform-overview should not be in collected infos")
 	}
-	assert.True(t, overviewFound, "platform-overview should be in collected infos")
+
+	// Verify categories are set
+	for _, info := range infos {
+		assert.NotEmpty(t, info.Category, "prompt %q should have a category", info.Name)
+	}
 }
 
 func TestCollectToolkitPromptInfos(t *testing.T) {

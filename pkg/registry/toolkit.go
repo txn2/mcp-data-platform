@@ -48,6 +48,7 @@ type AggregateToolkitFactory func(defaultName string, instances map[string]map[s
 type PromptInfo struct {
 	Name        string               `json:"name"`
 	Description string               `json:"description"`
+	Category    string               `json:"category,omitempty"`
 	Arguments   []PromptArgumentInfo `json:"arguments,omitempty"`
 }
 

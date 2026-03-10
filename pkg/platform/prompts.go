@@ -27,7 +27,7 @@ const (
 func (p *Platform) registerPlatformPrompts() {
 	p.registerAutoPrompt()
 	for _, promptCfg := range p.config.Server.Prompts {
-		p.registerPrompt(promptCfg)
+		p.registerPromptWithCategory(promptCfg, "custom")
 	}
 	p.registerWorkflowPrompts()
 }
@@ -58,10 +58,8 @@ func (p *Platform) registerAutoPrompt() {
 		return buildPromptResult(content), nil
 	})
 
-	p.promptInfos = append(p.promptInfos, registry.PromptInfo{
-		Name:        autoPromptName,
-		Description: "Overview of this data platform — what it covers and how to use it",
-	})
+	// platform-overview is auto-invoked; it is not included in promptInfos
+	// because copy-to-clipboard makes no sense for it.
 }
 
 // buildDynamicOverviewContent builds the platform overview content dynamically
@@ -127,9 +125,10 @@ func (p *Platform) collectCapabilityBullets() []string {
 	return caps
 }
 
-// registerPrompt registers a single prompt with the MCP server,
-// supporting argument substitution in content.
-func (p *Platform) registerPrompt(cfg PromptConfig) {
+// registerPromptWithCategory registers a single prompt with the MCP server,
+// supporting argument substitution in content. The category is stored in
+// prompt metadata for frontend grouping (e.g., "workflow", "custom", "toolkit").
+func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string) {
 	promptContent := cfg.Content
 
 	// Build MCP prompt arguments
@@ -155,6 +154,7 @@ func (p *Platform) registerPrompt(cfg PromptConfig) {
 	info := registry.PromptInfo{
 		Name:        cfg.Name,
 		Description: cfg.Description,
+		Category:    category,
 	}
 	for _, arg := range cfg.Arguments {
 		info.Arguments = append(info.Arguments, registry.PromptArgumentInfo{
@@ -277,7 +277,7 @@ func (p *Platform) registerWorkflowPrompts() {
 			continue
 		}
 
-		p.registerPrompt(wp.config)
+		p.registerPromptWithCategory(wp.config, "workflow")
 	}
 }
 
