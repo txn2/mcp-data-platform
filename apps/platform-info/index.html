@@ -616,11 +616,18 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             margin-bottom: 6px;
         }
 
-        .prompt-card-name {
-            font-family: var(--font-mono);
-            font-size: 13px;
+        .prompt-card-title {
+            font-size: 13.5px;
             font-weight: 600;
             color: var(--text);
+            line-height: 1.3;
+        }
+
+        .prompt-card-slug {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 2px;
         }
 
         .prompt-card-desc {
@@ -628,6 +635,19 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             color: var(--muted);
             line-height: 1.5;
             margin-bottom: 8px;
+        }
+
+        .prompt-section-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            margin-top: 4px;
+        }
+        .prompt-section-header:not(:first-child) {
+            margin-top: 16px;
         }
 
         .prompt-card-args {
@@ -750,7 +770,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                 </div>
             </div>
             <div id="tab-prompts" class="tab-pane">
-                <div class="tab-intro">Available prompts — select one to copy the prompt text with arguments filled in.</div>
+                <div class="tab-intro" id="prompt-intro"></div>
                 <div id="prompt-list" class="prompt-cards"></div>
             </div>
             <div id="tab-agent-instructions" class="tab-pane">
@@ -1079,7 +1099,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         // Prompts tab
         if (d.prompts && d.prompts.length) {
-            renderPrompts(d.prompts);
+            renderPrompts(d.prompts, brandName);
             document.getElementById('tab-btn-prompts').classList.remove('hidden');
         }
 
@@ -1093,42 +1113,83 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     // Prompt data stored for copy
     var _prompts = [];
 
-    function renderPrompts(prompts) {
+    function humanize(slug) {
+        return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+
+    function renderPrompts(prompts, platformName) {
         _prompts = prompts;
-        var el = document.getElementById('prompt-list');
-        el.innerHTML = prompts.map(function(p, idx) {
-            var argsHtml = '';
-            if (p.arguments && p.arguments.length) {
-                argsHtml = '<div class="prompt-card-args">'
-                    + p.arguments.map(function(a) {
-                        return '<div class="prompt-arg-row">'
-                            + '<span class="prompt-arg-label">' + esc(a.name)
-                            + (a.required ? '<span class="req">*</span>' : '')
-                            + '</span>'
-                            + '<input class="prompt-arg-input" data-prompt="' + idx
-                            + '" data-arg="' + esc(a.name)
-                            + '" placeholder="' + esc(a.description || a.name) + '">'
-                            + '</div>';
-                    }).join('')
-                    + '</div>';
+
+        // Set intro text
+        platformName = platformName || 'This platform';
+        document.getElementById('prompt-intro').textContent =
+            platformName + ' has many capabilities built in, including the ability to find insights in your data, visualize it, generate reports, and more. Use the prompts below to kick off common workflows or copy a prompt name to invoke it in your MCP client.';
+
+        // Group by category
+        var workflows = [];
+        var quickActions = [];
+        prompts.forEach(function(p, idx) {
+            p._idx = idx;
+            if (p.category === 'workflow' || (p.arguments && p.arguments.length)) {
+                workflows.push(p);
+            } else {
+                quickActions.push(p);
             }
-            return '<div class="prompt-card">'
-                + '<div class="prompt-card-header">'
-                + '<span class="prompt-card-name">' + esc(p.name) + '</span>'
-                + '<button class="prompt-copy-btn" onclick="copyPrompt(' + idx + ', this)">Copy</button>'
-                + '</div>'
-                + (p.description ? '<div class="prompt-card-desc">' + esc(p.description) + '</div>' : '')
-                + argsHtml
+        });
+
+        var el = document.getElementById('prompt-list');
+        var html = '';
+        var hasMultipleSections = workflows.length > 0 && quickActions.length > 0;
+
+        if (workflows.length > 0) {
+            if (hasMultipleSections) {
+                html += '<div class="prompt-section-header">Workflows</div>';
+            }
+            html += workflows.map(renderPromptCard).join('');
+        }
+        if (quickActions.length > 0) {
+            if (hasMultipleSections) {
+                html += '<div class="prompt-section-header">Quick Actions</div>';
+            }
+            html += quickActions.map(renderPromptCard).join('');
+        }
+        el.innerHTML = html;
+    }
+
+    function renderPromptCard(p) {
+        var idx = p._idx;
+        var argsHtml = '';
+        if (p.arguments && p.arguments.length) {
+            argsHtml = '<div class="prompt-card-args">'
+                + p.arguments.map(function(a) {
+                    return '<div class="prompt-arg-row">'
+                        + '<span class="prompt-arg-label">' + esc(a.name)
+                        + (a.required ? '<span class="req">*</span>' : '')
+                        + '</span>'
+                        + '<input class="prompt-arg-input" data-prompt="' + idx
+                        + '" data-arg="' + esc(a.name)
+                        + '" placeholder="' + esc(a.description || a.name) + '">'
+                        + '</div>';
+                }).join('')
                 + '</div>';
-        }).join('');
+        }
+        return '<div class="prompt-card">'
+            + '<div class="prompt-card-header">'
+            + '<div>'
+            + '<div class="prompt-card-title">' + esc(humanize(p.name)) + '</div>'
+            + '<div class="prompt-card-slug">' + esc(p.name) + '</div>'
+            + '</div>'
+            + '<button class="prompt-copy-btn" onclick="copyPrompt(' + idx + ', this)">Copy</button>'
+            + '</div>'
+            + (p.description ? '<div class="prompt-card-desc">' + esc(p.description) + '</div>' : '')
+            + argsHtml
+            + '</div>';
     }
 
     function copyPrompt(idx, btn) {
         var p = _prompts[idx];
         if (!p) { return; }
-        // Resolve prompt name as the text to copy (users paste as /prompt invocation)
         var text = p.name;
-        // If prompt has args, collect values and append
         if (p.arguments && p.arguments.length) {
             var inputs = document.querySelectorAll('input[data-prompt="' + idx + '"]');
             var parts = [];

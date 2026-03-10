@@ -34,6 +34,55 @@
       "display_name": "Administrator",
       "description": "Full platform access for demo"
     },
+    "prompts": [
+      {
+        "name": "explore-available-data",
+        "description": "Discover what data is available about a topic",
+        "category": "workflow",
+        "arguments": [
+          {"name": "topic", "description": "What topic or subject area?", "required": true}
+        ]
+      },
+      {
+        "name": "create-interactive-dashboard",
+        "description": "Discover data, build a visualization, and save it as a shareable asset",
+        "category": "workflow",
+        "arguments": [
+          {"name": "topic", "description": "What should the dashboard visualize?", "required": true}
+        ]
+      },
+      {
+        "name": "create-a-report",
+        "description": "Analyze data and produce a structured Markdown report",
+        "category": "workflow",
+        "arguments": [
+          {"name": "topic", "description": "What should the report cover?", "required": true}
+        ]
+      },
+      {
+        "name": "trace-data-lineage",
+        "description": "Trace where data comes from and what depends on it",
+        "category": "workflow",
+        "arguments": [
+          {"name": "dataset", "description": "Which dataset or column to trace?", "required": true}
+        ]
+      },
+      {
+        "name": "save-this-as-an-asset",
+        "description": "Save an artifact from this conversation as a viewable, shareable asset",
+        "category": "toolkit"
+      },
+      {
+        "name": "show-my-saved-assets",
+        "description": "Browse your saved artifacts and assets",
+        "category": "toolkit"
+      },
+      {
+        "name": "capture-this-as-knowledge",
+        "description": "Record insights from this conversation for data catalog improvement",
+        "category": "toolkit"
+      }
+    ],
     "features": {
       "semantic_enrichment": true,
       "query_enrichment": true,
