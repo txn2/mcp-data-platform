@@ -611,7 +611,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                     </div>
                 </div>
                 <div class="hero-actions">
-                    <a id="portal-btn" class="portal-btn hidden" target="_blank" rel="noopener noreferrer">Open Portal</a>
+                    <a id="portal-btn" class="portal-btn hidden">Open Portal</a>
                     <div id="vpill" class="vpill">—</div>
                 </div>
             </div>
@@ -798,6 +798,35 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         return md.parse(text);
     }
 
+    // Shared helper: open any external link via MCP Apps ui/open-link,
+    // falling back to window.open if the host does not respond.
+    function openLink(url) {
+        var openId = rid++;
+        var fallbackTimer = setTimeout(function() {
+            window.open(url, '_blank');
+            window.removeEventListener('message', onResp);
+        }, 300);
+        function onResp(ev) {
+            if (ev.data && ev.data.id === openId) {
+                clearTimeout(fallbackTimer);
+                window.removeEventListener('message', onResp);
+            }
+        }
+        window.addEventListener('message', onResp);
+        send({ jsonrpc: '2.0', id: openId, method: 'ui/open-link',
+               params: { url: url } });
+    }
+
+    // Intercept all <a> clicks inside #content so every link uses ui/open-link.
+    document.getElementById('content').addEventListener('click', function(e) {
+        var anchor = e.target.closest ? e.target.closest('a[href]') : null;
+        if (!anchor) { return; }
+        var href = anchor.getAttribute('href');
+        if (!href || href === '#') { return; }
+        e.preventDefault();
+        openLink(href);
+    });
+
     // Tab switching
     function showTab(name) {
         document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
@@ -837,7 +866,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         // Logo — wrapped in link if brand_url is set
         var logoEl = document.getElementById('logo');
         if (brandUrl) {
-            logoEl.innerHTML = '<a href="' + esc(brandUrl) + '" target="_blank" rel="noopener noreferrer">'
+            logoEl.innerHTML = '<a href="' + esc(brandUrl) + '">'
                 + logoMarkup + '</a>';
         } else {
             logoEl.innerHTML = logoMarkup;
@@ -846,7 +875,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         // Brand name — wrapped in link if brand_url is set
         var brandEl = document.getElementById('brand');
         if (brandUrl) {
-            brandEl.innerHTML = '<a href="' + esc(brandUrl) + '" target="_blank" rel="noopener noreferrer">'
+            brandEl.innerHTML = '<a href="' + esc(brandUrl) + '">'
                 + esc(brandName) + '</a>';
         } else {
             brandEl.textContent = brandName;
@@ -858,28 +887,10 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         // Version pill
         document.getElementById('vpill').textContent = d.version ? ('v' + d.version) : '—';
 
-        // Portal button — tries MCP Apps ui/open-link, falls back to window.open
+        // Portal button — handled by the delegated #content click handler via openLink()
         if (d.portal_url) {
             var portalBtn = document.getElementById('portal-btn');
             portalBtn.href = d.portal_url;
-            portalBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                var openId = rid++;
-                var fallbackTimer = setTimeout(function() {
-                    window.open(d.portal_url, '_blank');
-                    window.removeEventListener('message', onOpenResponse);
-                }, 300);
-                // If host responds to ui/open-link, cancel the fallback
-                function onOpenResponse(ev) {
-                    if (ev.data && ev.data.id === openId) {
-                        clearTimeout(fallbackTimer);
-                        window.removeEventListener('message', onOpenResponse);
-                    }
-                }
-                window.addEventListener('message', onOpenResponse);
-                send({ jsonrpc: '2.0', id: openId, method: 'ui/open-link',
-                       params: { url: d.portal_url } });
-            });
             portalBtn.classList.remove('hidden');
         }
 
