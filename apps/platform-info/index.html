@@ -611,7 +611,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                     </div>
                 </div>
                 <div class="hero-actions">
-                    <a id="portal-btn" class="portal-btn hidden">Open Portal</a>
+                    <a id="portal-btn" class="portal-btn hidden" target="_blank" rel="noopener noreferrer">Open Portal</a>
                     <div id="vpill" class="vpill">—</div>
                 </div>
             </div>
@@ -867,6 +867,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
                 var openId = rid++;
                 var fallbackTimer = setTimeout(function() {
                     window.open(d.portal_url, '_blank');
+                    window.removeEventListener('message', onOpenResponse);
                 }, 300);
                 // If host responds to ui/open-link, cancel the fallback
                 function onOpenResponse(ev) {

@@ -495,9 +495,10 @@ func TestInfoPlatformToolkitPrepended(t *testing.T) {
 		cfg := Config{
 			Server: ServerConfig{Name: "custom-desc-test", Version: testInfoVersion},
 			Toolkits: map[string]any{
-				"trino": map[string]any{
-					"description": "Custom Trino desc",
+				"platform": map[string]any{
+					"description": "Our custom platform description",
 				},
+				"trino": map[string]any{},
 			},
 		}
 		p := &Platform{config: &cfg, personaRegistry: persona.NewRegistry()}
@@ -506,6 +507,7 @@ func TestInfoPlatformToolkitPrepended(t *testing.T) {
 		require.NoError(t, err)
 		info := requireInfoFromResult(t, result)
 		assert.Equal(t, "platform", info.Toolkits[0])
+		assert.Equal(t, "Our custom platform description", info.ToolkitDescriptions["platform"])
 		assert.Contains(t, info.Toolkits, "trino")
 	})
 }
