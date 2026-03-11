@@ -166,6 +166,8 @@ export function useCreateShare() {
       expires_in?: string;
       shared_with_user_id?: string;
       shared_with_email?: string;
+      hide_expiration?: boolean;
+      notice_text?: string;
     }) =>
       apiFetch<ShareResponse>(`/assets/${assetId}/shares`, {
         method: "POST",

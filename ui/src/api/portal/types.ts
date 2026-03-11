@@ -40,6 +40,8 @@ export interface Share {
   access_count: number;
   last_accessed_at?: string;
   created_at: string;
+  hide_expiration?: boolean;
+  notice_text?: string;
 }
 
 export interface SharedAsset {

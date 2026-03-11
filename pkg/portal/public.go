@@ -353,11 +353,11 @@ func jsxIframe(data []byte) string {
 		"Source": template.JS(encoded), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe for JS
 	})
 
-	return blobIframe(inner.String(), "width:100%;height:80vh;border:none;")
+	return blobIframe(inner.String(), "width:100%;border:none;")
 }
 
 func sandboxedIframe(data []byte) string {
-	return blobIframe(string(data), "width:100%;height:80vh;border:none;")
+	return blobIframe(string(data), "width:100%;border:none;")
 }
 
 // blobIframe wraps HTML content in a sandboxed iframe that loads via blob: URL.
