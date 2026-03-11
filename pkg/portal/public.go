@@ -222,18 +222,33 @@ func sanitizeSVG(data []byte) string {
 }
 
 // publicCSP returns the Content-Security-Policy header value for public view.
-// JSX content needs a relaxed policy to load React from esm.sh.
+//
+// blob: URL iframes inherit the creating document's CSP in modern browsers
+// (Chromium, Firefox). Because user-uploaded HTML may reference ANY external
+// CDN (Chart.js, D3, Plotly, Google Fonts, etc.), the CSP must allow external
+// script/style/font/image sources. Security isolation for the embedded content
+// is provided by the iframe's sandbox="allow-scripts" attribute, not by CSP.
 func publicCSP(contentType string) string {
+	// Both JSX and HTML content need access to external resources.
+	// JSX specifically needs esm.sh for React/Recharts module imports.
 	if strings.Contains(strings.ToLower(contentType), "jsx") {
 		return "default-src 'none'; " +
 			"frame-src blob: data:; " +
-			"script-src 'unsafe-eval' 'unsafe-inline' blob: https://esm.sh; " +
-			"style-src 'unsafe-inline' https://fonts.googleapis.com; " +
-			"img-src data: blob:; " +
-			"font-src data: https://fonts.gstatic.com; " +
-			"connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;"
+			"script-src 'unsafe-eval' 'unsafe-inline' blob: https: http:; " +
+			"style-src 'unsafe-inline' https:; " +
+			"img-src * data: blob:; " +
+			"font-src * data:; " +
+			"connect-src https: http:;"
 	}
-	return "default-src 'none'; frame-src blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;"
+	// HTML content may embed scripts from any CDN (Chart.js, D3, Plotly, etc.).
+	// The restrictive policy must still allow these external loads.
+	return "default-src 'none'; " +
+		"frame-src blob: data:; " +
+		"script-src 'unsafe-inline' 'unsafe-eval' blob: https: http:; " +
+		"style-src 'unsafe-inline' https:; " +
+		"img-src * data: blob:; " +
+		"font-src * data:; " +
+		"connect-src https: http:;"
 }
 
 // jsxInnerTpl is parsed once at init. It renders the JSX viewer HTML
@@ -361,9 +376,10 @@ func sandboxedIframe(data []byte) string {
 }
 
 // blobIframe wraps HTML content in a sandboxed iframe that loads via blob: URL.
-// Unlike srcdoc, blob: URL iframes do NOT inherit the parent page's CSP, so
-// inline scripts that import from external origins (e.g., esm.sh) can execute.
-// The sandbox="allow-scripts" attribute remains for security isolation.
+// NOTE: blob: URL iframes DO inherit the creating document's CSP in modern
+// browsers — publicCSP() must therefore allow external resources that the
+// embedded content may reference. The sandbox="allow-scripts" attribute
+// provides the actual security isolation (opaque origin, no top navigation).
 func blobIframe(content, iframeStyle string) string {
 	// json.Marshal safely encodes the content as a JSON string, escaping
 	// </script> as \u003c/script\u003e to prevent breakout.
