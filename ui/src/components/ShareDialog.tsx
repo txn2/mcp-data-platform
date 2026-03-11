@@ -1,6 +1,6 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Link, Trash2, Check, Copy } from "lucide-react";
+import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { useShares, useCreateShare, useRevokeShare } from "@/api/portal/hooks";
 
 interface Props {
@@ -30,9 +30,17 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [showOptions, setShowOptions] = useState(false);
+  const [hideExpiration, setHideExpiration] = useState(false);
+  const [noticeText, setNoticeText] = useState("");
 
   function handleCreatePublicLink() {
-    createShare.mutate({ assetId, expires_in: ttl });
+    createShare.mutate({
+      assetId,
+      expires_in: ttl,
+      ...(hideExpiration && { hide_expiration: true }),
+      ...(noticeText.trim() && { notice_text: noticeText.trim() }),
+    });
   }
 
   function handleShareWithUser() {
@@ -96,6 +104,40 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                 Create Link
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowOptions((v) => !v)}
+              className="flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showOptions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              Options
+            </button>
+            {showOptions && (
+              <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={hideExpiration}
+                    onChange={(e) => setHideExpiration(e.target.checked)}
+                    className="rounded border-input"
+                  />
+                  Hide expiration notice
+                </label>
+                <div>
+                  <label className="text-sm text-muted-foreground" htmlFor="notice-text">
+                    Notice text
+                  </label>
+                  <input
+                    id="notice-text"
+                    type="text"
+                    placeholder="Custom notice shown on the public page"
+                    value={noticeText}
+                    onChange={(e) => setNoticeText(e.target.value)}
+                    className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Share with user */}

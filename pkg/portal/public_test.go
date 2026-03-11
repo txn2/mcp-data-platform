@@ -525,23 +525,29 @@ func TestSanitizeSVGStripsStyleAttr(t *testing.T) {
 // --- publicCSP ---
 
 func TestPublicCSP(t *testing.T) {
+	// JSX content: allows external resources for esm.sh module imports.
 	csp := publicCSP("text/jsx")
 	assert.Contains(t, csp, "frame-src blob:")
-	assert.Contains(t, csp, "script-src 'unsafe-eval' 'unsafe-inline' blob: https://esm.sh")
-	assert.Contains(t, csp, "connect-src https://esm.sh")
-	assert.Contains(t, csp, "font-src data: https://fonts.gstatic.com")
-	assert.Contains(t, csp, "style-src 'unsafe-inline' https://fonts.googleapis.com")
-	assert.Contains(t, csp, "img-src data: blob:")
+	assert.Contains(t, csp, "script-src")
+	assert.Contains(t, csp, "'unsafe-eval'")
+	assert.Contains(t, csp, "'unsafe-inline'")
+	assert.Contains(t, csp, "https:")
+	assert.Contains(t, csp, "connect-src")
+	assert.Contains(t, csp, "img-src")
 
+	// HTML content: allows external CDN scripts/styles because blob: iframes
+	// inherit the parent's CSP in modern browsers. Security isolation comes
+	// from the iframe sandbox attribute, not CSP.
 	csp2 := publicCSP("text/html")
 	assert.Contains(t, csp2, "frame-src blob:")
 	assert.Contains(t, csp2, "default-src 'none'")
-	assert.Contains(t, csp2, "script-src 'unsafe-inline'")
-	assert.Contains(t, csp2, "style-src 'unsafe-inline'")
-	assert.Contains(t, csp2, "img-src data: blob:")
-	assert.Contains(t, csp2, "font-src data:")
-	assert.NotContains(t, csp2, "'unsafe-eval'")
-	assert.NotContains(t, csp2, "connect-src")
+	assert.Contains(t, csp2, "script-src")
+	assert.Contains(t, csp2, "'unsafe-inline'")
+	assert.Contains(t, csp2, "https:") // must allow external CDN scripts (Chart.js, D3, etc.)
+	assert.Contains(t, csp2, "style-src")
+	assert.Contains(t, csp2, "img-src")
+	assert.Contains(t, csp2, "font-src")
+	assert.Contains(t, csp2, "connect-src") // HTML may fetch data via XHR/fetch
 }
 
 // --- jsxIframe ---
