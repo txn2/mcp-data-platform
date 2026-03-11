@@ -14,7 +14,11 @@
             --badge-bg: #e5e7eb;
             --badge-text: #374151;
             --toggle-hover: #f3f4f6;
-            /* shadcn HSL variables — required by SPA CSS */
+            /* shadcn HSL variables — required by SPA CSS.
+               These intentionally differ from the SPA's index.css values
+               to produce a neutral (non-blue-tinted) palette for the
+               standalone public viewer. The SPA uses blue-tinted grays;
+               the public viewer uses pure grays for a cleaner look. */
             --background: 0 0% 96%;
             --foreground: 0 0% 10%;
             --card: 0 0% 100%;
@@ -34,7 +38,7 @@
             --badge-bg: #27272a;
             --badge-text: #a1a1aa;
             --toggle-hover: #27272a;
-            /* shadcn HSL variables — required by SPA CSS */
+            /* shadcn HSL variables — see light-mode comment above */
             --background: 240 6% 6%;
             --foreground: 240 5% 90%;
             --card: 240 5% 11%;

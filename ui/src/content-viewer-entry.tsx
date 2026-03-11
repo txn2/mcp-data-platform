@@ -13,7 +13,10 @@ if (dataEl) {
   }
 }
 
-// Bridge data-theme attribute (public viewer) to .dark class (Tailwind).
+// Bridge data-theme attribute to .dark class for Tailwind's dark: variant.
+// The public viewer template already toggles .dark in its own applyTheme(),
+// but this observer is a defensive fallback for any host page that sets
+// data-theme without also toggling the class (e.g. third-party embeds).
 function syncDarkClass() {
   const dark =
     document.documentElement.getAttribute("data-theme") === "dark";

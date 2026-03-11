@@ -22,10 +22,17 @@ var JS string
 var CSS string
 
 func init() {
-	if data, err := fs.ReadFile(distFS, "dist/content-viewer.js"); err == nil {
-		JS = string(data)
+	JS, CSS = loadBundles(distFS)
+}
+
+// loadBundles reads the JS and CSS bundles from the given filesystem.
+// Returns empty strings for any file that does not exist.
+func loadBundles(fsys fs.FS) (js, css string) {
+	if data, err := fs.ReadFile(fsys, "dist/content-viewer.js"); err == nil {
+		js = string(data)
 	}
-	if data, err := fs.ReadFile(distFS, "dist/content-viewer.css"); err == nil {
-		CSS = string(data)
+	if data, err := fs.ReadFile(fsys, "dist/content-viewer.css"); err == nil {
+		css = string(data)
 	}
+	return js, css
 }

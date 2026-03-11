@@ -1,6 +1,6 @@
 // Quick preview server for the content viewer. Run:
 //
-//	go run /tmp/preview-content-viewer.go
+//	go run ./cmd/preview-content-viewer
 //
 // Then open http://localhost:9090
 package main
@@ -79,10 +79,12 @@ var samples = map[string][2]string{
 	"plain":    {"text/plain", "This is plain text content.\nIt should be displayed in a <pre> block.\n\nSpecial chars: <script>alert('xss')</script> & \"quotes\""},
 }
 
-func main() {
-	tpl := template.Must(template.New("viewer").Parse(viewerHTML))
+var viewerTpl = template.Must(template.New("viewer").Parse(viewerHTML))
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+// newHandler returns the HTTP handler that renders the preview page.
+// Extracted from main() so it can be tested.
+func newHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		typ := r.URL.Query().Get("type")
 		if typ == "" {
 			typ = "markdown"
@@ -92,20 +94,24 @@ func main() {
 			sample = samples["markdown"]
 		}
 
-		contentJSON, _ := json.Marshal(map[string]string{
+		contentJSON, _ := json.Marshal(map[string]string{ // #nosec G104 -- string map marshaling cannot fail
 			"contentType": sample[0],
 			"content":     sample[1],
 		})
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = tpl.Execute(w, map[string]any{
+		_ = viewerTpl.Execute(w, map[string]any{ // #nosec G104 -- template execution on ResponseWriter; error is logged by http.Server
 			"Name":             fmt.Sprintf("Preview: %s", typ),
 			"ContentType":      sample[0],
 			"ContentJSON":      template.JS(contentJSON),        // #nosec G203 -- dev-only preview with static samples
 			"ContentViewerJS":  template.JS(contentviewer.JS),   // #nosec G203 -- embedded bundle, not user input
 			"ContentViewerCSS": template.CSS(contentviewer.CSS), // #nosec G203 -- embedded bundle, not user input
 		})
-	})
+	}
+}
+
+func main() {
+	http.Handle("/", newHandler())
 
 	fmt.Println("Preview server at http://localhost:9090")
 	fmt.Println("  http://localhost:9090/?type=markdown")

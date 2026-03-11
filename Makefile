@@ -312,13 +312,12 @@ frontend-build: frontend-install
 	@cp -r $(UI_DIR)/dist/* $(UI_EMBED_DIR)/
 	@rm -f $(UI_EMBED_DIR)/mockServiceWorker.js
 	@echo "SPA built and embedded."
-	@echo "Building content viewer (JS only)..."
 	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
 	@mkdir -p $(CV_EMBED_DIR)
 	@cp $(UI_DIR)/dist-content-viewer/content-viewer.js $(CV_EMBED_DIR)/
 	@echo "Copying SPA CSS as content-viewer CSS..."
-	@SPA_CSS=$$(ls $(UI_DIR)/dist/assets/index-*.css 2>/dev/null | head -1); \
-	if [ -z "$$SPA_CSS" ]; then echo "ERROR: SPA CSS not found"; exit 1; fi; \
+	@SPA_CSS=$$(find $(UI_DIR)/dist/assets -maxdepth 1 -name '*.css' -print -quit 2>/dev/null); \
+	if [ -z "$$SPA_CSS" ]; then echo "ERROR: SPA CSS not found in $(UI_DIR)/dist/assets/"; exit 1; fi; \
 	cp "$$SPA_CSS" $(CV_EMBED_DIR)/content-viewer.css
 	@echo "Frontend build complete."
 

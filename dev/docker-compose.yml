@@ -26,7 +26,7 @@ services:
       retries: 10
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:3.88@sha256:98e034880fed76fdf508b20cae9de57b0e1f93f5910c89a94fe936af91c59abe
     container_name: acme-dev-seaweedfs
     command: 'server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data -volume.max=5'
     ports:
