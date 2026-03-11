@@ -54,6 +54,8 @@ type Share struct {
 	SharedWithEmail  string     `json:"shared_with_email,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	Revoked          bool       `json:"revoked"`
+	HideExpiration   bool       `json:"hide_expiration"`
+	NoticeText       string     `json:"notice_text"`
 	AccessCount      int        `json:"access_count"`
 	LastAccessedAt   *time.Time `json:"last_accessed_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
@@ -160,6 +162,17 @@ func ValidateTags(tags []string) error {
 func ValidateDescription(desc string) error {
 	if len(desc) > maxDescriptionLength {
 		return fmt.Errorf("description exceeds %d characters", maxDescriptionLength)
+	}
+	return nil
+}
+
+// maxNoticeTextLength is the maximum length for share notice text.
+const maxNoticeTextLength = 500
+
+// ValidateNoticeText checks that notice text is within length limits.
+func ValidateNoticeText(text string) error {
+	if len(text) > maxNoticeTextLength {
+		return fmt.Errorf("notice_text exceeds %d characters", maxNoticeTextLength)
 	}
 	return nil
 }

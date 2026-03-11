@@ -30,6 +30,34 @@ Customize the sidebar title and logo via `portal.title`, `portal.logo`, `portal.
 
 The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Logos should be square SVGs for best results.
 
+### Public Viewer Branding
+
+Shared artifact links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.title` and `portal.logo`). The **left zone** is an optional implementor brand for the organization deploying the platform:
+
+```yaml
+portal:
+  implementor:
+    name: "ACME Corp"                    # Display name (left zone of public viewer header)
+    logo: "https://acme.com/logo.svg"    # URL to SVG logo (fetched once at startup, max 1 MB)
+    url: "https://acme.com"              # Clickable link wrapping name + logo
+```
+
+All three fields are optional. When omitted, the left zone is hidden and only the platform brand appears. The logo URL must point to an SVG file; it is fetched at server startup and inlined into the HTML.
+
+### Public Viewer Features
+
+The public viewer includes:
+
+- **Light/dark mode** — Defaults to the system `prefers-color-scheme` setting. A toggle button in the header allows switching; the choice is persisted to `localStorage`.
+- **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Hidden when the share has no expiry or `hide_expiration` was set at share creation.
+- **Notice text** — Configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` to hide the notice entirely.
+
+The `hide_expiration` and `notice_text` fields are set per-share when creating a share via the API:
+
+```json
+{"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
+```
+
 ## Dashboard
 
 The home page provides a real-time overview of platform health across configurable time ranges (1h, 6h, 24h, 7d).

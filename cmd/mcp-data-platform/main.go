@@ -269,6 +269,12 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	mux.Handle("/healthz", hc.LivenessHandler())
 	mux.Handle("/readyz", hc.ReadinessHandler())
 
+	// Robots.txt — prevent search engines from indexing the portal.
+	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
+	})
+
 	// Mount OAuth server if enabled
 	if p != nil && p.OAuthServer() != nil {
 		registerOAuthRoutes(mux, p.OAuthServer())

@@ -1,29 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Name}}</title>
     <style>
+        :root, [data-theme="light"] {
+            --bg: #f5f5f5;
+            --bg-surface: #fff;
+            --text: #1a1a1a;
+            --text-muted: #6b7280;
+            --border: #e5e5e5;
+            --badge-bg: #e5e7eb;
+            --badge-text: #374151;
+            --toggle-hover: #f3f4f6;
+        }
+        [data-theme="dark"] {
+            --bg: #111113;
+            --bg-surface: #1a1a1e;
+            --text: #e4e4e7;
+            --text-muted: #71717a;
+            --border: #27272a;
+            --badge-bg: #27272a;
+            --badge-text: #a1a1aa;
+            --toggle-hover: #27272a;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            background: #f5f5f5;
-            color: #1a1a1a;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
         }
         .header {
-            background: #fff;
-            border-bottom: 1px solid #e5e5e5;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
             padding: 12px 24px;
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-shrink: 0;
         }
         .brand {
             display: flex;
             align-items: center;
             gap: 8px;
-            color: #374151;
+            color: var(--text-muted);
             flex-shrink: 0;
         }
         .brand a {
@@ -47,12 +72,12 @@
         .brand-name {
             font-size: 13px;
             font-weight: 500;
-            color: #6b7280;
+            color: var(--text-muted);
         }
         .separator {
             width: 1px;
             height: 20px;
-            background: #e5e5e5;
+            background: var(--border);
             flex-shrink: 0;
         }
         .header-center {
@@ -71,34 +96,72 @@
         }
         .badge {
             font-size: 11px;
-            background: #e5e7eb;
-            color: #374151;
+            background: var(--badge-bg);
+            color: var(--badge-text);
             padding: 2px 8px;
             border-radius: 10px;
             flex-shrink: 0;
         }
+        .theme-toggle {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 6px;
+            cursor: pointer;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .theme-toggle:hover { background: var(--toggle-hover); }
+        .theme-toggle svg { width: 16px; height: 16px; }
+        .notice {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 4px 24px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-surface);
+            flex-shrink: 0;
+            line-height: 1.4;
+        }
         .content {
             max-width: 1200px;
-            margin: 24px auto;
-            padding: 0 24px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 24px;
+            flex: 1;
         }
         pre {
-            background: #fff;
-            border: 1px solid #e5e5e5;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 16px;
             overflow-x: auto;
             font-size: 13px;
             line-height: 1.5;
+            color: var(--text);
         }
         iframe {
             background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 4px;
         }
         img, svg {
             max-width: 100%;
             height: auto;
         }
     </style>
+    <script>
+    (function() {
+        var saved = null;
+        try { saved = localStorage.getItem("mdp-theme"); } catch(e) {}
+        var theme = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+    })();
+    </script>
 </head>
 <body>
     <div class="header">
@@ -115,6 +178,10 @@
             <h1>{{.Name}}</h1>
             <span class="badge">{{.ContentType}}</span>
         </div>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
         <div class="separator"></div>
         <div class="brand brand-platform">
             {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
@@ -123,8 +190,57 @@
             {{if .BrandURL}}</a>{{end}}
         </div>
     </div>
+    {{if or .NoticeText .ExpiresAtISO}}
+    <div class="notice" id="notice">
+        {{if .ExpiresAtISO}}
+        <span id="expiry-notice" {{if .HideExpiration}}style="display:none"{{end}}>This page expires <span id="expiry-rel"></span></span>
+        {{if and (not .HideExpiration) .NoticeText}}<span class="notice-sep"> &middot; </span>{{end}}
+        {{end}}
+        {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
+    </div>
+    {{end}}
     <div class="content">
         {{.Content}}
     </div>
+    <script>
+    (function() {
+        // Theme toggle
+        var html = document.documentElement;
+        var btn = document.getElementById("theme-toggle");
+        var sunIcon = document.getElementById("icon-sun");
+        var moonIcon = document.getElementById("icon-moon");
+
+        function applyTheme(t) {
+            html.setAttribute("data-theme", t);
+            sunIcon.style.display = t === "dark" ? "block" : "none";
+            moonIcon.style.display = t === "dark" ? "none" : "block";
+        }
+        applyTheme(html.getAttribute("data-theme") || "light");
+
+        btn.addEventListener("click", function() {
+            var next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
+            applyTheme(next);
+            try { localStorage.setItem("mdp-theme", next); } catch(e) {}
+        });
+
+        // Relative time for expiry
+        var expiryEl = document.getElementById("expiry-rel");
+        var iso = "{{.ExpiresAtISO}}";
+        if (expiryEl && iso) {
+            var exp = new Date(iso);
+            var diff = exp - new Date();
+            if (diff > 0) {
+                var mins = Math.floor(diff / 60000);
+                var hrs = Math.floor(mins / 60);
+                var days = Math.floor(hrs / 24);
+                if (days > 0) expiryEl.textContent = "in " + days + " day" + (days !== 1 ? "s" : "");
+                else if (hrs > 0) expiryEl.textContent = "in " + hrs + " hour" + (hrs !== 1 ? "s" : "");
+                else expiryEl.textContent = "in " + Math.max(1, mins) + " minute" + (mins !== 1 ? "s" : "");
+            } else {
+                expiryEl.textContent = "soon";
+            }
+        }
+    })();
+    </script>
 </body>
 </html>

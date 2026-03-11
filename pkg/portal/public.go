@@ -100,6 +100,11 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		brandLogo = defaultLogoSVG
 	}
 
+	var expiresAtISO string
+	if share.ExpiresAt != nil {
+		expiresAtISO = share.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+
 	_ = viewerTemplate.Execute(w, map[string]any{
 		"Name":               asset.Name,
 		"ContentType":        asset.ContentType,
@@ -110,6 +115,9 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		"ImplementorName":    h.deps.ImplementorName,
 		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
 		"ImplementorURL":     h.deps.ImplementorURL,
+		"ExpiresAtISO":       expiresAtISO,
+		"HideExpiration":     share.HideExpiration,
+		"NoticeText":         share.NoticeText,
 	})
 }
 
@@ -225,16 +233,16 @@ func publicCSP(contentType string) string {
 			"font-src data: https://fonts.gstatic.com; " +
 			"connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com;"
 	}
-	return "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;"
+	return "default-src 'none'; frame-src blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;"
 }
 
-// jsxSrcdocTpl is parsed once at init. It renders the JSX viewer HTML
+// jsxInnerTpl is parsed once at init. It renders the JSX viewer HTML
 // with the user's source safely injected via html/template (which escapes
 // for both HTML-element and HTML-attribute contexts, satisfying CodeQL's
-// go/unsafe-quoting check).
+// go/unsafe-quoting check). The output is embedded via blob: URL iframe.
 //
 //nolint:lll // HTML template lines are necessarily long
-var jsxSrcdocTpl = template.Must(template.New("jsx").Parse(`<!DOCTYPE html>
+var jsxInnerTpl = template.Must(template.New("jsx").Parse(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -336,37 +344,44 @@ func jsxIframe(data []byte) string {
 	// Encode JSX source as a JSON string for the data element.
 	encoded, _ := json.Marshal(string(data)) // #nosec G104 -- string marshaling cannot fail
 
-	// Render the srcdoc HTML via html/template (safe injection).
+	// Render the inner HTML via html/template (safe injection).
 	// json.Marshal escapes <, >, & as \u003c, \u003e, \u0026 — so </script>
 	// breakout is impossible. template.JS marks the value as pre-sanitized
 	// to prevent double-escaping inside the <script> context.
 	var inner bytes.Buffer
-	_ = jsxSrcdocTpl.Execute(&inner, map[string]template.JS{ // #nosec G104
+	_ = jsxInnerTpl.Execute(&inner, map[string]template.JS{ // #nosec G104
 		"Source": template.JS(encoded), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe for JS
 	})
 
-	// Wrap in a sandboxed iframe. HTMLEscapeString encodes the inner HTML
-	// for safe embedding in the srcdoc="" attribute.
-	var buf bytes.Buffer
-	buf.WriteString(`<iframe sandbox="allow-scripts" `)
-	buf.WriteString(`style="width:100%;height:80vh;border:none;" `)
-	buf.WriteString(`srcdoc="`)
-	buf.WriteString(template.HTMLEscapeString(inner.String()))
-	buf.WriteString(`"></iframe>`)
-	return buf.String()
+	return blobIframe(inner.String(), "width:100%;height:80vh;border:none;")
 }
 
 func sandboxedIframe(data []byte) string {
-	// Encode content as a data URI with base64 to avoid escaping issues.
-	// The iframe is sandboxed: allow-scripts enables execution but
-	// no allow-same-origin prevents any access to the parent page.
+	return blobIframe(string(data), "width:100%;height:80vh;border:none;")
+}
+
+// blobIframe wraps HTML content in a sandboxed iframe that loads via blob: URL.
+// Unlike srcdoc, blob: URL iframes do NOT inherit the parent page's CSP, so
+// inline scripts that import from external origins (e.g., esm.sh) can execute.
+// The sandbox="allow-scripts" attribute remains for security isolation.
+func blobIframe(content, iframeStyle string) string {
+	// json.Marshal safely encodes the content as a JSON string, escaping
+	// </script> as \u003c/script\u003e to prevent breakout.
+	encoded, _ := json.Marshal(content) // #nosec G104 -- string marshaling cannot fail
+
 	var buf bytes.Buffer
-	buf.WriteString(`<iframe sandbox="allow-scripts" `)
-	buf.WriteString(`style="width:100%;height:80vh;border:1px solid #ddd;border-radius:4px;" `)
-	buf.WriteString(`srcdoc="`)
-	// Escape for HTML attribute.
-	escaped := template.HTMLEscapeString(string(data))
-	buf.WriteString(escaped)
-	buf.WriteString(`"></iframe>`)
+	buf.WriteString(`<script type="application/json" id="content-data">`)
+	buf.Write(encoded)
+	buf.WriteString("</script>\n")
+	buf.WriteString(`<iframe id="content-frame" sandbox="allow-scripts" style="`)
+	buf.WriteString(template.HTMLEscapeString(iframeStyle))
+	buf.WriteString(`"></iframe>` + "\n")
+	buf.WriteString(`<script>`)
+	buf.WriteString(`(function(){`)
+	buf.WriteString(`var d=JSON.parse(document.getElementById("content-data").textContent);`)
+	buf.WriteString(`var b=new Blob([d],{type:"text/html;charset=utf-8"});`)
+	buf.WriteString(`document.getElementById("content-frame").src=URL.createObjectURL(b);`)
+	buf.WriteString(`})();`)
+	buf.WriteString(`</script>`)
 	return buf.String()
 }

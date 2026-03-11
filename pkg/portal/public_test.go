@@ -2,9 +2,12 @@ package portal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	htmlpkg "html"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,11 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// htmlNoticeText is the HTML-escaped default notice text for template assertions.
+var htmlNoticeText = htmlpkg.EscapeString(defaultNoticeText)
+
 // --- publicView ---
 
 func TestPublicViewSuccess(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -50,11 +56,22 @@ func TestPublicViewSuccess(t *testing.T) {
 
 	// No implementor on left by default
 	assert.NotContains(t, body, `brand-implementor`)
+
+	// Dark mode toggle is present
+	assert.Contains(t, body, `id="theme-toggle"`)
+	assert.Contains(t, body, `icon-sun`)
+	assert.Contains(t, body, `icon-moon`)
+
+	// Privacy notice is shown (no expiration for this share)
+	assert.Contains(t, body, htmlNoticeText)
+
+	// No expiry notice when ExpiresAt is nil
+	assert.NotContains(t, body, `id="expiry-notice"`)
 }
 
 func TestPublicViewCustomBrand(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -97,7 +114,7 @@ func TestPublicViewCustomBrand(t *testing.T) {
 
 func TestPublicViewImplementorOnly(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -130,7 +147,7 @@ func TestPublicViewImplementorOnly(t *testing.T) {
 
 func TestPublicViewBrandLinks(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -304,6 +321,108 @@ func TestPublicViewEmptyToken(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, w.Code)
 }
 
+func TestPublicViewWithExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(6 * time.Hour)
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: defaultNoticeText}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Expiry notice is present (not hidden)
+	assert.Contains(t, body, `id="expiry-notice"`)
+	assert.NotContains(t, body, `style="display:none"`)
+	// Privacy notice always present
+	assert.Contains(t, body, htmlNoticeText)
+	// ISO timestamp passed to JS
+	assert.Contains(t, body, future.UTC().Format(time.RFC3339))
+}
+
+func TestPublicViewHideExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(3 * 24 * time.Hour)
+	share := &Share{
+		ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false,
+		ExpiresAt: &future, HideExpiration: true, NoticeText: defaultNoticeText,
+	}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Secret", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Expiry notice element exists but is hidden
+	assert.Contains(t, body, `id="expiry-notice"`)
+	assert.Contains(t, body, `style="display:none"`)
+	// Privacy notice still shown
+	assert.Contains(t, body, htmlNoticeText)
+	// Separator dot should not be visible (it's outside the hidden span, but only shown when not hidden)
+	assert.NotContains(t, body, `class="notice-sep"`)
+}
+
+func TestPublicViewDarkModeToggle(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("Hello"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Theme infrastructure
+	assert.Contains(t, body, `data-theme="light"`)
+	assert.Contains(t, body, `id="theme-toggle"`)
+	assert.Contains(t, body, `mdp-theme`) // localStorage key
+	assert.Contains(t, body, `prefers-color-scheme`)
+
+	// CSS custom properties
+	assert.Contains(t, body, `--bg:`)
+	assert.Contains(t, body, `--bg-surface:`)
+	assert.Contains(t, body, `--text:`)
+	assert.Contains(t, body, `[data-theme="dark"]`)
+}
+
 // --- renderContent ---
 
 func TestRenderContentMarkdown(t *testing.T) {
@@ -415,7 +534,7 @@ func TestPublicCSP(t *testing.T) {
 	assert.Contains(t, csp, "img-src data: blob:")
 
 	csp2 := publicCSP("text/html")
-	assert.NotContains(t, csp2, "frame-src")
+	assert.Contains(t, csp2, "frame-src blob:")
 	assert.Contains(t, csp2, "default-src 'none'")
 	assert.Contains(t, csp2, "script-src 'unsafe-inline'")
 	assert.Contains(t, csp2, "style-src 'unsafe-inline'")
@@ -430,18 +549,22 @@ func TestPublicCSP(t *testing.T) {
 func TestJsxIframe(t *testing.T) {
 	result := jsxIframe([]byte(`export default function App() { return <h1>Hi</h1> }`))
 	assert.Contains(t, result, `sandbox="allow-scripts"`)
+	assert.Contains(t, result, `content-data`)
+	assert.Contains(t, result, "createObjectURL")
+	// The inner HTML (importmap, esm.sh, sucrase) is JSON-encoded inside content-data.
 	assert.Contains(t, result, "importmap")
-	assert.Contains(t, result, "esm.sh/sucrase")
-	assert.Contains(t, result, "esm.sh/react@19")
-	// blob: must be in script-src so the dynamic import of the transformed-code blob works.
-	// The CSP is inside a meta tag within the srcdoc attribute, so quotes are HTML-escaped.
-	assert.Contains(t, result, "script-src &#39;unsafe-eval&#39; &#39;unsafe-inline&#39; blob: https://esm.sh")
+	assert.Contains(t, result, "esm.sh")
+	assert.Contains(t, result, "sucrase")
+	// No srcdoc — uses blob: URL instead.
+	assert.NotContains(t, result, "srcdoc")
 }
 
 func TestJsxIframeSpecialChars(t *testing.T) {
 	result := jsxIframe([]byte(`function App() { return <div title="hello &amp; world">test</div> }`))
 	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	// Content is JSON-encoded then HTML-escaped, so it's safely embedded.
+	assert.Contains(t, result, `content-data`)
+	assert.Contains(t, result, "createObjectURL")
+	// Content is double-JSON-encoded (JSX in template, then template output in blob wrapper).
 	assert.NotContains(t, result, `<div title=`)
 }
 
@@ -458,14 +581,132 @@ func TestDefaultLogoSVG(t *testing.T) {
 func TestSandboxedIframe(t *testing.T) {
 	result := sandboxedIframe([]byte("<div>test</div>"))
 	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.Contains(t, result, "srcdoc=")
-	// Original HTML should be escaped in the attribute
-	assert.NotContains(t, result, `<div>test</div>`) // should be escaped
+	assert.Contains(t, result, `content-data`)
+	assert.Contains(t, result, "createObjectURL")
+	// No srcdoc — uses blob: URL instead.
+	assert.NotContains(t, result, "srcdoc")
 }
 
 func TestSandboxedIframeSpecialChars(t *testing.T) {
 	result := sandboxedIframe([]byte(`<img onerror="alert(1)" src=x>`))
 	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	// Double quotes in content should be escaped
+	assert.Contains(t, result, `content-data`)
+	// Content is JSON-encoded, so raw HTML tags don't appear.
 	assert.NotContains(t, result, `onerror="alert(1)"`)
+}
+
+// --- blobIframe ---
+
+func TestBlobIframe(t *testing.T) {
+	result := blobIframe("<h1>Hello</h1>", "width:100%;height:50vh;")
+	assert.Contains(t, result, `id="content-data"`)
+	assert.Contains(t, result, `id="content-frame"`)
+	assert.Contains(t, result, "createObjectURL")
+	assert.Contains(t, result, `sandbox="allow-scripts"`)
+	assert.NotContains(t, result, "srcdoc")
+}
+
+func TestBlobIframeScriptBreakout(t *testing.T) {
+	// </script> in content must be safely encoded via JSON.
+	result := blobIframe(`<script>alert("xss")</script>`, "width:100%;")
+	// json.Marshal encodes < as \u003c, so </script> cannot break out.
+	assert.NotContains(t, result, `<script>alert`)
+	assert.Contains(t, result, `\u003c`)
+}
+
+func TestBlobIframeRoundTrip(t *testing.T) {
+	original := `<div class="test">Hello & "world"</div>`
+	result := blobIframe(original, "width:100%;")
+	// Extract JSON from between content-data tags.
+	start := strings.Index(result, `id="content-data">`) + len(`id="content-data">`)
+	end := strings.Index(result[start:], `</script>`)
+	jsonStr := result[start : start+end]
+	var decoded string
+	err := json.Unmarshal([]byte(jsonStr), &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, original, decoded)
+}
+
+// --- Notice text tests ---
+
+func TestPublicViewCustomNoticeText(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: "Internal use only."}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Internal use only.")
+	assert.NotContains(t, body, htmlNoticeText)
+	assert.Contains(t, body, `class="notice"`)
+}
+
+func TestPublicViewEmptyNoticeText(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: ""}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	// No notice div when both notice text and expiration are empty
+	assert.NotContains(t, body, `class="notice"`)
+	assert.NotContains(t, body, htmlNoticeText)
+}
+
+func TestPublicViewEmptyNoticeWithExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(6 * time.Hour)
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: ""}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	// Notice div shown for expiration even with empty notice text
+	assert.Contains(t, body, `class="notice"`)
+	assert.Contains(t, body, `id="expiry-notice"`)
+	// No separator or notice text
+	assert.NotContains(t, body, `class="notice-sep"`)
+	assert.NotContains(t, body, htmlNoticeText)
 }
