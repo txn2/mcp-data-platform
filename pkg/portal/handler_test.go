@@ -1128,6 +1128,29 @@ func TestCreateShareNoPublicBaseURL(t *testing.T) {
 	assert.Empty(t, resp.ShareURL) // no base URL → no share URL
 }
 
+func TestCreateShareWithHideExpiration(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	body := `{"expires_in":"24h","hide_expiration":true}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp shareResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.True(t, resp.Share.HideExpiration)
+	assert.NotNil(t, resp.Share.ExpiresAt)
+}
+
 // --- listShares ---
 
 func TestListSharesSuccess(t *testing.T) {

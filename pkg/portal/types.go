@@ -54,6 +54,7 @@ type Share struct {
 	SharedWithEmail  string     `json:"shared_with_email,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	Revoked          bool       `json:"revoked"`
+	HideExpiration   bool       `json:"hide_expiration"`
 	AccessCount      int        `json:"access_count"`
 	LastAccessedAt   *time.Time `json:"last_accessed_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`

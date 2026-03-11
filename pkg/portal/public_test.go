@@ -52,6 +52,17 @@ func TestPublicViewSuccess(t *testing.T) {
 
 	// No implementor on left by default
 	assert.NotContains(t, body, `brand-implementor`)
+
+	// Dark mode toggle is present
+	assert.Contains(t, body, `id="theme-toggle"`)
+	assert.Contains(t, body, `icon-sun`)
+	assert.Contains(t, body, `icon-moon`)
+
+	// Privacy notice is shown (no expiration for this share)
+	assert.Contains(t, body, "Do not share this URL without permission.")
+
+	// No expiry notice when ExpiresAt is nil
+	assert.NotContains(t, body, `id="expiry-notice"`)
 }
 
 func TestPublicViewCustomBrand(t *testing.T) {
@@ -304,6 +315,108 @@ func TestPublicViewEmptyToken(t *testing.T) {
 
 	// Empty token should be caught — either 404 or mux mismatch
 	assert.NotEqual(t, http.StatusOK, w.Code)
+}
+
+func TestPublicViewWithExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(6 * time.Hour)
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Expiry notice is present (not hidden)
+	assert.Contains(t, body, `id="expiry-notice"`)
+	assert.NotContains(t, body, `style="display:none"`)
+	// Privacy notice always present
+	assert.Contains(t, body, "Do not share this URL without permission.")
+	// ISO timestamp passed to JS
+	assert.Contains(t, body, future.UTC().Format(time.RFC3339))
+}
+
+func TestPublicViewHideExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(3 * 24 * time.Hour)
+	share := &Share{
+		ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false,
+		ExpiresAt: &future, HideExpiration: true,
+	}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Secret", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Expiry notice element exists but is hidden
+	assert.Contains(t, body, `id="expiry-notice"`)
+	assert.Contains(t, body, `style="display:none"`)
+	// Privacy notice still shown
+	assert.Contains(t, body, "Do not share this URL without permission.")
+	// Separator dot should not be visible (it's outside the hidden span, but only shown when not hidden)
+	assert.NotContains(t, body, `class="notice-sep"`)
+}
+
+func TestPublicViewDarkModeToggle(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("Hello"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Theme infrastructure
+	assert.Contains(t, body, `data-theme="light"`)
+	assert.Contains(t, body, `id="theme-toggle"`)
+	assert.Contains(t, body, `mdp-theme`) // localStorage key
+	assert.Contains(t, body, `prefers-color-scheme`)
+
+	// CSS custom properties
+	assert.Contains(t, body, `--bg:`)
+	assert.Contains(t, body, `--bg-surface:`)
+	assert.Contains(t, body, `--text:`)
+	assert.Contains(t, body, `[data-theme="dark"]`)
 }
 
 // --- renderContent ---

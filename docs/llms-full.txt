@@ -352,6 +352,9 @@ When `workflow.require_discovery_before_query` is disabled (default), the platfo
 | `portal.s3_prefix` | string | `""` | Key prefix within the bucket |
 | `portal.public_base_url` | string | `""` | Base URL for portal links in save_artifact responses |
 | `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+| `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
+| `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
+| `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
 
 Portal requires `database.dsn` for metadata storage and at least one S3 toolkit instance for artifact content.
 
@@ -372,8 +375,13 @@ Branding fields have moved to the `portal:` section:
 | `portal.logo` | string | `""` | Logo URL (fallback for both themes) |
 | `portal.logo_light` | string | `""` | Logo URL for light theme |
 | `portal.logo_dark` | string | `""` | Logo URL for dark theme |
+| `portal.implementor.name` | string | `""` | Implementor display name (left zone of public viewer header) |
+| `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched at startup, max 1 MB) |
+| `portal.implementor.url` | string | `""` | Clickable link wrapping implementor name and logo |
 
-When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `logo_light` → `logo` → built-in default; dark theme uses `logo_dark` → `logo` → built-in default. The resolved logo is also used as the browser favicon.
+When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `logo_light` → `logo` → built-in default; dark theme uses `logo_dark` → `logo` → built-in default. The resolved logo is also used as the browser favicon. Shared artifact links (`/portal/view/{token}`) display a two-zone header: the right zone shows the platform brand, and the optional left zone shows the implementor brand configured via `portal.implementor`.
+
+The public viewer supports light/dark mode (system default with toggle, persisted to localStorage), an expiration countdown notice showing relative time until share expiry, and a privacy warning ("Do not share this URL without permission."). When creating shares, set `hide_expiration: true` to hide the expiration countdown from the viewer while keeping the privacy notice visible.
 
 ## Resource Templates Configuration
 

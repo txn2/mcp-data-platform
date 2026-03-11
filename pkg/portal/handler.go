@@ -445,6 +445,7 @@ type createShareRequest struct {
 	ExpiresIn        string `json:"expires_in,omitempty"` // duration string, e.g. "24h"
 	SharedWithUserID string `json:"shared_with_user_id,omitempty"`
 	SharedWithEmail  string `json:"shared_with_email,omitempty"`
+	HideExpiration   bool   `json:"hide_expiration,omitempty"`
 }
 
 // shareResponse is the response for a created share.
@@ -517,6 +518,7 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		CreatedBy:        userID,
 		SharedWithUserID: req.SharedWithUserID,
 		SharedWithEmail:  email,
+		HideExpiration:   req.HideExpiration,
 	}
 
 	if req.ExpiresIn != "" {

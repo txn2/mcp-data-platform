@@ -653,6 +653,10 @@ portal:
   s3_prefix: "artifacts/"       # Key prefix within the bucket
   public_base_url: "https://portal.example.com"  # Base URL for portal links
   max_content_size: 10485760    # Max artifact size in bytes (default: 10MB)
+  implementor:                                   # Optional implementor brand (left zone of public viewer header)
+    name: "ACME Corp"
+    logo: "https://acme.com/logo.svg"
+    url: "https://acme.com"
 ```
 
 | Option | Type | Default | Description |
@@ -667,6 +671,28 @@ portal:
 | `portal.s3_prefix` | string | `""` | Key prefix within the bucket (e.g., `artifacts/`) |
 | `portal.public_base_url` | string | `""` | Base URL for portal links returned in `save_artifact` responses |
 | `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+| `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
+| `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
+| `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
+
+### Share Creation API
+
+When creating a share via `POST /api/v1/portal/assets/{id}/shares`, the request body accepts:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `expires_in` | string | - | Duration string (e.g., `"24h"`, `"72h"`) |
+| `shared_with_user_id` | string | - | Target user ID for private shares |
+| `shared_with_email` | string | - | Target email for private shares |
+| `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer (privacy notice still shown) |
+
+### Public Viewer
+
+The public viewer (`/portal/view/{token}`) renders shared artifacts with:
+
+- **Light/dark mode** — respects system `prefers-color-scheme`, toggle button persists choice to `localStorage`
+- **Expiration notice** — shows relative time until expiry (hidden when `hide_expiration` is true or no expiry set)
+- **Privacy notice** — always shows "Do not share this URL without permission."
 
 !!! note "Prerequisites"
     Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for artifact content storage.

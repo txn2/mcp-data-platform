@@ -100,6 +100,11 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		brandLogo = defaultLogoSVG
 	}
 
+	var expiresAtISO string
+	if share.ExpiresAt != nil {
+		expiresAtISO = share.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+
 	_ = viewerTemplate.Execute(w, map[string]any{
 		"Name":               asset.Name,
 		"ContentType":        asset.ContentType,
@@ -110,6 +115,8 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		"ImplementorName":    h.deps.ImplementorName,
 		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
 		"ImplementorURL":     h.deps.ImplementorURL,
+		"ExpiresAtISO":       expiresAtISO,
+		"HideExpiration":     share.HideExpiration,
 	})
 }
 
@@ -349,7 +356,7 @@ func jsxIframe(data []byte) string {
 }
 
 func sandboxedIframe(data []byte) string {
-	return blobIframe(string(data), "width:100%;height:80vh;border:1px solid #ddd;border-radius:4px;")
+	return blobIframe(string(data), "width:100%;height:80vh;border:none;")
 }
 
 // blobIframe wraps HTML content in a sandboxed iframe that loads via blob: URL.
