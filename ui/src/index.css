@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Use .dark class (not prefers-color-scheme) for the dark: variant.
+   Both the SPA theme store and the public viewer template toggle .dark
+   on <html>, so all dark: utilities must key off the class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     --background: 0 0% 100%;

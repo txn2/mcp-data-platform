@@ -29,11 +29,7 @@ auth:
         roles: ["admin"]
 
 oauth:
-  enabled: true
-  dcr:
-    enabled: true
-    allowed_redirect_patterns:
-      - "http://localhost:.*/callback"
+  enabled: false
 
 database:
   dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
@@ -175,7 +171,14 @@ toolkits:
   datahub:
     enabled: false
   s3:
-    enabled: false
+    instances:
+      dev-s3:
+        enabled: true
+        endpoint: "http://localhost:9000"
+        region: "us-east-1"
+        access_key_id: "minioadmin"
+        secret_access_key: "minioadmin"
+        force_path_style: true
 
 # Providers: noop (no external services)
 semantic:
@@ -194,6 +197,12 @@ tuning:
     require_datahub_check: true
     warn_on_deprecated: true
     quality_threshold: 0.7
+
+portal:
+  enabled: true
+  public_base_url: "http://localhost:8080"
+  s3_connection: dev-s3
+  s3_bucket: portal-assets
 
 knowledge:
   enabled: true

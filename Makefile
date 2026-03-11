@@ -13,6 +13,7 @@ BUILD_DIR := ./build
 DIST_DIR := ./dist
 UI_DIR := ./ui
 UI_EMBED_DIR := ./internal/ui/dist
+CV_EMBED_DIR := ./internal/contentviewer/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.8.0
@@ -29,7 +30,8 @@ GOLINT := golangci-lint
 .PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
-	frontend-install frontend-build frontend-dev frontend-mock frontend-test \
+	frontend-install frontend-build frontend-build-content-viewer \
+	frontend-dev frontend-mock frontend-test \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev-up dev-down preview-apps preview-platform-info
 
@@ -90,9 +92,10 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@rm -f coverage.out coverage.html
-	@rm -rf $(UI_DIR)/dist $(UI_DIR)/node_modules
-	@# Reset embed dir but keep .gitkeep
+	@rm -rf $(UI_DIR)/dist $(UI_DIR)/dist-content-viewer $(UI_DIR)/node_modules
+	@# Reset embed dirs but keep .gitkeep
 	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
+	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
 	@echo "Clean complete."
 
 ## install: Install the binary
@@ -252,10 +255,11 @@ tools-check:
 	fi
 	@echo "All required tools found."
 
-## embed-clean: Reset UI embed dir to .gitkeep only (matches CI clean checkout)
+## embed-clean: Reset UI embed dirs to .gitkeep only (matches CI clean checkout)
 embed-clean:
-	@echo "Cleaning UI embed directory..."
+	@echo "Cleaning UI embed directories..."
 	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
+	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
 
 ## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
 verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
@@ -291,15 +295,32 @@ frontend-install:
 	cd $(UI_DIR) && npm ci
 	@echo "UI dependencies installed."
 
-## frontend-build: Build UI and copy to embed directory
+## frontend-build-content-viewer: Build standalone content viewer JS bundle (CSS comes from SPA build)
+frontend-build-content-viewer: frontend-install
+	@echo "Building content viewer (JS only)..."
+	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
+	@mkdir -p $(CV_EMBED_DIR)
+	@cp $(UI_DIR)/dist-content-viewer/content-viewer.js $(CV_EMBED_DIR)/
+	@echo "Content viewer JS built and embedded."
+
+## frontend-build: Build SPA first (produces CSS), then content viewer (JS only), copy SPA CSS as content-viewer CSS
 frontend-build: frontend-install
-	@echo "Building UI..."
+	@echo "Building SPA..."
 	cd $(UI_DIR) && npm run build
-	@echo "Copying dist to embed directory..."
+	@echo "Copying SPA dist to embed directory..."
 	@rm -rf $(UI_EMBED_DIR)/*
 	@cp -r $(UI_DIR)/dist/* $(UI_EMBED_DIR)/
 	@rm -f $(UI_EMBED_DIR)/mockServiceWorker.js
-	@echo "UI built and embedded."
+	@echo "SPA built and embedded."
+	@echo "Building content viewer (JS only)..."
+	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
+	@mkdir -p $(CV_EMBED_DIR)
+	@cp $(UI_DIR)/dist-content-viewer/content-viewer.js $(CV_EMBED_DIR)/
+	@echo "Copying SPA CSS as content-viewer CSS..."
+	@SPA_CSS=$$(ls $(UI_DIR)/dist/assets/index-*.css 2>/dev/null | head -1); \
+	if [ -z "$$SPA_CSS" ]; then echo "ERROR: SPA CSS not found"; exit 1; fi; \
+	cp "$$SPA_CSS" $(CV_EMBED_DIR)/content-viewer.css
+	@echo "Frontend build complete."
 
 ## frontend-dev: Run UI dev server (hot reload)
 frontend-dev:
