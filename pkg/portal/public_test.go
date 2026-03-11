@@ -543,11 +543,11 @@ func TestPublicCSP(t *testing.T) {
 	assert.Contains(t, csp2, "default-src 'none'")
 	assert.Contains(t, csp2, "script-src")
 	assert.Contains(t, csp2, "'unsafe-inline'")
-	assert.Contains(t, csp2, "https:")       // must allow external CDN scripts (Chart.js, D3, etc.)
+	assert.Contains(t, csp2, "https:") // must allow external CDN scripts (Chart.js, D3, etc.)
 	assert.Contains(t, csp2, "style-src")
 	assert.Contains(t, csp2, "img-src")
 	assert.Contains(t, csp2, "font-src")
-	assert.Contains(t, csp2, "connect-src")  // HTML may fetch data via XHR/fetch
+	assert.Contains(t, csp2, "connect-src") // HTML may fetch data via XHR/fetch
 }
 
 // --- jsxIframe ---
