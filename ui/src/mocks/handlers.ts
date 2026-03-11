@@ -846,8 +846,8 @@ export const handlers = [
         revoked: false,
         access_count: 0,
         created_at: new Date().toISOString(),
-        hide_expiration: body.hide_expiration ? true : undefined,
-        notice_text: body.notice_text ? String(body.notice_text) : undefined,
+        hide_expiration: body.hide_expiration === true,
+        notice_text: typeof body.notice_text === "string" ? body.notice_text : undefined,
       };
 
       if (!portalShares[assetId]) portalShares[assetId] = [];

@@ -54,8 +54,8 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.Contains(t, body, defaultLogoSVG)
 	assert.Contains(t, body, `brand-platform`)
 
-	// No implementor on left by default
-	assert.NotContains(t, body, `brand-implementor`)
+	// No implementor on left by default (CSS has the class name, but no HTML element uses it)
+	assert.NotContains(t, body, `class="brand brand-implementor"`)
 
 	// Dark mode toggle is present
 	assert.Contains(t, body, `id="theme-toggle"`)
