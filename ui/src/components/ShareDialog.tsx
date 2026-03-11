@@ -31,15 +31,17 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [hideExpiration, setHideExpiration] = useState(false);
-  const [noticeText, setNoticeText] = useState("");
+  const [showExpiration, setShowExpiration] = useState(true);
+  const [noticeText, setNoticeText] = useState(
+    "Proprietary & Confidential. Only share with authorized viewers.",
+  );
 
   function handleCreatePublicLink() {
     createShare.mutate({
       assetId,
       expires_in: ttl,
-      ...(hideExpiration && { hide_expiration: true }),
-      ...(noticeText.trim() && { notice_text: noticeText.trim() }),
+      ...(!showExpiration && { hide_expiration: true }),
+      notice_text: noticeText.trim(),
     });
   }
 
@@ -117,11 +119,11 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={hideExpiration}
-                    onChange={(e) => setHideExpiration(e.target.checked)}
+                    checked={showExpiration}
+                    onChange={(e) => setShowExpiration(e.target.checked)}
                     className="rounded border-input"
                   />
-                  Hide expiration notice
+                  Show expiration notice
                 </label>
                 <div>
                   <label className="text-sm text-muted-foreground" htmlFor="notice-text">
@@ -130,11 +132,14 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                   <input
                     id="notice-text"
                     type="text"
-                    placeholder="Custom notice shown on the public page"
+                    placeholder="Leave empty to hide the notice"
                     value={noticeText}
                     onChange={(e) => setNoticeText(e.target.value)}
                     className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Clear to hide notice bar entirely.
+                  </p>
                 </div>
               </div>
             )}
