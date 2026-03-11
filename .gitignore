@@ -43,6 +43,7 @@ site/
 /dist/
 build/
 /mcp-data-platform
+/preview-content-viewer
 NOTES_*
 
 # E2E test artifacts
@@ -61,6 +62,7 @@ apps/preview-data.json
 # Portal UI
 ui/node_modules/
 ui/dist/
+ui/dist-content-viewer/
 ui/.vite/
 ui/test-results/
 
@@ -68,3 +70,5 @@ ui/test-results/
 node_modules/
 internal/ui/dist/*
 !internal/ui/dist/.gitkeep
+internal/contentviewer/dist/*
+!internal/contentviewer/dist/.gitkeep

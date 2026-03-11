@@ -10,20 +10,44 @@
             --bg-surface: #fff;
             --text: #1a1a1a;
             --text-muted: #6b7280;
-            --border: #e5e5e5;
+            --page-border: #e5e5e5;
             --badge-bg: #e5e7eb;
             --badge-text: #374151;
             --toggle-hover: #f3f4f6;
+            /* shadcn HSL variables — required by SPA CSS.
+               These intentionally differ from the SPA's index.css values
+               to produce a neutral (non-blue-tinted) palette for the
+               standalone public viewer. The SPA uses blue-tinted grays;
+               the public viewer uses pure grays for a cleaner look. */
+            --background: 0 0% 96%;
+            --foreground: 0 0% 10%;
+            --card: 0 0% 100%;
+            --card-foreground: 0 0% 10%;
+            --muted: 0 0% 96%;
+            --muted-foreground: 220 9% 46%;
+            --border: 0 0% 90%;
+            --primary: 221.2 83.2% 53.3%;
+            --primary-foreground: 210 40% 98%;
         }
         [data-theme="dark"] {
             --bg: #111113;
             --bg-surface: #1a1a1e;
             --text: #e4e4e7;
             --text-muted: #71717a;
-            --border: #27272a;
+            --page-border: #27272a;
             --badge-bg: #27272a;
             --badge-text: #a1a1aa;
             --toggle-hover: #27272a;
+            /* shadcn HSL variables — see light-mode comment above */
+            --background: 240 6% 6%;
+            --foreground: 240 5% 90%;
+            --card: 240 5% 11%;
+            --card-foreground: 240 5% 90%;
+            --muted: 240 4% 16%;
+            --muted-foreground: 240 5% 48%;
+            --border: 240 4% 16%;
+            --primary: 217.2 91.2% 59.8%;
+            --primary-foreground: 222.2 47.4% 11.2%;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; }
@@ -37,7 +61,7 @@
         }
         .header {
             background: var(--bg-surface);
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--page-border);
             padding: 12px 24px;
             display: flex;
             align-items: center;
@@ -85,7 +109,7 @@
         .separator {
             width: 1px;
             height: 20px;
-            background: var(--border);
+            background: var(--page-border);
             flex-shrink: 0;
         }
         .header-center {
@@ -112,7 +136,7 @@
         }
         .theme-toggle {
             background: none;
-            border: 1px solid var(--border);
+            border: 1px solid var(--page-border);
             border-radius: 6px;
             padding: 4px 6px;
             cursor: pointer;
@@ -130,7 +154,7 @@
             color: var(--text-muted);
             text-align: center;
             padding: 4px 24px;
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--page-border);
             background: var(--bg-surface);
             flex-shrink: 0;
             line-height: 1.4;
@@ -146,25 +170,6 @@
             flex: 1;
             min-height: 60vh;
         }
-        pre {
-            background: var(--bg-surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            overflow-x: auto;
-            font-size: 13px;
-            line-height: 1.5;
-            color: var(--text);
-        }
-        iframe {
-            background: #fff;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-        }
-        img, svg {
-            max-width: 100%;
-            height: auto;
-        }
     </style>
     <script>
     (function() {
@@ -172,6 +177,7 @@
         try { saved = localStorage.getItem("mdp-theme"); } catch(e) {}
         var theme = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.classList.toggle("dark", theme === "dark");
     })();
     </script>
 </head>
@@ -212,7 +218,12 @@
     </div>
     {{end}}
     <div class="content">
-        {{.Content}}
+        <style>{{.ContentViewerCSS}}</style>
+        <div id="content-root">
+            <p style="color:var(--text-muted);padding:16px">Loading...</p>
+        </div>
+        <script type="application/json" id="content-data">{{.ContentJSON}}</script>
+        <script>{{.ContentViewerJS}}</script>
     </div>
     <script>
     (function() {
@@ -224,6 +235,7 @@
 
         function applyTheme(t) {
             html.setAttribute("data-theme", t);
+            html.classList.toggle("dark", t === "dark");
             sunIcon.style.display = t === "dark" ? "block" : "none";
             moonIcon.style.display = t === "dark" ? "none" : "block";
         }

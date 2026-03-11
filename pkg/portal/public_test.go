@@ -2,17 +2,14 @@ package portal
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	htmlpkg "html"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // htmlNoticeText is the HTML-escaped default notice text for template assertions.
@@ -43,12 +40,20 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Contains(t, w.Body.String(), "Test") // asset name rendered
 
-	// CSP header must be set on public view responses (plain text uses default CSP).
+	// CSP header must be set on public view responses.
 	csp := w.Header().Get("Content-Security-Policy")
 	assert.NotEmpty(t, csp)
 
-	// Default brand on right: logo + "MCP Data Platform"
 	body := w.Body.String()
+
+	// Content viewer bundle infrastructure
+	assert.Contains(t, body, `id="content-data"`)
+	assert.Contains(t, body, `id="content-root"`)
+	// Content JSON must include the content type and content
+	assert.Contains(t, body, `"contentType"`)
+	assert.Contains(t, body, `"content"`)
+
+	// Default brand on right: logo + "MCP Data Platform"
 	assert.Contains(t, body, "MCP Data Platform")
 	assert.Contains(t, body, `class="brand-logo"`)
 	assert.Contains(t, body, defaultLogoSVG)
@@ -421,157 +426,104 @@ func TestPublicViewDarkModeToggle(t *testing.T) {
 	assert.Contains(t, body, `--bg-surface:`)
 	assert.Contains(t, body, `--text:`)
 	assert.Contains(t, body, `[data-theme="dark"]`)
-}
 
-// --- renderContent ---
-
-func TestRenderContentMarkdown(t *testing.T) {
-	result, err := renderContent("text/markdown", []byte("**bold**"))
-	require.NoError(t, err)
-	assert.Contains(t, result, "<strong>bold</strong>")
-}
-
-func TestRenderContentMarkdownSuffix(t *testing.T) {
-	result, err := renderContent("text/x-markdown.md", []byte("# Title"))
-	require.NoError(t, err)
-	assert.Contains(t, result, "Title")
-}
-
-func TestRenderContentSVG(t *testing.T) {
-	svg := `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>`
-	result, err := renderContent("image/svg+xml", []byte(svg))
-	require.NoError(t, err)
-	assert.Contains(t, result, "<svg")
-	assert.Contains(t, result, "<circle")
-}
-
-func TestRenderContentSVGSanitizesScript(t *testing.T) {
-	svg := `<svg><script>alert('xss')</script></svg>`
-	result, err := renderContent("image/svg+xml", []byte(svg))
-	require.NoError(t, err)
-	assert.NotContains(t, result, "<script>")
-}
-
-func TestRenderContentHTML(t *testing.T) {
-	html := `<div>Hello</div>`
-	result, err := renderContent("text/html", []byte(html))
-	require.NoError(t, err)
-	assert.Contains(t, result, "iframe")
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-}
-
-func TestRenderContentJSX(t *testing.T) {
-	jsx := `export default function App() { return <div>Hello</div> }`
-	result, err := renderContent("text/jsx", []byte(jsx))
-	require.NoError(t, err)
-	assert.Contains(t, result, "iframe")
-	assert.Contains(t, result, "importmap")
-	assert.Contains(t, result, "esm.sh")
-	assert.Contains(t, result, "sucrase")
-}
-
-func TestRenderContentPlainText(t *testing.T) {
-	result, err := renderContent("text/plain", []byte("<script>xss</script>"))
-	require.NoError(t, err)
-	assert.Contains(t, result, "<pre>")
-	assert.Contains(t, result, "&lt;script&gt;") // escaped
-	assert.NotContains(t, result, "<script>")    // not raw
-}
-
-func TestRenderContentUnknown(t *testing.T) {
-	result, err := renderContent("application/octet-stream", []byte("binary data"))
-	require.NoError(t, err)
-	assert.Contains(t, result, "<pre>")
-}
-
-// --- renderMarkdown ---
-
-func TestRenderMarkdown(t *testing.T) {
-	result, err := renderMarkdown([]byte("# Hello\n\n*world*"))
-	require.NoError(t, err)
-	assert.Contains(t, result, "Hello")
-	assert.Contains(t, result, "<em>world</em>")
-}
-
-func TestRenderMarkdownSanitizes(t *testing.T) {
-	result, err := renderMarkdown([]byte(`<script>alert('xss')</script>`))
-	require.NoError(t, err)
-	assert.NotContains(t, result, "<script>")
-}
-
-// --- sanitizeSVG ---
-
-func TestSanitizeSVG(t *testing.T) {
-	svg := `<svg viewBox="0 0 100 100"><rect x="0" y="0" width="100" height="100" fill="red"/></svg>`
-	result := sanitizeSVG([]byte(svg))
-	assert.Contains(t, result, "<svg")
-	assert.Contains(t, result, "<rect")
-}
-
-func TestSanitizeSVGRemovesScript(t *testing.T) {
-	svg := `<svg><script>alert(1)</script><circle r="10"/></svg>`
-	result := sanitizeSVG([]byte(svg))
-	assert.NotContains(t, result, "<script")
-	assert.Contains(t, result, "<circle")
-}
-
-func TestSanitizeSVGStripsStyleAttr(t *testing.T) {
-	svg := `<svg><rect style="background:url(javascript:alert(1))" width="10" height="10"/></svg>`
-	result := sanitizeSVG([]byte(svg))
-	assert.NotContains(t, result, "style=")
-	assert.Contains(t, result, "<rect")
+	// Dark class bridge for Tailwind
+	assert.Contains(t, body, `classList.toggle("dark"`)
 }
 
 // --- publicCSP ---
 
-func TestPublicCSP(t *testing.T) {
-	// JSX content: allows external resources for esm.sh module imports.
-	csp := publicCSP("text/jsx")
+func TestPublicCSPUnified(t *testing.T) {
+	csp := publicCSP()
+	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src blob:")
 	assert.Contains(t, csp, "script-src")
 	assert.Contains(t, csp, "'unsafe-eval'")
 	assert.Contains(t, csp, "'unsafe-inline'")
 	assert.Contains(t, csp, "https:")
-	assert.Contains(t, csp, "connect-src")
+	assert.Contains(t, csp, "style-src")
 	assert.Contains(t, csp, "img-src")
-
-	// HTML content: allows external CDN scripts/styles because blob: iframes
-	// inherit the parent's CSP in modern browsers. Security isolation comes
-	// from the iframe sandbox attribute, not CSP.
-	csp2 := publicCSP("text/html")
-	assert.Contains(t, csp2, "frame-src blob:")
-	assert.Contains(t, csp2, "default-src 'none'")
-	assert.Contains(t, csp2, "script-src")
-	assert.Contains(t, csp2, "'unsafe-inline'")
-	assert.Contains(t, csp2, "https:") // must allow external CDN scripts (Chart.js, D3, etc.)
-	assert.Contains(t, csp2, "style-src")
-	assert.Contains(t, csp2, "img-src")
-	assert.Contains(t, csp2, "font-src")
-	assert.Contains(t, csp2, "connect-src") // HTML may fetch data via XHR/fetch
+	assert.Contains(t, csp, "font-src")
+	assert.Contains(t, csp, "connect-src")
 }
 
-// --- jsxIframe ---
+// --- Content viewer bundle injection ---
 
-func TestJsxIframe(t *testing.T) {
-	result := jsxIframe([]byte(`export default function App() { return <h1>Hi</h1> }`))
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.Contains(t, result, `content-data`)
-	assert.Contains(t, result, "createObjectURL")
-	// The inner HTML (importmap, esm.sh, sucrase) is JSON-encoded inside content-data.
-	assert.Contains(t, result, "importmap")
-	assert.Contains(t, result, "esm.sh")
-	assert.Contains(t, result, "sucrase")
-	// No srcdoc — uses blob: URL instead.
-	assert.NotContains(t, result, "srcdoc")
+func TestPublicViewContentViewerBundle(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/markdown",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("# Hello"), getCT: "text/markdown"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Content data JSON is present with the right structure
+	assert.Contains(t, body, `id="content-data"`)
+	assert.Contains(t, body, `"contentType":"text/markdown"`)
+	assert.Contains(t, body, `"content":"# Hello"`)
+
+	// Content viewer root element
+	assert.Contains(t, body, `id="content-root"`)
+
+	// No server-rendered content (no <pre>, <iframe>, <strong> etc.)
+	assert.NotContains(t, body, "<strong>")
+	assert.NotContains(t, body, `sandbox="allow-scripts"`)
 }
 
-func TestJsxIframeSpecialChars(t *testing.T) {
-	result := jsxIframe([]byte(`function App() { return <div title="hello &amp; world">test</div> }`))
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.Contains(t, result, `content-data`)
-	assert.Contains(t, result, "createObjectURL")
-	// Content is double-JSON-encoded (JSX in template, then template output in blob wrapper).
-	assert.NotContains(t, result, `<div title=`)
+// --- Content types all use same rendering path ---
+
+func TestPublicViewAllContentTypesUseSameTemplate(t *testing.T) {
+	contentTypes := []string{
+		"text/plain",
+		"text/markdown",
+		"image/svg+xml",
+		"text/jsx",
+		"text/html",
+		"application/octet-stream",
+	}
+
+	for _, ct := range contentTypes {
+		t.Run(ct, func(t *testing.T) {
+			now := time.Now()
+			share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+			asset := &Asset{
+				ID: "a1", OwnerID: "u1", Name: "Test", ContentType: ct,
+				Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+			}
+
+			h := NewHandler(Deps{
+				AssetStore: &mockAssetStore{getAsset: asset},
+				ShareStore: &mockShareStore{getByTokenRes: share},
+				S3Client:   &mockS3Client{getData: []byte("test content"), getCT: ct},
+				S3Bucket:   "test",
+			}, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			body := w.Body.String()
+
+			// All content types use the same content viewer infrastructure
+			assert.Contains(t, body, `id="content-data"`)
+			assert.Contains(t, body, `id="content-root"`)
+		})
+	}
 }
 
 // --- defaultLogoSVG ---
@@ -580,57 +532,6 @@ func TestDefaultLogoSVG(t *testing.T) {
 	assert.Contains(t, defaultLogoSVG, "<svg")
 	assert.Contains(t, defaultLogoSVG, "</svg>")
 	assert.Contains(t, defaultLogoSVG, "viewBox")
-}
-
-// --- sandboxedIframe ---
-
-func TestSandboxedIframe(t *testing.T) {
-	result := sandboxedIframe([]byte("<div>test</div>"))
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.Contains(t, result, `content-data`)
-	assert.Contains(t, result, "createObjectURL")
-	// No srcdoc — uses blob: URL instead.
-	assert.NotContains(t, result, "srcdoc")
-}
-
-func TestSandboxedIframeSpecialChars(t *testing.T) {
-	result := sandboxedIframe([]byte(`<img onerror="alert(1)" src=x>`))
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.Contains(t, result, `content-data`)
-	// Content is JSON-encoded, so raw HTML tags don't appear.
-	assert.NotContains(t, result, `onerror="alert(1)"`)
-}
-
-// --- blobIframe ---
-
-func TestBlobIframe(t *testing.T) {
-	result := blobIframe("<h1>Hello</h1>", "width:100%;height:50vh;")
-	assert.Contains(t, result, `id="content-data"`)
-	assert.Contains(t, result, `id="content-frame"`)
-	assert.Contains(t, result, "createObjectURL")
-	assert.Contains(t, result, `sandbox="allow-scripts"`)
-	assert.NotContains(t, result, "srcdoc")
-}
-
-func TestBlobIframeScriptBreakout(t *testing.T) {
-	// </script> in content must be safely encoded via JSON.
-	result := blobIframe(`<script>alert("xss")</script>`, "width:100%;")
-	// json.Marshal encodes < as \u003c, so </script> cannot break out.
-	assert.NotContains(t, result, `<script>alert`)
-	assert.Contains(t, result, `\u003c`)
-}
-
-func TestBlobIframeRoundTrip(t *testing.T) {
-	original := `<div class="test">Hello & "world"</div>`
-	result := blobIframe(original, "width:100%;")
-	// Extract JSON from between content-data tags.
-	start := strings.Index(result, `id="content-data">`) + len(`id="content-data">`)
-	end := strings.Index(result[start:], `</script>`)
-	jsonStr := result[start : start+end]
-	var decoded string
-	err := json.Unmarshal([]byte(jsonStr), &decoded)
-	require.NoError(t, err)
-	assert.Equal(t, original, decoded)
 }
 
 // --- Notice text tests ---
