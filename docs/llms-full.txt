@@ -381,7 +381,7 @@ Branding fields have moved to the `portal:` section:
 
 When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `logo_light` → `logo` → built-in default; dark theme uses `logo_dark` → `logo` → built-in default. The resolved logo is also used as the browser favicon. Shared artifact links (`/portal/view/{token}`) display a two-zone header: the right zone shows the platform brand, and the optional left zone shows the implementor brand configured via `portal.implementor`.
 
-The public viewer supports light/dark mode (system default with toggle, persisted to localStorage), an expiration countdown notice showing relative time until share expiry, and a privacy warning ("Do not share this URL without permission."). When creating shares, set `hide_expiration: true` to hide the expiration countdown from the viewer while keeping the privacy notice visible.
+The public viewer supports light/dark mode (system default with toggle, persisted to localStorage), an expiration countdown notice showing relative time until share expiry, and a configurable per-share notice text. The `notice_text` field defaults to "Proprietary & Confidential. Only share with authorized viewers." — set it to a custom string for different text, or to `""` (empty string) to hide the notice entirely. When creating shares, set `hide_expiration: true` to hide the expiration countdown from the viewer.
 
 ## Resource Templates Configuration
 

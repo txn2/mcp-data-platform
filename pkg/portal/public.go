@@ -117,6 +117,7 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		"ImplementorURL":     h.deps.ImplementorURL,
 		"ExpiresAtISO":       expiresAtISO,
 		"HideExpiration":     share.HideExpiration,
+		"NoticeText":         share.NoticeText,
 	})
 }
 

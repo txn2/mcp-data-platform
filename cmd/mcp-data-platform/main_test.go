@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -493,6 +494,28 @@ func TestHealthEndpointsRegistered(t *testing.T) {
 	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/readyz", http.NoBody))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("/readyz status = %d, want %d (draining)", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestRobotsTxt(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
+	})
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/robots.txt", http.NoBody))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/robots.txt status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("Content-Type = %q, want %q", ct, "text/plain")
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Disallow: /") {
+		t.Errorf("body missing Disallow directive: %q", body)
 	}
 }
 

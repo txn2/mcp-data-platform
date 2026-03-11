@@ -28,6 +28,9 @@ const (
 	paramLimit       = "limit"
 )
 
+// defaultNoticeText is the notice shown on public shares when no custom text is provided.
+const defaultNoticeText = "Proprietary & Confidential. Only share with authorized viewers."
+
 // AuditMetrics provides aggregate audit metrics scoped to individual users.
 type AuditMetrics interface {
 	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
@@ -442,10 +445,11 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 
 // createShareRequest is the request body for creating a share.
 type createShareRequest struct {
-	ExpiresIn        string `json:"expires_in,omitempty"` // duration string, e.g. "24h"
-	SharedWithUserID string `json:"shared_with_user_id,omitempty"`
-	SharedWithEmail  string `json:"shared_with_email,omitempty"`
-	HideExpiration   bool   `json:"hide_expiration,omitempty"`
+	ExpiresIn        string  `json:"expires_in,omitempty"` // duration string, e.g. "24h"
+	SharedWithUserID string  `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail  string  `json:"shared_with_email,omitempty"`
+	HideExpiration   bool    `json:"hide_expiration,omitempty"`
+	NoticeText       *string `json:"notice_text,omitempty"` // nil = default, "" = hidden, custom = as-is
 }
 
 // shareResponse is the response for a created share.
@@ -511,6 +515,14 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		}
 	}
 
+	noticeText := defaultNoticeText
+	if req.NoticeText != nil {
+		noticeText = *req.NoticeText
+		if err := ValidateNoticeText(noticeText); err != nil {
+			return Share{}, err
+		}
+	}
+
 	share := Share{
 		ID:               uuid.New().String(),
 		AssetID:          assetID,
@@ -519,6 +531,7 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		SharedWithUserID: req.SharedWithUserID,
 		SharedWithEmail:  email,
 		HideExpiration:   req.HideExpiration,
+		NoticeText:       noticeText,
 	}
 
 	if req.ExpiresIn != "" {

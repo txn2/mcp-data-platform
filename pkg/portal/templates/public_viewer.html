@@ -190,13 +190,15 @@
             {{if .BrandURL}}</a>{{end}}
         </div>
     </div>
+    {{if or .NoticeText .ExpiresAtISO}}
     <div class="notice" id="notice">
         {{if .ExpiresAtISO}}
         <span id="expiry-notice" {{if .HideExpiration}}style="display:none"{{end}}>This page expires <span id="expiry-rel"></span></span>
-        {{if not .HideExpiration}}<span class="notice-sep"> &middot; </span>{{end}}
+        {{if and (not .HideExpiration) .NoticeText}}<span class="notice-sep"> &middot; </span>{{end}}
         {{end}}
-        <span>Do not share this URL without permission.</span>
+        {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
     </div>
+    {{end}}
     <div class="content">
         {{.Content}}
     </div>

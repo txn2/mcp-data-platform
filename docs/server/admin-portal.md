@@ -50,12 +50,12 @@ The public viewer includes:
 
 - **Light/dark mode** — Defaults to the system `prefers-color-scheme` setting. A toggle button in the header allows switching; the choice is persisted to `localStorage`.
 - **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Hidden when the share has no expiry or `hide_expiration` was set at share creation.
-- **Privacy notice** — Always displayed: "Do not share this URL without permission."
+- **Notice text** — Configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` to hide the notice entirely.
 
-The `hide_expiration` field is set per-share when creating a share via the API:
+The `hide_expiration` and `notice_text` fields are set per-share when creating a share via the API:
 
 ```json
-{"expires_in": "24h", "hide_expiration": true}
+{"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
 ```
 
 ## Dashboard

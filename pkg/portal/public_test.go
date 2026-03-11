@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	htmlpkg "html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,11 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// htmlNoticeText is the HTML-escaped default notice text for template assertions.
+var htmlNoticeText = htmlpkg.EscapeString(defaultNoticeText)
+
 // --- publicView ---
 
 func TestPublicViewSuccess(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -59,7 +63,7 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.Contains(t, body, `icon-moon`)
 
 	// Privacy notice is shown (no expiration for this share)
-	assert.Contains(t, body, "Do not share this URL without permission.")
+	assert.Contains(t, body, htmlNoticeText)
 
 	// No expiry notice when ExpiresAt is nil
 	assert.NotContains(t, body, `id="expiry-notice"`)
@@ -67,7 +71,7 @@ func TestPublicViewSuccess(t *testing.T) {
 
 func TestPublicViewCustomBrand(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -110,7 +114,7 @@ func TestPublicViewCustomBrand(t *testing.T) {
 
 func TestPublicViewImplementorOnly(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -143,7 +147,7 @@ func TestPublicViewImplementorOnly(t *testing.T) {
 
 func TestPublicViewBrandLinks(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -320,7 +324,7 @@ func TestPublicViewEmptyToken(t *testing.T) {
 func TestPublicViewWithExpiration(t *testing.T) {
 	now := time.Now()
 	future := now.Add(6 * time.Hour)
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -344,7 +348,7 @@ func TestPublicViewWithExpiration(t *testing.T) {
 	assert.Contains(t, body, `id="expiry-notice"`)
 	assert.NotContains(t, body, `style="display:none"`)
 	// Privacy notice always present
-	assert.Contains(t, body, "Do not share this URL without permission.")
+	assert.Contains(t, body, htmlNoticeText)
 	// ISO timestamp passed to JS
 	assert.Contains(t, body, future.UTC().Format(time.RFC3339))
 }
@@ -354,7 +358,7 @@ func TestPublicViewHideExpiration(t *testing.T) {
 	future := now.Add(3 * 24 * time.Hour)
 	share := &Share{
 		ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false,
-		ExpiresAt: &future, HideExpiration: true,
+		ExpiresAt: &future, HideExpiration: true, NoticeText: defaultNoticeText,
 	}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Secret", ContentType: "text/plain",
@@ -379,14 +383,14 @@ func TestPublicViewHideExpiration(t *testing.T) {
 	assert.Contains(t, body, `id="expiry-notice"`)
 	assert.Contains(t, body, `style="display:none"`)
 	// Privacy notice still shown
-	assert.Contains(t, body, "Do not share this URL without permission.")
+	assert.Contains(t, body, htmlNoticeText)
 	// Separator dot should not be visible (it's outside the hidden span, but only shown when not hidden)
 	assert.NotContains(t, body, `class="notice-sep"`)
 }
 
 func TestPublicViewDarkModeToggle(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -621,4 +625,88 @@ func TestBlobIframeRoundTrip(t *testing.T) {
 	err := json.Unmarshal([]byte(jsonStr), &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, original, decoded)
+}
+
+// --- Notice text tests ---
+
+func TestPublicViewCustomNoticeText(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: "Internal use only."}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Internal use only.")
+	assert.NotContains(t, body, htmlNoticeText)
+	assert.Contains(t, body, `class="notice"`)
+}
+
+func TestPublicViewEmptyNoticeText(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: ""}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	// No notice div when both notice text and expiration are empty
+	assert.NotContains(t, body, `class="notice"`)
+	assert.NotContains(t, body, htmlNoticeText)
+}
+
+func TestPublicViewEmptyNoticeWithExpiration(t *testing.T) {
+	now := time.Now()
+	future := now.Add(6 * time.Hour)
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: ""}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:   "test",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	// Notice div shown for expiration even with empty notice text
+	assert.Contains(t, body, `class="notice"`)
+	assert.Contains(t, body, `id="expiry-notice"`)
+	// No separator or notice text
+	assert.NotContains(t, body, `class="notice-sep"`)
+	assert.NotContains(t, body, htmlNoticeText)
 }

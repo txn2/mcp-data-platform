@@ -684,7 +684,8 @@ When creating a share via `POST /api/v1/portal/assets/{id}/shares`, the request 
 | `expires_in` | string | - | Duration string (e.g., `"24h"`, `"72h"`) |
 | `shared_with_user_id` | string | - | Target user ID for private shares |
 | `shared_with_email` | string | - | Target email for private shares |
-| `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer (privacy notice still shown) |
+| `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer |
+| `notice_text` | string\|null | `"Proprietary & Confidential. Only share with authorized viewers."` | Custom notice text for the public viewer. Omit or `null` for the default. Set to `""` to hide the notice entirely. Max 500 characters. |
 
 ### Public Viewer
 
@@ -692,7 +693,7 @@ The public viewer (`/portal/view/{token}`) renders shared artifacts with:
 
 - **Light/dark mode** — respects system `prefers-color-scheme`, toggle button persists choice to `localStorage`
 - **Expiration notice** — shows relative time until expiry (hidden when `hide_expiration` is true or no expiry set)
-- **Privacy notice** — always shows "Do not share this URL without permission."
+- **Notice text** — configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` at share creation to hide entirely.
 
 !!! note "Prerequisites"
     Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for artifact content storage.
