@@ -12,7 +12,7 @@ before:
   hooks:
     - go mod download
     - go mod verify
-    - bash -c "if [ -f ui/package.json ]; then cd ui && npm ci && npm run build && rm -rf ../internal/ui/dist/* && cp -r dist/* ../internal/ui/dist/ && rm -f ../internal/ui/dist/mockServiceWorker.js; fi"
+    - bash -c "if [ -f ui/package.json ]; then cd ui && npm ci && npm run build && rm -rf ../internal/ui/dist/* && cp -r dist/* ../internal/ui/dist/ && rm -f ../internal/ui/dist/mockServiceWorker.js && npx vite build --config vite.content-viewer.config.ts && mkdir -p ../internal/contentviewer/dist && cp dist-content-viewer/content-viewer.js ../internal/contentviewer/dist/ && SPA_CSS=$(find dist/assets -maxdepth 1 -name '*.css' -print -quit) && cp \"$SPA_CSS\" ../internal/contentviewer/dist/content-viewer.css; fi"
 
 builds:
   - id: mcp-data-platform
