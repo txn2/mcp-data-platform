@@ -7,6 +7,7 @@ export interface Asset {
   content_type: string;
   s3_bucket: string;
   s3_key: string;
+  thumbnail_s3_key?: string;
   size_bytes: number;
   tags: string[];
   provenance: Provenance;

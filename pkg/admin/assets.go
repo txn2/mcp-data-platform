@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -15,6 +16,12 @@ const pathValueID = "id"
 
 // errAdminAssetNotFound is the error message for missing assets.
 const errAdminAssetNotFound = "asset not found"
+
+// errAdminStorageNotReady is the error message when S3 is not configured.
+const errAdminStorageNotReady = "content storage not configured"
+
+// errAdminAssetDeleted is the error message for deleted assets.
+const errAdminAssetDeleted = "asset has been deleted"
 
 // registerAssetRoutes registers asset management routes if stores are available.
 func (h *Handler) registerAssetRoutes() {
@@ -26,6 +33,8 @@ func (h *Handler) registerAssetRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/content", h.getAdminAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}", h.updateAdminAsset)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/content", h.updateAdminAssetContent)
+	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/thumbnail", h.uploadAdminThumbnail)
+	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/thumbnail", h.getAdminThumbnail)
 	h.mux.HandleFunc("DELETE /api/v1/admin/assets/{id}", h.deleteAdminAsset)
 }
 
@@ -91,7 +100,7 @@ func (h *Handler) getAdminAsset(w http.ResponseWriter, r *http.Request) {
 // getAdminAssetContent returns an asset's S3 content without owner restriction.
 func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
 		return
 	}
 
@@ -160,7 +169,7 @@ func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 // updateAdminAssetContent replaces an asset's S3 content (no owner check for admins).
 func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
 		return
 	}
 
@@ -172,7 +181,7 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 	}
 
 	if asset.DeletedAt != nil {
-		writeError(w, http.StatusGone, "asset has been deleted")
+		writeError(w, http.StatusGone, errAdminAssetDeleted)
 		return
 	}
 
@@ -191,13 +200,105 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	updates := portal.AssetUpdate{HasContent: true, SizeBytes: int64(len(data))}
+	emptyThumb := ""
+	updates := portal.AssetUpdate{HasContent: true, SizeBytes: int64(len(data)), ThumbnailS3Key: &emptyThumb}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+}
+
+// uploadAdminThumbnail uploads a PNG thumbnail for an asset (no owner check for admins).
+func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
+		return
+	}
+
+	id := r.PathValue(pathValueID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAdminAssetDeleted)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if ct != "image/png" {
+		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, portal.MaxThumbnailUploadBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	if int64(len(data)) > portal.MaxThumbnailUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "thumbnail exceeds 512 KB limit")
+		return
+	}
+
+	thumbKey := adminDeriveThumbnailKey(asset.S3Key)
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, "image/png"); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
+		return
+	}
+
+	updates := portal.AssetUpdate{ThumbnailS3Key: &thumbKey}
+	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+}
+
+// getAdminThumbnail returns an asset's thumbnail (no owner check for admins).
+func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
+		return
+	}
+
+	id := r.PathValue(pathValueID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+
+	if asset.ThumbnailS3Key == "" {
+		writeError(w, http.StatusNotFound, "no thumbnail available")
+		return
+	}
+
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve thumbnail")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
+}
+
+// adminDeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png".
+func adminDeriveThumbnailKey(s3Key string) string {
+	idx := strings.LastIndex(s3Key, "/")
+	if idx < 0 {
+		return "thumbnail.png"
+	}
+	return s3Key[:idx+1] + "thumbnail.png"
 }
 
 // deleteAdminAsset soft-deletes any asset without owner restriction.

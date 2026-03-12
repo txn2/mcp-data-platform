@@ -155,6 +155,24 @@ export function useUpdateAssetContent() {
   });
 }
 
+export function useUploadThumbnail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, blob }: { id: string; blob: Blob }) => {
+      const res = await apiFetchRaw(`/assets/${id}/thumbnail`, {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: blob,
+      });
+      if (!res.ok) throw new Error("Failed to upload thumbnail");
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+    },
+  });
+}
+
 export function useCreateShare() {
   const qc = useQueryClient();
   return useMutation({

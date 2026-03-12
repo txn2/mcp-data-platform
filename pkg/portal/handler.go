@@ -22,10 +22,12 @@ import (
 
 // Common error messages, path value keys, and query parameter names.
 const (
-	errAuthRequired  = "authentication required"
-	errAssetNotFound = "asset not found"
-	pathKeyID        = "id"
-	paramLimit       = "limit"
+	errAuthRequired    = "authentication required"
+	errAssetNotFound   = "asset not found"
+	errAssetDeleted    = "asset has been deleted"
+	errStorageNotReady = "content storage not configured"
+	pathKeyID          = "id"
+	paramLimit         = "limit"
 )
 
 // defaultNoticeText is the notice shown on public shares when no custom text is provided.
@@ -122,6 +124,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
+	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/thumbnail", h.uploadThumbnail)
+	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/thumbnail", h.getThumbnail)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/shares", h.createShare)
@@ -251,7 +255,7 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if asset.DeletedAt != nil {
-		writeError(w, http.StatusGone, "asset has been deleted")
+		writeError(w, http.StatusGone, errAssetDeleted)
 		return
 	}
 
@@ -281,7 +285,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if asset.DeletedAt != nil {
-		writeError(w, http.StatusGone, "asset has been deleted")
+		writeError(w, http.StatusGone, errAssetDeleted)
 		return
 	}
 
@@ -293,7 +297,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
 
@@ -327,7 +331,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if asset.DeletedAt != nil {
-		writeError(w, http.StatusGone, "asset has been deleted")
+		writeError(w, http.StatusGone, errAssetDeleted)
 		return
 	}
 
@@ -337,7 +341,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "content storage not configured")
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
 
@@ -356,13 +360,144 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updates := AssetUpdate{HasContent: true, SizeBytes: int64(len(data))}
+	emptyThumb := ""
+	updates := AssetUpdate{HasContent: true, SizeBytes: int64(len(data)), ThumbnailS3Key: &emptyThumb}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+}
+
+func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
+	asset, ok := h.requireOwnedAsset(w, r)
+	if !ok {
+		return
+	}
+
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if ct != "image/png" {
+		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, MaxThumbnailUploadBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	if int64(len(data)) > MaxThumbnailUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "thumbnail exceeds 512 KB limit")
+		return
+	}
+
+	thumbKey := deriveThumbnailKey(asset.S3Key)
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, "image/png"); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	updates := AssetUpdate{ThumbnailS3Key: &thumbKey}
+	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+}
+
+// requireOwnedAsset validates auth, fetches the asset, checks deletion and ownership.
+// Returns the asset and true on success, or writes the error response and returns false.
+func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*Asset, bool) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return nil, false
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return nil, false
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return nil, false
+	}
+
+	if asset.OwnerID != user.UserID {
+		writeError(w, http.StatusForbidden, "only the owner can update this asset")
+		return nil, false
+	}
+
+	return asset, true
+}
+
+func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+
+	if asset.OwnerID != user.UserID {
+		if !h.isSharedWithUser(r, id, user) {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	if asset.ThumbnailS3Key == "" {
+		writeError(w, http.StatusNotFound, "no thumbnail available")
+		return
+	}
+
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve thumbnail")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
+}
+
+// deriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png".
+func deriveThumbnailKey(s3Key string) string {
+	idx := strings.LastIndex(s3Key, "/")
+	if idx < 0 {
+		return "thumbnail.png"
+	}
+	return s3Key[:idx+1] + "thumbnail.png"
 }
 
 // updateAssetRequest is the request body for updating an asset.

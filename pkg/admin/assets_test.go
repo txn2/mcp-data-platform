@@ -664,6 +664,234 @@ func TestValidateAdminAssetUpdate(t *testing.T) {
 	}
 }
 
+// --- adminDeriveThumbnailKey ---
+
+func TestAdminDeriveThumbnailKey(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"portal/owner/asset/content.html", "portal/owner/asset/thumbnail.png"},
+		{"simple.html", "thumbnail.png"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, adminDeriveThumbnailKey(tt.input))
+		})
+	}
+}
+
+// --- uploadAdminThumbnail ---
+
+func TestUploadAdminThumbnailSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	body := strings.NewReader("PNG-DATA")
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUploadAdminThumbnailNoS3(t *testing.T) {
+	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUploadAdminThumbnailNotFound(t *testing.T) {
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUploadAdminThumbnailWrongContentType(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/jpeg")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUploadAdminThumbnailTooLarge(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	oversize := strings.Repeat("x", portal.MaxThumbnailUploadBytes+1)
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader(oversize))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestUploadAdminThumbnailDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", DeletedAt: &now,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestUploadAdminThumbnailS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockAdminS3Client{putErr: fmt.Errorf("s3 fail")}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, s3)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUploadAdminThumbnailUpdateError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getAsset: asset, updateErr: fmt.Errorf("db fail")},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- getAdminThumbnail ---
+
+func TestGetAdminThumbnailSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockAdminS3Client{getData: []byte("PNG-DATA"), getCT: "image/png"}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, s3)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "PNG-DATA", w.Body.String())
+}
+
+func TestGetAdminThumbnailNoThumbnail(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetAdminThumbnailNoS3(t *testing.T) {
+	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestGetAdminThumbnailNotFound(t *testing.T) {
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetAdminThumbnailS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockAdminS3Client{getErr: fmt.Errorf("s3 fail")}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, s3)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 // --- listAllAssets with nil ShareStore ---
 
 func TestListAllAssetsNilShareStore(t *testing.T) {

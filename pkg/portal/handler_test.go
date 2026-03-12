@@ -2164,3 +2164,331 @@ func TestGetMe_WithPersonaResolver(t *testing.T) {
 	assert.Contains(t, resp.Tools, "trino_query")
 	assert.Contains(t, resp.Tools, "datahub_search")
 }
+
+// --- deriveThumbnailKey ---
+
+func TestDeriveThumbnailKey(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"portal/owner/asset/content.html", "portal/owner/asset/thumbnail.png"},
+		{"portal/owner/asset/dashboard.jsx", "portal/owner/asset/thumbnail.png"},
+		{"simple.html", "thumbnail.png"},
+		{"a/b/c", "a/b/thumbnail.png"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, deriveThumbnailKey(tt.input))
+		})
+	}
+}
+
+// --- uploadThumbnail ---
+
+func TestUploadThumbnailSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		ContentType: "text/html", Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUploadThumbnailUnauth(t *testing.T) {
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUploadThumbnailNotOwner(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "other-user", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUploadThumbnailWrongContentType(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/jpeg")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUploadThumbnailTooLarge(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	oversize := strings.Repeat("x", MaxThumbnailUploadBytes+1)
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader(oversize))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestUploadThumbnailAssetNotFound(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{getErr: fmt.Errorf("not found")},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUploadThumbnailNoS3(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	user := &User{UserID: "u1"}
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{},
+		S3Client:      nil, // true nil interface
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+		RateLimit:     RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, testAuthMiddleware(user))
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUploadThumbnailS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{putErr: fmt.Errorf("s3 fail")}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestUploadThumbnailUpdateError(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset, updateErr: fmt.Errorf("db fail")},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUploadThumbnailDeletedAsset(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", DeletedAt: &now,
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
+		strings.NewReader("data"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+// --- getThumbnail ---
+
+func TestGetThumbnailSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{getData: []byte("PNG-DATA"), getCT: "image/png"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "PNG-DATA", w.Body.String())
+}
+
+func TestGetThumbnailNoThumbnail(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetThumbnailUnauth(t *testing.T) {
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetThumbnailNotOwnerNotShared(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "other-user", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{}},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestGetThumbnailAssetNotFound(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{getErr: fmt.Errorf("not found")},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetThumbnailNoS3(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	user := &User{UserID: "u1"}
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{},
+		S3Client:      nil, // true nil interface
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+		RateLimit:     RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, testAuthMiddleware(user))
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestGetThumbnailS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{getErr: fmt.Errorf("s3 fail")}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestGetThumbnailDeletedAsset(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png", DeletedAt: &now,
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}

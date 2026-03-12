@@ -1,10 +1,13 @@
 import { useState, useCallback, useEffect, lazy, Suspense, type ReactNode } from "react";
 import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { ShareDialog } from "@/components/ShareDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { ThumbnailGenerator } from "@/components/ThumbnailGenerator";
+import { isThumbnailSupported } from "@/lib/thumbnail";
 import { formatBytes } from "@/lib/format";
 
 const SourceEditor = lazy(() =>
@@ -392,6 +395,10 @@ export function AssetViewer({
         </div>
       )}
 
+      {content && typeof content === "string" && !asset.thumbnail_s3_key && isThumbnailSupported(asset.content_type) && (
+        <ThumbnailGeneratorWithInvalidation assetId={asset.id} content={content} contentType={asset.content_type} />
+      )}
+
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
 
       {/* Delete confirmation modal */}
@@ -439,5 +446,22 @@ export function AssetViewer({
         </div>
       )}
     </div>
+  );
+}
+
+function ThumbnailGeneratorWithInvalidation({ assetId, content, contentType }: { assetId: string; content: string; contentType: string }) {
+  const qc = useQueryClient();
+  const handleCaptured = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["asset", assetId] });
+    void qc.invalidateQueries({ queryKey: ["assets"] });
+  }, [qc, assetId]);
+
+  return (
+    <ThumbnailGenerator
+      assetId={assetId}
+      content={content}
+      contentType={contentType}
+      onCaptured={handleCaptured}
+    />
   );
 }

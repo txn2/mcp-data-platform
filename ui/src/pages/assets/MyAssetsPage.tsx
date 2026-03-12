@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
+import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -105,47 +106,63 @@ export function MyAssetsPage({ onNavigate }: Props) {
                 key={asset.id}
                 type="button"
                 onClick={() => onNavigate(`/assets/${asset.id}`)}
-                className="relative flex flex-col items-start rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50 hover:border-primary/30"
+                className="relative flex flex-col items-start rounded-lg border bg-card text-left transition-colors hover:bg-accent/50 hover:border-primary/30 overflow-hidden"
               >
-                {summary && (summary.has_user_share || summary.has_public_link) && (
-                  <div className="absolute top-4 right-4 flex gap-1">
-                    {summary.has_user_share && (
-                      <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                    )}
-                    {summary.has_public_link && (
-                      <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mb-2 w-full pr-12">
-                  <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium truncate flex-1">
-                    {asset.name}
-                  </span>
+                <div className="w-full aspect-[4/3] bg-muted">
+                  {asset.thumbnail_s3_key ? (
+                    <img
+                      src={`/api/v1/portal/assets/${asset.id}/thumbnail`}
+                      alt=""
+                      className="w-full h-full object-cover object-top"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Icon className="h-8 w-8 text-muted-foreground/30" />
+                    </div>
+                  )}
                 </div>
-                {asset.description && (
-                  <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                    {asset.description}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(asset.content_type)}`}
-                  >
-                    {asset.content_type}
-                  </span>
-                  {asset.tags.slice(0, 3).map((t) => (
-                    <span
-                      key={t}
-                      className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
-                    >
-                      {t}
+                <div className="p-4 w-full">
+                  {summary && (summary.has_user_share || summary.has_public_link) && (
+                    <div className="absolute top-2 right-2 flex gap-1 bg-background/80 rounded-full px-1.5 py-0.5">
+                      {summary.has_user_share && (
+                        <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                      )}
+                      {summary.has_public_link && (
+                        <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mb-2 w-full">
+                    <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-medium truncate flex-1">
+                      {asset.name}
                     </span>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                  <span>{formatBytes(asset.size_bytes)}</span>
-                  <span>{new Date(asset.created_at).toLocaleDateString()}</span>
+                  </div>
+                  {asset.description && (
+                    <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
+                      {asset.description}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(asset.content_type)}`}
+                    >
+                      {asset.content_type}
+                    </span>
+                    {asset.tags.slice(0, 3).map((t) => (
+                      <span
+                        key={t}
+                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
+                    <span>{formatBytes(asset.size_bytes)}</span>
+                    <span>{new Date(asset.created_at).toLocaleDateString()}</span>
+                  </div>
                 </div>
               </button>
             );
@@ -158,6 +175,8 @@ export function MyAssetsPage({ onNavigate }: Props) {
           Showing {assets.length} of {data.total} assets
         </p>
       )}
+
+      <ThumbnailQueue assets={assets} />
     </div>
   );
 }

@@ -44,13 +44,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function apiFetchRaw(path: string): Promise<Response> {
+async function apiFetchRaw(path: string, init?: RequestInit): Promise<Response> {
   const { apiKey, authMethod } = useAuthStore.getState();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
   if (authMethod === "apikey" && apiKey) {
     headers["X-API-Key"] = apiKey;
   }
-  const res = await fetch(`${BASE_URL}${path}`, { headers, credentials: "include" });
+  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers, credentials: "include" });
   if (res.status === 401) {
     useAuthStore.getState().expireSession();
   }
