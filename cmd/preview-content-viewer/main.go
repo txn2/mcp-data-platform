@@ -24,15 +24,15 @@ const viewerHTML = `<!DOCTYPE html>
 <style>
 :root,[data-theme="light"]{--bg:#f5f5f5;--bg-surface:#fff;--text:#1a1a1a;--text-muted:#6b7280;--page-border:#e5e5e5;--badge-bg:#e5e7eb;--badge-text:#374151;--toggle-hover:#f3f4f6;--background:0 0% 96%;--foreground:0 0% 10%;--card:0 0% 100%;--card-foreground:0 0% 10%;--muted:0 0% 96%;--muted-foreground:220 9% 46%;--border:0 0% 90%;--primary:221.2 83.2% 53.3%;--primary-foreground:210 40% 98%}
 [data-theme="dark"]{--bg:#111113;--bg-surface:#1a1a1e;--text:#e4e4e7;--text-muted:#71717a;--page-border:#27272a;--badge-bg:#27272a;--badge-text:#a1a1aa;--toggle-hover:#27272a;--background:240 6% 6%;--foreground:240 5% 90%;--card:240 5% 11%;--card-foreground:240 5% 90%;--muted:240 4% 16%;--muted-foreground:240 5% 48%;--border:240 4% 16%;--primary:217.2 91.2% 59.8%;--primary-foreground:222.2 47.4% 11.2%}
-html,body{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text)}
-.header{box-sizing:border-box;background:var(--bg-surface);border-bottom:1px solid var(--page-border);padding:12px 24px;display:flex;align-items:center;gap:12px}
+html,body{margin:0;padding:0;box-sizing:border-box;height:100%}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh}
+.header{box-sizing:border-box;background:var(--bg-surface);border-bottom:1px solid var(--page-border);padding:12px 24px;display:flex;align-items:center;gap:12px;flex-shrink:0}
 .header h1{font-size:16px;font-weight:600;flex:1}
 .badge{font-size:11px;background:var(--badge-bg);color:var(--badge-text);padding:2px 8px;border-radius:10px}
 .theme-toggle{background:none;border:1px solid var(--page-border);border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--text-muted)}
-.content{box-sizing:border-box;width:100%;padding:16px}
+.content{box-sizing:border-box;width:100%;padding:16px;flex:1;display:flex;flex-direction:column}
 .content iframe{flex:1;min-height:60vh}
-nav{box-sizing:border-box;display:flex;gap:8px;padding:12px 24px;background:var(--bg-surface);border-bottom:1px solid var(--page-border)}
+nav{box-sizing:border-box;display:flex;gap:8px;padding:12px 24px;background:var(--bg-surface);border-bottom:1px solid var(--page-border);flex-shrink:0}
 nav a{color:var(--text-muted);text-decoration:none;padding:4px 12px;border-radius:6px;font-size:13px}
 nav a:hover{background:var(--toggle-hover)}
 nav a.active{background:var(--badge-bg);color:var(--badge-text)}
