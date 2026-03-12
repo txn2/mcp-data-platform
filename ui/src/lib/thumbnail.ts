@@ -190,5 +190,5 @@ ${mountSection}
  */
 export function isThumbnailSupported(contentType: string): boolean {
   const ct = contentType.toLowerCase();
-  return ct.includes("html") || ct.includes("jsx") || ct.includes("svg") || ct.includes("markdown");
+  return ct.includes("html") || ct.includes("jsx") || ct.includes("svg") || ct.includes("markdown") || ct.includes("csv");
 }

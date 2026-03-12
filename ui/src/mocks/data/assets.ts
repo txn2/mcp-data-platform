@@ -178,6 +178,29 @@ export const mockAssets: Asset[] = [
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
+  {
+    id: "ast-008",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Regional Sales Summary",
+    description: "CSV export of quarterly sales by region with revenue and unit counts.",
+    content_type: "text/csv",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-008.csv",
+    size_bytes: 1_240,
+    tags: ["sales", "csv", "quarterly"],
+    provenance: {
+      session_id: "sess-hhh",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(2), summary: "Queried regional sales data" },
+        { tool_name: "save_artifact", timestamp: daysAgo(2), summary: "Saved CSV export" },
+      ],
+    },
+    session_id: "sess-hhh",
+    created_at: daysAgo(2),
+    updated_at: daysAgo(2),
+  },
 ];
 
 export const mockShares: Record<string, Share[]> = {

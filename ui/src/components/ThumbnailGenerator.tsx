@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import Papa from "papaparse";
 import DOMPurify from "dompurify";
 import html2canvas from "html2canvas";
 import {
@@ -35,6 +36,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
   const isIframeType = ct.includes("html") || ct.includes("jsx");
   const isMarkdown = ct.includes("markdown");
   const isSvg = ct.includes("svg");
+  const isCsv = ct.includes("csv");
 
   if (isIframeType) {
     return (
@@ -48,7 +50,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
     );
   }
 
-  if (isMarkdown || isSvg) {
+  if (isMarkdown || isSvg || isCsv) {
     return (
       <DomCapture
         assetId={assetId}
@@ -176,6 +178,20 @@ function DomCapture({
   const capturedRef = useRef(false);
 
   const isSvg = contentType.toLowerCase().includes("svg");
+  const isCsvThumb = contentType.toLowerCase().includes("csv");
+
+  const csvTable = useMemo(() => {
+    if (!isCsvThumb) return null;
+    const result = Papa.parse<Record<string, unknown>>(content, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,
+    });
+    const cols = result.meta.fields ?? [];
+    const rows = result.data.slice(0, 10);
+    return { cols, rows };
+  }, [content, isCsvThumb]);
+
   const sanitizedSvg = useMemo(
     () => (isSvg ? DOMPurify.sanitize(content, { USE_PROFILES: { svg: true, svgFilters: true } }) : ""),
     [content, isSvg],
@@ -255,7 +271,36 @@ function DomCapture({
       }}
       aria-hidden="true"
     >
-      {isSvg ? (
+      {isCsvThumb && csvTable ? (
+        <div>
+          <style>{`
+            .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; width: 100%; }
+            .thumb-prose th, .thumb-prose td { border: 1px solid #d1d5db; padding: 0.25em 0.5em; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+            .thumb-prose th { background: #f1f5f9; font-weight: 600; }
+            .thumb-prose tr:nth-child(even) { background: #f8fafc; }
+          `}</style>
+          <div className="thumb-prose">
+            <table>
+              <thead>
+                <tr>
+                  {csvTable.cols.map((col) => (
+                    <th key={col}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {csvTable.rows.map((row, i) => (
+                  <tr key={i}>
+                    {csvTable.cols.map((col) => (
+                      <td key={col}>{String(row[col] ?? "")}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : isSvg ? (
         <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
       ) : (
         <div

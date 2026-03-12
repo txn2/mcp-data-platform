@@ -331,4 +331,14 @@ export const mockContent: Record<string, string> = {
 </html>`,
 
   "ast-007": jsxDashboardContent,
+
+  "ast-008": `Region,Quarter,Revenue,Units Sold,Avg Price,Growth %
+West,Q1 2025,1540000,18200,84.62,15.2
+East,Q1 2025,1260000,14880,84.68,11.8
+Central,Q1 2025,890000,10500,84.76,9.4
+South,Q1 2025,510000,6000,85.00,7.1
+West,Q2 2025,1720000,19800,86.87,11.7
+East,Q2 2025,1380000,15900,86.79,9.5
+Central,Q2 2025,960000,11200,85.71,7.9
+South,Q2 2025,580000,6700,86.57,13.7`,
 };

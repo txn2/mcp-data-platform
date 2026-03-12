@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
+import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucide-react";
 import { useAdminAssets } from "@/api/admin/hooks";
 import { formatBytes, formatOwner } from "@/lib/format";
 
@@ -9,6 +9,7 @@ interface Props {
 
 function contentTypeIcon(ct: string) {
   const lower = ct.toLowerCase();
+  if (lower.includes("csv")) return Table2;
   if (lower.includes("html") || lower.includes("jsx")) return Code;
   if (lower.includes("svg") || lower.includes("image")) return Image;
   if (lower.includes("markdown") || lower.includes("text")) return FileText;

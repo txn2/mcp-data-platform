@@ -2,6 +2,7 @@ import { JsxRenderer } from "./JsxRenderer";
 import { HtmlRenderer } from "./HtmlRenderer";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { SvgRenderer } from "./SvgRenderer";
+import { CsvRenderer } from "./CsvRenderer";
 
 interface Props {
   contentType: string;
@@ -22,6 +23,9 @@ export function ContentRenderer({ contentType, content }: Props) {
   }
   if (ct.includes("html")) {
     return <HtmlRenderer content={content} />;
+  }
+  if (ct.includes("csv")) {
+    return <CsvRenderer content={content} />;
   }
 
   // Fallback: plain text
