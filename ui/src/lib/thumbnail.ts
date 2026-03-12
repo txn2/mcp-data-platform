@@ -1,4 +1,3 @@
-import { toPng } from "html-to-image";
 import html2canvas from "html2canvas";
 import { apiFetchRaw } from "@/api/portal/client";
 import { transformJsx, escapeScriptClose, findComponentName } from "@/components/renderers/JsxRenderer";
@@ -77,19 +76,6 @@ export async function captureIframe(iframe: HTMLIFrameElement): Promise<Blob> {
   });
 }
 
-/**
- * Capture a same-origin DOM element as a PNG blob using html-to-image.
- */
-export async function captureElement(element: HTMLElement): Promise<Blob> {
-  const dataUrl = await toPng(element, {
-    width: THUMB_WIDTH,
-    height: THUMB_HEIGHT,
-    canvasWidth: THUMB_WIDTH,
-    canvasHeight: THUMB_HEIGHT,
-  });
-  const res = await fetch(dataUrl);
-  return res.blob();
-}
 
 /**
  * Upload a PNG thumbnail blob for an asset.

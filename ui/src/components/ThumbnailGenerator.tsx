@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import DOMPurify from "dompurify";
+import html2canvas from "html2canvas";
 import {
   THUMB_WIDTH,
   THUMB_HEIGHT,
@@ -11,7 +12,6 @@ import {
   injectCaptureScript,
   buildJsxThumbnailHtml,
   captureIframe,
-  captureElement,
   uploadThumbnail,
 } from "@/lib/thumbnail";
 
@@ -157,7 +157,7 @@ function IframeCapture({
 }
 
 /**
- * Captures same-origin DOM content (Markdown/SVG) using html-to-image.
+ * Captures same-origin DOM content (Markdown/SVG) using html2canvas.
  */
 function DomCapture({
   assetId,
@@ -185,7 +185,15 @@ function DomCapture({
     if (capturedRef.current || !containerRef.current) return;
     capturedRef.current = true;
     try {
-      const blob = await captureElement(containerRef.current);
+      const canvas = await html2canvas(containerRef.current, {
+        width: THUMB_WIDTH,
+        height: THUMB_HEIGHT,
+        scale: 1,
+        logging: false,
+      });
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png");
+      });
       await uploadThumbnail(assetId, blob);
       onCaptured?.();
     } catch {
