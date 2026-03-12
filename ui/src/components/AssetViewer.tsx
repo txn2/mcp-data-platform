@@ -254,17 +254,22 @@ export function AssetViewer({
         )}
 
         {content !== undefined ? (
-          viewMode === "source" && canEditSource ? (
-            <Suspense fallback={<LoadingIndicator />}>
-              <SourceEditor
-                content={editedContent}
-                contentType={asset.content_type}
-                onChange={(v) => { setEditedContent(v); setDirty(true); }}
-              />
-            </Suspense>
-          ) : (
-            <ContentRenderer contentType={asset.content_type} content={hasChanges ? editedContent : (content as string)} />
-          )
+          <>
+            {canEditSource && (
+              <div style={{ display: viewMode === "source" ? undefined : "none" }}>
+                <Suspense fallback={<LoadingIndicator />}>
+                  <SourceEditor
+                    content={editedContent}
+                    contentType={asset.content_type}
+                    onChange={(v) => { setEditedContent(v); setDirty(true); }}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {(viewMode !== "source" || !canEditSource) && (
+              <ContentRenderer contentType={asset.content_type} content={hasChanges ? editedContent : (content as string)} />
+            )}
+          </>
         ) : (
           <LoadingIndicator />
         )}
