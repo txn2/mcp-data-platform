@@ -31,7 +31,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .badge{font-size:11px;background:var(--badge-bg);color:var(--badge-text);padding:2px 8px;border-radius:10px}
 .theme-toggle{background:none;border:1px solid var(--page-border);border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--text-muted)}
 .content{box-sizing:border-box;width:100%;padding:16px;flex:1;display:flex;flex-direction:column}
-.content iframe{flex:1;min-height:60vh}
+.content iframe{flex:1;min-height:60vh;height:auto !important}
 nav{box-sizing:border-box;display:flex;gap:8px;padding:12px 24px;background:var(--bg-surface);border-bottom:1px solid var(--page-border);flex-shrink:0}
 nav a{color:var(--text-muted);text-decoration:none;padding:4px 12px;border-radius:6px;font-size:13px}
 nav a:hover{background:var(--toggle-hover)}
