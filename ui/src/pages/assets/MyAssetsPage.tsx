@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, FileText, Image, Code, File, Users, Globe } from "lucide-react";
+import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucide-react";
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
@@ -10,6 +10,7 @@ interface Props {
 
 function contentTypeIcon(ct: string) {
   const lower = ct.toLowerCase();
+  if (lower.includes("csv")) return Table2;
   if (lower.includes("html") || lower.includes("jsx")) return Code;
   if (lower.includes("svg") || lower.includes("image")) return Image;
   if (lower.includes("markdown") || lower.includes("text")) return FileText;
@@ -18,6 +19,7 @@ function contentTypeIcon(ct: string) {
 
 function contentTypeBadgeColor(ct: string) {
   const lower = ct.toLowerCase();
+  if (lower.includes("csv")) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300";
   if (lower.includes("jsx") || lower.includes("react")) return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300";
   if (lower.includes("html")) return "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300";
   if (lower.includes("svg")) return "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300";
@@ -66,6 +68,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
           <option value="text/jsx">JSX</option>
           <option value="image/svg+xml">SVG</option>
           <option value="text/markdown">Markdown</option>
+          <option value="text/csv">CSV</option>
         </select>
         <input
           type="text"
