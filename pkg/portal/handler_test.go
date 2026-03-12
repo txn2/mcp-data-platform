@@ -2165,7 +2165,7 @@ func TestGetMe_WithPersonaResolver(t *testing.T) {
 	assert.Contains(t, resp.Tools, "datahub_search")
 }
 
-// --- deriveThumbnailKey ---
+// --- DeriveThumbnailKey ---
 
 func TestDeriveThumbnailKey(t *testing.T) {
 	tests := []struct {
@@ -2179,7 +2179,7 @@ func TestDeriveThumbnailKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, deriveThumbnailKey(tt.input))
+			assert.Equal(t, tt.want, DeriveThumbnailKey(tt.input))
 		})
 	}
 }
@@ -2378,7 +2378,7 @@ func TestGetThumbnailSuccess(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
-	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "private, max-age=3600", w.Header().Get("Cache-Control"))
 	assert.Equal(t, "PNG-DATA", w.Body.String())
 }
 

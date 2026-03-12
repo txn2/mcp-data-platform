@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetchRaw } from "@/api/portal/client";
 import type { Asset } from "@/api/portal/types";
@@ -13,16 +13,23 @@ interface Props {
  * Background queue that auto-generates missing thumbnails when the asset
  * list page loads. Processes one asset at a time to avoid overloading the
  * browser. Renders nothing visible.
+ *
+ * Tracks processed asset IDs to prevent duplicate captures when the asset
+ * list is refetched after a successful upload.
  */
 export function ThumbnailQueue({ assets }: Props) {
   const qc = useQueryClient();
   const [queue, setQueue] = useState<Asset[]>([]);
   const [current, setCurrent] = useState<{ asset: Asset; content: string } | null>(null);
+  const processedRef = useRef(new Set<string>());
 
-  // Build the queue of assets needing thumbnails
+  // Build the queue of assets needing thumbnails, excluding already-processed ones
   useEffect(() => {
     const needsThumbnail = assets.filter(
-      (a) => !a.thumbnail_s3_key && isThumbnailSupported(a.content_type),
+      (a) =>
+        !a.thumbnail_s3_key &&
+        isThumbnailSupported(a.content_type) &&
+        !processedRef.current.has(a.id),
     );
     setQueue(needsThumbnail);
     setCurrent(null);
@@ -33,6 +40,9 @@ export function ThumbnailQueue({ assets }: Props) {
     if (current || queue.length === 0) return;
 
     const next = queue[0]!;
+
+    // Mark as processed immediately to prevent re-queuing on refetch
+    processedRef.current.add(next.id);
 
     apiFetchRaw(`/assets/${next.id}/content`)
       .then((res) => {
@@ -48,11 +58,20 @@ export function ThumbnailQueue({ assets }: Props) {
       });
   }, [queue, current]);
 
-  const handleCaptured = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ["assets"] });
+  const advance = useCallback(() => {
     setCurrent(null);
     setQueue((q) => q.slice(1));
-  }, [qc]);
+  }, []);
+
+  const handleCaptured = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["assets"] });
+    advance();
+  }, [qc, advance]);
+
+  const handleFailed = useCallback(() => {
+    // Move on to the next asset without invalidating
+    advance();
+  }, [advance]);
 
   if (!current) return null;
 
@@ -62,6 +81,7 @@ export function ThumbnailQueue({ assets }: Props) {
       content={current.content}
       contentType={current.asset.content_type}
       onCaptured={handleCaptured}
+      onFailed={handleFailed}
     />
   );
 }

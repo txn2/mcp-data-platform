@@ -19,14 +19,15 @@ import (
 // --- mock stores for admin asset tests ---
 
 type mockAdminAssetStore struct {
-	insertErr error
-	getAsset  *portal.Asset
-	getErr    error
-	listRes   []portal.Asset
-	listTotal int
-	listErr   error
-	updateErr error
-	deleteErr error
+	insertErr  error
+	getAsset   *portal.Asset
+	getErr     error
+	listRes    []portal.Asset
+	listTotal  int
+	listErr    error
+	updateErr  error
+	deleteErr  error
+	lastUpdate *portal.AssetUpdate // captures the most recent Update call
 }
 
 func (m *mockAdminAssetStore) Insert(_ context.Context, _ portal.Asset) error { return m.insertErr }
@@ -38,7 +39,8 @@ func (m *mockAdminAssetStore) List(_ context.Context, _ portal.AssetFilter) ([]p
 	return m.listRes, m.listTotal, m.listErr
 }
 
-func (m *mockAdminAssetStore) Update(_ context.Context, _ string, _ portal.AssetUpdate) error {
+func (m *mockAdminAssetStore) Update(_ context.Context, _ string, u portal.AssetUpdate) error {
+	m.lastUpdate = &u
 	return m.updateErr
 }
 func (m *mockAdminAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
@@ -464,6 +466,28 @@ func TestUpdateAdminAssetContentSuccess(t *testing.T) {
 	assert.Equal(t, "updated", resp.Status)
 }
 
+func TestUpdateAdminAssetContentClearsThumbnail(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAdminAssetStore{getAsset: asset}
+	h := newAdminTestHandler(store, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("<html>Updated</html>"))
+	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate)
+	require.NotNil(t, store.lastUpdate.ThumbnailS3Key, "ThumbnailS3Key should be set")
+	assert.Equal(t, "", *store.lastUpdate.ThumbnailS3Key, "ThumbnailS3Key should be cleared to empty")
+}
+
 func TestUpdateAdminAssetContentNoS3(t *testing.T) {
 	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
 
@@ -664,9 +688,9 @@ func TestValidateAdminAssetUpdate(t *testing.T) {
 	}
 }
 
-// --- adminDeriveThumbnailKey ---
+// --- DeriveThumbnailKey (portal package) ---
 
-func TestAdminDeriveThumbnailKey(t *testing.T) {
+func TestAdminDeriveThumbnailKeyUsesPortal(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -676,7 +700,7 @@ func TestAdminDeriveThumbnailKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, adminDeriveThumbnailKey(tt.input))
+			assert.Equal(t, tt.want, portal.DeriveThumbnailKey(tt.input))
 		})
 	}
 }
@@ -836,6 +860,21 @@ func TestGetAdminThumbnailSuccess(t *testing.T) {
 	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
 	assert.Equal(t, "PNG-DATA", w.Body.String())
+}
+
+func TestGetAdminThumbnailDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png", DeletedAt: &now,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
 }
 
 func TestGetAdminThumbnailNoThumbnail(t *testing.T) {

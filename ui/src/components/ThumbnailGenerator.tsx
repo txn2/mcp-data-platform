@@ -5,7 +5,9 @@ import DOMPurify from "dompurify";
 import {
   THUMB_WIDTH,
   THUMB_HEIGHT,
+  CAPTURE_TIMEOUT_MS,
   injectCaptureScript,
+  captureIframe,
   captureElement,
   uploadThumbnail,
 } from "@/lib/thumbnail";
@@ -15,13 +17,17 @@ interface Props {
   content: string;
   contentType: string;
   onCaptured?: () => void;
+  onFailed?: () => void;
 }
 
 /**
  * Hidden off-screen component that renders content, captures a PNG thumbnail,
  * and uploads it to the server. Renders nothing visible to the user.
+ *
+ * Calls onFailed (or onCaptured) after CAPTURE_TIMEOUT_MS if capture hasn't
+ * completed, so the caller can move on.
  */
-export function ThumbnailGenerator({ assetId, content, contentType, onCaptured }: Props) {
+export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, onFailed }: Props) {
   const ct = contentType.toLowerCase();
   const isIframeType = ct.includes("html") || ct.includes("jsx");
   const isMarkdown = ct.includes("markdown");
@@ -33,6 +39,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured }
         assetId={assetId}
         content={content}
         onCaptured={onCaptured}
+        onFailed={onFailed}
       />
     );
   }
@@ -44,6 +51,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured }
         content={content}
         contentType={contentType}
         onCaptured={onCaptured}
+        onFailed={onFailed}
       />
     );
   }
@@ -52,19 +60,23 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured }
 }
 
 /**
- * Captures iframe-based content (HTML/JSX) by injecting a self-capture
- * script that uses html2canvas inside the sandboxed iframe.
+ * Captures iframe-based content (HTML/JSX) using the bundled html2canvas.
+ * The iframe sends a "thumbnail-ready" postMessage when loaded; the parent
+ * then captures the iframe content directly.
  */
 function IframeCapture({
   assetId,
   content,
   onCaptured,
+  onFailed,
 }: {
   assetId: string;
   content: string;
   onCaptured?: () => void;
+  onFailed?: () => void;
 }) {
   const capturedRef = useRef(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const blobUrl = useMemo(() => {
     const injected = injectCaptureScript(content);
@@ -72,25 +84,40 @@ function IframeCapture({
     return URL.createObjectURL(blob);
   }, [content]);
 
+  const doCapture = useCallback(async () => {
+    if (capturedRef.current || !iframeRef.current) return;
+    capturedRef.current = true;
+    try {
+      const blob = await captureIframe(iframeRef.current);
+      await uploadThumbnail(assetId, blob);
+      onCaptured?.();
+    } catch {
+      onFailed?.();
+    }
+  }, [assetId, onCaptured, onFailed]);
+
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      if (capturedRef.current) return;
-      if (e.data?.type !== "thumbnail-capture") return;
-      capturedRef.current = true;
-
-      const dataUrl = e.data.data as string | null;
-      if (!dataUrl) return;
-
-      fetch(dataUrl)
-        .then((r) => r.blob())
-        .then((blob) => uploadThumbnail(assetId, blob))
-        .then(() => onCaptured?.())
-        .catch(() => { /* best-effort */ });
+      // blob: iframes have origin "null" — reject messages from other origins
+      if (e.origin !== "null") return;
+      if (e.data?.type !== "thumbnail-ready") return;
+      void doCapture();
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [assetId, onCaptured]);
+  }, [doCapture]);
+
+  // Timeout: if capture hasn't completed, give up
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!capturedRef.current) {
+        capturedRef.current = true;
+        onFailed?.();
+      }
+    }, CAPTURE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [onFailed]);
 
   useEffect(() => {
     return () => URL.revokeObjectURL(blobUrl);
@@ -110,7 +137,8 @@ function IframeCapture({
       aria-hidden="true"
     >
       <iframe
-        sandbox="allow-scripts"
+        ref={iframeRef}
+        sandbox="allow-scripts allow-same-origin"
         src={blobUrl}
         width={THUMB_WIDTH}
         height={THUMB_HEIGHT}
@@ -129,11 +157,13 @@ function DomCapture({
   content,
   contentType,
   onCaptured,
+  onFailed,
 }: {
   assetId: string;
   content: string;
   contentType: string;
   onCaptured?: () => void;
+  onFailed?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const capturedRef = useRef(false);
@@ -152,15 +182,26 @@ function DomCapture({
       await uploadThumbnail(assetId, blob);
       onCaptured?.();
     } catch {
-      // best-effort
+      onFailed?.();
     }
-  }, [assetId, onCaptured]);
+  }, [assetId, onCaptured, onFailed]);
 
   useEffect(() => {
     // Wait for render to complete
     const timer = setTimeout(doCapture, 500);
     return () => clearTimeout(timer);
   }, [doCapture]);
+
+  // Timeout: if capture hasn't completed, give up
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!capturedRef.current) {
+        capturedRef.current = true;
+        onFailed?.();
+      }
+    }, CAPTURE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [onFailed]);
 
   return (
     <div

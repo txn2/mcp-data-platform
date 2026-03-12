@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -230,7 +230,8 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ct := r.Header.Get("Content-Type")
-	if ct != "image/png" {
+	mediaType, _, _ := mime.ParseMediaType(ct)
+	if mediaType != "image/png" {
 		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
 		return
 	}
@@ -241,11 +242,11 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if int64(len(data)) > portal.MaxThumbnailUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "thumbnail exceeds 512 KB limit")
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("thumbnail exceeds %d KB limit", portal.MaxThumbnailUploadBytes>>10))
 		return
 	}
 
-	thumbKey := adminDeriveThumbnailKey(asset.S3Key)
+	thumbKey := portal.DeriveThumbnailKey(asset.S3Key)
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, "image/png"); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
 		return
@@ -274,6 +275,11 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAdminAssetDeleted)
+		return
+	}
+
 	if asset.ThumbnailS3Key == "" {
 		writeError(w, http.StatusNotFound, "no thumbnail available")
 		return
@@ -290,15 +296,6 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
-}
-
-// adminDeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png".
-func adminDeriveThumbnailKey(s3Key string) string {
-	idx := strings.LastIndex(s3Key, "/")
-	if idx < 0 {
-		return "thumbnail.png"
-	}
-	return s3Key[:idx+1] + "thumbnail.png"
 }
 
 // deleteAdminAsset soft-deletes any asset without owner restriction.
