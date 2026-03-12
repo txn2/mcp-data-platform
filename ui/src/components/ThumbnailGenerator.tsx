@@ -194,9 +194,26 @@ function DomCapture({
   }, [assetId, onCaptured, onFailed]);
 
   useEffect(() => {
-    // Wait for render to complete
-    const timer = setTimeout(doCapture, 500);
-    return () => clearTimeout(timer);
+    const el = containerRef.current;
+    if (!el) return;
+
+    // If content is already rendered (SVG via dangerouslySetInnerHTML), capture
+    // after one animation frame so layout settles.
+    if (el.querySelector("svg, p, h1, h2, h3, li, pre, blockquote, table")) {
+      const raf = requestAnimationFrame(() => void doCapture());
+      return () => cancelAnimationFrame(raf);
+    }
+
+    // Otherwise wait for ReactMarkdown to render child nodes.
+    const observer = new MutationObserver(() => {
+      if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table")) {
+        observer.disconnect();
+        // One more frame to let layout settle after the DOM mutation.
+        requestAnimationFrame(() => void doCapture());
+      }
+    });
+    observer.observe(el, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [doCapture]);
 
   // Timeout: if capture hasn't completed, give up
