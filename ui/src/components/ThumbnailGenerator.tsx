@@ -5,8 +5,11 @@ import DOMPurify from "dompurify";
 import {
   THUMB_WIDTH,
   THUMB_HEIGHT,
+  RENDER_WIDTH,
+  RENDER_HEIGHT,
   CAPTURE_TIMEOUT_MS,
   injectCaptureScript,
+  buildJsxThumbnailHtml,
   captureIframe,
   captureElement,
   uploadThumbnail,
@@ -38,6 +41,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
       <IframeCapture
         assetId={assetId}
         content={content}
+        contentType={contentType}
         onCaptured={onCaptured}
         onFailed={onFailed}
       />
@@ -67,22 +71,25 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
 function IframeCapture({
   assetId,
   content,
+  contentType,
   onCaptured,
   onFailed,
 }: {
   assetId: string;
   content: string;
+  contentType: string;
   onCaptured?: () => void;
   onFailed?: () => void;
 }) {
   const capturedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isJsx = contentType.toLowerCase().includes("jsx");
 
   const blobUrl = useMemo(() => {
-    const injected = injectCaptureScript(content);
-    const blob = new Blob([injected], { type: "text/html;charset=utf-8" });
+    const html = isJsx ? buildJsxThumbnailHtml(content) : injectCaptureScript(content);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     return URL.createObjectURL(blob);
-  }, [content]);
+  }, [content, isJsx]);
 
   const doCapture = useCallback(async () => {
     if (capturedRef.current || !iframeRef.current) return;
@@ -129,8 +136,8 @@ function IframeCapture({
         position: "fixed",
         left: -9999,
         top: -9999,
-        width: THUMB_WIDTH,
-        height: THUMB_HEIGHT,
+        width: RENDER_WIDTH,
+        height: RENDER_HEIGHT,
         overflow: "hidden",
         pointerEvents: "none",
       }}
@@ -140,8 +147,8 @@ function IframeCapture({
         ref={iframeRef}
         sandbox="allow-scripts allow-same-origin"
         src={blobUrl}
-        width={THUMB_WIDTH}
-        height={THUMB_HEIGHT}
+        width={RENDER_WIDTH}
+        height={RENDER_HEIGHT}
         style={{ border: "none" }}
         title="Thumbnail capture"
       />
@@ -208,24 +215,47 @@ function DomCapture({
       ref={containerRef}
       style={{
         position: "fixed",
-        left: -9999,
-        top: -9999,
+        left: 0,
+        top: 0,
         width: THUMB_WIDTH,
         height: THUMB_HEIGHT,
         overflow: "hidden",
         pointerEvents: "none",
+        visibility: "hidden",
+        zIndex: -1,
         background: "white",
         color: "black",
         fontSize: 12,
         padding: 16,
+        lineHeight: 1.6,
+        fontFamily: "system-ui, -apple-system, sans-serif",
       }}
       aria-hidden="true"
     >
       {isSvg ? (
         <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
       ) : (
-        <div className="prose prose-sm max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <div
+          style={{
+            maxWidth: "none",
+          }}
+        >
+          <style>{`
+            .thumb-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
+            .thumb-prose h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
+            .thumb-prose h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
+            .thumb-prose p { margin: 0.4em 0; }
+            .thumb-prose ul, .thumb-prose ol { padding-left: 1.5em; margin: 0.4em 0; }
+            .thumb-prose code { background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+            .thumb-prose pre { background: #f3f4f6; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
+            .thumb-prose blockquote { border-left: 3px solid #d1d5db; padding-left: 0.75em; margin: 0.4em 0; color: #6b7280; }
+            .thumb-prose a { color: #2563eb; text-decoration: underline; }
+            .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
+            .thumb-prose th, .thumb-prose td { border: 1px solid #d1d5db; padding: 0.25em 0.5em; font-size: 0.9em; }
+          `}</style>
+          <div className="thumb-prose">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         </div>
       )}
     </div>

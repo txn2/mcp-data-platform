@@ -69,6 +69,7 @@ export function AssetViewer({
   const [editedContent, setEditedContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [thumbnailStale, setThumbnailStale] = useState(false);
 
   const canEditSource = !!contentUpdateMutation && !!asset && isTextContent(asset.content_type);
   const contentStr = typeof content === "string" ? content : "";
@@ -90,7 +91,12 @@ export function AssetViewer({
     contentUpdateMutation.mutate(
       { id: asset.id, content: editedContent },
       {
-        onSuccess: () => setSaveStatus("saved"),
+        onSuccess: () => {
+          setSaveStatus("saved");
+          if (isThumbnailSupported(asset.content_type)) {
+            setThumbnailStale(true);
+          }
+        },
         onError: () => setSaveStatus("error"),
       },
     );
@@ -395,8 +401,14 @@ export function AssetViewer({
         </div>
       )}
 
-      {content && typeof content === "string" && !asset.thumbnail_s3_key && isThumbnailSupported(asset.content_type) && (
-        <ThumbnailGeneratorWithInvalidation assetId={asset.id} content={content} contentType={asset.content_type} />
+      {content && typeof content === "string" && isThumbnailSupported(asset.content_type) && (!asset.thumbnail_s3_key || thumbnailStale) && (
+        <ThumbnailGeneratorWithInvalidation
+          key={thumbnailStale ? "regen" : "initial"}
+          assetId={asset.id}
+          content={thumbnailStale ? editedContent : content}
+          contentType={asset.content_type}
+          onDone={() => setThumbnailStale(false)}
+        />
       )}
 
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
@@ -449,12 +461,27 @@ export function AssetViewer({
   );
 }
 
-function ThumbnailGeneratorWithInvalidation({ assetId, content, contentType }: { assetId: string; content: string; contentType: string }) {
+function ThumbnailGeneratorWithInvalidation({
+  assetId,
+  content,
+  contentType,
+  onDone,
+}: {
+  assetId: string;
+  content: string;
+  contentType: string;
+  onDone?: () => void;
+}) {
   const qc = useQueryClient();
   const handleCaptured = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["asset", assetId] });
     void qc.invalidateQueries({ queryKey: ["assets"] });
-  }, [qc, assetId]);
+    onDone?.();
+  }, [qc, assetId, onDone]);
+
+  const handleFailed = useCallback(() => {
+    onDone?.();
+  }, [onDone]);
 
   return (
     <ThumbnailGenerator
@@ -462,6 +489,7 @@ function ThumbnailGeneratorWithInvalidation({ assetId, content, contentType }: {
       content={content}
       contentType={contentType}
       onCaptured={handleCaptured}
+      onFailed={handleFailed}
     />
   );
 }

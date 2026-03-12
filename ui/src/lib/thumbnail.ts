@@ -1,9 +1,14 @@
 import { toPng } from "html-to-image";
 import html2canvas from "html2canvas";
 import { apiFetchRaw } from "@/api/portal/client";
+import { transformJsx, escapeScriptClose, findComponentName } from "@/components/renderers/JsxRenderer";
 
 export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
+
+/** Desktop viewport dimensions used for rendering before scaling down. */
+export const RENDER_WIDTH = 1280;
+export const RENDER_HEIGHT = 960;
 
 /** Capture timeout in milliseconds. */
 export const CAPTURE_TIMEOUT_MS = 15_000;
@@ -55,9 +60,11 @@ export async function captureIframe(iframe: HTMLIFrameElement): Promise<Blob> {
   if (!doc?.body) throw new Error("Cannot access iframe content");
 
   const canvas = await html2canvas(doc.body, {
-    width: THUMB_WIDTH,
-    height: THUMB_HEIGHT,
-    scale: 1,
+    width: RENDER_WIDTH,
+    height: RENDER_HEIGHT,
+    windowWidth: RENDER_WIDTH,
+    windowHeight: RENDER_HEIGHT,
+    scale: THUMB_WIDTH / RENDER_WIDTH,
     logging: false,
     useCORS: true,
   });
@@ -96,6 +103,100 @@ export async function uploadThumbnail(assetId: string, blob: Blob): Promise<void
   if (!res.ok) {
     throw new Error("Failed to upload thumbnail");
   }
+}
+
+/**
+ * Build a complete HTML document that transpiles and renders JSX content,
+ * then notifies the parent when ready for capture. Reuses the same pipeline
+ * as JsxRenderer (sucrase transform, import map, auto-mount) but adds a
+ * postMessage notifier with a longer delay for async esm.sh loads.
+ */
+export function buildJsxThumbnailHtml(content: string): string {
+  const CSP = [
+    "default-src 'none'",
+    "script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+    "style-src 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src data: blob:",
+    "font-src data: https://fonts.gstatic.com",
+    "connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+  ].join("; ");
+
+  const BARE_IMPORT_MAP: Record<string, string> = {
+    react: "https://esm.sh/react@19",
+    "react/": "https://esm.sh/react@19/",
+    "react-dom": "https://esm.sh/react-dom@19",
+    "react-dom/": "https://esm.sh/react-dom@19/",
+    "react-dom/client": "https://esm.sh/react-dom@19/client",
+    recharts: "https://esm.sh/recharts@2?bundle&external=react,react-dom",
+    "lucide-react": "https://esm.sh/lucide-react@0.469?bundle&external=react",
+  };
+
+  const importMap = JSON.stringify({ imports: BARE_IMPORT_MAP });
+
+  let transformed: string;
+  try {
+    transformed = escapeScriptClose(transformJsx(content));
+  } catch {
+    // If transform fails, return a simple error page that still notifies ready
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>
+<pre style="color:#ef4444;padding:16px;font-family:monospace">JSX transform failed</pre>
+<script>setTimeout(function(){parent.postMessage({type:'thumbnail-ready'},'*');},500);</script>
+</body></html>`;
+  }
+
+  const hasMountCode =
+    /\bcreateRoot\s*\(/.test(content) ||
+    /\bReactDOM\s*\.\s*render\s*\(/.test(content);
+
+  const componentName = findComponentName(content);
+  const mountSection = hasMountCode
+    ? transformed
+    : `import React from 'react';
+import { createRoot } from 'react-dom/client';
+
+${transformed}
+
+try {
+  ${componentName ? `createRoot(document.getElementById('root')).render(React.createElement(${componentName}));` : ""}
+} catch(e) {
+  document.getElementById('root').textContent = e.message;
+}`;
+
+  const notifierScript = `
+setTimeout(function() {
+  parent.postMessage({ type: 'thumbnail-ready' }, '*');
+}, 2000);`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${CSP}">
+  <script type="importmap">${importMap}</script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; padding: 16px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+window.onerror = function(msg, src, line, col, err) {
+  var el = document.createElement('pre');
+  el.textContent = err && err.stack ? err.stack : msg;
+  document.getElementById('root').appendChild(el);
+};
+window.addEventListener('unhandledrejection', function(e) {
+  var el = document.createElement('pre');
+  el.textContent = 'Module load error: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason);
+  document.getElementById('root').appendChild(el);
+});
+
+${mountSection}
+  </script>
+  <script>${notifierScript}</script>
+</body>
+</html>`;
 }
 
 /**
