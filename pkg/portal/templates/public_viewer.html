@@ -181,6 +181,92 @@
             height: auto !important;
             display: block;
         }
+        .info-toggle {
+            background: none;
+            border: 1px solid var(--page-border);
+            border-radius: 6px;
+            padding: 4px 6px;
+            cursor: pointer;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .info-toggle:hover { background: var(--toggle-hover); }
+        .info-toggle svg { width: 16px; height: 16px; }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay[hidden] { display: none; }
+        .modal-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--page-border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            max-width: 420px;
+            width: calc(100% - 32px);
+            padding: 24px;
+        }
+        .modal-card h2 {
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+        }
+        .modal-card .desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0 0 16px 0;
+            line-height: 1.5;
+        }
+        .modal-card dl {
+            margin: 0 0 16px 0;
+            font-size: 13px;
+        }
+        .modal-card dt {
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-top: 10px;
+        }
+        .modal-card dt:first-child { margin-top: 0; }
+        .modal-card dd {
+            margin: 2px 0 0 0;
+            color: var(--text);
+        }
+        .modal-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 0;
+        }
+        .modal-tags .badge {
+            font-size: 11px;
+        }
+        .modal-close {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--page-border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: center;
+            transition: background 0.15s;
+        }
+        .modal-close:hover { background: var(--toggle-hover); }
     </style>
     <script>
     (function() {
@@ -207,6 +293,9 @@
             <h1>{{.Name}}</h1>
             <span class="badge">{{.ContentType}}</span>
         </div>
+        <button class="info-toggle" id="info-toggle" aria-label="Asset info" title="Asset info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
         <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
             <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
             <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -235,6 +324,24 @@
         </div>
         <script type="application/json" id="content-data">{{.ContentJSON}}</script>
         <script>{{.ContentViewerJS}}</script>
+    </div>
+    <div class="modal-overlay" id="info-modal" hidden>
+        <div class="modal-card">
+            <h2>About this asset</h2>
+            {{if .Description}}<p class="desc">{{.Description}}</p>{{end}}
+            <dl>
+                <dt>Created</dt>
+                <dd id="info-created"></dd>
+                <dt>Updated</dt>
+                <dd id="info-updated"></dd>
+            </dl>
+            {{if .Tags}}
+            <div class="modal-tags" style="margin-bottom:16px">
+                {{range .Tags}}<span class="badge">{{.}}</span>{{end}}
+            </div>
+            {{end}}
+            <button class="modal-close" id="info-close">Close</button>
+        </div>
     </div>
     <script>
     (function() {
@@ -275,6 +382,31 @@
                 expiryEl.textContent = "soon";
             }
         }
+
+        // Info modal
+        var infoModal = document.getElementById("info-modal");
+        var infoBtn = document.getElementById("info-toggle");
+        var infoClose = document.getElementById("info-close");
+
+        // Format dates
+        var createdEl = document.getElementById("info-created");
+        var updatedEl = document.getElementById("info-updated");
+        var createdISO = "{{.CreatedAtISO}}";
+        var updatedISO = "{{.UpdatedAtISO}}";
+        if (createdEl && createdISO) createdEl.textContent = new Date(createdISO).toLocaleString();
+        if (updatedEl && updatedISO) updatedEl.textContent = new Date(updatedISO).toLocaleString();
+
+        function showInfo() { infoModal.hidden = false; }
+        function hideInfo() { infoModal.hidden = true; }
+
+        infoBtn.addEventListener("click", showInfo);
+        infoClose.addEventListener("click", hideInfo);
+        infoModal.addEventListener("click", function(e) {
+            if (e.target === infoModal) hideInfo();
+        });
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "Escape" && !infoModal.hidden) hideInfo();
+        });
     })();
     </script>
 </body>

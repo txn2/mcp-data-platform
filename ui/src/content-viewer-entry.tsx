@@ -4,11 +4,11 @@ import { ContentRenderer } from "./components/renderers/ContentRenderer";
 // Read content from embedded JSON (injected by Go template).
 const dataEl = document.getElementById("content-data");
 if (dataEl) {
-  const { contentType, content } = JSON.parse(dataEl.textContent!);
+  const { contentType, content, name } = JSON.parse(dataEl.textContent!);
   const root = document.getElementById("content-root");
   if (root) {
     createRoot(root).render(
-      <ContentRenderer contentType={contentType} content={content} />,
+      <ContentRenderer contentType={contentType} content={content} fileName={name} />,
     );
   }
 }
