@@ -11,23 +11,27 @@ import (
 // MaxContentUploadBytes is the maximum size for content uploads (10 MB).
 const MaxContentUploadBytes = 10 << 20
 
+// MaxThumbnailUploadBytes is the maximum size for thumbnail uploads (512 KB).
+const MaxThumbnailUploadBytes = 512 << 10
+
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
-	ID          string     `json:"id"`
-	OwnerID     string     `json:"owner_id"`
-	OwnerEmail  string     `json:"owner_email"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	ContentType string     `json:"content_type"`
-	S3Bucket    string     `json:"s3_bucket"`
-	S3Key       string     `json:"s3_key"`
-	SizeBytes   int64      `json:"size_bytes"`
-	Tags        []string   `json:"tags"`
-	Provenance  Provenance `json:"provenance"`
-	SessionID   string     `json:"session_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	ID             string     `json:"id"`
+	OwnerID        string     `json:"owner_id"`
+	OwnerEmail     string     `json:"owner_email"`
+	Name           string     `json:"name"`
+	Description    string     `json:"description,omitempty"`
+	ContentType    string     `json:"content_type"`
+	S3Bucket       string     `json:"s3_bucket"`
+	S3Key          string     `json:"s3_key"`
+	ThumbnailS3Key string     `json:"thumbnail_s3_key,omitempty"`
+	SizeBytes      int64      `json:"size_bytes"`
+	Tags           []string   `json:"tags"`
+	Provenance     Provenance `json:"provenance"`
+	SessionID      string     `json:"session_id,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
 
 // Provenance records the tool call history that produced an artifact.
@@ -105,13 +109,14 @@ func (f *AssetFilter) EffectiveLimit() int {
 // AssetUpdate holds mutable fields for updating an asset.
 // Pointer fields distinguish "no change" (nil) from "clear to empty" (pointer to "").
 type AssetUpdate struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
-	S3Key       string   `json:"s3_key,omitempty"`
-	SizeBytes   int64    `json:"size_bytes,omitempty"`
-	HasContent  bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	Name           *string  `json:"name,omitempty"`
+	Description    *string  `json:"description,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	ContentType    string   `json:"content_type,omitempty"`
+	S3Key          string   `json:"s3_key,omitempty"`
+	SizeBytes      int64    `json:"size_bytes,omitempty"`
+	ThumbnailS3Key *string  `json:"thumbnail_s3_key,omitempty"`
+	HasContent     bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 }
 
 // maxNameLength is the maximum length for asset names.

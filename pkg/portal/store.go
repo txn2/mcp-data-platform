@@ -75,7 +75,7 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       size_bytes, tags, provenance, session_id, created_at, updated_at, deleted_at
+		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, created_at, updated_at, deleted_at
 		FROM portal_assets WHERE id = $1
 	`
 	var asset Asset
@@ -84,7 +84,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.SizeBytes,
+		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 	)
 	if err != nil {
@@ -118,7 +118,7 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
 		OrderBy("created_at DESC")
@@ -213,6 +213,10 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 	}
 	if updates.HasContent {
 		qb = qb.Set("size_bytes", updates.SizeBytes)
+		hasUpdates = true
+	}
+	if updates.ThumbnailS3Key != nil {
+		qb = qb.Set("thumbnail_s3_key", *updates.ThumbnailS3Key)
 		hasUpdates = true
 	}
 	if !hasUpdates {
@@ -348,7 +352,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 	selectQuery := `
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
-		       pa.s3_bucket, pa.s3_key, pa.size_bytes, pa.tags, pa.provenance,
+		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.created_at, pa.updated_at, pa.deleted_at,
 		       ps.id, ps.created_by, ps.created_at
 		FROM portal_shares ps
@@ -373,7 +377,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 		if err := rows.Scan(
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
-			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.SizeBytes,
+			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt,
@@ -591,7 +595,7 @@ func scanAssetRow(rows *sql.Rows) (Asset, error) {
 
 	if err := rows.Scan(
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.SizeBytes,
+		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 	); err != nil {
 		return asset, fmt.Errorf("scanning asset row: %w", err)
