@@ -7,9 +7,10 @@ import { CsvRenderer } from "./CsvRenderer";
 interface Props {
   contentType: string;
   content: string;
+  fileName?: string;
 }
 
-export function ContentRenderer({ contentType, content }: Props) {
+export function ContentRenderer({ contentType, content, fileName }: Props) {
   const ct = contentType.toLowerCase();
 
   if (ct.includes("jsx") || ct.includes("react")) {
@@ -25,7 +26,7 @@ export function ContentRenderer({ contentType, content }: Props) {
     return <HtmlRenderer content={content} />;
   }
   if (ct.includes("csv")) {
-    return <CsvRenderer content={content} />;
+    return <CsvRenderer content={content} fileName={fileName} />;
   }
 
   // Fallback: plain text

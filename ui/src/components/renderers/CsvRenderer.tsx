@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Papa from "papaparse";
-import { ChevronUp, ChevronDown, Search } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Download } from "lucide-react";
 
 interface Props {
   content: string;
+  fileName?: string;
 }
 
 const MAX_DISPLAY_ROWS = 500;
@@ -12,7 +13,7 @@ function isNumeric(val: unknown): val is number {
   return typeof val === "number" && !isNaN(val);
 }
 
-export function CsvRenderer({ content }: Props) {
+export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [filterText, setFilterText] = useState("");
@@ -64,6 +65,18 @@ export function CsvRenderer({ content }: Props) {
     }
   }
 
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([content], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [content, fileName]);
+
   if (columns.length === 0) {
     return (
       <pre className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap">
@@ -74,16 +87,27 @@ export function CsvRenderer({ content }: Props) {
 
   return (
     <div className="space-y-3">
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          placeholder="Search all columns..."
-          className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-        />
+      {/* Search + Download */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search all columns..."
+            className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleDownload}
+          className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent shrink-0"
+          title="Download CSV"
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </button>
       </div>
 
       {/* Table */}

@@ -76,9 +76,14 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	contentJSON, _ := json.Marshal(map[string]string{ // #nosec G104 -- string map marshaling cannot fail
+	contentJSON, _ := json.Marshal(map[string]any{ // #nosec G104 -- string/[]string map marshaling cannot fail
 		"contentType": asset.ContentType,
 		"content":     string(data),
+		"name":        asset.Name,
+		"description": asset.Description,
+		"tags":        asset.Tags,
+		"createdAt":   asset.CreatedAt.UTC().Format(time.RFC3339),
+		"updatedAt":   asset.UpdatedAt.UTC().Format(time.RFC3339),
 	})
 
 	csp := publicCSP()
@@ -102,6 +107,10 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 	_ = viewerTemplate.Execute(w, map[string]any{
 		"Name":               asset.Name,
 		"ContentType":        asset.ContentType,
+		"Description":        asset.Description,
+		"Tags":               asset.Tags,
+		"CreatedAtISO":       asset.CreatedAt.UTC().Format(time.RFC3339),
+		"UpdatedAtISO":       asset.UpdatedAt.UTC().Format(time.RFC3339),
 		"ContentJSON":        template.JS(contentJSON),        // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe inside <script type="application/json">
 		"ContentViewerJS":    template.JS(contentviewer.JS),   // #nosec G203 -- build artifact embedded at compile time, not user input
 		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact embedded at compile time, not user input

@@ -276,7 +276,7 @@ export function AssetViewer({
               </div>
             )}
             {(viewMode !== "source" || !canEditSource) && (
-              <ContentRenderer contentType={asset.content_type} content={hasChanges ? editedContent : (content as string)} />
+              <ContentRenderer contentType={asset.content_type} content={hasChanges ? editedContent : (content as string)} fileName={asset.name} />
             )}
           </>
         ) : (
