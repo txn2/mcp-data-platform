@@ -98,8 +98,8 @@ function IframeCapture({
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      // blob: iframes have origin "null" — reject messages from other origins
-      if (e.origin !== "null") return;
+      // With allow-same-origin, blob: iframes inherit the parent's origin
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type !== "thumbnail-ready") return;
       void doCapture();
     }
