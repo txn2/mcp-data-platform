@@ -215,14 +215,12 @@ function DomCapture({
       ref={containerRef}
       style={{
         position: "fixed",
-        left: 0,
-        top: 0,
+        left: -9999,
+        top: -9999,
         width: THUMB_WIDTH,
         height: THUMB_HEIGHT,
         overflow: "hidden",
         pointerEvents: "none",
-        visibility: "hidden",
-        zIndex: -1,
         background: "white",
         color: "black",
         fontSize: 12,
