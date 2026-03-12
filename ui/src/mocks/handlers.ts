@@ -679,6 +679,15 @@ export const handlers = [
     return HttpResponse.json(portalAssets[idx]);
   }),
 
+  http.put(`${ADMIN_BASE}/assets/:id/thumbnail`, ({ params }) => {
+    const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.delete(`${ADMIN_BASE}/assets/:id`, ({ params }) => {
     const idx = portalAssets.findIndex(
       (a) => a.id === params.id && !a.deleted_at,
@@ -805,6 +814,15 @@ export const handlers = [
       portalAssets[idx]!.tags = body.tags as string[];
     portalAssets[idx]!.updated_at = new Date().toISOString();
     return HttpResponse.json(portalAssets[idx]);
+  }),
+
+  http.put(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params }) => {
+    const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.delete(`${PORTAL_BASE}/assets/:id`, ({ params }) => {
