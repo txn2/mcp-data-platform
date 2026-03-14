@@ -30,7 +30,7 @@ func TestProvenanceTrackerRecordAndHarvest(t *testing.T) {
 	assert.Equal(t, "trino_query", calls[0].ToolName)
 	assert.Equal(t, "datahub_search", calls[1].ToolName)
 	assert.NotEmpty(t, calls[0].Timestamp)
-	assert.Contains(t, calls[0].Summary, "SELECT 1")
+	assert.Equal(t, "SELECT 1", calls[0].Parameters["sql"])
 
 	// Harvest clears the session
 	calls = tracker.Harvest("sess1")
@@ -53,22 +53,6 @@ func TestProvenanceContextRoundtrip(t *testing.T) {
 	// Empty context
 	got = GetProvenanceToolCalls(context.Background())
 	assert.Nil(t, got)
-}
-
-func TestSummarizeParams(t *testing.T) {
-	assert.Equal(t, "", summarizeParams(nil))
-	assert.Equal(t, "", summarizeParams(map[string]any{}))
-
-	s := summarizeParams(map[string]any{"sql": "SELECT 1"})
-	assert.Contains(t, s, "SELECT 1")
-
-	// Long params get truncated
-	longVal := make([]byte, 500)
-	for i := range longVal {
-		longVal[i] = 'x'
-	}
-	s = summarizeParams(map[string]any{"data": string(longVal)})
-	assert.LessOrEqual(t, len(s), maxSummaryLength+10) // +10 for "..."
 }
 
 func TestMCPProvenanceMiddleware_Records(t *testing.T) {

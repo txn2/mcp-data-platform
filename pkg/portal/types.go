@@ -43,9 +43,9 @@ type Provenance struct {
 
 // ProvenanceToolCall records a single tool invocation in the provenance chain.
 type ProvenanceToolCall struct {
-	ToolName  string `json:"tool_name"`
-	Timestamp string `json:"timestamp"`
-	Summary   string `json:"summary,omitempty"`
+	ToolName   string         `json:"tool_name"`
+	Timestamp  string         `json:"timestamp"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 // SharePermission defines the access level for a share recipient.

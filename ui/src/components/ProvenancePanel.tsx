@@ -30,59 +30,45 @@ function getToolIcon(toolName: string): LucideIcon {
   return Terminal;
 }
 
-/** Extract a human-readable summary from the raw summary JSON string. */
+/** Extract a human-readable summary from the tool call parameters. */
 function extractSummary(call: ProvenanceToolCall): string | null {
-  const raw = call.summary;
-  if (!raw) return null;
+  const params = call.parameters;
+  if (!params || Object.keys(params).length === 0) return null;
 
-  // Try to parse as JSON to extract useful fields
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === "string") return parsed;
-
-    // SQL queries
-    if (parsed.sql) {
-      const sql = String(parsed.sql).trim();
-      return sql.length > 120 ? sql.slice(0, 120) + "..." : sql;
-    }
-
-    // Search queries
-    if (parsed.query) return `"${parsed.query}"`;
-
-    // URN-based lookups
-    if (parsed.urn) return String(parsed.urn);
-
-    // Table operations
-    if (parsed.table) {
-      const parts = [parsed.catalog, parsed.schema, parsed.table].filter(Boolean);
-      return parts.join(".");
-    }
-
-    // Bucket/key for S3
-    if (parsed.bucket) {
-      return parsed.key ? `${parsed.bucket}/${parsed.key}` : parsed.bucket;
-    }
-
-    // Fall back to first string value
-    const firstStr = Object.values(parsed).find((v) => typeof v === "string");
-    if (firstStr) return String(firstStr);
-  } catch {
-    // Not JSON — use as-is if short enough
-    if (raw.length <= 150) return raw;
-    return raw.slice(0, 147) + "...";
+  // SQL queries
+  if (params.sql) {
+    const sql = String(params.sql).trim();
+    return sql.length > 120 ? sql.slice(0, 120) + "..." : sql;
   }
+
+  // Search queries
+  if (params.query) return `"${params.query}"`;
+
+  // URN-based lookups
+  if (params.urn) return String(params.urn);
+
+  // Table operations
+  if (params.table) {
+    const parts = [params.catalog, params.schema, params.table].filter(Boolean);
+    return parts.join(".");
+  }
+
+  // Bucket/key for S3
+  if (params.bucket) {
+    return params.key ? `${params.bucket}/${params.key}` : String(params.bucket);
+  }
+
+  // Fall back to first string value
+  const firstStr = Object.values(params).find((v) => typeof v === "string");
+  if (firstStr) return String(firstStr);
 
   return null;
 }
 
-/** Pretty-print the raw summary for the detail modal. */
-function formatDetail(summary: string | undefined): string {
-  if (!summary) return "(no parameters)";
-  try {
-    return JSON.stringify(JSON.parse(summary), null, 2);
-  } catch {
-    return summary;
-  }
+/** Pretty-print the parameters for the detail modal. */
+function formatDetail(params: Record<string, unknown> | undefined): string {
+  if (!params || Object.keys(params).length === 0) return "(no parameters)";
+  return JSON.stringify(params, null, 2);
 }
 
 function relativeTime(timestamp: string): string {
@@ -140,20 +126,11 @@ function ProvenanceCard({
   );
 }
 
-/** Extract the SQL string from a summary, or null if not a SQL call. */
+/** Extract the SQL string from parameters, or null if not a SQL call. */
 function extractSQL(call: ProvenanceToolCall): string | null {
   if (!call.tool_name.startsWith("trino_")) return null;
-  if (!call.summary) return null;
-  try {
-    const parsed = JSON.parse(call.summary);
-    if (typeof parsed === "object" && parsed.sql) return String(parsed.sql);
-  } catch {
-    // Not JSON — check if raw text looks like SQL
-    if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|EXPLAIN)\b/i.test(call.summary)) {
-      return call.summary;
-    }
-  }
-  return null;
+  if (!call.parameters?.sql) return null;
+  return String(call.parameters.sql);
 }
 
 function DetailModal({
@@ -168,7 +145,7 @@ function DetailModal({
   if (!call) return null;
   const Icon = getToolIcon(call.tool_name);
   const sql = extractSQL(call);
-  const detail = sql ?? formatDetail(call.summary);
+  const detail = sql ?? formatDetail(call.parameters);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
