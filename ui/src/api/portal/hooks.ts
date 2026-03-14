@@ -257,10 +257,10 @@ export function useRevertVersion() {
       apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
         method: "POST",
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["asset"] });
-      void qc.invalidateQueries({ queryKey: ["asset-content"] });
-      void qc.invalidateQueries({ queryKey: ["asset-versions"] });
+    onSuccess: (_data, { assetId }) => {
+      void qc.invalidateQueries({ queryKey: ["asset", assetId] });
+      void qc.invalidateQueries({ queryKey: ["asset-content", assetId] });
+      void qc.invalidateQueries({ queryKey: ["asset-versions", assetId] });
       void qc.invalidateQueries({ queryKey: ["assets"] });
     },
   });

@@ -301,8 +301,12 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	}
 
 	// Create initial v1 version record.
+	versionID, err := generateID()
+	if err != nil {
+		return errorResult("failed to generate version ID: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
 	v1 := portal.AssetVersion{
-		ID:            assetID + "-v1",
+		ID:            versionID,
 		AssetID:       assetID,
 		S3Key:         s3Key,
 		S3Bucket:      t.s3Bucket,
@@ -312,7 +316,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		ChangeSummary: "Initial version",
 	}
 	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
-		slog.Warn("failed to create initial version record", "asset_id", assetID, "error", err)
+		return errorResult("failed to create initial version record: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	return jsonResult(t.buildSaveOutput(assetID, prov))
@@ -453,6 +457,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		ChangeSummary: "Content updated via MCP",
 	}
 	if _, err = t.versionStore.CreateVersion(ctx, av); err != nil {
+		t.cleanupOrphanedS3(ctx, t.s3Bucket, s3Key)
 		return fmt.Errorf("creating version: %w", err)
 	}
 	return nil
@@ -556,6 +561,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 	}
 	assignedVersion, err := t.versionStore.CreateVersion(ctx, av)
 	if err != nil {
+		t.cleanupOrphanedS3(ctx, t.s3Bucket, newKey)
 		return errorResult("failed to create revert version: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
@@ -571,6 +577,18 @@ func (m manageArtifactInput) validForRevert() bool {
 }
 
 // --- Helpers ---
+
+// cleanupOrphanedS3 attempts to delete an S3 object that was uploaded but whose
+// corresponding version record failed to persist. Errors are logged but not propagated.
+func (t *Toolkit) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
+	if t.s3Client == nil {
+		return
+	}
+	if err := t.s3Client.DeleteObject(ctx, bucket, key); err != nil {
+		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
+			"bucket", bucket, "key", key, "error", err)
+	}
+}
 
 // resolveOwnerID returns the authenticated user ID from the context, defaulting to "anonymous".
 func resolveOwnerID(ctx context.Context) string {

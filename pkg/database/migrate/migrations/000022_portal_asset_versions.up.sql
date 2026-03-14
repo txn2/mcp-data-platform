@@ -32,4 +32,5 @@ SELECT
     owner_id,
     'Initial version',
     created_at
-FROM portal_assets;
+FROM portal_assets
+WHERE s3_key != '';

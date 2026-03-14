@@ -520,10 +520,10 @@ export function useAdminRevertVersion() {
       apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
         method: "POST",
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions"] });
+    onSuccess: (_data, { assetId }) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset", assetId] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-content", assetId] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions", assetId] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
   });

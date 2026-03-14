@@ -3269,6 +3269,271 @@ func TestUpdateAssetContentCreatesVersion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestListVersionsAssetNotFound(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getErr: fmt.Errorf("not found")},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListVersionsDeleted(t *testing.T) {
+	deleted := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", DeletedAt: &deleted}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestListVersionsError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{listErr: fmt.Errorf("db error")},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListVersionsUnauthorized(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetVersionContentDeleted(t *testing.T) {
+	deleted := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", DeletedAt: &deleted}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestGetVersionContentNoStorage(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		nil,
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestGetVersionContentInvalidVersion(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/abc/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetVersionContentS3Error(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 2}
+	ver := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: ver},
+		&mockS3Client{getErr: fmt.Errorf("s3 error")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestGetVersionContentUnauthorized(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRevertToVersionDeleted(t *testing.T) {
+	deleted := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", DeletedAt: &deleted}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestRevertToVersionNoStorage(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		nil,
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestRevertToVersionInvalidVersion(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/abc/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRevertToVersionUnauthorized(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{}, nil,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRevertToVersionS3ReadError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	targetVer := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: targetVer},
+		&mockS3Client{getErr: fmt.Errorf("s3 error")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRevertToVersionS3PutError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	targetVer := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: targetVer},
+		&mockS3Client{getData: []byte("data"), putErr: fmt.Errorf("s3 put error")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestRevertToVersionCreateVersionError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	targetVer := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: targetVer, createErr: fmt.Errorf("db error")},
+		&mockS3Client{getData: []byte("data")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUpdateAssetContentCreateVersionErrorCleansUpS3(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", ContentType: "text/html", CurrentVersion: 1}
+	s3 := &mockS3Client{}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{createErr: fmt.Errorf("db error")},
+		s3,
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("new content"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestVersionedExtension(t *testing.T) {
 	tests := []struct {
 		ct   string

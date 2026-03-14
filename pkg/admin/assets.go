@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strconv"
@@ -229,6 +231,7 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 	}
 
 	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		cleanupOrphanedS3(r.Context(), h.deps.S3Client, asset.S3Bucket, versionedKey)
 		writeError(w, http.StatusInternalServerError, "failed to create version")
 		return
 	}
@@ -463,6 +466,7 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	assignedVersion, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
 	if err != nil {
+		cleanupOrphanedS3(r.Context(), h.deps.S3Client, asset.S3Bucket, newKey)
 		writeError(w, http.StatusInternalServerError, "failed to create revert version")
 		return
 	}
@@ -491,6 +495,18 @@ func validateAdminAssetUpdate(updates portal.AssetUpdate) error {
 		}
 	}
 	return nil
+}
+
+// cleanupOrphanedS3 attempts to delete an S3 object that was uploaded but whose
+// corresponding version record failed to persist. Errors are logged but not propagated.
+func cleanupOrphanedS3(ctx context.Context, s3Client portal.S3Client, bucket, key string) {
+	if s3Client == nil {
+		return
+	}
+	if err := s3Client.DeleteObject(ctx, bucket, key); err != nil {
+		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
+			"bucket", bucket, "key", key, "error", err)
+	}
 }
 
 // adminIntParam extracts an integer query parameter with a default value.

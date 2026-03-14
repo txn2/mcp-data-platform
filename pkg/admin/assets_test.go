@@ -1104,6 +1104,312 @@ func TestRevertAdminVersionDeleted(t *testing.T) {
 	assert.Equal(t, http.StatusGone, w.Code)
 }
 
+func TestListAdminVersionsAssetNotFound(t *testing.T) {
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListAdminVersionsError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", CurrentVersion: 1,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{listErr: fmt.Errorf("db error")},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListAdminVersionsWithPagination(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", CurrentVersion: 1,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{listVersions: []portal.AssetVersion{}, listTotal: 0},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions?limit=5&offset=10", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp adminVersionListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 5, resp.Limit)
+	assert.Equal(t, 10, resp.Offset)
+}
+
+func TestGetAdminVersionContentNoStore(t *testing.T) {
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestGetAdminVersionContentAssetNotFound(t *testing.T) {
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetAdminVersionContentInvalidVersion(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/abc/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetAdminVersionContentVersionNotFound(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getErr: fmt.Errorf("not found")},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/99/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetAdminVersionContentS3Error(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", CurrentVersion: 2,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminS3Client{getErr: fmt.Errorf("s3 error")},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRevertAdminVersionNoStore(t *testing.T) {
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestRevertAdminVersionAssetNotFound(t *testing.T) {
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevertAdminVersionInvalidVersion(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/abc/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRevertAdminVersionVersionNotFound(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getErr: fmt.Errorf("not found")},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/99/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevertAdminVersionS3ReadError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminS3Client{getErr: fmt.Errorf("s3 error")},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRevertAdminVersionS3PutError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminS3Client{getData: []byte("data"), putErr: fmt.Errorf("s3 error")},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestRevertAdminVersionCreateVersionError(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver, createErr: fmt.Errorf("db error")},
+		&mockAdminS3Client{getData: []byte("data")},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUpdateAdminAssetContentCreateVersionErrorCleansUpS3(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", ContentType: "text/html", CurrentVersion: 1,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{createErr: fmt.Errorf("db error")},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+		strings.NewReader("new content"))
+	req.Header.Set("Content-Type", "text/html")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestAdminIntParam(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		param      string
+		defaultVal int
+		want       int
+	}{
+		{"valid", "/test?limit=5", "limit", 10, 5},
+		{"missing", "/test", "limit", 10, 10},
+		{"invalid", "/test?limit=abc", "limit", 10, 10},
+		{"empty", "/test?limit=", "limit", 10, 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), "GET", tt.url, http.NoBody)
+			assert.Equal(t, tt.want, adminIntParam(req, tt.param, tt.defaultVal))
+		})
+	}
+}
+
 func TestExtensionForContentType(t *testing.T) {
 	tests := []struct {
 		ct   string

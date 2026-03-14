@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -397,6 +398,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		h.cleanupOrphanedS3(r.Context(), asset.S3Bucket, versionedKey)
 		writeError(w, http.StatusInternalServerError, "failed to create version")
 		return
 	}
@@ -613,6 +615,18 @@ func (h *Handler) versionedStorageReady() bool {
 	return h.deps.S3Client != nil && h.deps.VersionStore != nil
 }
 
+// cleanupOrphanedS3 attempts to delete an S3 object that was uploaded but whose
+// corresponding version record failed to persist. Errors are logged but not propagated.
+func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
+	if h.deps.S3Client == nil {
+		return
+	}
+	if err := h.deps.S3Client.DeleteObject(ctx, bucket, key); err != nil {
+		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
+			"bucket", bucket, "key", key, "error", err)
+	}
+}
+
 // --- Version handlers ---
 
 func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
@@ -781,6 +795,7 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 	}
 	assignedVersion, err := h.deps.VersionStore.CreateVersion(ctx, av)
 	if err != nil {
+		h.cleanupOrphanedS3(ctx, asset.S3Bucket, newKey)
 		return 0, &httpError{http.StatusInternalServerError, "failed to create revert version"}
 	}
 	return assignedVersion, nil
@@ -1368,13 +1383,14 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 			AssetID:       newID,
 			S3Key:         newS3Key,
 			S3Bucket:      h.deps.S3Bucket,
-			ContentType:   asset.ContentType,
+			ContentType:   contentType,
 			SizeBytes:     int64(len(data)),
 			CreatedBy:     user.UserID,
 			ChangeSummary: "Copied from " + asset.ID,
 		}
 		if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
-			return nil, &httpError{http.StatusInternalServerError, "failed to create initial version for copy"}
+			slog.Warn("failed to create initial version for copied asset", // #nosec G706 -- structured log, not user-facing
+				"asset_id", newID, "error", err)
 		}
 	}
 

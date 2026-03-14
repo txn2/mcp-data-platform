@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1055,4 +1056,104 @@ func TestHandleRevertNotOwner(t *testing.T) {
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertVersionNotFound(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: &mockS3Client{}, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 99})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertNoS3Client(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: nil, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
+	_, cvErr := vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	})
+	require.NoError(t, cvErr)
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertS3GetError(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	s3 := &mockS3Client{getErr: fmt.Errorf("s3 error")}
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: s3, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
+	_, cvErr := vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	})
+	require.NoError(t, cvErr)
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertS3PutError(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	s3 := &mockS3Client{getBody: []byte("data"), putErr: fmt.Errorf("s3 error")}
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: s3, S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
+	_, cvErr := vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	})
+	require.NoError(t, cvErr)
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestCleanupOrphanedS3NilClient(t *testing.T) { //nolint:revive // test function signature
+	t.Parallel()
+	tk := New(Config{Name: "test", S3Client: nil, S3Bucket: "bucket"})
+	// Should not panic with nil S3 client
+	tk.cleanupOrphanedS3(context.Background(), "bucket", "key")
+}
+
+func TestCleanupOrphanedS3DeleteError(t *testing.T) { //nolint:revive // test function signature
+	t.Parallel()
+	s3 := &mockS3Client{deleteErr: fmt.Errorf("delete error")}
+	tk := New(Config{Name: "test", S3Client: s3, S3Bucket: "bucket"})
+	// Should log but not panic
+	tk.cleanupOrphanedS3(context.Background(), "bucket", "key")
+}
+
+func TestCleanupOrphanedS3Success(t *testing.T) { //nolint:revive // test function signature
+	t.Parallel()
+	s3 := &mockS3Client{}
+	tk := New(Config{Name: "test", S3Client: s3, S3Bucket: "bucket"})
+	tk.cleanupOrphanedS3(context.Background(), "bucket", "key")
 }
