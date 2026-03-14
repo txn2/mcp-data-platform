@@ -27,6 +27,7 @@ const (
 	errAssetNotFound   = "asset not found"
 	errAssetDeleted    = "asset has been deleted"
 	errStorageNotReady = "content storage not configured"
+	errAccessDenied    = "access denied"
 	pathKeyID          = "id"
 	paramLimit         = "limit"
 )
@@ -133,6 +134,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/shares", h.listShares)
 	h.mux.HandleFunc("DELETE /api/v1/portal/shares/{id}", h.revokeShare)
 	h.mux.HandleFunc("GET /api/v1/portal/shared-with-me", h.listSharedWithMe)
+	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/copy", h.copyAsset)
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {
@@ -241,6 +243,14 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// assetResponse is the response for GET /api/v1/portal/assets/{id}.
+// It extends the Asset with optional share context when the viewer is not the owner.
+type assetResponse struct {
+	Asset
+	SharePermission SharePermission `json:"share_permission,omitempty"`
+	IsOwner         bool            `json:"is_owner"`
+}
+
 func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -260,15 +270,22 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Owner can always access; also check if shared with user.
-	if asset.OwnerID != user.UserID {
-		if !h.isSharedWithUser(r, id, user) {
-			writeError(w, http.StatusForbidden, "access denied")
+	resp := assetResponse{Asset: *asset, IsOwner: asset.OwnerID == user.UserID}
+
+	if !resp.IsOwner {
+		perm, permErr := h.sharePermissionForUser(r, id, user)
+		if permErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check share access")
 			return
 		}
+		if perm == "" {
+			writeError(w, http.StatusForbidden, errAccessDenied)
+			return
+		}
+		resp.SharePermission = perm
 	}
 
-	writeJSON(w, http.StatusOK, asset)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
@@ -290,11 +307,8 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.OwnerID != user.UserID {
-		if !h.isSharedWithUser(r, id, user) {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if !h.canViewAsset(w, r, id, asset, user) {
+		return
 	}
 
 	if h.deps.S3Client == nil {
@@ -336,8 +350,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can update this asset")
+	if !h.canEditAsset(w, r, id, asset, user) {
 		return
 	}
 
@@ -463,11 +476,8 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.OwnerID != user.UserID {
-		if !h.isSharedWithUser(r, id, user) {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if !h.canViewAsset(w, r, id, asset, user) {
+		return
 	}
 
 	if asset.ThumbnailS3Key == "" {
@@ -587,6 +597,7 @@ type createShareRequest struct {
 	SharedWithEmail  string  `json:"shared_with_email,omitempty"`
 	HideExpiration   bool    `json:"hide_expiration,omitempty"`
 	NoticeText       *string `json:"notice_text,omitempty"` // nil = default, "" = hidden, custom = as-is
+	Permission       string  `json:"permission,omitempty"`  // "viewer" (default) or "editor"
 }
 
 // shareResponse is the response for a created share.
@@ -660,6 +671,11 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		}
 	}
 
+	perm, permErr := resolveSharePermission(req, email)
+	if permErr != nil {
+		return Share{}, permErr
+	}
+
 	share := Share{
 		ID:               uuid.New().String(),
 		AssetID:          assetID,
@@ -667,6 +683,7 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		CreatedBy:        userID,
 		SharedWithUserID: req.SharedWithUserID,
 		SharedWithEmail:  email,
+		Permission:       perm,
 		HideExpiration:   req.HideExpiration,
 		NoticeText:       noticeText,
 	}
@@ -988,25 +1005,159 @@ func hasAnyRole(userRoles, targetRoles []string) bool {
 	return false
 }
 
-// isSharedWithUser checks whether an asset has been shared with a specific user.
-func (h *Handler) isSharedWithUser(r *http.Request, assetID string, user *User) bool {
-	shares, err := h.deps.ShareStore.ListByAsset(r.Context(), assetID)
-	if err != nil {
+// isShareActive returns true if the share is not revoked and not expired.
+func isShareActive(s Share) bool {
+	if s.Revoked {
 		return false
 	}
+	return s.ExpiresAt == nil || !s.ExpiresAt.Before(time.Now())
+}
+
+// sharePermissionForUser returns the highest permission level a user has for a shared asset.
+// Returns empty string if not shared with this user.
+func (h *Handler) sharePermissionForUser(r *http.Request, assetID string, user *User) (SharePermission, error) {
+	shares, err := h.deps.ShareStore.ListByAsset(r.Context(), assetID)
+	if err != nil {
+		return "", fmt.Errorf("checking share permission: %w", err)
+	}
+	var best SharePermission
 	for _, s := range shares {
-		if s.Revoked {
+		if !isShareActive(s) {
 			continue
 		}
-		if s.ExpiresAt != nil && s.ExpiresAt.Before(time.Now()) {
+		matched := s.SharedWithUserID == user.UserID ||
+			(user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email))
+		if !matched {
 			continue
 		}
-		if s.SharedWithUserID == user.UserID {
-			return true
+		if s.Permission == PermissionEditor {
+			return PermissionEditor, nil // highest possible, short-circuit
 		}
-		if user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email) {
-			return true
+		if best == "" {
+			best = s.Permission
 		}
 	}
-	return false
+	return best, nil
+}
+
+// canViewAsset checks owner or any share access, writing an HTTP error on failure.
+func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
+	if asset.OwnerID == user.UserID {
+		return true
+	}
+	perm, err := h.sharePermissionForUser(r, assetID, user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check share access")
+		return false
+	}
+	if perm == "" {
+		writeError(w, http.StatusForbidden, errAccessDenied)
+		return false
+	}
+	return true
+}
+
+// canEditAsset checks owner or editor share access, writing an HTTP error on failure.
+func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
+	if asset.OwnerID == user.UserID {
+		return true
+	}
+	perm, err := h.sharePermissionForUser(r, assetID, user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check share access")
+		return false
+	}
+	if perm != PermissionEditor {
+		writeError(w, http.StatusForbidden, "only the owner or an editor can update this asset")
+		return false
+	}
+	return true
+}
+
+// resolveSharePermission validates and resolves the permission for a new share.
+// Public links (no user/email target) are always forced to viewer.
+func resolveSharePermission(req createShareRequest, email string) (SharePermission, error) {
+	perm := PermissionViewer
+	if req.Permission != "" {
+		if !ValidSharePermission(req.Permission) {
+			return "", fmt.Errorf("invalid permission: must be viewer or editor")
+		}
+		perm = SharePermission(req.Permission)
+	}
+	if email == "" && req.SharedWithUserID == "" {
+		perm = PermissionViewer
+	}
+	return perm, nil
+}
+
+// copyAsset creates an independent copy of a shared asset in the current user's My Assets.
+func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+
+	if !h.canViewAsset(w, r, id, asset, user) {
+		return
+	}
+
+	if asset.SizeBytes > MaxContentUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "asset too large to copy")
+		return
+	}
+
+	if h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	// Read the original content from S3.
+	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read source content")
+		return
+	}
+
+	// Create new S3 key for the copy.
+	newID := uuid.New().String()
+	newS3Key := fmt.Sprintf("portal/%s/%s/content", user.UserID, newID)
+
+	if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, newS3Key, data, contentType); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to copy content")
+		return
+	}
+
+	newAsset := Asset{
+		ID:          newID,
+		OwnerID:     user.UserID,
+		OwnerEmail:  user.Email,
+		Name:        asset.Name + " (copy)",
+		Description: asset.Description,
+		ContentType: asset.ContentType,
+		S3Bucket:    h.deps.S3Bucket,
+		S3Key:       newS3Key,
+		SizeBytes:   int64(len(data)),
+		Tags:        asset.Tags,
+		Provenance:  asset.Provenance,
+	}
+
+	if err := h.deps.AssetStore.Insert(r.Context(), newAsset); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create asset copy")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newAsset)
 }

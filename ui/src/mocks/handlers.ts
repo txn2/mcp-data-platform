@@ -856,6 +856,7 @@ export const handlers = [
         token,
         created_by: "user-alice",
         shared_with_user_id: body.shared_with_user_id as string | undefined,
+        permission: (body.permission as Share["permission"]) ?? "viewer",
         expires_at: body.expires_in
           ? new Date(
               Date.now() + parseDuration(body.expires_in as string),

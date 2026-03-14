@@ -150,7 +150,12 @@ export function SharedWithMePage({ onNavigate }: Props) {
                     ))}
                   </div>
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                    <span>Shared by {item.shared_by}</span>
+                    <span className="flex items-center gap-1.5">
+                      Shared by {item.shared_by}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                        {item.permission === "editor" ? "Editor" : "Viewer"}
+                      </span>
+                    </span>
                     <span>{formatBytes(item.asset.size_bytes)}</span>
                   </div>
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground mt-1">

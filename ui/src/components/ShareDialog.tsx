@@ -2,6 +2,7 @@ import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { useShares, useCreateShare, useRevokeShare } from "@/api/portal/hooks";
+import type { SharePermission } from "@/api/portal/types";
 
 interface Props {
   assetId: string;
@@ -30,6 +31,7 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [permission, setPermission] = useState<SharePermission>("viewer");
   const [showOptions, setShowOptions] = useState(false);
   const [showExpiration, setShowExpiration] = useState(true);
   const [noticeText, setNoticeText] = useState(
@@ -47,7 +49,7 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
 
   function handleShareWithUser() {
     if (!email.trim()) return;
-    createShare.mutate({ assetId, shared_with_email: email.trim() });
+    createShare.mutate({ assetId, shared_with_email: email.trim(), permission });
     setEmail("");
   }
 
@@ -156,6 +158,14 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                 onChange={(e) => setEmail(e.target.value)}
                 className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
               />
+              <select
+                value={permission}
+                onChange={(e) => setPermission(e.target.value as SharePermission)}
+                className="rounded-md border bg-background px-3 py-1.5 text-sm"
+              >
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+              </select>
               <button
                 type="button"
                 onClick={handleShareWithUser}
@@ -181,6 +191,9 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                       {share.shared_with_user_id || share.shared_with_email ? (
                         <span className="text-muted-foreground">
                           User: {share.shared_with_email || share.shared_with_user_id}
+                          <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${share.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                            {share.permission === "editor" ? "Editor" : "Viewer"}
+                          </span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">

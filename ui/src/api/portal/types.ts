@@ -29,6 +29,8 @@ export interface ProvenanceToolCall {
   summary?: string;
 }
 
+export type SharePermission = "viewer" | "editor";
+
 export interface Share {
   id: string;
   asset_id: string;
@@ -36,6 +38,7 @@ export interface Share {
   created_by: string;
   shared_with_user_id?: string;
   shared_with_email?: string;
+  permission: SharePermission;
   expires_at?: string;
   revoked: boolean;
   access_count: number;
@@ -50,6 +53,12 @@ export interface SharedAsset {
   share_id: string;
   shared_by: string;
   shared_at: string;
+  permission: SharePermission;
+}
+
+export interface AssetResponse extends Asset {
+  share_permission?: SharePermission;
+  is_owner: boolean;
 }
 
 export interface ShareSummary {
