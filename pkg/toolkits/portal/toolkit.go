@@ -523,9 +523,9 @@ func buildProvenance(ctx context.Context, userID, sessionID string) portal.Prove
 		prov.ToolCalls = make([]portal.ProvenanceToolCall, len(calls))
 		for i, c := range calls {
 			prov.ToolCalls[i] = portal.ProvenanceToolCall{
-				ToolName:  c.ToolName,
-				Timestamp: c.Timestamp,
-				Summary:   c.Summary,
+				ToolName:   c.ToolName,
+				Timestamp:  c.Timestamp,
+				Parameters: c.Parameters,
 			}
 		}
 	}

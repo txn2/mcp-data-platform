@@ -125,7 +125,7 @@ func TestSaveArtifact_WithProvenance(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
 
 	provCalls := []middleware.ProvenanceToolCall{
-		{ToolName: "trino_query", Timestamp: "2024-01-01T00:00:00Z", Summary: "SELECT 1"},
+		{ToolName: "trino_query", Timestamp: "2024-01-01T00:00:00Z", Parameters: map[string]any{"sql": "SELECT 1"}},
 		{ToolName: "datahub_search", Timestamp: "2024-01-01T00:01:00Z"},
 	}
 

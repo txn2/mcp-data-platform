@@ -15,9 +15,9 @@ type provenanceContextKey struct{}
 
 // ProvenanceToolCall records a single tool invocation for provenance tracking.
 type ProvenanceToolCall struct {
-	ToolName  string `json:"tool_name"`
-	Timestamp string `json:"timestamp"`
-	Summary   string `json:"summary,omitempty"`
+	ToolName   string         `json:"tool_name"`
+	Timestamp  string         `json:"timestamp"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 // WithProvenanceToolCalls adds provenance tool calls to the context.
@@ -63,9 +63,9 @@ func (pt *ProvenanceTracker) Record(sessionID, toolName string, params map[strin
 	defer pt.mu.Unlock()
 
 	call := ProvenanceToolCall{
-		ToolName:  toolName,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Summary:   summarizeParams(params),
+		ToolName:   toolName,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Parameters: params,
 	}
 
 	buf := pt.sessions[sessionID]
@@ -101,25 +101,6 @@ func (pt *ProvenanceTracker) CleanupBefore(cutoff time.Time) int {
 		}
 	}
 	return removed
-}
-
-// maxSummaryLength caps the parameter summary string length.
-const maxSummaryLength = 200
-
-// summarizeParams creates a brief summary of tool call parameters.
-func summarizeParams(params map[string]any) string {
-	if len(params) == 0 {
-		return ""
-	}
-	data, err := json.Marshal(params)
-	if err != nil {
-		return ""
-	}
-	s := string(data)
-	if len(s) > maxSummaryLength {
-		s = s[:maxSummaryLength] + "..."
-	}
-	return s
 }
 
 // harvestProvenance collects tool calls from the current session.

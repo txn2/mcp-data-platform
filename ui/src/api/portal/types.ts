@@ -26,7 +26,7 @@ export interface Provenance {
 export interface ProvenanceToolCall {
   tool_name: string;
   timestamp: string;
-  summary?: string;
+  parameters?: Record<string, unknown>;
 }
 
 export type SharePermission = "viewer" | "editor";
