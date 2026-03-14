@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { History, RotateCcw, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { History, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import type { AssetVersion } from "@/api/portal/types";
 import { formatBytes } from "@/lib/format";
 
@@ -10,7 +10,6 @@ interface VersionHistoryPanelProps {
   canEdit: boolean;
   onRevert: (version: number) => void;
   isReverting: boolean;
-  onPreview?: (version: number) => void;
 }
 
 export function VersionHistoryPanel({
@@ -20,7 +19,6 @@ export function VersionHistoryPanel({
   canEdit,
   onRevert,
   isReverting,
-  onPreview,
 }: VersionHistoryPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [confirmVersion, setConfirmVersion] = useState<number | null>(null);
@@ -92,51 +90,39 @@ export function VersionHistoryPanel({
               </div>
             )}
 
-            {v.version !== currentVersion && (
+            {v.version !== currentVersion && canEdit && (
               <div className="flex gap-1.5 mt-1.5">
-                {onPreview && (
-                  <button
-                    type="button"
-                    onClick={() => onPreview(v.version)}
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] hover:bg-accent"
-                    title="Preview this version"
-                  >
-                    <Eye className="h-3 w-3" /> Preview
-                  </button>
-                )}
-                {canEdit && (
-                  confirmVersion === v.version ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-muted-foreground">Revert?</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onRevert(v.version);
-                          setConfirmVersion(null);
-                        }}
-                        disabled={isReverting}
-                        className="rounded bg-destructive px-1.5 py-0.5 text-[10px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmVersion(null)}
-                        className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground hover:bg-secondary/80"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
+                {confirmVersion === v.version ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">Revert?</span>
                     <button
                       type="button"
-                      onClick={() => setConfirmVersion(v.version)}
-                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] hover:bg-accent"
-                      title="Revert to this version"
+                      onClick={() => {
+                        onRevert(v.version);
+                        setConfirmVersion(null);
+                      }}
+                      disabled={isReverting}
+                      className="rounded bg-destructive px-1.5 py-0.5 text-[10px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
                     >
-                      <RotateCcw className="h-3 w-3" /> Revert
+                      Yes
                     </button>
-                  )
+                    <button
+                      type="button"
+                      onClick={() => setConfirmVersion(null)}
+                      className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground hover:bg-secondary/80"
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmVersion(v.version)}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] hover:bg-accent"
+                    title="Revert to this version"
+                  >
+                    <RotateCcw className="h-3 w-3" /> Revert
+                  </button>
                 )}
               </div>
             )}

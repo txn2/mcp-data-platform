@@ -49,6 +49,24 @@ type AssetVersion struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// ExtensionForContentType returns a file extension based on content type.
+func ExtensionForContentType(ct string) string {
+	switch {
+	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
+		return ".html"
+	case strings.Contains(ct, "svg"):
+		return ".svg"
+	case strings.Contains(ct, "markdown"):
+		return ".md"
+	case strings.Contains(ct, "json"):
+		return ".json"
+	case strings.Contains(ct, "csv"):
+		return ".csv"
+	default:
+		return ".bin"
+	}
+}
+
 // Provenance records the tool call history that produced an artifact.
 type Provenance struct {
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`

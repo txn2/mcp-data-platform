@@ -342,7 +342,7 @@ func TestExtensionForContentType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.ct, func(t *testing.T) {
-			assert.Equal(t, tt.ext, extensionForContentType(tt.ct))
+			assert.Equal(t, tt.ext, portal.ExtensionForContentType(tt.ct))
 		})
 	}
 }
@@ -921,9 +921,18 @@ func newInMemoryVersionStore() *inMemoryVersionStore {
 	return &inMemoryVersionStore{versions: make(map[string][]portal.AssetVersion)}
 }
 
-func (s *inMemoryVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) error {
+func (s *inMemoryVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) (int, error) {
+	// Simulate auto-incrementing version number
+	maxVer := 0
+	for _, existing := range s.versions[v.AssetID] {
+		if existing.Version > maxVer {
+			maxVer = existing.Version
+		}
+	}
+	nextVer := maxVer + 1
+	v.Version = nextVer
 	s.versions[v.AssetID] = append(s.versions[v.AssetID], v)
-	return nil
+	return nextVer, nil
 }
 
 func (s *inMemoryVersionStore) ListByAsset(_ context.Context, assetID string, _, _ int) ([]portal.AssetVersion, int, error) {
@@ -963,16 +972,19 @@ func TestHandleListVersions(t *testing.T) {
 	// Insert an asset with a version.
 	asset := portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}
 	require.NoError(t, store.Insert(ctx, asset))
-	require.NoError(t, vs.CreateVersion(ctx, portal.AssetVersion{
+	_, cvErr := vs.CreateVersion(ctx, portal.AssetVersion{
 		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
-	}))
+	})
+	require.NoError(t, cvErr)
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list_versions", AssetID: "a1"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
 	var parsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &parsed))
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &parsed))
 	assert.Equal(t, float64(1), parsed["total"])
 }
 
@@ -997,17 +1009,20 @@ func TestHandleRevert(t *testing.T) {
 
 	asset := portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 2}
 	require.NoError(t, store.Insert(ctx, asset))
-	require.NoError(t, vs.CreateVersion(ctx, portal.AssetVersion{
+	_, cvErr := vs.CreateVersion(ctx, portal.AssetVersion{
 		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
-	}))
+	})
+	require.NoError(t, cvErr)
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
 	var parsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &parsed))
-	assert.Equal(t, float64(3), parsed["version"])
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &parsed))
+	assert.Equal(t, float64(2), parsed["version"])
 }
 
 func TestHandleRevertMissingAssetID(t *testing.T) {
@@ -1040,10 +1055,4 @@ func TestHandleRevertNotOwner(t *testing.T) {
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-}
-
-func TestGenerateVersionID(t *testing.T) {
-	id := generateVersionID()
-	assert.NotEmpty(t, id)
-	assert.Len(t, id, 32) // 16 bytes hex-encoded
 }

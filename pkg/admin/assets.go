@@ -7,7 +7,6 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -25,6 +24,9 @@ const errAdminStorageNotReady = "content storage not configured"
 
 // errAdminAssetDeleted is the error message for deleted assets.
 const errAdminAssetDeleted = "asset has been deleted"
+
+// headerContentType is the HTTP Content-Type header name.
+const headerContentType = "Content-Type"
 
 // registerAssetRoutes registers asset management routes if stores are available.
 func (h *Handler) registerAssetRoutes() {
@@ -126,7 +128,7 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
@@ -201,9 +203,14 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	nextVersion := asset.CurrentVersion + 1
-	ext := adminVersionedExtension(asset.ContentType)
-	versionedKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+	if h.deps.VersionStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "version tracking not available")
+		return
+	}
+
+	versionID := uuid.New().String()
+	ext := portal.ExtensionForContentType(asset.ContentType)
+	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
@@ -211,9 +218,8 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 	}
 
 	av := portal.AssetVersion{
-		ID:            uuid.New().String(),
+		ID:            versionID,
 		AssetID:       id,
-		Version:       nextVersion,
 		S3Key:         versionedKey,
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   asset.ContentType,
@@ -222,16 +228,10 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		ChangeSummary: "Content updated (admin)",
 	}
 
-	if h.deps.VersionStore != nil {
-		if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create version")
-			return
-		}
+	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create version")
+		return
 	}
-
-	emptyThumb := ""
-	thumbUpdate := portal.AssetUpdate{ThumbnailS3Key: &emptyThumb}
-	_ = h.deps.AssetStore.Update(r.Context(), id, thumbUpdate)
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
@@ -255,7 +255,7 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ct := r.Header.Get("Content-Type")
+	ct := r.Header.Get(headerContentType)
 	mediaType, _, _ := mime.ParseMediaType(ct)
 	if mediaType != "image/png" {
 		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
@@ -317,7 +317,7 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set(headerContentType, "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
@@ -346,8 +346,8 @@ func (h *Handler) listAdminVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit := adminIntParam(r, "limit", 0)
+	offset := adminIntParam(r, "offset", 0)
 	versions, total, err := h.deps.VersionStore.ListByAsset(r.Context(), id, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list versions")
@@ -400,7 +400,7 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
@@ -442,9 +442,9 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nextVersion := asset.CurrentVersion + 1
-	ext := adminVersionedExtension(targetVer.ContentType)
-	newKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+	versionID := uuid.New().String()
+	ext := portal.ExtensionForContentType(targetVer.ContentType)
+	newKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload reverted content")
@@ -452,9 +452,8 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	av := portal.AssetVersion{
-		ID:            uuid.New().String(),
+		ID:            versionID,
 		AssetID:       id,
-		Version:       nextVersion,
 		S3Key:         newKey,
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   targetVer.ContentType,
@@ -462,33 +461,16 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:     "admin",
 		ChangeSummary: fmt.Sprintf("Reverted from v%d (admin)", versionNum),
 	}
-	if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+	assignedVersion, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create revert version")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "reverted",
-		"version": nextVersion,
+		"version": assignedVersion,
 	})
-}
-
-// adminVersionedExtension returns a file extension based on content type.
-func adminVersionedExtension(ct string) string {
-	switch {
-	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
-		return ".html"
-	case strings.Contains(ct, "svg"):
-		return ".svg"
-	case strings.Contains(ct, "markdown"):
-		return ".md"
-	case strings.Contains(ct, "json"):
-		return ".json"
-	case strings.Contains(ct, "csv"):
-		return ".csv"
-	default:
-		return ".bin"
-	}
 }
 
 // validateAdminAssetUpdate validates the fields in an admin update request.
@@ -509,4 +491,17 @@ func validateAdminAssetUpdate(updates portal.AssetUpdate) error {
 		}
 	}
 	return nil
+}
+
+// adminIntParam extracts an integer query parameter with a default value.
+func adminIntParam(r *http.Request, name string, defaultVal int) int {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultVal
+	}
+	return v
 }

@@ -1195,6 +1195,9 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("abc123").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(1))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WithArgs(version.ID, version.AssetID, version.Version, version.S3Key, version.S3Bucket,
 			version.ContentType, version.SizeBytes, version.CreatedBy, version.ChangeSummary).
@@ -1204,8 +1207,9 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err = store.CreateVersion(context.Background(), version)
+	assignedVersion, err := store.CreateVersion(context.Background(), version)
 	assert.NoError(t, err)
+	assert.Equal(t, 2, assignedVersion)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1217,11 +1221,14 @@ func TestPostgresVersionStoreCreateVersionInsertError(t *testing.T) {
 	store := NewPostgresVersionStore(db)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WillReturnError(fmt.Errorf("db error"))
 	mock.ExpectRollback()
 
-	err = store.CreateVersion(context.Background(), AssetVersion{})
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "inserting version")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -1235,13 +1242,16 @@ func TestPostgresVersionStoreCreateVersionUpdateError(t *testing.T) {
 	store := NewPostgresVersionStore(db)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnError(fmt.Errorf("db error"))
 	mock.ExpectRollback()
 
-	err = store.CreateVersion(context.Background(), AssetVersion{})
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "updating asset version")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -1256,7 +1266,7 @@ func TestPostgresVersionStoreCreateVersionBeginError(t *testing.T) {
 
 	mock.ExpectBegin().WillReturnError(fmt.Errorf("db error"))
 
-	err = store.CreateVersion(context.Background(), AssetVersion{})
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "beginning transaction")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -1446,7 +1456,9 @@ func TestNoopVersionStore(t *testing.T) {
 	store := NewNoopVersionStore()
 	ctx := context.Background()
 
-	assert.NoError(t, store.CreateVersion(ctx, AssetVersion{}))
+	v, err := store.CreateVersion(ctx, AssetVersion{})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, v)
 
 	versions, total, err := store.ListByAsset(ctx, "any", 10, 0)
 	assert.NoError(t, err)

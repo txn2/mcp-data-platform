@@ -102,18 +102,19 @@ func (m *mockS3Client) DeleteObject(_ context.Context, _, _ string) error { retu
 func (*mockS3Client) Close() error                                        { return nil }
 
 type mockVersionStore struct {
-	createErr    error
-	listVersions []AssetVersion
-	listTotal    int
-	listErr      error
-	getVersion   *AssetVersion
-	getErr       error
-	latestVer    *AssetVersion
-	latestErr    error
+	createVersion int
+	createErr     error
+	listVersions  []AssetVersion
+	listTotal     int
+	listErr       error
+	getVersion    *AssetVersion
+	getErr        error
+	latestVer     *AssetVersion
+	latestErr     error
 }
 
-func (m *mockVersionStore) CreateVersion(_ context.Context, _ AssetVersion) error {
-	return m.createErr
+func (m *mockVersionStore) CreateVersion(_ context.Context, _ AssetVersion) (int, error) {
+	return m.createVersion, m.createErr
 }
 
 func (m *mockVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]AssetVersion, int, error) {
@@ -594,9 +595,14 @@ func TestGetAssetContentNilS3Client(t *testing.T) {
 func TestUpdateAssetContentSuccess(t *testing.T) {
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
-		S3Bucket: "b", S3Key: "k",
+		S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
 	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{createVersion: 2},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
 		strings.NewReader("<html>Updated</html>"))
@@ -662,8 +668,11 @@ func TestUpdateAssetContentNotOwner(t *testing.T) {
 }
 
 func TestUpdateAssetContentTooLarge(t *testing.T) {
-	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset}, &mockShareStore{},
+		&mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
 
 	oversize := strings.Repeat("x", MaxContentUploadBytes+1)
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
@@ -692,9 +701,12 @@ func TestUpdateAssetContentNilS3(t *testing.T) {
 }
 
 func TestUpdateAssetContentS3Error(t *testing.T) {
-	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", CurrentVersion: 1}
 	s3 := &mockS3Client{putErr: fmt.Errorf("s3 error")}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset}, &mockShareStore{},
+		&mockVersionStore{}, s3, &User{UserID: "u1"},
+	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
 		strings.NewReader("data"))
@@ -2626,12 +2638,13 @@ func TestCreateSharePublicLinkAlwaysViewer(t *testing.T) {
 // --- updateAssetContent with editor permission ---
 
 func TestUpdateAssetContentEditor(t *testing.T) {
-	asset := &Asset{ID: "a1", OwnerID: "owner1", S3Bucket: "b", S3Key: "k", ContentType: "text/html"}
-	h := newTestHandler(
+	asset := &Asset{ID: "a1", OwnerID: "owner1", S3Bucket: "b", S3Key: "k", ContentType: "text/html", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
 		&mockAssetStore{getAsset: asset},
 		&mockShareStore{listByAsset: []Share{
 			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false},
 		}},
+		&mockVersionStore{createVersion: 2},
 		&mockS3Client{},
 		&User{UserID: "u1"},
 	)
@@ -3187,7 +3200,7 @@ func TestRevertToVersionSuccess(t *testing.T) {
 	h := newTestHandlerWithVersions(
 		&mockAssetStore{getAsset: asset},
 		&mockShareStore{},
-		&mockVersionStore{getVersion: targetVer},
+		&mockVersionStore{getVersion: targetVer, createVersion: 3},
 		&mockS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
 		&User{UserID: "u1"},
 	)
@@ -3271,7 +3284,7 @@ func TestVersionedExtension(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.ct, func(t *testing.T) {
-			assert.Equal(t, tt.want, versionedExtension(tt.ct))
+			assert.Equal(t, tt.want, ExtensionForContentType(tt.ct))
 		})
 	}
 }

@@ -25,7 +25,11 @@ type AssetStore interface {
 
 // VersionStore persists and queries asset version history.
 type VersionStore interface {
-	CreateVersion(ctx context.Context, version AssetVersion) error
+	// CreateVersion atomically assigns the next version number and records
+	// the version. It returns the assigned version number. The Version field
+	// in the input is ignored — the actual number is determined by locking
+	// the asset row and incrementing current_version.
+	CreateVersion(ctx context.Context, version AssetVersion) (int, error)
 	ListByAsset(ctx context.Context, assetID string, limit, offset int) ([]AssetVersion, int, error)
 	GetByVersion(ctx context.Context, assetID string, version int) (*AssetVersion, error)
 	GetLatest(ctx context.Context, assetID string) (*AssetVersion, error)
@@ -671,12 +675,20 @@ func NewPostgresVersionStore(db *sql.DB) VersionStore {
 	return &postgresVersionStore{db: db}
 }
 
-func (s *postgresVersionStore) CreateVersion(ctx context.Context, version AssetVersion) error { //nolint:revive // interface impl
+func (s *postgresVersionStore) CreateVersion(ctx context.Context, version AssetVersion) (int, error) { //nolint:revive // interface impl
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("beginning transaction: %w", err)
+		return 0, fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	// Lock the asset row and determine the next version number atomically.
+	var currentVersion int
+	lockQuery := `SELECT current_version FROM portal_assets WHERE id = $1 FOR UPDATE`
+	if err := tx.QueryRowContext(ctx, lockQuery, version.AssetID).Scan(&currentVersion); err != nil {
+		return 0, fmt.Errorf("locking asset row: %w", err)
+	}
+	nextVersion := currentVersion + 1
 
 	insertQuery := `
 		INSERT INTO portal_asset_versions
@@ -684,30 +696,30 @@ func (s *postgresVersionStore) CreateVersion(ctx context.Context, version AssetV
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	_, err = tx.ExecContext(ctx, insertQuery,
-		version.ID, version.AssetID, version.Version,
+		version.ID, version.AssetID, nextVersion,
 		version.S3Key, version.S3Bucket, version.ContentType,
 		version.SizeBytes, version.CreatedBy, version.ChangeSummary,
 	)
 	if err != nil {
-		return fmt.Errorf("inserting version: %w", err)
+		return 0, fmt.Errorf("inserting version: %w", err)
 	}
 
 	updateQuery := `
 		UPDATE portal_assets
-		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW()
+		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, thumbnail_s3_key = '', updated_at = NOW()
 		WHERE id = $5
 	`
 	_, err = tx.ExecContext(ctx, updateQuery,
-		version.Version, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID,
+		nextVersion, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID,
 	)
 	if err != nil {
-		return fmt.Errorf("updating asset version: %w", err)
+		return 0, fmt.Errorf("updating asset version: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing version: %w", err)
+		return 0, fmt.Errorf("committing version: %w", err)
 	}
-	return nil
+	return nextVersion, nil
 }
 
 func (s *postgresVersionStore) ListByAsset(ctx context.Context, assetID string, limit, offset int) ([]AssetVersion, int, error) { //nolint:revive // interface impl
@@ -813,7 +825,7 @@ func NewNoopVersionStore() VersionStore {
 }
 
 //nolint:revive // interface implementation methods on unexported type need no doc comments
-func (*noopVersionStore) CreateVersion(_ context.Context, _ AssetVersion) error { return nil }
+func (*noopVersionStore) CreateVersion(_ context.Context, _ AssetVersion) (int, error) { return 0, nil }
 
 func (*noopVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]AssetVersion, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil

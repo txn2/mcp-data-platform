@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -30,6 +31,8 @@ const (
 	errAccessDenied    = "access denied"
 	pathKeyID          = "id"
 	paramLimit         = "limit"
+	paramOffset        = "offset"
+	headerContentType  = "Content-Type"
 )
 
 // defaultNoticeText is the notice shown on public shares when no custom text is provided.
@@ -217,7 +220,7 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		ContentType: r.URL.Query().Get("content_type"),
 		Tag:         r.URL.Query().Get("tag"),
 		Limit:       intParam(r, paramLimit, defaultLimit),
-		Offset:      intParam(r, "offset", 0),
+		Offset:      intParam(r, paramOffset, 0),
 	}
 
 	assets, total, err := h.deps.AssetStore.List(r.Context(), filter)
@@ -329,7 +332,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type, not rendered as HTML
@@ -358,7 +361,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.deps.S3Client == nil {
+	if !h.versionedStorageReady() {
 		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
@@ -373,9 +376,9 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nextVersion := asset.CurrentVersion + 1
-	ext := versionedExtension(asset.ContentType)
-	versionedKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+	versionID := uuid.New().String()
+	ext := ExtensionForContentType(asset.ContentType)
+	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
@@ -383,9 +386,8 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	av := AssetVersion{
-		ID:            uuid.New().String(),
+		ID:            versionID,
 		AssetID:       id,
-		Version:       nextVersion,
 		S3Key:         versionedKey,
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   asset.ContentType,
@@ -394,17 +396,10 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		ChangeSummary: "Content updated",
 	}
 
-	if h.deps.VersionStore != nil {
-		if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create version")
-			return
-		}
+	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create version")
+		return
 	}
-
-	// Clear thumbnail on content update.
-	emptyThumb := ""
-	thumbUpdate := AssetUpdate{ThumbnailS3Key: &emptyThumb}
-	_ = h.deps.AssetStore.Update(r.Context(), id, thumbUpdate)
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
@@ -420,7 +415,7 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ct := r.Header.Get("Content-Type")
+	ct := r.Header.Get(headerContentType)
 	mediaType, _, _ := mime.ParseMediaType(ct)
 	if mediaType != "image/png" {
 		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
@@ -521,7 +516,7 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set(headerContentType, "image/png")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
@@ -613,6 +608,11 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 }
 
+// versionedStorageReady returns true if both S3 and version tracking are configured.
+func (h *Handler) versionedStorageReady() bool {
+	return h.deps.S3Client != nil && h.deps.VersionStore != nil
+}
+
 // --- Version handlers ---
 
 func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
@@ -641,7 +641,7 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := intParam(r, paramLimit, defaultLimit)
-	offset := intParam(r, "offset", 0)
+	offset := intParam(r, paramOffset, 0)
 	versions, total, err := h.deps.VersionStore.ListByAsset(r.Context(), id, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list versions")
@@ -673,7 +673,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 	if !h.canViewAsset(w, r, id, asset, user) {
 		return
 	}
-	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+	if !h.versionedStorageReady() {
 		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
@@ -695,10 +695,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, cmp.Or(contentType, "application/octet-stream"))
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
@@ -724,7 +721,7 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 	if !h.canEditAsset(w, r, id, asset, user) {
 		return
 	}
-	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+	if !h.versionedStorageReady() {
 		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
@@ -741,60 +738,52 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read content from the target version's S3 key.
-	data, _, err := h.deps.S3Client.GetObject(r.Context(), targetVer.S3Bucket, targetVer.S3Key)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read version content")
-		return
-	}
-
-	nextVersion := asset.CurrentVersion + 1
-	ext := versionedExtension(targetVer.ContentType)
-	newKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
-
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "failed to upload reverted content")
-		return
-	}
-
-	av := AssetVersion{
-		ID:            uuid.New().String(),
-		AssetID:       id,
-		Version:       nextVersion,
-		S3Key:         newKey,
-		S3Bucket:      asset.S3Bucket,
-		ContentType:   targetVer.ContentType,
-		SizeBytes:     int64(len(data)),
-		CreatedBy:     user.UserID,
-		ChangeSummary: fmt.Sprintf("Reverted from v%d", versionNum),
-	}
-	if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create revert version")
+	assignedVersion, revertErr := h.revertContentToVersion(r.Context(), asset, id, targetVer, user.UserID)
+	if revertErr != nil {
+		writeError(w, revertErr.code, revertErr.msg)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "reverted",
-		"version": nextVersion,
+		"version": assignedVersion,
 	})
 }
 
-// versionedExtension returns a file extension based on content type.
-func versionedExtension(ct string) string {
-	switch {
-	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
-		return ".html"
-	case strings.Contains(ct, "svg"):
-		return ".svg"
-	case strings.Contains(ct, "markdown"):
-		return ".md"
-	case strings.Contains(ct, "json"):
-		return ".json"
-	case strings.Contains(ct, "csv"):
-		return ".csv"
-	default:
-		return ".bin"
+type httpError struct {
+	code int
+	msg  string
+}
+
+func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, assetID string, targetVer *AssetVersion, userID string) (int, *httpError) {
+	data, _, err := h.deps.S3Client.GetObject(ctx, targetVer.S3Bucket, targetVer.S3Key)
+	if err != nil {
+		return 0, &httpError{http.StatusInternalServerError, "failed to read version content"}
 	}
+
+	versionID := uuid.New().String()
+	ext := ExtensionForContentType(targetVer.ContentType)
+	newKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, assetID, versionID, ext)
+
+	if err := h.deps.S3Client.PutObject(ctx, asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
+		return 0, &httpError{http.StatusServiceUnavailable, "failed to upload reverted content"}
+	}
+
+	av := AssetVersion{
+		ID:            versionID,
+		AssetID:       assetID,
+		S3Key:         newKey,
+		S3Bucket:      asset.S3Bucket,
+		ContentType:   targetVer.ContentType,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     userID,
+		ChangeSummary: fmt.Sprintf("Reverted from v%d", targetVer.Version),
+	}
+	assignedVersion, err := h.deps.VersionStore.CreateVersion(ctx, av)
+	if err != nil {
+		return 0, &httpError{http.StatusInternalServerError, "failed to create revert version"}
+	}
+	return assignedVersion, nil
 }
 
 // --- Share handlers ---
@@ -980,7 +969,7 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := intParam(r, paramLimit, defaultLimit)
-	offset := intParam(r, "offset", 0)
+	offset := intParam(r, paramOffset, 0)
 
 	shared, total, err := h.deps.ShareStore.ListSharedWithUser(r.Context(), user.UserID, strings.ToLower(user.Email), limit, offset)
 	if err != nil {
@@ -1118,7 +1107,7 @@ func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
 		Status:     q.Get("status"),
 		Category:   q.Get("category"),
 		Limit:      intParam(r, paramLimit, knowledge.DefaultLimit),
-		Offset:     intParam(r, "offset", 0),
+		Offset:     intParam(r, paramOffset, 0),
 	}
 
 	insights, total, err := h.deps.InsightStore.List(r.Context(), filter)
@@ -1333,20 +1322,26 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the original content from S3.
-	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read source content")
+	newAsset, copyErr := h.performAssetCopy(r.Context(), asset, user)
+	if copyErr != nil {
+		writeError(w, copyErr.code, copyErr.msg)
 		return
 	}
 
-	// Create new S3 key for the copy.
+	writeJSON(w, http.StatusCreated, newAsset)
+}
+
+func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User) (*Asset, *httpError) {
+	data, contentType, err := h.deps.S3Client.GetObject(ctx, asset.S3Bucket, asset.S3Key)
+	if err != nil {
+		return nil, &httpError{http.StatusInternalServerError, "failed to read source content"}
+	}
+
 	newID := uuid.New().String()
 	newS3Key := fmt.Sprintf("portal/%s/%s/content", user.UserID, newID)
 
-	if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, newS3Key, data, contentType); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "failed to copy content")
-		return
+	if err := h.deps.S3Client.PutObject(ctx, h.deps.S3Bucket, newS3Key, data, contentType); err != nil {
+		return nil, &httpError{http.StatusServiceUnavailable, "failed to copy content"}
 	}
 
 	newAsset := Asset{
@@ -1363,17 +1358,14 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 		Provenance:  asset.Provenance,
 	}
 
-	if err := h.deps.AssetStore.Insert(r.Context(), newAsset); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create asset copy")
-		return
+	if err := h.deps.AssetStore.Insert(ctx, newAsset); err != nil {
+		return nil, &httpError{http.StatusInternalServerError, "failed to create asset copy"}
 	}
 
-	// Create v1 version for the copy.
 	if h.deps.VersionStore != nil {
 		v1 := AssetVersion{
 			ID:            uuid.New().String(),
 			AssetID:       newID,
-			Version:       1,
 			S3Key:         newS3Key,
 			S3Bucket:      h.deps.S3Bucket,
 			ContentType:   asset.ContentType,
@@ -1381,8 +1373,10 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 			CreatedBy:     user.UserID,
 			ChangeSummary: "Copied from " + asset.ID,
 		}
-		_ = h.deps.VersionStore.CreateVersion(r.Context(), v1) // best-effort
+		if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
+			return nil, &httpError{http.StatusInternalServerError, "failed to create initial version for copy"}
+		}
 	}
 
-	writeJSON(w, http.StatusCreated, newAsset)
+	return &newAsset, nil
 }

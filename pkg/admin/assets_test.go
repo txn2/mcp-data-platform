@@ -91,18 +91,19 @@ func (m *mockAdminS3Client) DeleteObject(_ context.Context, _, _ string) error {
 func (*mockAdminS3Client) Close() error                                        { return nil }
 
 type mockAdminVersionStore struct {
-	createErr    error
-	listVersions []portal.AssetVersion
-	listTotal    int
-	listErr      error
-	getVersion   *portal.AssetVersion
-	getErr       error
-	latestVer    *portal.AssetVersion
-	latestErr    error
+	createVersion int
+	createErr     error
+	listVersions  []portal.AssetVersion
+	listTotal     int
+	listErr       error
+	getVersion    *portal.AssetVersion
+	getErr        error
+	latestVer     *portal.AssetVersion
+	latestErr     error
 }
 
-func (m *mockAdminVersionStore) CreateVersion(_ context.Context, _ portal.AssetVersion) error {
-	return m.createErr
+func (m *mockAdminVersionStore) CreateVersion(_ context.Context, _ portal.AssetVersion) (int, error) {
+	return m.createVersion, m.createErr
 }
 
 func (m *mockAdminVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]portal.AssetVersion, int, error) {
@@ -479,10 +480,10 @@ func TestUpdateAdminAssetContentSuccess(t *testing.T) {
 	now := time.Now()
 	asset := &portal.Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
-		S3Bucket: "b", S3Key: "k",
+		S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
 		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
 	}
-	h := newAdminTestHandler(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminS3Client{})
+	h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, &mockAdminVersionStore{createVersion: 2}, &mockAdminS3Client{})
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
 		strings.NewReader("<html>Updated</html>"))
@@ -498,15 +499,17 @@ func TestUpdateAdminAssetContentSuccess(t *testing.T) {
 	assert.Equal(t, "updated", resp.Status)
 }
 
-func TestUpdateAdminAssetContentClearsThumbnail(t *testing.T) {
+func TestUpdateAdminAssetContentNoVersionStore(t *testing.T) {
 	now := time.Now()
 	asset := &portal.Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
-		S3Bucket: "b", S3Key: "k", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
+		S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
 		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
 	}
-	store := &mockAdminAssetStore{getAsset: asset}
-	h := newAdminTestHandler(store, &mockAdminShareStore{}, &mockAdminS3Client{})
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
 		strings.NewReader("<html>Updated</html>"))
@@ -514,10 +517,7 @@ func TestUpdateAdminAssetContentClearsThumbnail(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	require.NotNil(t, store.lastUpdate)
-	require.NotNil(t, store.lastUpdate.ThumbnailS3Key, "ThumbnailS3Key should be set")
-	assert.Equal(t, "", *store.lastUpdate.ThumbnailS3Key, "ThumbnailS3Key should be cleared to empty")
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestUpdateAdminAssetContentNoS3(t *testing.T) {
@@ -1072,7 +1072,7 @@ func TestRevertAdminVersionSuccess(t *testing.T) {
 	h := newAdminTestHandlerWithVersions(
 		&mockAdminAssetStore{getAsset: asset},
 		&mockAdminShareStore{},
-		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminVersionStore{getVersion: ver, createVersion: 3},
 		&mockAdminS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
 	)
 
@@ -1104,7 +1104,7 @@ func TestRevertAdminVersionDeleted(t *testing.T) {
 	assert.Equal(t, http.StatusGone, w.Code)
 }
 
-func TestAdminVersionedExtension(t *testing.T) {
+func TestExtensionForContentType(t *testing.T) {
 	tests := []struct {
 		ct   string
 		want string
@@ -1118,7 +1118,7 @@ func TestAdminVersionedExtension(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.ct, func(t *testing.T) {
-			assert.Equal(t, tt.want, adminVersionedExtension(tt.ct))
+			assert.Equal(t, tt.want, portal.ExtensionForContentType(tt.ct))
 		})
 	}
 }

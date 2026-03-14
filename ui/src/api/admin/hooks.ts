@@ -5,7 +5,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchRaw } from "./client";
 import type {
   SystemInfo,
   ToolListResponse,
@@ -496,6 +496,20 @@ export function useAdminAssetVersions(assetId: string | null) {
         `/assets/${assetId}/versions`,
       ),
     enabled: !!assetId,
+  });
+}
+
+export function useAdminVersionContent(assetId: string | null, version: number) {
+  return useQuery({
+    queryKey: ["admin", "version-content", assetId, version],
+    queryFn: async () => {
+      const res = await apiFetchRaw(
+        `/assets/${assetId}/versions/${version}/content`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch version content");
+      return res.text();
+    },
+    enabled: !!assetId && version > 0,
   });
 }
 

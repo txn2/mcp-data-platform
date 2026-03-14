@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
-	"strings"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -32,6 +30,9 @@ const (
 
 	// idLength is the number of random bytes for asset IDs (32 hex chars).
 	idLength = 16
+
+	// defaultVersionListLimit is the default page size for version listing.
+	defaultVersionListLimit = 50
 
 	// validationFmt is the format string for wrapping validation errors.
 	validationFmt = "validation: %w"
@@ -301,9 +302,8 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 
 	// Create initial v1 version record.
 	v1 := portal.AssetVersion{
-		ID:            generateVersionID(),
+		ID:            assetID + "-v1",
 		AssetID:       assetID,
-		Version:       1,
 		S3Key:         s3Key,
 		S3Bucket:      t.s3Bucket,
 		ContentType:   input.ContentType,
@@ -311,7 +311,9 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		CreatedBy:     userID,
 		ChangeSummary: "Initial version",
 	}
-	_ = t.versionStore.CreateVersion(ctx, v1) // best-effort: asset already saved
+	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
+		slog.Warn("failed to create initial version record", "asset_id", assetID, "error", err)
+	}
 
 	return jsonResult(t.buildSaveOutput(assetID, prov))
 }
@@ -425,9 +427,12 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		ct = asset.ContentType
 	}
 
-	nextVersion := asset.CurrentVersion + 1
-	ext := extensionForContentType(ct)
-	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, fmt.Sprintf("v%d", nextVersion), "content"+ext)
+	versionID, err := generateID()
+	if err != nil {
+		return fmt.Errorf("generating version ID: %w", err)
+	}
+	ext := portal.ExtensionForContentType(ct)
+	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if t.s3Client == nil {
 		return fmt.Errorf("content storage not configured")
@@ -438,9 +443,8 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 
 	userID := resolveOwnerID(ctx)
 	av := portal.AssetVersion{
-		ID:            generateVersionID(),
+		ID:            versionID,
 		AssetID:       asset.ID,
-		Version:       nextVersion,
 		S3Key:         s3Key,
 		S3Bucket:      t.s3Bucket,
 		ContentType:   ct,
@@ -448,7 +452,10 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		CreatedBy:     userID,
 		ChangeSummary: "Content updated via MCP",
 	}
-	return t.versionStore.CreateVersion(ctx, av)
+	if _, err = t.versionStore.CreateVersion(ctx, av); err != nil {
+		return fmt.Errorf("creating version: %w", err)
+	}
+	return nil
 }
 
 func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
@@ -483,7 +490,7 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 
 	limit := input.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = defaultVersionListLimit
 	}
 	versions, total, err := t.versionStore.ListByAsset(ctx, input.AssetID, limit, 0)
 	if err != nil {
@@ -499,11 +506,8 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 }
 
 func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
-	if input.AssetID == "" {
-		return errorResult("asset_id is required for revert action"), nil, nil
-	}
-	if input.Version <= 0 {
-		return errorResult("version is required for revert action"), nil, nil
+	if !input.validForRevert() {
+		return errorResult("asset_id and version (> 0) are required for revert action"), nil, nil
 	}
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
@@ -529,18 +533,20 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 		return errorResult("failed to read version content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	nextVersion := asset.CurrentVersion + 1
-	ext := extensionForContentType(targetVer.ContentType)
-	newKey := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, fmt.Sprintf("v%d", nextVersion), "content"+ext)
+	versionID, err := generateID()
+	if err != nil {
+		return errorResult("failed to generate version ID: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+	ext := portal.ExtensionForContentType(targetVer.ContentType)
+	newKey := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, newKey, data, targetVer.ContentType); err != nil {
 		return errorResult("failed to upload reverted content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	av := portal.AssetVersion{
-		ID:            generateVersionID(),
+		ID:            versionID,
 		AssetID:       input.AssetID,
-		Version:       nextVersion,
 		S3Key:         newKey,
 		S3Bucket:      t.s3Bucket,
 		ContentType:   targetVer.ContentType,
@@ -548,23 +554,20 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 		CreatedBy:     ownerID,
 		ChangeSummary: fmt.Sprintf("Reverted from v%d", input.Version),
 	}
-	if err := t.versionStore.CreateVersion(ctx, av); err != nil {
+	assignedVersion, err := t.versionStore.CreateVersion(ctx, av)
+	if err != nil {
 		return errorResult("failed to create revert version: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	return jsonResult(map[string]any{
 		"asset_id": input.AssetID,
-		"version":  nextVersion,
-		"message":  fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, nextVersion),
+		"version":  assignedVersion,
+		"message":  fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, assignedVersion),
 	})
 }
 
-func generateVersionID() string {
-	id, err := generateID()
-	if err != nil {
-		return "v-" + fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return id
+func (m manageArtifactInput) validForRevert() bool {
+	return m.AssetID != "" && m.Version > 0
 }
 
 // --- Helpers ---
@@ -606,7 +609,7 @@ func resolveSessionID(ctx context.Context) string {
 }
 
 func (t *Toolkit) buildS3Key(ownerID, assetID, contentType string) string {
-	ext := extensionForContentType(contentType)
+	ext := portal.ExtensionForContentType(contentType)
 	return path.Join(t.s3Prefix, ownerID, assetID, "content"+ext)
 }
 
@@ -661,23 +664,6 @@ func buildProvenance(ctx context.Context, userID, sessionID string) portal.Prove
 	}
 
 	return prov
-}
-
-func extensionForContentType(ct string) string {
-	switch {
-	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
-		return ".html"
-	case strings.Contains(ct, "svg"):
-		return ".svg"
-	case strings.Contains(ct, "markdown"):
-		return ".md"
-	case strings.Contains(ct, "json"):
-		return ".json"
-	case strings.Contains(ct, "csv"):
-		return ".csv"
-	default:
-		return ".bin"
-	}
 }
 
 func generateID() (string, error) {

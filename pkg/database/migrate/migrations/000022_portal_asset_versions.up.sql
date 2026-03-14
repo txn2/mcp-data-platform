@@ -4,7 +4,7 @@ ALTER TABLE portal_assets ADD COLUMN current_version INT NOT NULL DEFAULT 1;
 -- Version history table
 CREATE TABLE portal_asset_versions (
     id            TEXT        PRIMARY KEY,
-    asset_id      TEXT        NOT NULL REFERENCES portal_assets(id),
+    asset_id      TEXT        NOT NULL REFERENCES portal_assets(id) ON DELETE CASCADE,
     version       INT         NOT NULL,
     s3_key        TEXT        NOT NULL,
     s3_bucket     TEXT        NOT NULL,
@@ -18,7 +18,8 @@ CREATE TABLE portal_asset_versions (
 
 CREATE INDEX idx_portal_asset_versions_asset_id ON portal_asset_versions(asset_id);
 
--- Backfill v1 for existing assets
+-- Backfill v1 for all existing assets (including soft-deleted, to keep version
+-- history consistent if an asset is ever un-deleted or inspected).
 INSERT INTO portal_asset_versions (id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes, created_by, change_summary, created_at)
 SELECT
     id || '-v1',
@@ -31,5 +32,4 @@ SELECT
     owner_id,
     'Initial version',
     created_at
-FROM portal_assets
-WHERE deleted_at IS NULL;
+FROM portal_assets;
