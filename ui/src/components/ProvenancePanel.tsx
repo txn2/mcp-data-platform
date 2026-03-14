@@ -140,6 +140,22 @@ function ProvenanceCard({
   );
 }
 
+/** Extract the SQL string from a summary, or null if not a SQL call. */
+function extractSQL(call: ProvenanceToolCall): string | null {
+  if (!call.tool_name.startsWith("trino_")) return null;
+  if (!call.summary) return null;
+  try {
+    const parsed = JSON.parse(call.summary);
+    if (typeof parsed === "object" && parsed.sql) return String(parsed.sql);
+  } catch {
+    // Not JSON — check if raw text looks like SQL
+    if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|EXPLAIN)\b/i.test(call.summary)) {
+      return call.summary;
+    }
+  }
+  return null;
+}
+
 function DetailModal({
   call,
   open,
@@ -151,7 +167,8 @@ function DetailModal({
 }) {
   if (!call) return null;
   const Icon = getToolIcon(call.tool_name);
-  const detail = formatDetail(call.summary);
+  const sql = extractSQL(call);
+  const detail = sql ?? formatDetail(call.summary);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -168,11 +185,9 @@ function DetailModal({
 
           <div className="mt-4">
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {call.tool_name.startsWith("trino_") && detail.includes("SELECT")
-                ? "SQL Query"
-                : "Parameters"}
+              {sql ? "SQL Query" : "Parameters"}
             </p>
-            <pre className="max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
+            <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
               {detail}
             </pre>
           </div>
@@ -196,6 +211,7 @@ function DetailModal({
 export function ProvenancePanel({ provenance }: Props) {
   const calls = provenance.tool_calls ?? [];
   const [selected, setSelected] = useState<ProvenanceToolCall | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   if (calls.length === 0) {
     return (
@@ -203,17 +219,22 @@ export function ProvenancePanel({ provenance }: Props) {
     );
   }
 
+  const trinoCalls = calls.filter((c) => c.tool_name.startsWith("trino_"));
+  const otherCalls = calls.filter((c) => !c.tool_name.startsWith("trino_"));
+  const visibleCalls = showAll ? calls : trinoCalls;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Provenance</h3>
         <span className="text-xs text-muted-foreground">
-          {calls.length} {calls.length === 1 ? "call" : "calls"}
+          {trinoCalls.length} {trinoCalls.length === 1 ? "query" : "queries"}
+          {otherCalls.length > 0 && !showAll && ` + ${otherCalls.length} other`}
         </span>
       </div>
 
       <div className="space-y-2">
-        {calls.map((call, i) => (
+        {visibleCalls.map((call, i) => (
           <ProvenanceCard
             key={i}
             call={call}
@@ -221,6 +242,16 @@ export function ProvenancePanel({ provenance }: Props) {
           />
         ))}
       </div>
+
+      {otherCalls.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full rounded-md border border-dashed py-1.5 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+        >
+          {showAll ? "Show queries only" : `Show all ${calls.length} calls`}
+        </button>
+      )}
 
       <DetailModal
         call={selected}
