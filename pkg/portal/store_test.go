@@ -40,7 +40,7 @@ func TestPostgresAssetStoreInsert(t *testing.T) {
 		WithArgs(
 			asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
 			asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID, 1,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -62,10 +62,10 @@ func TestPostgresAssetStoreGet(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		"abc123", "user1", "user1@example.com", "Test", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", now, now, nil,
+		"", int64(512), tags, prov, "sess1", 1, now, now, nil,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
@@ -115,10 +115,10 @@ func TestPostgresAssetStoreList(t *testing.T) {
 	// Select query
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "", "text/html", "portal", "key1",
-		"", int64(100), tags, prov, "", now, now, nil,
+		"", int64(100), tags, prov, "", 1, now, now, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
@@ -631,10 +631,10 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "", "text/html", "portal", "key1",
-		"", int64(100), tags, prov, "", time.Now(), time.Now(), nil,
+		"", int64(100), tags, prov, "", 1, time.Now(), time.Now(), nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
@@ -657,7 +657,7 @@ func TestPostgresAssetStoreListFilterByTag(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 		}),
 	)
 
@@ -678,7 +678,7 @@ func TestPostgresAssetStoreListFilterByContentType(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 		}),
 	)
 
@@ -699,7 +699,7 @@ func TestPostgresAssetStoreListFilterBySearch(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 		}),
 	)
 
@@ -865,11 +865,11 @@ func TestPostgresShareStoreListSharedWithUser(t *testing.T) {
 	// Select query
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 		"share_id", "created_by", "share_created_at", "permission",
 	}).AddRow(
 		"abc123", "user1", "user1@example.com", "Shared Asset", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", now, now, nil,
+		"", int64(512), tags, prov, "sess1", 1, now, now, nil,
 		"share1", "user1", now, "viewer",
 	)
 
@@ -943,7 +943,7 @@ func TestPostgresShareStoreListSharedWithUserDefaults(t *testing.T) {
 		WithArgs("user2", "", defaultLimit, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 			"share_id", "created_by", "share_created_at", "permission",
 		}))
 
@@ -969,7 +969,7 @@ func TestPostgresShareStoreListSharedWithUserMaxLimit(t *testing.T) {
 		WithArgs("user2", "", maxLimit, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 			"share_id", "created_by", "share_created_at", "permission",
 		}))
 
@@ -1058,10 +1058,10 @@ func TestPostgresAssetStoreGetWithDeletedAt(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", now, now, deletedAt,
+		"", int64(512), tags, prov, "sess1", 1, now, now, deletedAt,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
@@ -1171,4 +1171,303 @@ func TestPostgresShareStoreListActiveShareSummariesRowsErr(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "iterating share summary rows")
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- VersionStore tests ---
+
+func TestPostgresVersionStoreCreateVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	version := AssetVersion{
+		ID:            "v1",
+		AssetID:       "abc123",
+		Version:       2,
+		S3Key:         "user1/abc123/v2/content.html",
+		S3Bucket:      "portal",
+		ContentType:   "text/html",
+		SizeBytes:     2048,
+		CreatedBy:     "user1",
+		ChangeSummary: "Updated content",
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("abc123").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(1))
+	mock.ExpectExec("INSERT INTO portal_asset_versions").
+		WithArgs(version.ID, version.AssetID, version.Version, version.S3Key, version.S3Bucket,
+			version.ContentType, version.SizeBytes, version.CreatedBy, version.ChangeSummary).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs(version.Version, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	assignedVersion, err := store.CreateVersion(context.Background(), version)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, assignedVersion)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreCreateVersionInsertError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO portal_asset_versions").
+		WillReturnError(fmt.Errorf("db error"))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "inserting version")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreCreateVersionUpdateError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO portal_asset_versions").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_assets").
+		WillReturnError(fmt.Errorf("db error"))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "updating asset version")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreCreateVersionBeginError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectBegin().WillReturnError(fmt.Errorf("db error"))
+
+	_, err = store.CreateVersion(context.Background(), AssetVersion{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "beginning transaction")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreListByAsset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("abc123").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+
+	dataRows := sqlmock.NewRows([]string{
+		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
+		"size_bytes", "created_by", "change_summary", "created_at",
+	}).
+		AddRow("v2", "abc123", 2, "key2", "portal", "text/html", int64(2048), "user1", "v2 changes", now).
+		AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123", 10, 0).
+		WillReturnRows(dataRows)
+
+	versions, total, err := store.ListByAsset(context.Background(), "abc123", 10, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+	require.Len(t, versions, 2)
+	assert.Equal(t, 2, versions[0].Version)
+	assert.Equal(t, 1, versions[1].Version)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreListByAssetCountError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("abc123").
+		WillReturnError(fmt.Errorf("db error"))
+
+	_, _, err = store.ListByAsset(context.Background(), "abc123", 10, 0)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "counting versions")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreListByAssetQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("abc123").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123", 10, 0).
+		WillReturnError(fmt.Errorf("db error"))
+
+	_, _, err = store.ListByAsset(context.Background(), "abc123", 10, 0)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying versions")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreListByAssetDefaults(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("abc123").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123", defaultLimit, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
+			"size_bytes", "created_by", "change_summary", "created_at",
+		}))
+
+	versions, total, err := store.ListByAsset(context.Background(), "abc123", 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Empty(t, versions)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreGetByVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+	now := time.Now()
+
+	rows := sqlmock.NewRows([]string{
+		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
+		"size_bytes", "created_by", "change_summary", "created_at",
+	}).AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123", 1).
+		WillReturnRows(rows)
+
+	v, err := store.GetByVersion(context.Background(), "abc123", 1)
+	require.NoError(t, err)
+	assert.Equal(t, "v1", v.ID)
+	assert.Equal(t, 1, v.Version)
+	assert.Equal(t, "abc123", v.AssetID)
+	assert.Equal(t, "initial", v.ChangeSummary)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreGetByVersionNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123", 99).
+		WillReturnError(fmt.Errorf("sql: no rows in result set"))
+
+	_, err = store.GetByVersion(context.Background(), "abc123", 99)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying version")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreGetLatest(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+	now := time.Now()
+
+	rows := sqlmock.NewRows([]string{
+		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
+		"size_bytes", "created_by", "change_summary", "created_at",
+	}).AddRow("v3", "abc123", 3, "key3", "portal", "text/html", int64(4096), "user1", "latest changes", now)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123").
+		WillReturnRows(rows)
+
+	v, err := store.GetLatest(context.Background(), "abc123")
+	require.NoError(t, err)
+	assert.Equal(t, "v3", v.ID)
+	assert.Equal(t, 3, v.Version)
+	assert.Equal(t, "latest changes", v.ChangeSummary)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresVersionStoreGetLatestNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresVersionStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
+		WithArgs("abc123").
+		WillReturnError(fmt.Errorf("sql: no rows in result set"))
+
+	_, err = store.GetLatest(context.Background(), "abc123")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "querying latest version")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestNoopVersionStore(t *testing.T) {
+	store := NewNoopVersionStore()
+	ctx := context.Background()
+
+	v, err := store.CreateVersion(ctx, AssetVersion{})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, v)
+
+	versions, total, err := store.ListByAsset(ctx, "any", 10, 0)
+	assert.NoError(t, err)
+	assert.Nil(t, versions)
+	assert.Equal(t, 0, total)
+
+	_, err = store.GetByVersion(ctx, "any", 1)
+	assert.Error(t, err)
+
+	_, err = store.GetLatest(ctx, "any")
+	assert.Error(t, err)
 }

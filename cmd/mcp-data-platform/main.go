@@ -516,6 +516,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	deps := portal.Deps{
 		AssetStore:    p.PortalAssetStore(),
 		ShareStore:    p.PortalShareStore(),
+		VersionStore:  p.PortalVersionStore(),
 		S3Client:      p.PortalS3Client(),
 		S3Bucket:      p.Config().Portal.S3Bucket,
 		PublicBaseURL: p.Config().Portal.PublicBaseURL,
@@ -616,6 +617,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		PlatformTools:     p.PlatformTools(),
 		AssetStore:        p.PortalAssetStore(),
 		ShareStore:        p.PortalShareStore(),
+		VersionStore:      p.PortalVersionStore(),
 		S3Client:          p.PortalS3Client(),
 		S3Bucket:          p.Config().Portal.S3Bucket,
 	}

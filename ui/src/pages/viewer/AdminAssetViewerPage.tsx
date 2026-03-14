@@ -1,4 +1,4 @@
-import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent } from "@/api/admin/hooks";
+import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent, useAdminAssetVersions, useAdminRevertVersion } from "@/api/admin/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 import { formatOwner } from "@/lib/format";
 
@@ -13,6 +13,8 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
   const updateMutation = useAdminUpdateAsset();
   const deleteMutation = useAdminDeleteAsset();
   const contentUpdateMutation = useAdminUpdateAssetContent();
+  const { data: versionsData, isLoading: versionsLoading } = useAdminAssetVersions(assetId);
+  const revertMutation = useAdminRevertVersion();
 
   return (
     <AssetViewer
@@ -36,6 +38,9 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       detailRows={
         asset ? [{ label: "Owner", value: formatOwner(asset) }] : undefined
       }
+      versions={versionsData?.data}
+      versionsLoading={versionsLoading}
+      revertMutation={revertMutation}
     />
   );
 }

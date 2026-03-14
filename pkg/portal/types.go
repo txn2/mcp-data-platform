@@ -29,9 +29,42 @@ type Asset struct {
 	Tags           []string   `json:"tags"`
 	Provenance     Provenance `json:"provenance"`
 	SessionID      string     `json:"session_id,omitempty"`
+	CurrentVersion int        `json:"current_version"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+}
+
+// AssetVersion records a single version of an asset's content.
+type AssetVersion struct {
+	ID            string    `json:"id"`
+	AssetID       string    `json:"asset_id"`
+	Version       int       `json:"version"`
+	S3Key         string    `json:"s3_key"`
+	S3Bucket      string    `json:"s3_bucket"`
+	ContentType   string    `json:"content_type"`
+	SizeBytes     int64     `json:"size_bytes"`
+	CreatedBy     string    `json:"created_by"`
+	ChangeSummary string    `json:"change_summary"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// ExtensionForContentType returns a file extension based on content type.
+func ExtensionForContentType(ct string) string {
+	switch {
+	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
+		return ".html"
+	case strings.Contains(ct, "svg"):
+		return ".svg"
+	case strings.Contains(ct, "markdown"):
+		return ".md"
+	case strings.Contains(ct, "json"):
+		return ".json"
+	case strings.Contains(ct, "csv"):
+		return ".csv"
+	default:
+		return ".bin"
+	}
 }
 
 // Provenance records the tool call history that produced an artifact.

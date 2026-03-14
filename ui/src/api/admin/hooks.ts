@@ -5,7 +5,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchRaw } from "./client";
 import type {
   SystemInfo,
   ToolListResponse,
@@ -31,7 +31,7 @@ import type {
   PersonaCreateRequest,
   AdminAssetListResponse,
 } from "./types";
-import type { Asset } from "@/api/portal/types";
+import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
 
 // Refresh interval for auto-updating queries (30 seconds)
 const REFETCH_INTERVAL = 30_000;
@@ -483,6 +483,47 @@ export function useAdminUpdateAssetContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+    },
+  });
+}
+
+export function useAdminAssetVersions(assetId: string | null) {
+  return useQuery({
+    queryKey: ["admin", "asset-versions", assetId],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<AssetVersion>>(
+        `/assets/${assetId}/versions`,
+      ),
+    enabled: !!assetId,
+  });
+}
+
+export function useAdminVersionContent(assetId: string | null, version: number) {
+  return useQuery({
+    queryKey: ["admin", "version-content", assetId, version],
+    queryFn: async () => {
+      const res = await apiFetchRaw(
+        `/assets/${assetId}/versions/${version}/content`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch version content");
+      return res.text();
+    },
+    enabled: !!assetId && version > 0,
+  });
+}
+
+export function useAdminRevertVersion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, version }: { assetId: string; version: number }) =>
+      apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, { assetId }) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset", assetId] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-content", assetId] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions", assetId] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
   });
