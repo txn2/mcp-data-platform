@@ -398,7 +398,7 @@ func TestGetAssetSharedWithUser(t *testing.T) {
 	h := newTestHandler(
 		&mockAssetStore{getAsset: asset},
 		&mockShareStore{listByAsset: []Share{
-			{ID: "s1", SharedWithUserID: "u1", Revoked: false},
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false},
 		}},
 		&mockS3Client{},
 		&User{UserID: "u1"},
@@ -409,6 +409,11 @@ func TestGetAssetSharedWithUser(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.False(t, resp.IsOwner)
+	assert.Equal(t, PermissionViewer, resp.SharePermission)
 }
 
 func TestGetAssetNoUser(t *testing.T) {
@@ -2491,4 +2496,491 @@ func TestGetThumbnailDeletedAsset(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+// --- Permission tests ---
+
+func TestValidSharePermission(t *testing.T) {
+	assert.True(t, ValidSharePermission("viewer"))
+	assert.True(t, ValidSharePermission("editor"))
+	assert.False(t, ValidSharePermission("admin"))
+	assert.False(t, ValidSharePermission(""))
+}
+
+func TestCreateShareWithPermission(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	var captured Share
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &captureShareStore{inner: &mockShareStore{}, captured: &captured},
+		S3Client:      &mockS3Client{},
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	body := `{"shared_with_email":"user@example.com","permission":"editor"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, PermissionEditor, captured.Permission)
+}
+
+func TestCreateShareDefaultPermission(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	var captured Share
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &captureShareStore{inner: &mockShareStore{}, captured: &captured},
+		S3Client:      &mockS3Client{},
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	body := `{"shared_with_email":"user@example.com"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, PermissionViewer, captured.Permission)
+}
+
+func TestCreateShareInvalidPermission(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	body := `{"shared_with_email":"user@example.com","permission":"admin"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateSharePublicLinkAlwaysViewer(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	var captured Share
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &captureShareStore{inner: &mockShareStore{}, captured: &captured},
+		S3Client:      &mockS3Client{},
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	body := `{"expires_in":"24h","permission":"editor"}`
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, PermissionViewer, captured.Permission, "public links must always be viewer")
+}
+
+// --- hasEditorPermission ---
+
+func TestHasEditorPermissionTrue(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.True(t, h.hasEditorPermission(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestHasEditorPermissionViewerOnly(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.False(t, h.hasEditorPermission(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestHasEditorPermissionRevoked(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: true},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.False(t, h.hasEditorPermission(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestHasEditorPermissionExpired(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false, ExpiresAt: &past},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.False(t, h.hasEditorPermission(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestHasEditorPermissionError(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAssetE: fmt.Errorf("db error")},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.False(t, h.hasEditorPermission(req, "a1", &User{UserID: "u1"}))
+}
+
+// --- updateAssetContent with editor permission ---
+
+func TestUpdateAssetContentEditor(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "owner1", S3Bucket: "b", S3Key: "k", ContentType: "text/html"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false},
+		}},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content", strings.NewReader("new content"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateAssetContentViewerDenied(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "owner1", S3Bucket: "b", S3Key: "k", ContentType: "text/html"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false},
+		}},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content", strings.NewReader("new content"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// --- sharePermissionForUser ---
+
+func TestSharePermissionForUserEditor(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false},
+			{ID: "s2", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, PermissionEditor, h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestSharePermissionForUserNotShared(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, SharePermission(""), h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestSharePermissionForUserByEmail(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithEmail: "u1@example.com", Permission: PermissionViewer, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, PermissionViewer, h.sharePermissionForUser(req, "a1", &User{UserID: "other", Email: "u1@example.com"}))
+}
+
+func TestSharePermissionForUserError(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAssetE: fmt.Errorf("db error")},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, SharePermission(""), h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestSharePermissionForUserSkipsRevoked(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: true},
+			{ID: "s2", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, PermissionViewer, h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestSharePermissionForUserSkipsExpired(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false, ExpiresAt: &past},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, SharePermission(""), h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+func TestSharePermissionForUserSkipsWrongUser(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u2", Permission: PermissionEditor, Revoked: false},
+		}},
+		&mockS3Client{}, nil,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.Equal(t, SharePermission(""), h.sharePermissionForUser(req, "a1", &User{UserID: "u1"}))
+}
+
+// --- copyAsset ---
+
+func TestCopyAssetSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "owner1", Name: "Test", Description: "desc",
+		ContentType: "text/html", S3Bucket: "b", S3Key: "k", SizeBytes: 5,
+		Tags: []string{"tag1"}, Provenance: Provenance{SessionID: "s1"},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{listByAsset: []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false}}},
+		S3Client:      &mockS3Client{getData: []byte("hello"), getCT: "text/html"},
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1", Email: "u1@example.com"}))
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var result Asset
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "u1", result.OwnerID)
+	assert.Equal(t, "u1@example.com", result.OwnerEmail)
+	assert.Equal(t, "Test (copy)", result.Name)
+	assert.Equal(t, "desc", result.Description)
+	assert.Equal(t, "text/html", result.ContentType)
+	assert.Equal(t, "test-bucket", result.S3Bucket)
+	assert.Contains(t, result.S3Key, "portal/u1/")
+	assert.Equal(t, int64(5), result.SizeBytes)
+}
+
+func TestCopyAssetOwnerCanCopy(t *testing.T) {
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Mine", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k", Tags: []string{}, Provenance: Provenance{},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{},
+		S3Client:      &mockS3Client{getData: []byte("data"), getCT: "text/html"},
+		S3Bucket:      "test-bucket",
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestCopyAssetAccessDenied(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "owner1", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{}},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestCopyAssetNoUser(t *testing.T) {
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestCopyAssetNotFound(t *testing.T) {
+	h := newTestHandler(
+		&mockAssetStore{getErr: fmt.Errorf("not found")},
+		&mockShareStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestCopyAssetDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", DeletedAt: &now}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestCopyAssetNoS3(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{},
+		PublicBaseURL: "https://example.com",
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCopyAssetS3ReadError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{getErr: fmt.Errorf("s3 fail")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestCopyAssetS3WriteError(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockS3Client{getData: []byte("data"), getCT: "text/html", putErr: fmt.Errorf("s3 fail")},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCopyAssetInsertError(t *testing.T) {
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		Tags: []string{}, Provenance: Provenance{},
+	}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset, insertErr: fmt.Errorf("db fail")},
+		&mockShareStore{},
+		&mockS3Client{getData: []byte("data"), getCT: "text/html"},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/copy", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- getAsset response enrichment ---
+
+func TestGetAssetOwnerResponse(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.IsOwner)
+	assert.Equal(t, SharePermission(""), resp.SharePermission)
+}
+
+func TestGetAssetSharedEditorResponse(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "other", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{
+			{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor, Revoked: false},
+		}},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.False(t, resp.IsOwner)
+	assert.Equal(t, PermissionEditor, resp.SharePermission)
 }

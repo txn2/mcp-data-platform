@@ -2,10 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "./client";
 import type {
   Asset,
+  AssetResponse,
   Share,
   SharedAsset,
   PaginatedResponse,
   ShareResponse,
+  SharePermission,
   ActivityOverview,
   TimeseriesBucket,
   BreakdownEntry,
@@ -62,7 +64,7 @@ export function useAssets(params?: {
 export function useAsset(id: string) {
   return useQuery({
     queryKey: ["asset", id],
-    queryFn: () => apiFetch<Asset>(`/assets/${id}`),
+    queryFn: () => apiFetch<AssetResponse>(`/assets/${id}`),
     enabled: !!id,
   });
 }
@@ -186,6 +188,7 @@ export function useCreateShare() {
       shared_with_email?: string;
       hide_expiration?: boolean;
       notice_text?: string;
+      permission?: SharePermission;
     }) =>
       apiFetch<ShareResponse>(`/assets/${assetId}/shares`, {
         method: "POST",
@@ -204,6 +207,17 @@ export function useRevokeShare() {
       apiFetch(`/shares/${shareId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["shares"] });
+    },
+  });
+}
+
+export function useCopyAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Asset>(`/assets/${id}/copy`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
     },
   });
 }

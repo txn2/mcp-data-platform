@@ -210,6 +210,7 @@ export const mockShares: Record<string, Share[]> = {
       asset_id: "ast-001",
       token: "tok_abc123def456ghi789jkl012mno345pq",
       created_by: "user-alice",
+      permission: "viewer",
       expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
       revoked: false,
       access_count: 12,
@@ -222,6 +223,7 @@ export const mockShares: Record<string, Share[]> = {
       token: "tok_zzz999yyy888xxx777www666vvv555uu",
       created_by: "user-alice",
       shared_with_user_id: "user-bob",
+      permission: "editor",
       revoked: false,
       access_count: 3,
       last_accessed_at: daysAgo(1),
@@ -234,6 +236,7 @@ export const mockShares: Record<string, Share[]> = {
       asset_id: "ast-003",
       token: "tok_rep111aaa222bbb333ccc444ddd555ee",
       created_by: "user-alice",
+      permission: "viewer",
       expires_at: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       revoked: false,
       access_count: 5,
@@ -264,6 +267,7 @@ export const mockSharedWithMe: SharedAsset[] = [
     share_id: "shr-ext-001",
     shared_by: "carol@example.com",
     shared_at: daysAgo(3),
+    permission: "viewer",
   },
   {
     asset: {
@@ -285,5 +289,6 @@ export const mockSharedWithMe: SharedAsset[] = [
     share_id: "shr-ext-002",
     shared_by: "dave@example.com",
     shared_at: daysAgo(5),
+    permission: "editor",
   },
 ];

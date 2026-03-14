@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, lazy, Suspense, type ReactNode } from "react";
-import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code } from "lucide-react";
+import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code, Copy } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Asset } from "@/api/portal/types";
+import type { Asset, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -32,6 +32,9 @@ interface AssetViewerProps {
   updateMutation: MutationLike<{ id: string; name: string; description: string; tags: string[] }>;
   deleteMutation: MutationLike<string>;
   contentUpdateMutation?: MutationLike<{ id: string; content: string }>;
+  copyMutation?: MutationLike<string>;
+  isOwner?: boolean;
+  sharePermission?: SharePermission;
   toolbarExtra?: ReactNode;
   detailRows?: { label: string; value: ReactNode }[];
 }
@@ -54,6 +57,9 @@ export function AssetViewer({
   updateMutation,
   deleteMutation,
   contentUpdateMutation,
+  copyMutation,
+  isOwner = true,
+  sharePermission,
   toolbarExtra,
   detailRows,
 }: AssetViewerProps) {
@@ -64,12 +70,14 @@ export function AssetViewer({
   const [editDesc, setEditDesc] = useState("");
   const [editTags, setEditTags] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [sharedSaveWarningOpen, setSharedSaveWarningOpen] = useState(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [thumbnailStale, setThumbnailStale] = useState(false);
+  const isSharedEditor = !isOwner && sharePermission === "editor";
 
   const canEditSource = !!contentUpdateMutation && !!asset && isTextContent(asset.content_type);
   const contentStr = typeof content === "string" ? content : "";
@@ -85,7 +93,7 @@ export function AssetViewer({
     }
   }, [contentStr]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSaveContent = useCallback(() => {
+  const doSaveContent = useCallback(() => {
     if (!asset || !contentUpdateMutation) return;
     setSaveStatus("idle");
     contentUpdateMutation.mutate(
@@ -93,6 +101,7 @@ export function AssetViewer({
       {
         onSuccess: () => {
           setSaveStatus("saved");
+          setSharedSaveWarningOpen(false);
           if (isThumbnailSupported(asset.content_type)) {
             setThumbnailStale(true);
           }
@@ -101,6 +110,23 @@ export function AssetViewer({
       },
     );
   }, [asset, contentUpdateMutation, editedContent]);
+
+  const handleSaveContent = useCallback(() => {
+    if (isSharedEditor) {
+      setSharedSaveWarningOpen(true);
+      return;
+    }
+    doSaveContent();
+  }, [isSharedEditor, doSaveContent]);
+
+  const handleCopyToMyAssets = useCallback(() => {
+    if (!asset || !copyMutation) return;
+    copyMutation.mutate(asset.id, {
+      onSuccess: () => {
+        onNavigate("/");
+      },
+    });
+  }, [asset, copyMutation, onNavigate]);
 
   const handleDownload = useCallback(async () => {
     if (!asset) return;
@@ -184,14 +210,21 @@ export function AssetViewer({
           </button>
           <h2 className="text-lg font-semibold truncate flex-1 min-w-0">{asset.name}</h2>
           {toolbarExtra}
-          <button
-            type="button"
-            onClick={() => setDeleteModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </button>
+          {!isOwner && (
+            <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+              Shared{sharePermission === "editor" ? " (Editor)" : " (Viewer)"}
+            </span>
+          )}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setDeleteModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </button>
+          )}
           <button
             type="button"
             onClick={handleDownload}
@@ -201,14 +234,28 @@ export function AssetViewer({
             <Download className="h-3.5 w-3.5" />
             Download
           </button>
-          <button
-            type="button"
-            onClick={() => setShareOpen(true)}
-            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            Share
-          </button>
+          {copyMutation && (
+            <button
+              type="button"
+              onClick={handleCopyToMyAssets}
+              disabled={copyMutation.isPending}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+              title="Save an independent copy to My Assets"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {copyMutation.isPending ? "Copying..." : "Save to My Assets"}
+            </button>
+          )}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Share
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -339,14 +386,16 @@ export function AssetViewer({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Details</h3>
-                  <button
-                    type="button"
-                    onClick={startEdit}
-                    className="rounded p-1 hover:bg-accent"
-                    title="Edit"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      className="rounded p-1 hover:bg-accent"
+                      title="Edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
                 {asset.description && (
                   <p className="text-sm text-muted-foreground">{asset.description}</p>
@@ -452,6 +501,51 @@ export function AssetViewer({
                 className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
               >
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shared asset save warning modal */}
+      {sharedSaveWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setSharedSaveWarningOpen(false)}
+            onKeyDown={(e) => { if (e.key === "Escape") setSharedSaveWarningOpen(false); }}
+            role="button"
+            tabIndex={-1}
+            aria-label="Close"
+          />
+          <div className="relative rounded-lg border bg-card p-6 shadow-lg max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Editing a shared asset</h3>
+                <p className="text-sm text-muted-foreground">
+                  You are editing a shared asset owned by {asset.owner_email || "another user"}.
+                  Changes will be visible to the owner and all other recipients.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSharedSaveWarningOpen(false)}
+                className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={doSaveContent}
+                disabled={contentUpdateMutation?.isPending}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {contentUpdateMutation?.isPending ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>

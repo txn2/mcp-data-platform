@@ -48,29 +48,46 @@ type ProvenanceToolCall struct {
 	Summary   string `json:"summary,omitempty"`
 }
 
+// SharePermission defines the access level for a share recipient.
+type SharePermission string
+
+const (
+	// PermissionViewer allows read-only access.
+	PermissionViewer SharePermission = "viewer"
+	// PermissionEditor allows read and write access.
+	PermissionEditor SharePermission = "editor"
+)
+
+// ValidSharePermission checks whether a permission string is valid.
+func ValidSharePermission(p string) bool {
+	return p == string(PermissionViewer) || p == string(PermissionEditor)
+}
+
 // Share represents a share link for an asset.
 type Share struct {
-	ID               string     `json:"id"`
-	AssetID          string     `json:"asset_id"`
-	Token            string     `json:"token"`
-	CreatedBy        string     `json:"created_by"`
-	SharedWithUserID string     `json:"shared_with_user_id,omitempty"`
-	SharedWithEmail  string     `json:"shared_with_email,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-	Revoked          bool       `json:"revoked"`
-	HideExpiration   bool       `json:"hide_expiration"`
-	NoticeText       string     `json:"notice_text"`
-	AccessCount      int        `json:"access_count"`
-	LastAccessedAt   *time.Time `json:"last_accessed_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID               string          `json:"id"`
+	AssetID          string          `json:"asset_id"`
+	Token            string          `json:"token"`
+	CreatedBy        string          `json:"created_by"`
+	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail  string          `json:"shared_with_email,omitempty"`
+	Permission       SharePermission `json:"permission"`
+	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
+	Revoked          bool            `json:"revoked"`
+	HideExpiration   bool            `json:"hide_expiration"`
+	NoticeText       string          `json:"notice_text"`
+	AccessCount      int             `json:"access_count"`
+	LastAccessedAt   *time.Time      `json:"last_accessed_at,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // SharedAsset combines an Asset with share metadata for "shared with me" results.
 type SharedAsset struct {
-	Asset    Asset     `json:"asset"`
-	ShareID  string    `json:"share_id"`
-	SharedBy string    `json:"shared_by"`
-	SharedAt time.Time `json:"shared_at"`
+	Asset      Asset           `json:"asset"`
+	ShareID    string          `json:"share_id"`
+	SharedBy   string          `json:"shared_by"`
+	SharedAt   time.Time       `json:"shared_at"`
+	Permission SharePermission `json:"permission"`
 }
 
 // ShareSummary indicates what kinds of active shares exist for an asset.

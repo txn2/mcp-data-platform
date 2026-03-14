@@ -257,8 +257,8 @@ func NewPostgresShareStore(db *sql.DB) ShareStore {
 func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO portal_shares
-		(id, asset_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		(id, asset_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
 	var expiresAt sql.NullTime
@@ -276,8 +276,13 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 		sharedEmail = sql.NullString{String: share.SharedWithEmail, Valid: true}
 	}
 
+	perm := share.Permission
+	if perm == "" {
+		perm = PermissionViewer
+	}
+
 	_, err := s.db.ExecContext(ctx, query,
-		share.ID, share.AssetID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText,
+		share.ID, share.AssetID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
@@ -288,7 +293,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE id = $1
 	`
 	return s.scanShare(ctx, query, id)
@@ -297,7 +302,7 @@ func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, er
 func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE token = $1
 	`
 	return s.scanShare(ctx, query, token)
@@ -306,7 +311,7 @@ func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Sha
 func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE asset_id = $1 ORDER BY created_at DESC
 	`
 	rows, err := s.db.QueryContext(ctx, query, assetID)
@@ -354,7 +359,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
 		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.created_at, pa.updated_at, pa.deleted_at,
-		       ps.id, ps.created_by, ps.created_at
+		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
 		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
@@ -380,7 +385,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt,
-			&sa.ShareID, &sa.SharedBy, &sa.SharedAt,
+			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scanning shared asset row: %w", err)
 		}
@@ -473,7 +478,7 @@ func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (
 	err := s.db.QueryRowContext(ctx, query, arg).Scan(
 		&share.ID, &share.AssetID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying share: %w", err)
@@ -619,7 +624,7 @@ func scanShareRow(rows *sql.Rows) (Share, error) {
 	if err := rows.Scan(
 		&share.ID, &share.AssetID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	); err != nil {
 		return share, fmt.Errorf("scanning share row: %w", err)
 	}

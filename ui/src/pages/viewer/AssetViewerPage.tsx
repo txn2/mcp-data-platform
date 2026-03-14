@@ -1,4 +1,4 @@
-import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent } from "@/api/portal/hooks";
+import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 
 const backLabels: Record<string, string> = {
@@ -18,6 +18,10 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
   const updateMutation = useUpdateAsset();
   const deleteMutation = useDeleteAsset();
   const contentUpdateMutation = useUpdateAssetContent();
+  const copyMutation = useCopyAsset();
+
+  const isOwner = asset?.is_owner ?? true;
+  const sharePermission = asset?.share_permission;
 
   return (
     <AssetViewer
@@ -30,7 +34,10 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
       onNavigate={onNavigate}
       updateMutation={updateMutation}
       deleteMutation={deleteMutation}
-      contentUpdateMutation={contentUpdateMutation}
+      contentUpdateMutation={isOwner || sharePermission === "editor" ? contentUpdateMutation : undefined}
+      copyMutation={!isOwner ? copyMutation : undefined}
+      isOwner={isOwner}
+      sharePermission={sharePermission}
     />
   );
 }
