@@ -16,7 +16,7 @@ const themeOptions = [
 export function Header({ title }: Props) {
   const { theme, setTheme } = useThemeStore();
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  const { data: systemInfo } = useSystemInfo();
+  const { data: systemInfo } = useSystemInfo(isAdmin);
   const version = systemInfo?.version ?? "dev";
   const tooltip = systemInfo
     ? `${systemInfo.version}\nCommit: ${systemInfo.commit}\nBuilt: ${systemInfo.build_date}`
