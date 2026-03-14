@@ -86,12 +86,17 @@ export function AppShell() {
   }, []);
 
   // Auto-collapse when entering asset routes, restore when leaving
+  const prevPath = useRef(currentPath);
   useEffect(() => {
+    if (prevPath.current === currentPath) return;
+    const wasOnAsset = isAssetRoute(prevPath.current);
     const onAsset = isAssetRoute(currentPath);
-    if (onAsset && !sidebarCollapsed) {
+    prevPath.current = currentPath;
+
+    if (onAsset && !wasOnAsset && !sidebarCollapsed) {
       setSidebarCollapsed(true);
       autoCollapsed.current = true;
-    } else if (!onAsset && autoCollapsed.current && sidebarCollapsed) {
+    } else if (!onAsset && wasOnAsset && autoCollapsed.current) {
       const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
       setSidebarCollapsed(stored);
       autoCollapsed.current = false;

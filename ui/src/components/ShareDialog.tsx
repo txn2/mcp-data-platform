@@ -200,9 +200,11 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
                           Public Link
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground ml-2">
-                        ({share.access_count} views)
-                      </span>
+                      {!share.shared_with_user_id && !share.shared_with_email && share.access_count > 0 && (
+                        <span className="text-xs text-muted-foreground ml-2">
+                          ({share.access_count} {share.access_count === 1 ? "view" : "views"})
+                        </span>
+                      )}
                       <span className="text-xs text-muted-foreground ml-2">
                         {formatTimeRemaining(share.expires_at)}
                       </span>
