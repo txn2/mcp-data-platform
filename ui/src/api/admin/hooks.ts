@@ -36,11 +36,12 @@ import type { Asset } from "@/api/portal/types";
 // Refresh interval for auto-updating queries (30 seconds)
 const REFETCH_INTERVAL = 30_000;
 
-export function useSystemInfo() {
+export function useSystemInfo(enabled = true) {
   return useQuery({
     queryKey: ["system", "info"],
     queryFn: () => apiFetch<SystemInfo>("/system/info"),
     refetchInterval: REFETCH_INTERVAL,
+    enabled,
   });
 }
 
