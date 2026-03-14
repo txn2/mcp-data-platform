@@ -98,8 +98,17 @@ export function AppShell() {
     }
   }, [currentPath, sidebarCollapsed]);
 
+  // Track the last non-asset route so the back arrow returns to the correct page
+  const lastListPath = useRef(isAssetRoute(initialPath) ? "/" : initialPath);
+
   const navigate = useCallback((path: string) => {
-    setCurrentPath(path);
+    setCurrentPath((prev) => {
+      const prevRoute = prev.split("#")[0] ?? "";
+      if (!isAssetRoute(prevRoute)) {
+        lastListPath.current = prevRoute;
+      }
+      return path;
+    });
     const hashIdx = path.indexOf("#");
     const pathname = hashIdx >= 0 ? path.slice(0, hashIdx) : path;
     const hash = hashIdx >= 0 ? path.slice(hashIdx) : "";
@@ -107,7 +116,14 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    const onPop = () => setCurrentPath(readPath());
+    const onPop = () => {
+      const path = readPath();
+      const route = path.split("#")[0] ?? "";
+      if (!isAssetRoute(route)) {
+        lastListPath.current = route;
+      }
+      setCurrentPath(path);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -150,7 +166,7 @@ export function AppShell() {
           )}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {assetMatch && (
-            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} />
+            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} backPath={lastListPath.current} />
           )}
 
           {/* Admin routes — admin only (defense in depth) */}
