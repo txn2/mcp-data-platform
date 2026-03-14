@@ -12,9 +12,23 @@ export interface Asset {
   tags: string[];
   provenance: Provenance;
   session_id: string;
+  current_version: number;
   created_at: string;
   updated_at: string;
   deleted_at?: string;
+}
+
+export interface AssetVersion {
+  id: string;
+  asset_id: string;
+  version: number;
+  s3_key: string;
+  s3_bucket: string;
+  content_type: string;
+  size_bytes: number;
+  created_by: string;
+  change_summary: string;
+  created_at: string;
 }
 
 export interface Provenance {

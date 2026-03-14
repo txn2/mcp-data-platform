@@ -90,12 +90,44 @@ func (m *mockAdminS3Client) GetObject(_ context.Context, _, _ string) (body []by
 func (m *mockAdminS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
 func (*mockAdminS3Client) Close() error                                        { return nil }
 
+type mockAdminVersionStore struct {
+	createErr    error
+	listVersions []portal.AssetVersion
+	listTotal    int
+	listErr      error
+	getVersion   *portal.AssetVersion
+	getErr       error
+	latestVer    *portal.AssetVersion
+	latestErr    error
+}
+
+func (m *mockAdminVersionStore) CreateVersion(_ context.Context, _ portal.AssetVersion) error {
+	return m.createErr
+}
+
+func (m *mockAdminVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]portal.AssetVersion, int, error) {
+	return m.listVersions, m.listTotal, m.listErr
+}
+
+func (m *mockAdminVersionStore) GetByVersion(_ context.Context, _ string, _ int) (*portal.AssetVersion, error) {
+	return m.getVersion, m.getErr
+}
+
+func (m *mockAdminVersionStore) GetLatest(_ context.Context, _ string) (*portal.AssetVersion, error) {
+	return m.latestVer, m.latestErr
+}
+
 func newAdminTestHandler(assets portal.AssetStore, shares portal.ShareStore, s3 portal.S3Client) *Handler {
+	return newAdminTestHandlerWithVersions(assets, shares, nil, s3)
+}
+
+func newAdminTestHandlerWithVersions(assets portal.AssetStore, shares portal.ShareStore, versions portal.VersionStore, s3 portal.S3Client) *Handler {
 	return NewHandler(Deps{
-		AssetStore: assets,
-		ShareStore: shares,
-		S3Client:   s3,
-		S3Bucket:   "test-bucket",
+		AssetStore:   assets,
+		ShareStore:   shares,
+		VersionStore: versions,
+		S3Client:     s3,
+		S3Bucket:     "test-bucket",
 	}, nil)
 }
 
@@ -569,12 +601,14 @@ func TestUpdateAdminAssetContentS3Error(t *testing.T) {
 func TestUpdateAdminAssetContentUpdateError(t *testing.T) {
 	now := time.Now()
 	asset := &portal.Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
 		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
 	}
-	h := newAdminTestHandler(
-		&mockAdminAssetStore{getAsset: asset, updateErr: fmt.Errorf("db error")},
-		&mockAdminShareStore{}, &mockAdminS3Client{},
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{createErr: fmt.Errorf("db error")},
+		&mockAdminS3Client{},
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
@@ -956,4 +990,135 @@ func TestListAllAssetsNilShareStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, resp.Data, 1)
 	assert.Nil(t, resp.ShareSummaries)
+}
+
+// --- Admin version handler tests ---
+
+func TestListAdminVersionsSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", CurrentVersion: 2,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	versions := []portal.AssetVersion{
+		{ID: "v2", AssetID: "a1", Version: 2, S3Key: "k2", S3Bucket: "b"},
+		{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b"},
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{listVersions: versions, listTotal: 2},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp adminVersionListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.Total)
+	assert.Len(t, resp.Data, 2)
+}
+
+func TestListAdminVersionsNoStore(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1",
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandler(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{}, &mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGetAdminVersionContentSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", CurrentVersion: 2,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/html", w.Header().Get("Content-Type"))
+}
+
+func TestRevertAdminVersionSuccess(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{getVersion: ver},
+		&mockAdminS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRevertAdminVersionDeleted(t *testing.T) {
+	now := time.Now()
+	deleted := now.Add(-time.Hour)
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2, DeletedAt: &deleted,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newAdminTestHandlerWithVersions(
+		&mockAdminAssetStore{getAsset: asset},
+		&mockAdminShareStore{},
+		&mockAdminVersionStore{},
+		&mockAdminS3Client{},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestAdminVersionedExtension(t *testing.T) {
+	tests := []struct {
+		ct   string
+		want string
+	}{
+		{"text/html", ".html"},
+		{"image/svg+xml", ".svg"},
+		{"text/markdown", ".md"},
+		{"application/json", ".json"},
+		{"text/csv", ".csv"},
+		{"application/octet-stream", ".bin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ct, func(t *testing.T) {
+			assert.Equal(t, tt.want, adminVersionedExtension(tt.ct))
+		})
+	}
 }

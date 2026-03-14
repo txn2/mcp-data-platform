@@ -910,3 +910,140 @@ func TestRegisterPrompts(t *testing.T) {
 		assert.NotEmpty(t, textContent.Text)
 	}
 }
+
+// --- In-memory VersionStore for testing ---
+
+type inMemoryVersionStore struct {
+	versions map[string][]portal.AssetVersion
+}
+
+func newInMemoryVersionStore() *inMemoryVersionStore {
+	return &inMemoryVersionStore{versions: make(map[string][]portal.AssetVersion)}
+}
+
+func (s *inMemoryVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) error {
+	s.versions[v.AssetID] = append(s.versions[v.AssetID], v)
+	return nil
+}
+
+func (s *inMemoryVersionStore) ListByAsset(_ context.Context, assetID string, _, _ int) ([]portal.AssetVersion, int, error) {
+	vv := s.versions[assetID]
+	return vv, len(vv), nil
+}
+
+func (s *inMemoryVersionStore) GetByVersion(_ context.Context, assetID string, version int) (*portal.AssetVersion, error) {
+	for _, v := range s.versions[assetID] {
+		if v.Version == version {
+			return &v, nil
+		}
+	}
+	return nil, notFoundError{}
+}
+
+func (s *inMemoryVersionStore) GetLatest(_ context.Context, assetID string) (*portal.AssetVersion, error) {
+	vv := s.versions[assetID]
+	if len(vv) == 0 {
+		return nil, notFoundError{}
+	}
+	return &vv[len(vv)-1], nil
+}
+
+// --- Version action tests ---
+
+func TestHandleListVersions(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: &mockS3Client{}, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	// Insert an asset with a version.
+	asset := portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}
+	require.NoError(t, store.Insert(ctx, asset))
+	require.NoError(t, vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	}))
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list_versions", AssetID: "a1"})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &parsed))
+	assert.Equal(t, float64(1), parsed["total"])
+}
+
+func TestHandleListVersionsMissingAssetID(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	ctx := context.Background()
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list_versions"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevert(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	s3 := &mockS3Client{getBody: []byte("<html>v1</html>"), getCT: "text/html"}
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: s3, S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	asset := portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 2}
+	require.NoError(t, store.Insert(ctx, asset))
+	require.NoError(t, vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	}))
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &parsed))
+	assert.Equal(t, float64(3), parsed["version"])
+}
+
+func TestHandleRevertMissingAssetID(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	ctx := context.Background()
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertMissingVersion(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	ctx := context.Background()
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestHandleRevertNotOwner(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: &mockS3Client{}, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user2"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestGenerateVersionID(t *testing.T) {
+	id := generateVersionID()
+	assert.NotEmpty(t, id)
+	assert.Len(t, id, 32) // 16 bytes hex-encoded
+}

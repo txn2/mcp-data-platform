@@ -43,11 +43,11 @@ var manageArtifactSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Valid values: list, get, update, delete"
+      "description": "Action to perform. Valid values: list, get, update, delete, list_versions, revert"
     },
     "asset_id": {
       "type": "string",
-      "description": "Asset ID (required for get, update, delete)"
+      "description": "Asset ID (required for get, update, delete, list_versions, revert)"
     },
     "content": {
       "type": "string",
@@ -73,7 +73,11 @@ var manageArtifactSchema = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Max results for list action (default 50, max 200)"
+      "description": "Max results for list/list_versions actions (default 50, max 200)"
+    },
+    "version": {
+      "type": "integer",
+      "description": "Version number (required for revert action)"
     }
   }
 }`)

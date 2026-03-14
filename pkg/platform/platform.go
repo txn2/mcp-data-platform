@@ -127,6 +127,7 @@ type Platform struct {
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore        portal.AssetStore
 	portalShareStore        portal.ShareStore
+	portalVersionStore      portal.VersionStore
 	portalS3Client          portal.S3Client
 	provenanceTracker       *middleware.ProvenanceTracker
 	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
@@ -834,6 +835,7 @@ func (p *Platform) initPortal() error {
 	// Create stores
 	p.portalAssetStore = portal.NewPostgresAssetStore(p.db)
 	p.portalShareStore = portal.NewPostgresShareStore(p.db)
+	p.portalVersionStore = portal.NewPostgresVersionStore(p.db)
 
 	// Create S3 client from referenced S3 connection
 	var s3Client portal.S3Client
@@ -856,6 +858,7 @@ func (p *Platform) initPortal() error {
 		Name:           "default",
 		AssetStore:     p.portalAssetStore,
 		ShareStore:     p.portalShareStore,
+		VersionStore:   p.portalVersionStore,
 		S3Client:       s3Client,
 		S3Bucket:       p.config.Portal.S3Bucket,
 		S3Prefix:       p.config.Portal.S3Prefix,
@@ -1719,6 +1722,11 @@ func (p *Platform) PortalAssetStore() portal.AssetStore {
 // PortalShareStore returns the portal share store, or nil if portal is disabled.
 func (p *Platform) PortalShareStore() portal.ShareStore {
 	return p.portalShareStore
+}
+
+// PortalVersionStore returns the portal version store, or nil if portal is disabled.
+func (p *Platform) PortalVersionStore() portal.VersionStore {
+	return p.portalVersionStore
 }
 
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.

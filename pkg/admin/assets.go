@@ -7,6 +7,9 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -36,6 +39,9 @@ func (h *Handler) registerAssetRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/thumbnail", h.uploadAdminThumbnail)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/thumbnail", h.getAdminThumbnail)
 	h.mux.HandleFunc("DELETE /api/v1/admin/assets/{id}", h.deleteAdminAsset)
+	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/versions", h.listAdminVersions)
+	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/versions/{version}/content", h.getAdminVersionContent)
+	h.mux.HandleFunc("POST /api/v1/admin/assets/{id}/versions/{version}/revert", h.revertAdminVersion)
 }
 
 // listAllAssets returns all platform assets (no owner filter).
@@ -195,17 +201,37 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, asset.S3Key, data, asset.ContentType); err != nil {
+	nextVersion := asset.CurrentVersion + 1
+	ext := adminVersionedExtension(asset.ContentType)
+	versionedKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
 		return
 	}
 
-	emptyThumb := ""
-	updates := portal.AssetUpdate{HasContent: true, SizeBytes: int64(len(data)), ThumbnailS3Key: &emptyThumb}
-	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
-		return
+	av := portal.AssetVersion{
+		ID:            uuid.New().String(),
+		AssetID:       id,
+		Version:       nextVersion,
+		S3Key:         versionedKey,
+		S3Bucket:      asset.S3Bucket,
+		ContentType:   asset.ContentType,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     "admin",
+		ChangeSummary: "Content updated (admin)",
 	}
+
+	if h.deps.VersionStore != nil {
+		if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create version")
+			return
+		}
+	}
+
+	emptyThumb := ""
+	thumbUpdate := portal.AssetUpdate{ThumbnailS3Key: &emptyThumb}
+	_ = h.deps.AssetStore.Update(r.Context(), id, thumbUpdate)
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
@@ -306,6 +332,163 @@ func (h *Handler) deleteAdminAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+}
+
+// listAdminVersions returns version history for an asset.
+func (h *Handler) listAdminVersions(w http.ResponseWriter, r *http.Request) {
+	if h.deps.VersionStore == nil {
+		writeJSON(w, http.StatusOK, adminVersionListResponse{Data: []portal.AssetVersion{}})
+		return
+	}
+	id := r.PathValue(pathValueID)
+	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	versions, total, err := h.deps.VersionStore.ListByAsset(r.Context(), id, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list versions")
+		return
+	}
+	if versions == nil {
+		versions = []portal.AssetVersion{}
+	}
+	writeJSON(w, http.StatusOK, adminVersionListResponse{Data: versions, Total: total, Limit: limit, Offset: offset})
+}
+
+// adminVersionListResponse is the paginated response for version listing.
+type adminVersionListResponse struct {
+	Data   []portal.AssetVersion `json:"data"`
+	Total  int                   `json:"total"`
+	Limit  int                   `json:"limit"`
+	Offset int                   `json:"offset"`
+}
+
+// getAdminVersionContent returns content for a specific version.
+func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request) {
+	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
+		return
+	}
+
+	id := r.PathValue(pathValueID)
+	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+
+	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+
+	ver, err := h.deps.VersionStore.GetByVersion(r.Context(), id, versionNum)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "version not found")
+		return
+	}
+
+	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), ver.S3Bucket, ver.S3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
+		return
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
+}
+
+// revertAdminVersion creates a new version by reverting to a previous version's content.
+func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
+	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
+		return
+	}
+
+	id := r.PathValue(pathValueID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAdminAssetDeleted)
+		return
+	}
+
+	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+
+	targetVer, err := h.deps.VersionStore.GetByVersion(r.Context(), id, versionNum)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "version not found")
+		return
+	}
+
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), targetVer.S3Bucket, targetVer.S3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read version content")
+		return
+	}
+
+	nextVersion := asset.CurrentVersion + 1
+	ext := adminVersionedExtension(targetVer.ContentType)
+	newKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload reverted content")
+		return
+	}
+
+	av := portal.AssetVersion{
+		ID:            uuid.New().String(),
+		AssetID:       id,
+		Version:       nextVersion,
+		S3Key:         newKey,
+		S3Bucket:      asset.S3Bucket,
+		ContentType:   targetVer.ContentType,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     "admin",
+		ChangeSummary: fmt.Sprintf("Reverted from v%d (admin)", versionNum),
+	}
+	if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create revert version")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "reverted",
+		"version": nextVersion,
+	})
+}
+
+// adminVersionedExtension returns a file extension based on content type.
+func adminVersionedExtension(ct string) string {
+	switch {
+	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
+		return ".html"
+	case strings.Contains(ct, "svg"):
+		return ".svg"
+	case strings.Contains(ct, "markdown"):
+		return ".md"
+	case strings.Contains(ct, "json"):
+		return ".json"
+	case strings.Contains(ct, "csv"):
+		return ".csv"
+	default:
+		return ".bin"
+	}
 }
 
 // validateAdminAssetUpdate validates the fields in an admin update request.

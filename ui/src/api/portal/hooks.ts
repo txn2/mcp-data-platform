@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "./client";
 import type {
   Asset,
+  AssetVersion,
   AssetResponse,
   Share,
   SharedAsset,
@@ -217,6 +218,49 @@ export function useCopyAsset() {
     mutationFn: (id: string) =>
       apiFetch<Asset>(`/assets/${id}/copy`, { method: "POST" }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+// --- Versions ---
+
+export function useAssetVersions(assetId: string) {
+  return useQuery({
+    queryKey: ["asset-versions", assetId],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<AssetVersion>>(
+        `/assets/${assetId}/versions`,
+      ),
+    enabled: !!assetId,
+  });
+}
+
+export function useVersionContent(assetId: string, version: number) {
+  return useQuery({
+    queryKey: ["version-content", assetId, version],
+    queryFn: async () => {
+      const res = await apiFetchRaw(
+        `/assets/${assetId}/versions/${version}/content`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch version content");
+      return res.text();
+    },
+    enabled: !!assetId && version > 0,
+  });
+}
+
+export function useRevertVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, version }: { assetId: string; version: number }) =>
+      apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+      void qc.invalidateQueries({ queryKey: ["asset-content"] });
+      void qc.invalidateQueries({ queryKey: ["asset-versions"] });
       void qc.invalidateQueries({ queryKey: ["assets"] });
     },
   });

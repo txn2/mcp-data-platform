@@ -31,7 +31,7 @@ import type {
   PersonaCreateRequest,
   AdminAssetListResponse,
 } from "./types";
-import type { Asset } from "@/api/portal/types";
+import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
 
 // Refresh interval for auto-updating queries (30 seconds)
 const REFETCH_INTERVAL = 30_000;
@@ -483,6 +483,33 @@ export function useAdminUpdateAssetContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+    },
+  });
+}
+
+export function useAdminAssetVersions(assetId: string | null) {
+  return useQuery({
+    queryKey: ["admin", "asset-versions", assetId],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<AssetVersion>>(
+        `/assets/${assetId}/versions`,
+      ),
+    enabled: !!assetId,
+  });
+}
+
+export function useAdminRevertVersion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, version }: { assetId: string; version: number }) =>
+      apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
   });

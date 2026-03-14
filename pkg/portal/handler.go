@@ -61,6 +61,7 @@ type PersonaResolver func(roles []string) *PersonaInfo
 type Deps struct {
 	AssetStore      AssetStore
 	ShareStore      ShareStore
+	VersionStore    VersionStore
 	S3Client        S3Client
 	S3Bucket        string
 	PublicBaseURL   string
@@ -130,6 +131,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/thumbnail", h.getThumbnail)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
+	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/versions", h.listVersions)
+	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/versions/{version}/content", h.getVersionContent)
+	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/versions/{version}/revert", h.revertToVersion)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/shares", h.createShare)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/shares", h.listShares)
 	h.mux.HandleFunc("DELETE /api/v1/portal/shares/{id}", h.revokeShare)
@@ -369,17 +373,38 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, asset.S3Key, data, asset.ContentType); err != nil {
+	nextVersion := asset.CurrentVersion + 1
+	ext := versionedExtension(asset.ContentType)
+	versionedKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
 		return
 	}
 
-	emptyThumb := ""
-	updates := AssetUpdate{HasContent: true, SizeBytes: int64(len(data)), ThumbnailS3Key: &emptyThumb}
-	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
-		return
+	av := AssetVersion{
+		ID:            uuid.New().String(),
+		AssetID:       id,
+		Version:       nextVersion,
+		S3Key:         versionedKey,
+		S3Bucket:      asset.S3Bucket,
+		ContentType:   asset.ContentType,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     user.UserID,
+		ChangeSummary: "Content updated",
 	}
+
+	if h.deps.VersionStore != nil {
+		if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create version")
+			return
+		}
+	}
+
+	// Clear thumbnail on content update.
+	emptyThumb := ""
+	thumbUpdate := AssetUpdate{ThumbnailS3Key: &emptyThumb}
+	_ = h.deps.AssetStore.Update(r.Context(), id, thumbUpdate)
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
@@ -586,6 +611,190 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+}
+
+// --- Version handlers ---
+
+func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+	if !h.canViewAsset(w, r, id, asset, user) {
+		return
+	}
+	if h.deps.VersionStore == nil {
+		writeJSON(w, http.StatusOK, paginatedResponse{Data: []AssetVersion{}, Total: 0})
+		return
+	}
+
+	limit := intParam(r, paramLimit, defaultLimit)
+	offset := intParam(r, "offset", 0)
+	versions, total, err := h.deps.VersionStore.ListByAsset(r.Context(), id, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list versions")
+		return
+	}
+	if versions == nil {
+		versions = []AssetVersion{}
+	}
+	writeJSON(w, http.StatusOK, paginatedResponse{Data: versions, Total: total, Limit: limit, Offset: offset})
+}
+
+func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+	if !h.canViewAsset(w, r, id, asset, user) {
+		return
+	}
+	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+
+	ver, err := h.deps.VersionStore.GetByVersion(r.Context(), id, versionNum)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "version not found")
+		return
+	}
+
+	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), ver.S3Bucket, ver.S3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
+		return
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
+}
+
+func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	id := r.PathValue(pathKeyID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errAssetNotFound)
+		return
+	}
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+	if !h.canEditAsset(w, r, id, asset, user) {
+		return
+	}
+	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+
+	targetVer, err := h.deps.VersionStore.GetByVersion(r.Context(), id, versionNum)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "version not found")
+		return
+	}
+
+	// Read content from the target version's S3 key.
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), targetVer.S3Bucket, targetVer.S3Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read version content")
+		return
+	}
+
+	nextVersion := asset.CurrentVersion + 1
+	ext := versionedExtension(targetVer.ContentType)
+	newKey := fmt.Sprintf("portal/%s/%s/v%d/content%s", asset.OwnerID, id, nextVersion, ext)
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload reverted content")
+		return
+	}
+
+	av := AssetVersion{
+		ID:            uuid.New().String(),
+		AssetID:       id,
+		Version:       nextVersion,
+		S3Key:         newKey,
+		S3Bucket:      asset.S3Bucket,
+		ContentType:   targetVer.ContentType,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     user.UserID,
+		ChangeSummary: fmt.Sprintf("Reverted from v%d", versionNum),
+	}
+	if err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create revert version")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "reverted",
+		"version": nextVersion,
+	})
+}
+
+// versionedExtension returns a file extension based on content type.
+func versionedExtension(ct string) string {
+	switch {
+	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
+		return ".html"
+	case strings.Contains(ct, "svg"):
+		return ".svg"
+	case strings.Contains(ct, "markdown"):
+		return ".md"
+	case strings.Contains(ct, "json"):
+		return ".json"
+	case strings.Contains(ct, "csv"):
+		return ".csv"
+	default:
+		return ".bin"
+	}
 }
 
 // --- Share handlers ---
@@ -1157,6 +1366,22 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.AssetStore.Insert(r.Context(), newAsset); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create asset copy")
 		return
+	}
+
+	// Create v1 version for the copy.
+	if h.deps.VersionStore != nil {
+		v1 := AssetVersion{
+			ID:            uuid.New().String(),
+			AssetID:       newID,
+			Version:       1,
+			S3Key:         newS3Key,
+			S3Bucket:      h.deps.S3Bucket,
+			ContentType:   asset.ContentType,
+			SizeBytes:     int64(len(data)),
+			CreatedBy:     user.UserID,
+			ChangeSummary: "Copied from " + asset.ID,
+		}
+		_ = h.deps.VersionStore.CreateVersion(r.Context(), v1) // best-effort
 	}
 
 	writeJSON(w, http.StatusCreated, newAsset)

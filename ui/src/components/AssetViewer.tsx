@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect, lazy, Suspense, type ReactNode } from "react";
 import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code, Copy } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Asset, SharePermission } from "@/api/portal/types";
+import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
+import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
 import { ShareDialog } from "@/components/ShareDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ThumbnailGenerator } from "@/components/ThumbnailGenerator";
@@ -37,6 +38,9 @@ interface AssetViewerProps {
   sharePermission?: SharePermission;
   toolbarExtra?: ReactNode;
   detailRows?: { label: string; value: ReactNode }[];
+  versions?: AssetVersion[];
+  versionsLoading?: boolean;
+  revertMutation?: MutationLike<{ assetId: string; version: number }>;
 }
 
 function isTextContent(contentType: string): boolean {
@@ -62,6 +66,9 @@ export function AssetViewer({
   sharePermission,
   toolbarExtra,
   detailRows,
+  versions,
+  versionsLoading,
+  revertMutation,
 }: AssetViewerProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -445,6 +452,23 @@ export function AssetViewer({
               <div className="border-t pt-4">
                 <ProvenancePanel provenance={asset.provenance} />
               </div>
+
+              {versions && versions.length > 0 && (
+                <div className="border-t pt-4">
+                  <VersionHistoryPanel
+                    versions={versions}
+                    currentVersion={asset.current_version}
+                    isLoading={versionsLoading ?? false}
+                    canEdit={isOwner || sharePermission === "editor"}
+                    onRevert={(version) => {
+                      if (revertMutation) {
+                        revertMutation.mutate({ assetId: asset.id, version });
+                      }
+                    }}
+                    isReverting={revertMutation?.isPending ?? false}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

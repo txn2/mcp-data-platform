@@ -87,6 +87,7 @@ type Deps struct {
 	PlatformTools       []platform.ToolInfo
 	AssetStore          portal.AssetStore
 	ShareStore          portal.ShareStore
+	VersionStore        portal.VersionStore
 	S3Client            portal.S3Client
 	S3Bucket            string
 }

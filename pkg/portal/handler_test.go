@@ -101,6 +101,33 @@ func (m *mockS3Client) GetObject(_ context.Context, _, _ string) (body []byte, c
 func (m *mockS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
 func (*mockS3Client) Close() error                                        { return nil }
 
+type mockVersionStore struct {
+	createErr    error
+	listVersions []AssetVersion
+	listTotal    int
+	listErr      error
+	getVersion   *AssetVersion
+	getErr       error
+	latestVer    *AssetVersion
+	latestErr    error
+}
+
+func (m *mockVersionStore) CreateVersion(_ context.Context, _ AssetVersion) error {
+	return m.createErr
+}
+
+func (m *mockVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]AssetVersion, int, error) {
+	return m.listVersions, m.listTotal, m.listErr
+}
+
+func (m *mockVersionStore) GetByVersion(_ context.Context, _ string, _ int) (*AssetVersion, error) {
+	return m.getVersion, m.getErr
+}
+
+func (m *mockVersionStore) GetLatest(_ context.Context, _ string) (*AssetVersion, error) {
+	return m.latestVer, m.latestErr
+}
+
 // captureShareStore wraps a mockShareStore and captures the Share passed to Insert.
 type captureShareStore struct {
 	inner    *mockShareStore
@@ -155,14 +182,22 @@ func testAuthMiddleware(user *User) func(http.Handler) http.Handler {
 }
 
 func newTestHandler(assets *mockAssetStore, shares *mockShareStore, s3 *mockS3Client, user *User) *Handler {
-	return NewHandler(Deps{
+	return newTestHandlerWithVersions(assets, shares, nil, s3, user)
+}
+
+func newTestHandlerWithVersions(assets *mockAssetStore, shares *mockShareStore, versions *mockVersionStore, s3 *mockS3Client, user *User) *Handler {
+	deps := Deps{
 		AssetStore:    assets,
 		ShareStore:    shares,
 		S3Client:      s3,
 		S3Bucket:      "test-bucket",
 		PublicBaseURL: "https://example.com",
 		RateLimit:     RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-	}, testAuthMiddleware(user))
+	}
+	if versions != nil {
+		deps.VersionStore = versions
+	}
+	return NewHandler(deps, testAuthMiddleware(user))
 }
 
 // --- NewHandler tests ---
@@ -670,10 +705,12 @@ func TestUpdateAssetContentS3Error(t *testing.T) {
 }
 
 func TestUpdateAssetContentUpdateError(t *testing.T) {
-	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k"}
-	h := newTestHandler(
-		&mockAssetStore{getAsset: asset, updateErr: fmt.Errorf("db error")},
-		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", CurrentVersion: 1}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{createErr: fmt.Errorf("db error")},
+		&mockS3Client{}, &User{UserID: "u1"},
 	)
 
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
@@ -3066,4 +3103,175 @@ func TestGetAssetSharedEditorResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.False(t, resp.IsOwner)
 	assert.Equal(t, PermissionEditor, resp.SharePermission)
+}
+
+// --- Version handler tests ---
+
+func TestListVersionsSuccess(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 2}
+	versions := []AssetVersion{
+		{ID: "v2", AssetID: "a1", Version: 2, S3Key: "k2", S3Bucket: "b"},
+		{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b"},
+	}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{listVersions: versions, listTotal: 2},
+		&mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var pr paginatedResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pr))
+	assert.Equal(t, 2, pr.Total)
+}
+
+func TestListVersionsNoStore(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGetVersionContentSuccess(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 2}
+	ver := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: ver},
+		&mockS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/1/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/html", w.Header().Get("Content-Type"))
+	assert.Equal(t, "<html>v1</html>", w.Body.String())
+}
+
+func TestGetVersionContentNotFound(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 2}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getErr: fmt.Errorf("not found")},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/versions/99/content", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevertToVersionSuccess(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	targetVer := &AssetVersion{ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/html"}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getVersion: targetVer},
+		&mockS3Client{getData: []byte("<html>v1</html>"), getCT: "text/html"},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "reverted", result["status"])
+	assert.Equal(t, float64(3), result["version"])
+}
+
+func TestRevertToVersionNotFound(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{getErr: fmt.Errorf("not found")},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/99/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevertToVersionForbidden(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "other-user", S3Bucket: "b", CurrentVersion: 2}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateAssetContentCreatesVersion(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", ContentType: "text/html", CurrentVersion: 1}
+	vs := &mockVersionStore{}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{},
+		vs,
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("new content"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestVersionedExtension(t *testing.T) {
+	tests := []struct {
+		ct   string
+		want string
+	}{
+		{"text/html", ".html"},
+		{"text/jsx", ".html"},
+		{"image/svg+xml", ".svg"},
+		{"text/markdown", ".md"},
+		{"application/json", ".json"},
+		{"text/csv", ".csv"},
+		{"application/octet-stream", ".bin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ct, func(t *testing.T) {
+			assert.Equal(t, tt.want, versionedExtension(tt.ct))
+		})
+	}
 }
