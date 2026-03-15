@@ -58,21 +58,6 @@ type Client interface {
 	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
 	Ping(ctx context.Context) error
 	Close() error
-
-	// Structured properties (DataHub 1.4.x)
-	GetStructuredProperties(ctx context.Context, urn string) ([]types.StructuredPropertyValue, error)
-	ListStructuredPropertyDefinitions(ctx context.Context) ([]types.StructuredPropertyDefinition, error)
-	UpsertStructuredProperties(ctx context.Context, urn string, properties []types.StructuredPropertyInput) error
-	RemoveStructuredProperties(ctx context.Context, urn string, propertyURNs []string) error
-
-	// Incidents (DataHub 1.4.x)
-	GetIncidents(ctx context.Context, urn string) (*types.IncidentResult, error)
-	RaiseIncident(ctx context.Context, input types.RaiseIncidentInput) (string, error)
-	ResolveIncident(ctx context.Context, incidentURN, message string) error
-
-	// Data contracts (DataHub 1.4.x)
-	GetDataContract(ctx context.Context, datasetURN string) (*types.DataContract, error)
-
 }
 
 // Adapter implements semantic.Provider using DataHub.
@@ -657,6 +642,8 @@ func convertStructuredProperties(props []types.StructuredPropertyValue) []semant
 }
 
 // convertIncidents converts DataHub incident result to semantic types.
+// Returns (total, incidents) where total comes from ir.Total and may exceed
+// len(incidents) if DataHub paginates or truncates the incident list.
 func convertIncidents(ir *types.IncidentResult) (int, []semantic.Incident) {
 	if ir == nil || ir.Total == 0 {
 		return 0, nil

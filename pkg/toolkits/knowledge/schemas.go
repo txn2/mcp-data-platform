@@ -64,11 +64,11 @@ var captureInsightSchema = json.RawMessage(`{
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions. For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, optional description. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for dataset-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions. For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for dataset-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array of values (for set_structured_property), removal reason (for remove_structured_property), incident title (for raise_incident), or resolution message (for resolve_incident)"
+            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array of values (for set_structured_property), removal reason (for remove_structured_property), optional description (for raise_incident), or resolution message (for resolve_incident)"
           },
           "query_sql": {
             "type": "string",
@@ -119,11 +119,11 @@ var applyKnowledgeSchema = json.RawMessage(`{
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, optional description. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for entity-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for entity-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array (for set_structured_property), removal reason (for remove_structured_property), incident title (for raise_incident), or resolution message (for resolve_incident)"
+            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array (for set_structured_property), removal reason (for remove_structured_property), optional description (for raise_incident), or resolution message (for resolve_incident)"
           },
           "query_sql": {
             "type": "string",

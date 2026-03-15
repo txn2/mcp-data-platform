@@ -3131,7 +3131,7 @@ func TestHandleApply_Incidents(t *testing.T) {
 		Action:    "apply",
 		EntityURN: testEntityURN,
 		Changes: []ApplyChange{
-			{ChangeType: "raise_incident", Detail: "Pipeline failure", Target: "ETL job crashed"},
+			{ChangeType: "raise_incident", Target: "Pipeline failure", Detail: "ETL job crashed"},
 			{ChangeType: "resolve_incident", Target: "urn:li:incident:abc123", Detail: "Fixed the ETL job"},
 		},
 		InsightIDs: []string{"ins-1"},

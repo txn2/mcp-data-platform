@@ -371,14 +371,14 @@ func (s *Sanitizer) sanitizeStructuredProperties(props []StructuredProperty) []S
 		result[i] = StructuredProperty{
 			QualifiedName: p.QualifiedName, // System identifier
 			DisplayName:   s.SanitizeString(p.DisplayName),
-			Values:        sanitizePropertyValues(s, p.Values),
+			Values:        s.sanitizePropertyValues(p.Values),
 		}
 	}
 	return result
 }
 
 // sanitizePropertyValues sanitizes string values in a property value slice.
-func sanitizePropertyValues(s *Sanitizer, values []any) []any {
+func (s *Sanitizer) sanitizePropertyValues(values []any) []any {
 	if len(values) == 0 {
 		return values
 	}

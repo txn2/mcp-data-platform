@@ -664,14 +664,14 @@ func TestSanitizePropertyValues(t *testing.T) {
 	s := NewSanitizer(DefaultSanitizeConfig())
 
 	t.Run("nil values", func(t *testing.T) {
-		result := sanitizePropertyValues(s, nil)
+		result := s.sanitizePropertyValues(nil)
 		if result != nil {
 			t.Errorf("expected nil, got %v", result)
 		}
 	})
 
 	t.Run("empty values", func(t *testing.T) {
-		result := sanitizePropertyValues(s, []any{})
+		result := s.sanitizePropertyValues([]any{})
 		if len(result) != 0 {
 			t.Errorf("expected empty, got %v", result)
 		}
@@ -679,7 +679,7 @@ func TestSanitizePropertyValues(t *testing.T) {
 
 	t.Run("mixed types", func(t *testing.T) {
 		input := []any{"text", float64(42), true}
-		result := sanitizePropertyValues(s, input)
+		result := s.sanitizePropertyValues(input)
 		if len(result) != 3 {
 			t.Fatalf("expected 3, got %d", len(result))
 		}

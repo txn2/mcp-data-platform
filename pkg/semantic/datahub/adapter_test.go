@@ -111,38 +111,6 @@ func (m *mockDataHubClient) Close() error {
 	return nil
 }
 
-func (*mockDataHubClient) GetStructuredProperties(_ context.Context, _ string) ([]types.StructuredPropertyValue, error) {
-	return nil, nil //nolint:nilnil // test mock
-}
-
-func (*mockDataHubClient) ListStructuredPropertyDefinitions(_ context.Context) ([]types.StructuredPropertyDefinition, error) {
-	return nil, nil //nolint:nilnil // test mock
-}
-
-func (*mockDataHubClient) UpsertStructuredProperties(_ context.Context, _ string, _ []types.StructuredPropertyInput) error {
-	return nil
-}
-
-func (*mockDataHubClient) RemoveStructuredProperties(_ context.Context, _ string, _ []string) error {
-	return nil
-}
-
-func (*mockDataHubClient) GetIncidents(_ context.Context, _ string) (*types.IncidentResult, error) {
-	return nil, nil //nolint:nilnil // test mock
-}
-
-func (*mockDataHubClient) RaiseIncident(_ context.Context, _ types.RaiseIncidentInput) (string, error) {
-	return "", nil
-}
-
-func (*mockDataHubClient) ResolveIncident(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (*mockDataHubClient) GetDataContract(_ context.Context, _ string) (*types.DataContract, error) {
-	return nil, nil //nolint:nilnil // test mock
-}
-
 func TestNewWithClient_NilClient(t *testing.T) {
 	_, err := NewWithClient(Config{}, nil)
 	if err == nil {

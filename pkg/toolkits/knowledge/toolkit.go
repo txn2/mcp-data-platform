@@ -148,7 +148,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Title: "Apply Knowledge",
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
-				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. " +
+				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
+				"set_structured_property, remove_structured_property, raise_incident, resolve_incident. " +
 				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
 				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
 				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
@@ -157,7 +158,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
 				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
 				"For add_documentation, target is the URL, detail is the link description. " +
-				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional.",
+				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional. " +
+				"For set_structured_property, target is the property qualified name or URN, detail is the value or JSON array. " +
+				"For remove_structured_property, target is the property qualified name or URN. " +
+				"For raise_incident, target is the incident title, detail is the optional description. " +
+				"For resolve_incident, target is the incident URN, detail is the resolution message. " +
+				"Structured properties and incidents require DataHub 1.4.x.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
@@ -564,7 +570,7 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 	case string(actionRemoveStructuredProperty):
 		err = t.datahubWriter.RemoveStructuredProperty(ctx, urn, normalizeStructuredPropertyURN(c.Target))
 	case string(actionRaiseIncident):
-		incidentURN, iErr := t.datahubWriter.RaiseIncident(ctx, urn, c.Detail, c.Target)
+		incidentURN, iErr := t.datahubWriter.RaiseIncident(ctx, urn, c.Target, c.Detail)
 		if iErr != nil {
 			return "", fmt.Errorf(errFmtExecuting, c.ChangeType, iErr)
 		}
