@@ -571,6 +571,8 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 		return incidentURN, nil
 	case string(actionResolveIncident):
 		err = t.datahubWriter.ResolveIncident(ctx, c.Target, c.Detail)
+	default:
+		return "", fmt.Errorf("unsupported change type: %s", c.ChangeType)
 	}
 	if err != nil {
 		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
@@ -629,9 +631,15 @@ func parsePropertyValues(detail string) ([]any, error) {
 		return values, nil
 	}
 
-	// Try parsing as JSON number
+	// Try parsing as JSON number, preserving numeric type
 	var num json.Number
 	if err := json.Unmarshal([]byte(detail), &num); err == nil {
+		if i, iErr := num.Int64(); iErr == nil {
+			return []any{i}, nil
+		}
+		if f, fErr := num.Float64(); fErr == nil {
+			return []any{f}, nil
+		}
 		return []any{num.String()}, nil
 	}
 

@@ -143,10 +143,6 @@ func (*mockDataHubClient) GetDataContract(_ context.Context, _ string) (*types.D
 	return nil, nil //nolint:nilnil // test mock
 }
 
-func (*mockDataHubClient) SemanticSearch(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
-	return &types.SearchResult{}, nil
-}
-
 func TestNewWithClient_NilClient(t *testing.T) {
 	_, err := NewWithClient(Config{}, nil)
 	if err == nil {

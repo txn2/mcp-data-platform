@@ -73,8 +73,6 @@ type Client interface {
 	// Data contracts (DataHub 1.4.x)
 	GetDataContract(ctx context.Context, datasetURN string) (*types.DataContract, error)
 
-	// Semantic search (DataHub 1.4.x)
-	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 }
 
 // Adapter implements semantic.Provider using DataHub.
@@ -432,6 +430,26 @@ func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
 	for key, value := range entity.Properties {
 		if str, ok := value.(string); ok {
 			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("properties[%s]", key), str)
+		}
+	}
+
+	// Check structured property display names and string values (DataHub 1.4.x)
+	for i, sp := range entity.StructuredProperties {
+		if sp.Definition != nil {
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].displayName", i), sp.Definition.DisplayName)
+		}
+		for j, v := range sp.Values {
+			if str, ok := v.(string); ok {
+				logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].values[%d]", i, j), str)
+			}
+		}
+	}
+
+	// Check incident titles and descriptions (DataHub 1.4.x)
+	if entity.ActiveIncidents != nil {
+		for i, inc := range entity.ActiveIncidents.Incidents {
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].title", i), inc.Title)
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].description", i), inc.Description)
 		}
 	}
 }

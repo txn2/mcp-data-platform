@@ -2596,14 +2596,14 @@ func TestExecuteChanges_UnknownType(t *testing.T) {
 	writer := &spyWriter{}
 	tk := &Toolkit{datahubWriter: writer}
 
-	// An unrecognized change type should be a no-op in executeChanges
-	// (the switch statement falls through without error)
+	// An unrecognized change type should return an error
 	changes := []ApplyChange{
 		{ChangeType: "unknown_type", Detail: "detail"},
 	}
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported change type")
 	assert.Empty(t, writer.WriteCalls, "unknown type should not produce writer calls")
 }
 
@@ -3177,6 +3177,24 @@ func TestParsePropertyValues(t *testing.T) {
 			assert.Len(t, values, tt.want)
 		})
 	}
+
+	t.Run("json number preserves int type", func(t *testing.T) {
+		values, err := parsePropertyValues("90")
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(int64)
+		assert.True(t, ok, "expected int64, got %T", values[0])
+		assert.Equal(t, int64(90), values[0])
+	})
+
+	t.Run("json float preserves float type", func(t *testing.T) {
+		values, err := parsePropertyValues("3.14")
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(float64)
+		assert.True(t, ok, "expected float64, got %T", values[0])
+		assert.InDelta(t, 3.14, values[0], 0.001)
+	})
 }
 
 func TestNormalizeStructuredPropertyURN(t *testing.T) {
