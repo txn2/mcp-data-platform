@@ -111,9 +111,11 @@ type mockVersionStore struct {
 	getErr        error
 	latestVer     *AssetVersion
 	latestErr     error
+	lastCreated   *AssetVersion // captures the most recent CreateVersion call
 }
 
-func (m *mockVersionStore) CreateVersion(_ context.Context, _ AssetVersion) (int, error) {
+func (m *mockVersionStore) CreateVersion(_ context.Context, av AssetVersion) (int, error) {
+	m.lastCreated = &av
 	return m.createVersion, m.createErr
 }
 
@@ -3267,6 +3269,51 @@ func TestUpdateAssetContentCreatesVersion(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateAssetContentChangeSummaryHeader(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", ContentType: "text/html", CurrentVersion: 1}
+
+	t.Run("with header", func(t *testing.T) {
+		vs := &mockVersionStore{}
+		h := newTestHandlerWithVersions(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{},
+			vs,
+			&mockS3Client{},
+			&User{UserID: "u1", Email: "user@example.com"},
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+			strings.NewReader("updated"))
+		req.Header.Set("X-Change-Summary", "Fixed typo in heading")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Fixed typo in heading", vs.lastCreated.ChangeSummary)
+	})
+
+	t.Run("without header uses default", func(t *testing.T) {
+		vs := &mockVersionStore{}
+		h := newTestHandlerWithVersions(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{},
+			vs,
+			&mockS3Client{},
+			&User{UserID: "u1", Email: "user@example.com"},
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+			strings.NewReader("updated"))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Content updated", vs.lastCreated.ChangeSummary)
+	})
 }
 
 func TestListVersionsAssetNotFound(t *testing.T) {

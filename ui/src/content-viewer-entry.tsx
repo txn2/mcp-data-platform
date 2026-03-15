@@ -1,5 +1,27 @@
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ContentRenderer } from "./components/renderers/ContentRenderer";
+import { MarkdownRenderer } from "./components/renderers/MarkdownRenderer";
+
+function MarkdownWithSourceToggle({ content }: { content: string }) {
+  const [showSource, setShowSource] = useState(false);
+  return (
+    <>
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={() => setShowSource(!showSource)}
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors"
+        >
+          {showSource ? "View Rendered" : "View Markdown"}
+        </button>
+      </div>
+      {showSource
+        ? <pre className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap">{content}</pre>
+        : <MarkdownRenderer content={content} />}
+    </>
+  );
+}
 
 // Read content from embedded JSON (injected by Go template).
 const dataEl = document.getElementById("content-data");
@@ -7,8 +29,12 @@ if (dataEl) {
   const { contentType, content, name } = JSON.parse(dataEl.textContent!);
   const root = document.getElementById("content-root");
   if (root) {
+    const ct = (contentType as string).toLowerCase();
+    const isMarkdown = ct.includes("markdown") || ct.endsWith(".md");
     createRoot(root).render(
-      <ContentRenderer contentType={contentType} content={content} fileName={name} />,
+      isMarkdown
+        ? <MarkdownWithSourceToggle content={content} />
+        : <ContentRenderer contentType={contentType} content={content} fileName={name} />,
     );
   }
 }

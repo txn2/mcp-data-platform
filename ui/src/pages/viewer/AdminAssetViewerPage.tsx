@@ -1,4 +1,5 @@
-import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent, useAdminAssetVersions, useAdminRevertVersion } from "@/api/admin/hooks";
+import { useState } from "react";
+import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent, useAdminAssetVersions, useAdminRevertVersion, useAdminVersionContent } from "@/api/admin/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 import { formatOwner } from "@/lib/format";
 
@@ -15,6 +16,13 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
   const contentUpdateMutation = useAdminUpdateAssetContent();
   const { data: versionsData, isLoading: versionsLoading } = useAdminAssetVersions(assetId);
   const revertMutation = useAdminRevertVersion();
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+
+  const needsVersionContent = selectedVersion != null && asset != null && selectedVersion !== asset.current_version;
+  const { data: versionContent, isLoading: versionContentLoading } = useAdminVersionContent(
+    assetId,
+    selectedVersion ?? 0,
+  );
 
   return (
     <AssetViewer
@@ -41,6 +49,10 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}
+      selectedVersion={selectedVersion}
+      onSelectVersion={setSelectedVersion}
+      versionContent={needsVersionContent ? versionContent : undefined}
+      versionContentLoading={needsVersionContent ? versionContentLoading : false}
     />
   );
 }

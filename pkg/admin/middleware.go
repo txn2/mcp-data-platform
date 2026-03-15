@@ -20,6 +20,7 @@ const adminUserKey contextKey = "admin_user"
 // User holds information about the authenticated admin user.
 type User struct {
 	UserID string
+	Email  string
 	Roles  []string
 }
 
@@ -155,7 +156,7 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) *User {
 	if !ok || resolved.Name != pa.adminPersona {
 		return nil
 	}
-	return &User{UserID: info.UserID, Roles: info.Roles}
+	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles}
 }
 
 // authenticateViaToken extracts a token from headers, validates it, and
@@ -187,6 +188,7 @@ func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, e
 
 	return &User{
 		UserID: info.UserID,
+		Email:  info.Email,
 		Roles:  info.Roles,
 	}, nil
 }

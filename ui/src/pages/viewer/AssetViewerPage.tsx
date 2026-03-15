@@ -1,4 +1,5 @@
-import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion } from "@/api/portal/hooks";
+import { useState } from "react";
+import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 
 const backLabels: Record<string, string> = {
@@ -21,6 +22,13 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
   const copyMutation = useCopyAsset();
   const { data: versionsData, isLoading: versionsLoading } = useAssetVersions(assetId);
   const revertMutation = useRevertVersion();
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+
+  const needsVersionContent = selectedVersion != null && asset != null && selectedVersion !== asset.current_version;
+  const { data: versionContent, isLoading: versionContentLoading } = useVersionContent(
+    assetId,
+    selectedVersion ?? 0,
+  );
 
   const isOwner = asset?.is_owner ?? true;
   const sharePermission = asset?.share_permission;
@@ -43,6 +51,10 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}
+      selectedVersion={selectedVersion}
+      onSelectVersion={setSelectedVersion}
+      versionContent={needsVersionContent ? versionContent : undefined}
+      versionContentLoading={needsVersionContent ? versionContentLoading : false}
     />
   );
 }

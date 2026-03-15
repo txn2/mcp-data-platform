@@ -474,12 +474,15 @@ export function useAdminDeleteAsset() {
 export function useAdminUpdateAssetContent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, content }: { id: string; content: string }) =>
-      apiFetch(`/assets/${id}/content`, {
+    mutationFn: ({ id, content, changeSummary }: { id: string; content: string; changeSummary?: string }) => {
+      const headers: Record<string, string> = { "Content-Type": "text/plain" };
+      if (changeSummary) headers["X-Change-Summary"] = changeSummary;
+      return apiFetch(`/assets/${id}/content`, {
         method: "PUT",
-        headers: { "Content-Type": "text/plain" },
+        headers,
         body: content,
-      }),
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });

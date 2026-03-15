@@ -74,6 +74,52 @@ func TestPublicViewSuccess(t *testing.T) {
 	assert.NotContains(t, body, `id="expiry-notice"`)
 }
 
+func TestPublicViewVersionBadge(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+
+	t.Run("shows version badge", func(t *testing.T) {
+		asset := &Asset{
+			ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
+			Tags: []string{}, CreatedAt: now, UpdatedAt: now, CurrentVersion: 3,
+		}
+		h := NewHandler(Deps{
+			AssetStore: &mockAssetStore{getAsset: asset},
+			ShareStore: &mockShareStore{getByTokenRes: share},
+			S3Client:   &mockS3Client{getData: []byte("content"), getCT: "text/plain"},
+			S3Bucket:   "test",
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), ">v3</span>")
+	})
+
+	t.Run("no badge for version 0", func(t *testing.T) {
+		asset := &Asset{
+			ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
+			Tags: []string{}, CreatedAt: now, UpdatedAt: now, CurrentVersion: 0,
+		}
+		h := NewHandler(Deps{
+			AssetStore: &mockAssetStore{getAsset: asset},
+			ShareStore: &mockShareStore{getByTokenRes: share},
+			S3Client:   &mockS3Client{getData: []byte("content"), getCT: "text/plain"},
+			S3Bucket:   "test",
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		// Version 0 is falsy in Go templates, so badge should not appear
+		assert.NotContains(t, w.Body.String(), ">v0</span>")
+	})
+}
+
 func TestPublicViewCustomBrand(t *testing.T) {
 	now := time.Now()
 	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}

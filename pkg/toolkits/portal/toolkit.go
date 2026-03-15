@@ -312,7 +312,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		S3Bucket:      t.s3Bucket,
 		ContentType:   input.ContentType,
 		SizeBytes:     int64(len(input.Content)),
-		CreatedBy:     userID,
+		CreatedBy:     userEmail,
 		ChangeSummary: "Initial version",
 	}
 	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
@@ -445,7 +445,6 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		return fmt.Errorf("s3 put: %w", err)
 	}
 
-	userID := resolveOwnerID(ctx)
 	av := portal.AssetVersion{
 		ID:            versionID,
 		AssetID:       asset.ID,
@@ -453,7 +452,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		S3Bucket:      t.s3Bucket,
 		ContentType:   ct,
 		SizeBytes:     int64(len(input.Content)),
-		CreatedBy:     userID,
+		CreatedBy:     resolveOwnerEmail(ctx),
 		ChangeSummary: "Content updated via MCP",
 	}
 	if _, err = t.versionStore.CreateVersion(ctx, av); err != nil {
@@ -556,7 +555,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 		S3Bucket:      t.s3Bucket,
 		ContentType:   targetVer.ContentType,
 		SizeBytes:     int64(len(data)),
-		CreatedBy:     ownerID,
+		CreatedBy:     resolveOwnerEmail(ctx),
 		ChangeSummary: fmt.Sprintf("Reverted from v%d", input.Version),
 	}
 	assignedVersion, err := t.versionStore.CreateVersion(ctx, av)
