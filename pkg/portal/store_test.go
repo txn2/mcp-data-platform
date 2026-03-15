@@ -544,6 +544,15 @@ func TestValidateDescription(t *testing.T) {
 	assert.Error(t, ValidateDescription(string(longDesc)))
 }
 
+func TestValidateChangeSummary(t *testing.T) {
+	assert.NoError(t, ValidateChangeSummary(""))
+	assert.NoError(t, ValidateChangeSummary("Fixed typo"))
+	assert.NoError(t, ValidateChangeSummary(strings.Repeat("a", MaxChangeSummaryLength)))
+
+	longSummary := strings.Repeat("a", MaxChangeSummaryLength+1)
+	assert.Error(t, ValidateChangeSummary(longSummary))
+}
+
 func TestValidateNoticeText(t *testing.T) {
 	assert.NoError(t, ValidateNoticeText(""))
 	assert.NoError(t, ValidateNoticeText("Custom notice"))

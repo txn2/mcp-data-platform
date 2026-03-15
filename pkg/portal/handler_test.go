@@ -3314,6 +3314,49 @@ func TestUpdateAssetContentChangeSummaryHeader(t *testing.T) {
 		require.NotNil(t, vs.lastCreated)
 		assert.Equal(t, "Content updated", vs.lastCreated.ChangeSummary)
 	})
+
+	t.Run("long header truncated", func(t *testing.T) {
+		vs := &mockVersionStore{}
+		h := newTestHandlerWithVersions(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{},
+			vs,
+			&mockS3Client{},
+			&User{UserID: "u1", Email: "user@example.com"},
+		)
+
+		longSummary := strings.Repeat("x", MaxChangeSummaryLength+100)
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+			strings.NewReader("updated"))
+		req.Header.Set("X-Change-Summary", longSummary)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, MaxChangeSummaryLength, len(vs.lastCreated.ChangeSummary))
+	})
+
+	t.Run("whitespace-only header uses default", func(t *testing.T) {
+		vs := &mockVersionStore{}
+		h := newTestHandlerWithVersions(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{},
+			vs,
+			&mockS3Client{},
+			&User{UserID: "u1", Email: "user@example.com"},
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+			strings.NewReader("updated"))
+		req.Header.Set("X-Change-Summary", "   ")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Content updated", vs.lastCreated.ChangeSummary)
+	})
 }
 
 func TestListVersionsAssetNotFound(t *testing.T) {

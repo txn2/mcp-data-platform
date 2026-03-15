@@ -21,7 +21,7 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
   const needsVersionContent = selectedVersion != null && asset != null && selectedVersion !== asset.current_version;
   const { data: versionContent, isLoading: versionContentLoading } = useAdminVersionContent(
     assetId,
-    selectedVersion ?? 0,
+    needsVersionContent ? selectedVersion : 0,
   );
 
   return (

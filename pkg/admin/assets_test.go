@@ -539,6 +539,39 @@ func TestUpdateAdminAssetContentChangeSummaryHeader(t *testing.T) {
 		require.NotNil(t, vs.lastCreated)
 		assert.Equal(t, "Content updated (admin)", vs.lastCreated.ChangeSummary)
 	})
+
+	t.Run("long header truncated", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		longSummary := strings.Repeat("x", portal.MaxChangeSummaryLength+100)
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Change-Summary", longSummary)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, portal.MaxChangeSummaryLength, len(vs.lastCreated.ChangeSummary))
+	})
+
+	t.Run("whitespace-only header uses default", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Change-Summary", "   ")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Content updated (admin)", vs.lastCreated.ChangeSummary)
+	})
 }
 
 func TestUpdateAdminAssetContentNoVersionStore(t *testing.T) {

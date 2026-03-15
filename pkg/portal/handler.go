@@ -1198,9 +1198,13 @@ func intParam(r *http.Request, name string, fallback int) int {
 }
 
 // changeSummaryFromHeader reads the X-Change-Summary header from the request.
-// If the header is empty, it returns the provided fallback.
+// If the header is empty or whitespace-only, it returns the provided fallback.
+// The result is truncated to MaxChangeSummaryLength characters.
 func changeSummaryFromHeader(r *http.Request, fallback string) string {
 	if s := strings.TrimSpace(r.Header.Get("X-Change-Summary")); s != "" {
+		if len(s) > MaxChangeSummaryLength {
+			return s[:MaxChangeSummaryLength]
+		}
 		return s
 	}
 	return fallback

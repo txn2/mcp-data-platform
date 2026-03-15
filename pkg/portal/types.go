@@ -232,6 +232,17 @@ func ValidateNoticeText(text string) error {
 	return nil
 }
 
+// MaxChangeSummaryLength is the maximum length for a version change summary.
+const MaxChangeSummaryLength = 500
+
+// ValidateChangeSummary checks that a change summary is within length limits.
+func ValidateChangeSummary(s string) error {
+	if len(s) > MaxChangeSummaryLength {
+		return fmt.Errorf("change_summary exceeds %d characters", MaxChangeSummaryLength)
+	}
+	return nil
+}
+
 // maxEmailLength is the maximum length for an email address (RFC 5321).
 const maxEmailLength = 254
 

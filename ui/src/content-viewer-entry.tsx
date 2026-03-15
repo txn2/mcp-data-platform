@@ -30,7 +30,7 @@ if (dataEl) {
   const root = document.getElementById("content-root");
   if (root) {
     const ct = (contentType as string).toLowerCase();
-    const isMarkdown = ct.includes("markdown") || ct.endsWith(".md");
+    const isMarkdown = ct.includes("markdown");
     createRoot(root).render(
       isMarkdown
         ? <MarkdownWithSourceToggle content={content} />

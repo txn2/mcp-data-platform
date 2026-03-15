@@ -598,13 +598,14 @@ func resolveOwnerID(ctx context.Context) string {
 	return "anonymous"
 }
 
-// resolveOwnerEmail returns the authenticated user's email from the context.
+// resolveOwnerEmail returns the authenticated user's email from the context,
+// defaulting to "anonymous" if no context or email is available.
 func resolveOwnerEmail(ctx context.Context) string {
 	pc := middleware.GetPlatformContext(ctx)
-	if pc != nil {
+	if pc != nil && pc.UserEmail != "" {
 		return pc.UserEmail
 	}
-	return ""
+	return "anonymous"
 }
 
 func (t *Toolkit) validateAndCheckSize(input saveArtifactInput) error {

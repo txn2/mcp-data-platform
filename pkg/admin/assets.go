@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -519,9 +520,13 @@ func adminUserEmail(r *http.Request) string {
 }
 
 // adminChangeSummary reads the X-Change-Summary header from the request.
-// If the header is empty, it returns the provided fallback.
+// If the header is empty or whitespace-only, it returns the provided fallback.
+// The result is truncated to the portal max change summary length.
 func adminChangeSummary(r *http.Request, fallback string) string {
-	if s := r.Header.Get("X-Change-Summary"); s != "" {
+	if s := strings.TrimSpace(r.Header.Get("X-Change-Summary")); s != "" {
+		if len(s) > portal.MaxChangeSummaryLength {
+			return s[:portal.MaxChangeSummaryLength]
+		}
 		return s
 	}
 	return fallback

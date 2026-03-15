@@ -27,7 +27,7 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
   const needsVersionContent = selectedVersion != null && asset != null && selectedVersion !== asset.current_version;
   const { data: versionContent, isLoading: versionContentLoading } = useVersionContent(
     assetId,
-    selectedVersion ?? 0,
+    needsVersionContent ? selectedVersion : 0,
   );
 
   const isOwner = asset?.is_owner ?? true;
