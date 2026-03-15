@@ -142,13 +142,14 @@ func TestGetPublicBranding(t *testing.T) {
 		var body publicBrandingResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, "acme-platform", body.Name)
+		assert.NotEmpty(t, body.Version)
 		assert.Equal(t, "ACME Admin", body.PortalTitle)
 		assert.Equal(t, "https://cdn.example.com/acme-logo.svg", body.PortalLogo)
 		assert.Equal(t, "https://cdn.example.com/acme-light.svg", body.PortalLogoLight)
 		assert.Equal(t, "https://cdn.example.com/acme-dark.svg", body.PortalLogoDark)
 	})
 
-	t.Run("returns empty when no config", func(t *testing.T) {
+	t.Run("returns version even without config", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
@@ -160,6 +161,7 @@ func TestGetPublicBranding(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Empty(t, body.Name)
 		assert.Empty(t, body.PortalTitle)
+		assert.NotEmpty(t, body.Version)
 	})
 
 	t.Run("bypasses auth middleware", func(t *testing.T) {
