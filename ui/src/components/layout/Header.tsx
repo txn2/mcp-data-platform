@@ -1,6 +1,5 @@
 import { useThemeStore } from "@/stores/theme";
-import { useAuthStore } from "@/stores/auth";
-import { useSystemInfo } from "@/api/admin/hooks";
+import { useBranding } from "@/api/portal/hooks";
 import { Sun, Moon, Monitor } from "lucide-react";
 
 interface Props {
@@ -15,22 +14,15 @@ const themeOptions = [
 
 export function Header({ title }: Props) {
   const { theme, setTheme } = useThemeStore();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
-  const { data: systemInfo } = useSystemInfo(isAdmin);
-  const version = systemInfo?.version ?? "dev";
-  const tooltip = systemInfo
-    ? `${systemInfo.version}\nCommit: ${systemInfo.commit}\nBuilt: ${systemInfo.build_date}`
-    : "";
+  const { data: branding } = useBranding();
+  const version = branding?.version;
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-card px-6">
       <h1 className="text-lg font-semibold">{title}</h1>
       <div className="flex items-center gap-3">
-        {isAdmin && systemInfo && (
-          <span
-            className="text-xs text-muted-foreground"
-            title={tooltip}
-          >
+        {version && (
+          <span className="text-xs text-muted-foreground">
             v{version}
           </span>
         )}

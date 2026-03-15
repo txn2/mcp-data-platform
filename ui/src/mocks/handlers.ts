@@ -225,6 +225,7 @@ export const handlers = [
   http.get(`${ADMIN_BASE}/public/branding`, () =>
     HttpResponse.json({
       name: mockSystemInfo.name,
+      version: mockSystemInfo.version,
       portal_title: mockSystemInfo.portal_title,
       portal_logo: mockSystemInfo.portal_logo,
       portal_logo_light: mockSystemInfo.portal_logo_light,

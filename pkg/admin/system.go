@@ -86,6 +86,7 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 // publicBrandingResponse is returned by the unauthenticated branding endpoint.
 type publicBrandingResponse struct {
 	Name            string `json:"name"`
+	Version         string `json:"version"`
 	PortalTitle     string `json:"portal_title"`
 	PortalLogo      string `json:"portal_logo"`
 	PortalLogoLight string `json:"portal_logo_light"`
@@ -96,7 +97,9 @@ type publicBrandingResponse struct {
 // getPublicBranding handles GET /api/v1/admin/public/branding.
 // This endpoint is unauthenticated and returns only non-sensitive display info.
 func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
-	resp := publicBrandingResponse{}
+	resp := publicBrandingResponse{
+		Version: mcpserver.Version,
+	}
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name
 		resp.PortalTitle = h.deps.Config.Portal.Title

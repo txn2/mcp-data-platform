@@ -95,6 +95,7 @@ export interface ShareResponse {
 
 export interface Branding {
   name: string;
+  version: string;
   portal_title: string;
   portal_logo: string;
   portal_logo_light: string;
