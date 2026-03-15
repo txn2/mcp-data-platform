@@ -487,6 +487,7 @@ export function useAdminUpdateAssetContent() {
       queryClient.invalidateQueries({ queryKey: ["admin", "asset-content"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "asset"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions"] });
     },
   });
 }

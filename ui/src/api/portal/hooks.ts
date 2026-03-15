@@ -158,6 +158,7 @@ export function useUpdateAssetContent() {
       void qc.invalidateQueries({ queryKey: ["asset-content"] });
       void qc.invalidateQueries({ queryKey: ["asset"] });
       void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["asset-versions"] });
     },
   });
 }
