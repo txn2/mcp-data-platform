@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -116,4 +117,108 @@ func TestColumnContext_HasContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStructuredProperty_JSON(t *testing.T) {
+	sp := StructuredProperty{
+		QualifiedName: "io.acryl.privacy.retentionTime",
+		DisplayName:   "Retention Time",
+		Values:        []any{float64(90)},
+	}
+	data, err := json.Marshal(sp)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var got StructuredProperty
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.QualifiedName != sp.QualifiedName {
+		t.Errorf("QualifiedName = %q, want %q", got.QualifiedName, sp.QualifiedName)
+	}
+	if got.DisplayName != sp.DisplayName {
+		t.Errorf("DisplayName = %q, want %q", got.DisplayName, sp.DisplayName)
+	}
+	if len(got.Values) != 1 {
+		t.Errorf("Values len = %d, want 1", len(got.Values))
+	}
+}
+
+func TestIncident_JSON(t *testing.T) {
+	inc := Incident{
+		URN:   "urn:li:incident:abc",
+		Type:  "OPERATIONAL",
+		Title: "Pipeline down",
+		State: "ACTIVE",
+	}
+	data, err := json.Marshal(inc)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var got Incident
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.URN != inc.URN || got.Type != inc.Type || got.Title != inc.Title || got.State != inc.State {
+		t.Errorf("roundtrip mismatch: got %+v, want %+v", got, inc)
+	}
+}
+
+func TestDataContractStatus_JSON(t *testing.T) {
+	dc := DataContractStatus{
+		Status: "FAILING",
+		AssertionResults: []AssertionResult{
+			{Type: "FRESHNESS", ResultType: "FAILURE"},
+			{Type: "SCHEMA", ResultType: "SUCCESS"},
+		},
+	}
+	data, err := json.Marshal(dc)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var got DataContractStatus
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.Status != dc.Status {
+		t.Errorf("Status = %q, want %q", got.Status, dc.Status)
+	}
+	if len(got.AssertionResults) != 2 {
+		t.Fatalf("AssertionResults len = %d, want 2", len(got.AssertionResults))
+	}
+	if got.AssertionResults[0].Type != "FRESHNESS" || got.AssertionResults[0].ResultType != "FAILURE" {
+		t.Errorf("AssertionResults[0] mismatch: %+v", got.AssertionResults[0])
+	}
+}
+
+func TestTableContext_V14FieldsOmitEmpty(t *testing.T) {
+	// V1.3.x compat: empty v1.4 fields should be omitted from JSON
+	tc := TableContext{Description: "test"}
+	data, err := json.Marshal(tc)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	s := string(data)
+	for _, field := range []string{"structured_properties", "active_incidents", "incidents", "data_contract"} {
+		if contains(s, field) {
+			t.Errorf("expected %q to be omitted from JSON, got: %s", field, s)
+		}
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && jsonContains(s, sub)
+}
+
+func jsonContains(s, key string) bool {
+	return s != "" && key != "" && stringContains(s, `"`+key+`"`)
+}
+
+func stringContains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }

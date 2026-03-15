@@ -12,6 +12,14 @@ type DataHubWriter interface {
 	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
 	AddDocumentationLink(ctx context.Context, urn string, url string, description string) error
 	CreateCuratedQuery(ctx context.Context, entityURN, name, sql, description string) (string, error)
+
+	// Structured properties (DataHub 1.4.x)
+	UpsertStructuredProperties(ctx context.Context, urn string, propertyURN string, values []any) error
+	RemoveStructuredProperty(ctx context.Context, urn string, propertyURN string) error
+
+	// Incidents (DataHub 1.4.x)
+	RaiseIncident(ctx context.Context, entityURN, title, description string) (string, error)
+	ResolveIncident(ctx context.Context, incidentURN, message string) error
 }
 
 // NoopDataHubWriter is a no-op implementation for when DataHub write-back is not configured.
@@ -50,6 +58,24 @@ func (*NoopDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string
 func (*NoopDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ string) (string, error) {
 	return "", nil
 }
+
+// UpsertStructuredProperties is a no-op.
+func (*NoopDataHubWriter) UpsertStructuredProperties(_ context.Context, _, _ string, _ []any) error {
+	return nil
+}
+
+// RemoveStructuredProperty is a no-op.
+func (*NoopDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// RaiseIncident is a no-op.
+func (*NoopDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+
+// ResolveIncident is a no-op.
+func (*NoopDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
 
 // Verify interface compliance.
 var _ DataHubWriter = (*NoopDataHubWriter)(nil)

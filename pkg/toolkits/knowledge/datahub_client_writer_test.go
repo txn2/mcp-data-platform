@@ -379,6 +379,157 @@ func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "creating curated query")
 }
 
+func TestDataHubClientWriter_UpsertStructuredProperties(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{"upsertStructuredProperties": true}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpsertStructuredProperties(
+		context.Background(),
+		testURN,
+		"urn:li:structuredProperty:io.acryl.privacy.retentionTime",
+		[]any{float64(90)},
+	)
+
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_UpsertStructuredProperties_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "property not found"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpsertStructuredProperties(context.Background(), testURN, "urn:li:structuredProperty:x", []any{"v"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "upserting structured property")
+}
+
+func TestDataHubClientWriter_RemoveStructuredProperty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{"removeStructuredProperties": true}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.RemoveStructuredProperty(
+		context.Background(),
+		testURN,
+		"urn:li:structuredProperty:io.acryl.privacy.retentionTime",
+	)
+
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_RemoveStructuredProperty_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "error"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.RemoveStructuredProperty(context.Background(), testURN, "urn:li:structuredProperty:x")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "removing structured property")
+}
+
+func TestDataHubClientWriter_RaiseIncident(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{"raiseIncident": "urn:li:incident:new123"}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.RaiseIncident(
+		context.Background(),
+		testURN,
+		"Pipeline failure",
+		"The ETL pipeline crashed",
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:incident:new123", urn)
+}
+
+func TestDataHubClientWriter_RaiseIncident_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "unauthorized"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.RaiseIncident(context.Background(), testURN, "Title", "Desc")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "raising incident")
+}
+
+func TestDataHubClientWriter_ResolveIncident(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{"updateIncidentStatus": true}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ResolveIncident(
+		context.Background(),
+		"urn:li:incident:abc123",
+		"Fixed the issue",
+	)
+
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_ResolveIncident_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "not found"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ResolveIncident(context.Background(), "urn:li:incident:abc", "msg")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "resolving incident")
+}
+
 func TestDataHubClientWriter_InterfaceCompliance(t *testing.T) {
 	// Compile-time check is in the source file; runtime verification here.
 	var w DataHubWriter = &DataHubClientWriter{}

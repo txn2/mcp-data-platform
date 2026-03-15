@@ -3656,3 +3656,97 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		assert.Len(t, colCtx, len(tenColumns))
 	})
 }
+
+// ---------------------------------------------------------------------------
+// DataHub 1.4.x enrichment fields
+// ---------------------------------------------------------------------------
+
+func TestBuildTrinoSemanticContext_V14Fields(t *testing.T) {
+	ctx := &semantic.TableContext{
+		Description: "test",
+		StructuredProperties: []semantic.StructuredProperty{
+			{QualifiedName: "retention.days", Values: []any{float64(90)}},
+		},
+		ActiveIncidents: 2,
+		Incidents: []semantic.Incident{
+			{URN: "urn:li:incident:1", Type: "OPERATIONAL", Title: "Down", State: "ACTIVE"},
+			{URN: "urn:li:incident:2", Type: "CUSTOM", Title: "Drift", State: "ACTIVE"},
+		},
+		DataContract: &semantic.DataContractStatus{
+			Status: "FAILING",
+			AssertionResults: []semantic.AssertionResult{
+				{Type: "FRESHNESS", ResultType: "FAILURE"},
+			},
+		},
+	}
+
+	result := buildTrinoSemanticContext(ctx)
+
+	// Structured properties
+	props, ok := result["structured_properties"].([]semantic.StructuredProperty)
+	assert.True(t, ok, "expected structured_properties")
+	assert.Len(t, props, 1)
+	assert.Equal(t, "retention.days", props[0].QualifiedName)
+
+	// Incidents
+	assert.Equal(t, 2, result["active_incidents"])
+	incidents, ok := result["incidents"].([]semantic.Incident)
+	assert.True(t, ok, "expected incidents")
+	assert.Len(t, incidents, 2)
+
+	// Data contract
+	dc, ok := result["data_contract"].(*semantic.DataContractStatus)
+	assert.True(t, ok, "expected data_contract")
+	assert.Equal(t, "FAILING", dc.Status)
+}
+
+func TestBuildTrinoSemanticContext_V14Fields_Absent(t *testing.T) {
+	// DataHub 1.3.x — no v1.4 fields
+	ctx := &semantic.TableContext{Description: "legacy"}
+
+	result := buildTrinoSemanticContext(ctx)
+
+	assert.Nil(t, result["structured_properties"])
+	assert.Nil(t, result["active_incidents"])
+	assert.Nil(t, result["incidents"])
+	assert.Nil(t, result["data_contract"])
+}
+
+func TestBuildCompactSemanticContext_V14Fields(t *testing.T) {
+	t.Run("incidents appear in compact", func(t *testing.T) {
+		ctx := &semantic.TableContext{
+			ActiveIncidents: 1,
+		}
+		compact := buildCompactSemanticContext(ctx)
+		assert.Equal(t, 1, compact["active_incidents"])
+	})
+
+	t.Run("failing contract appears in compact", func(t *testing.T) {
+		ctx := &semantic.TableContext{
+			DataContract: &semantic.DataContractStatus{Status: "FAILING"},
+		}
+		compact := buildCompactSemanticContext(ctx)
+		assert.NotNil(t, compact["data_contract"])
+	})
+
+	t.Run("passing contract omitted from compact", func(t *testing.T) {
+		ctx := &semantic.TableContext{
+			DataContract: &semantic.DataContractStatus{Status: "PASSING"},
+		}
+		compact := buildCompactSemanticContext(ctx)
+		assert.Nil(t, compact["data_contract"])
+	})
+}
+
+func TestBuildAdditionalTableContext_V14Fields(t *testing.T) {
+	ref := TableRef{FullPath: "catalog.schema.table"}
+	ctx := &semantic.TableContext{
+		Description:     "test",
+		ActiveIncidents: 1,
+		DataContract:    &semantic.DataContractStatus{Status: "FAILING"},
+	}
+
+	result := buildAdditionalTableContext(ref, ctx)
+	assert.Equal(t, 1, result["active_incidents"])
+	assert.NotNil(t, result["data_contract"])
+}

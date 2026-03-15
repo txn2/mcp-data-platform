@@ -56,6 +56,16 @@ type TableContext struct {
 	// Metadata
 	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 	LastModified     *time.Time        `json:"last_modified,omitempty"`
+
+	// Structured properties (DataHub 1.4.x)
+	StructuredProperties []StructuredProperty `json:"structured_properties,omitempty"`
+
+	// Incidents (DataHub 1.4.x)
+	ActiveIncidents int        `json:"active_incidents,omitempty"`
+	Incidents       []Incident `json:"incidents,omitempty"`
+
+	// Data contracts (DataHub 1.4.x)
+	DataContract *DataContractStatus `json:"data_contract,omitempty"`
 }
 
 // ColumnContext provides semantic context for a column.
@@ -203,4 +213,33 @@ type TableSearchResult struct {
 	Tags         []string `json:"tags,omitempty"`
 	Domain       string   `json:"domain,omitempty"`
 	MatchedField string   `json:"matched_field,omitempty"`
+}
+
+// StructuredProperty represents a typed custom property from DataHub 1.4.x.
+type StructuredProperty struct {
+	QualifiedName string `json:"qualified_name"`
+	DisplayName   string `json:"display_name,omitempty"`
+	Values        []any  `json:"values"`
+}
+
+// Incident represents an active data incident from DataHub 1.4.x.
+type Incident struct {
+	URN         string `json:"urn"`
+	Type        string `json:"type"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	State       string `json:"state"`
+	Created     int64  `json:"created,omitempty"`
+}
+
+// DataContractStatus represents the pass/fail status of a data contract from DataHub 1.4.x.
+type DataContractStatus struct {
+	Status           string            `json:"status"` // PASSING or FAILING
+	AssertionResults []AssertionResult `json:"assertion_results,omitempty"`
+}
+
+// AssertionResult represents a single assertion outcome within a data contract.
+type AssertionResult struct {
+	Type       string `json:"type"`        // FRESHNESS, SCHEMA, DATA_QUALITY
+	ResultType string `json:"result_type"` // SUCCESS, FAILURE
 }

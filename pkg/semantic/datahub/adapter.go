@@ -58,6 +58,23 @@ type Client interface {
 	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
 	Ping(ctx context.Context) error
 	Close() error
+
+	// Structured properties (DataHub 1.4.x)
+	GetStructuredProperties(ctx context.Context, urn string) ([]types.StructuredPropertyValue, error)
+	ListStructuredPropertyDefinitions(ctx context.Context) ([]types.StructuredPropertyDefinition, error)
+	UpsertStructuredProperties(ctx context.Context, urn string, properties []types.StructuredPropertyInput) error
+	RemoveStructuredProperties(ctx context.Context, urn string, propertyURNs []string) error
+
+	// Incidents (DataHub 1.4.x)
+	GetIncidents(ctx context.Context, urn string) (*types.IncidentResult, error)
+	RaiseIncident(ctx context.Context, input types.RaiseIncidentInput) (string, error)
+	ResolveIncident(ctx context.Context, incidentURN, message string) error
+
+	// Data contracts (DataHub 1.4.x)
+	GetDataContract(ctx context.Context, datasetURN string) (*types.DataContract, error)
+
+	// Semantic search (DataHub 1.4.x)
+	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 }
 
 // Adapter implements semantic.Provider using DataHub.
@@ -365,16 +382,21 @@ func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableCont
 	a.logInjectionAttempts(entity)
 
 	tc := &semantic.TableContext{
-		URN:              entity.URN,
-		Description:      entity.Description,
-		Owners:           convertOwners(entity.Owners),
-		Tags:             convertTags(entity.Tags),
-		GlossaryTerms:    convertGlossaryTerms(entity.GlossaryTerms),
-		Domain:           convertDomain(entity.Domain),
-		Deprecation:      convertDeprecation(entity.Deprecation),
-		CustomProperties: convertProperties(entity.Properties),
-		LastModified:     convertTimestamp(entity.LastModified),
+		URN:                  entity.URN,
+		Description:          entity.Description,
+		Owners:               convertOwners(entity.Owners),
+		Tags:                 convertTags(entity.Tags),
+		GlossaryTerms:        convertGlossaryTerms(entity.GlossaryTerms),
+		Domain:               convertDomain(entity.Domain),
+		Deprecation:          convertDeprecation(entity.Deprecation),
+		CustomProperties:     convertProperties(entity.Properties),
+		LastModified:         convertTimestamp(entity.LastModified),
+		StructuredProperties: convertStructuredProperties(entity.StructuredProperties),
+		DataContract:         convertDataContract(entity.DataContract),
 	}
+
+	// Populate incidents from enriched entity response (DataHub 1.4.x)
+	tc.ActiveIncidents, tc.Incidents = convertIncidents(entity.ActiveIncidents)
 
 	return tc
 }
@@ -595,6 +617,64 @@ func extractFieldName(fieldPath string) string {
 		return fieldPath
 	}
 	return parts[len(parts)-1]
+}
+
+// convertStructuredProperties converts DataHub structured properties to semantic types.
+func convertStructuredProperties(props []types.StructuredPropertyValue) []semantic.StructuredProperty {
+	if len(props) == 0 {
+		return nil
+	}
+	result := make([]semantic.StructuredProperty, len(props))
+	for i, p := range props {
+		sp := semantic.StructuredProperty{
+			Values: p.Values,
+		}
+		if p.Definition != nil {
+			sp.QualifiedName = p.Definition.QualifiedName
+			sp.DisplayName = p.Definition.DisplayName
+		}
+		result[i] = sp
+	}
+	return result
+}
+
+// convertIncidents converts DataHub incident result to semantic types.
+func convertIncidents(ir *types.IncidentResult) (int, []semantic.Incident) {
+	if ir == nil || ir.Total == 0 {
+		return 0, nil
+	}
+	incidents := make([]semantic.Incident, len(ir.Incidents))
+	for i, inc := range ir.Incidents {
+		incidents[i] = semantic.Incident{
+			URN:         inc.URN,
+			Type:        inc.Type,
+			Title:       inc.Title,
+			Description: inc.Description,
+			State:       inc.State,
+			Created:     inc.Created,
+		}
+	}
+	return ir.Total, incidents
+}
+
+// convertDataContract converts DataHub data contract to semantic types.
+func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
+	if dc == nil {
+		return nil
+	}
+	result := &semantic.DataContractStatus{
+		Status: dc.Status,
+	}
+	if len(dc.AssertionResults) > 0 {
+		result.AssertionResults = make([]semantic.AssertionResult, len(dc.AssertionResults))
+		for i, ar := range dc.AssertionResults {
+			result.AssertionResults[i] = semantic.AssertionResult{
+				Type:       ar.Type,
+				ResultType: ar.ResultType,
+			}
+		}
+	}
+	return result
 }
 
 // Verify interface compliance.

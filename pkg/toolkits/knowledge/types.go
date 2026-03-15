@@ -151,20 +151,32 @@ const (
 	actionFlagQualityIssue  actionType = "flag_quality_issue"
 	actionAddDocumentation  actionType = "add_documentation"
 	actionAddCuratedQuery   actionType = "add_curated_query"
+
+	// DataHub 1.4.x actions.
+	actionSetStructuredProperty    actionType = "set_structured_property"
+	actionRemoveStructuredProperty actionType = "remove_structured_property"
+	actionRaiseIncident            actionType = "raise_incident"
+	actionResolveIncident          actionType = "resolve_incident"
 )
 
 // actionTypeList is a human-readable list of valid action types for error messages.
-const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
+const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, " +
+	"add_documentation, add_curated_query, set_structured_property, remove_structured_property, " +
+	"raise_incident, resolve_incident"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
-	actionUpdateDescription: true,
-	actionAddTag:            true,
-	actionRemoveTag:         true,
-	actionAddGlossaryTerm:   true,
-	actionFlagQualityIssue:  true,
-	actionAddDocumentation:  true,
-	actionAddCuratedQuery:   true,
+	actionUpdateDescription:        true,
+	actionAddTag:                   true,
+	actionRemoveTag:                true,
+	actionAddGlossaryTerm:          true,
+	actionFlagQualityIssue:         true,
+	actionAddDocumentation:         true,
+	actionAddCuratedQuery:          true,
+	actionSetStructuredProperty:    true,
+	actionRemoveStructuredProperty: true,
+	actionRaiseIncident:            true,
+	actionResolveIncident:          true,
 }
 
 // SuggestedAction represents a proposed catalog change.

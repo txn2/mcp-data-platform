@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+	"github.com/txn2/mcp-datahub/pkg/types"
 )
 
 // DataHubClientWriter is a real DataHubWriter implementation that delegates
@@ -108,4 +109,43 @@ func (w *DataHubClientWriter) CreateCuratedQuery(ctx context.Context, entityURN,
 		return "", fmt.Errorf("creating curated query for %s: %w", entityURN, err)
 	}
 	return result.URN, nil
+}
+
+// UpsertStructuredProperties sets a structured property on an entity.
+func (w *DataHubClientWriter) UpsertStructuredProperties(ctx context.Context, urn, propertyURN string, values []any) error {
+	input := []types.StructuredPropertyInput{{PropertyURN: propertyURN, Values: values}}
+	if err := w.client.UpsertStructuredProperties(ctx, urn, input); err != nil {
+		return fmt.Errorf("upserting structured property %s on %s: %w", propertyURN, urn, err)
+	}
+	return nil
+}
+
+// RemoveStructuredProperty removes a structured property from an entity.
+func (w *DataHubClientWriter) RemoveStructuredProperty(ctx context.Context, urn, propertyURN string) error {
+	if err := w.client.RemoveStructuredProperties(ctx, urn, []string{propertyURN}); err != nil {
+		return fmt.Errorf("removing structured property %s from %s: %w", propertyURN, urn, err)
+	}
+	return nil
+}
+
+// RaiseIncident creates a new incident on an entity.
+func (w *DataHubClientWriter) RaiseIncident(ctx context.Context, entityURN, title, description string) (string, error) {
+	incidentURN, err := w.client.RaiseIncident(ctx, types.RaiseIncidentInput{
+		Type:         "OPERATIONAL",
+		Title:        title,
+		Description:  description,
+		ResourceURNs: []string{entityURN},
+	})
+	if err != nil {
+		return "", fmt.Errorf("raising incident on %s: %w", entityURN, err)
+	}
+	return incidentURN, nil
+}
+
+// ResolveIncident marks an incident as resolved.
+func (w *DataHubClientWriter) ResolveIncident(ctx context.Context, incidentURN, message string) error {
+	if err := w.client.ResolveIncident(ctx, incidentURN, message); err != nil {
+		return fmt.Errorf("resolving incident %s: %w", incidentURN, err)
+	}
+	return nil
 }

@@ -120,3 +120,30 @@ func TestNoopDataHubWriter_GetCurrentMetadata_IndependentInstances(t *testing.T)
 	assert.Empty(t, meta2.Tags)
 	assert.Len(t, meta1.Tags, 1)
 }
+
+// --- DataHub 1.4.x noop methods ---
+
+func TestNoopDataHubWriter_UpsertStructuredProperties(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.UpsertStructuredProperties(context.Background(), "urn:1", "urn:li:structuredProperty:x", []any{"v"})
+	assert.NoError(t, err)
+}
+
+func TestNoopDataHubWriter_RemoveStructuredProperty(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.RemoveStructuredProperty(context.Background(), "urn:1", "urn:li:structuredProperty:x")
+	assert.NoError(t, err)
+}
+
+func TestNoopDataHubWriter_RaiseIncident(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	urn, err := writer.RaiseIncident(context.Background(), "urn:1", "title", "desc")
+	assert.NoError(t, err)
+	assert.Empty(t, urn)
+}
+
+func TestNoopDataHubWriter_ResolveIncident(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.ResolveIncident(context.Background(), "urn:li:incident:1", "fixed")
+	assert.NoError(t, err)
+}

@@ -613,6 +613,12 @@ func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[s
 	if len(ctx.Owners) > 0 {
 		summary["owners"] = ctx.Owners
 	}
+	if ctx.ActiveIncidents > 0 {
+		summary["active_incidents"] = ctx.ActiveIncidents
+	}
+	if ctx.DataContract != nil {
+		summary["data_contract"] = ctx.DataContract
+	}
 	return summary
 }
 
@@ -1005,6 +1011,16 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 	if ctx.LastModified != nil {
 		semanticCtx["last_modified"] = ctx.LastModified
 	}
+	if len(ctx.StructuredProperties) > 0 {
+		semanticCtx["structured_properties"] = ctx.StructuredProperties
+	}
+	if ctx.ActiveIncidents > 0 {
+		semanticCtx["active_incidents"] = ctx.ActiveIncidents
+		semanticCtx["incidents"] = ctx.Incidents
+	}
+	if ctx.DataContract != nil {
+		semanticCtx["data_contract"] = ctx.DataContract
+	}
 
 	return semanticCtx
 }
@@ -1027,6 +1043,12 @@ func buildCompactSemanticContext(ctx *semantic.TableContext) map[string]any {
 	}
 	if critical := filterCriticalTags(ctx.Tags); len(critical) > 0 {
 		compact["critical_tags"] = critical
+	}
+	if ctx.ActiveIncidents > 0 {
+		compact["active_incidents"] = ctx.ActiveIncidents
+	}
+	if ctx.DataContract != nil && ctx.DataContract.Status == "FAILING" {
+		compact["data_contract"] = ctx.DataContract
 	}
 	return compact
 }

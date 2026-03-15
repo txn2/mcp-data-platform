@@ -111,6 +111,42 @@ func (m *mockDataHubClient) Close() error {
 	return nil
 }
 
+func (*mockDataHubClient) GetStructuredProperties(_ context.Context, _ string) ([]types.StructuredPropertyValue, error) {
+	return nil, nil //nolint:nilnil // test mock
+}
+
+func (*mockDataHubClient) ListStructuredPropertyDefinitions(_ context.Context) ([]types.StructuredPropertyDefinition, error) {
+	return nil, nil //nolint:nilnil // test mock
+}
+
+func (*mockDataHubClient) UpsertStructuredProperties(_ context.Context, _ string, _ []types.StructuredPropertyInput) error {
+	return nil
+}
+
+func (*mockDataHubClient) RemoveStructuredProperties(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
+func (*mockDataHubClient) GetIncidents(_ context.Context, _ string) (*types.IncidentResult, error) {
+	return nil, nil //nolint:nilnil // test mock
+}
+
+func (*mockDataHubClient) RaiseIncident(_ context.Context, _ types.RaiseIncidentInput) (string, error) {
+	return "", nil
+}
+
+func (*mockDataHubClient) ResolveIncident(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (*mockDataHubClient) GetDataContract(_ context.Context, _ string) (*types.DataContract, error) {
+	return nil, nil //nolint:nilnil // test mock
+}
+
+func (*mockDataHubClient) SemanticSearch(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+	return &types.SearchResult{}, nil
+}
+
 func TestNewWithClient_NilClient(t *testing.T) {
 	_, err := NewWithClient(Config{}, nil)
 	if err == nil {
@@ -968,6 +1004,264 @@ func TestGetCuratedQueryCount(t *testing.T) {
 			t.Error(dhAdapterTestExpectedErr)
 		}
 	})
+}
+
+func TestConvertStructuredProperties(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := convertStructuredProperties(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result := convertStructuredProperties([]types.StructuredPropertyValue{})
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("with definition", func(t *testing.T) {
+		input := []types.StructuredPropertyValue{
+			{
+				PropertyURN: "urn:li:structuredProperty:io.acryl.privacy.retentionTime",
+				Definition: &types.StructuredPropertyDefinition{
+					QualifiedName: "io.acryl.privacy.retentionTime",
+					DisplayName:   "Retention Time",
+					ValueType:     "NUMBER",
+				},
+				Values: []any{float64(90)},
+			},
+		}
+		result := convertStructuredProperties(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 property, got %d", len(result))
+		}
+		if result[0].QualifiedName != "io.acryl.privacy.retentionTime" {
+			t.Errorf("QualifiedName = %q, want %q", result[0].QualifiedName, "io.acryl.privacy.retentionTime")
+		}
+		if result[0].DisplayName != "Retention Time" {
+			t.Errorf("DisplayName = %q, want %q", result[0].DisplayName, "Retention Time")
+		}
+		if len(result[0].Values) != 1 {
+			t.Errorf("Values len = %d, want 1", len(result[0].Values))
+		}
+	})
+
+	t.Run("without definition", func(t *testing.T) {
+		input := []types.StructuredPropertyValue{
+			{
+				PropertyURN: "urn:li:structuredProperty:foo",
+				Values:      []any{"bar"},
+			},
+		}
+		result := convertStructuredProperties(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 property, got %d", len(result))
+		}
+		if result[0].QualifiedName != "" {
+			t.Errorf("expected empty QualifiedName, got %q", result[0].QualifiedName)
+		}
+	})
+}
+
+func TestConvertIncidents(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		count, incidents := convertIncidents(nil)
+		if count != 0 || incidents != nil {
+			t.Errorf("expected 0/nil, got %d/%v", count, incidents)
+		}
+	})
+
+	t.Run("zero total", func(t *testing.T) {
+		count, incidents := convertIncidents(&types.IncidentResult{Total: 0})
+		if count != 0 || incidents != nil {
+			t.Errorf("expected 0/nil, got %d/%v", count, incidents)
+		}
+	})
+
+	t.Run("with incidents", func(t *testing.T) {
+		input := &types.IncidentResult{
+			Total: 2,
+			Incidents: []types.Incident{
+				{
+					URN:         "urn:li:incident:abc",
+					Type:        "OPERATIONAL",
+					Title:       "Pipeline down",
+					Description: "ETL failed",
+					State:       "ACTIVE",
+					Created:     dhAdapterTestTimestampMs,
+				},
+				{
+					URN:   "urn:li:incident:def",
+					Type:  "CUSTOM",
+					Title: "Schema drift",
+					State: "ACTIVE",
+				},
+			},
+		}
+		count, incidents := convertIncidents(input)
+		if count != 2 {
+			t.Errorf("count = %d, want 2", count)
+		}
+		if len(incidents) != 2 {
+			t.Fatalf("incidents len = %d, want 2", len(incidents))
+		}
+		if incidents[0].URN != "urn:li:incident:abc" {
+			t.Errorf("incident[0].URN = %q", incidents[0].URN)
+		}
+		if incidents[0].Title != "Pipeline down" {
+			t.Errorf("incident[0].Title = %q", incidents[0].Title)
+		}
+		if incidents[0].Created != dhAdapterTestTimestampMs {
+			t.Errorf("incident[0].Created = %d, want %d", incidents[0].Created, dhAdapterTestTimestampMs)
+		}
+		if incidents[1].Type != "CUSTOM" {
+			t.Errorf("incident[1].Type = %q", incidents[1].Type)
+		}
+	})
+}
+
+func TestConvertDataContract(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := convertDataContract(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("passing contract", func(t *testing.T) {
+		input := &types.DataContract{
+			Status: "PASSING",
+			AssertionResults: []types.AssertionResult{
+				{Type: "FRESHNESS", ResultType: "SUCCESS"},
+				{Type: "SCHEMA", ResultType: "SUCCESS"},
+			},
+		}
+		result := convertDataContract(input)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.Status != "PASSING" {
+			t.Errorf("Status = %q, want PASSING", result.Status)
+		}
+		if len(result.AssertionResults) != 2 {
+			t.Fatalf("AssertionResults len = %d, want 2", len(result.AssertionResults))
+		}
+		if result.AssertionResults[0].Type != "FRESHNESS" {
+			t.Errorf("AssertionResults[0].Type = %q", result.AssertionResults[0].Type)
+		}
+	})
+
+	t.Run("no assertions", func(t *testing.T) {
+		input := &types.DataContract{Status: "FAILING"}
+		result := convertDataContract(input)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if result.Status != "FAILING" {
+			t.Errorf("Status = %q, want FAILING", result.Status)
+		}
+		if len(result.AssertionResults) != 0 {
+			t.Errorf("expected empty assertions, got %d", len(result.AssertionResults))
+		}
+	})
+}
+
+func TestGetTableContext_WithV14Fields(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getEntityFunc: func(_ context.Context, _ string) (*types.Entity, error) {
+			return &types.Entity{
+				URN:         "urn:li:dataset:test",
+				Description: "test table",
+				StructuredProperties: []types.StructuredPropertyValue{
+					{
+						PropertyURN: "urn:li:structuredProperty:retention",
+						Definition: &types.StructuredPropertyDefinition{
+							QualifiedName: "retention",
+							DisplayName:   "Retention Days",
+						},
+						Values: []any{float64(90)},
+					},
+				},
+				ActiveIncidents: &types.IncidentResult{
+					Total: 1,
+					Incidents: []types.Incident{
+						{URN: "urn:li:incident:1", Type: "OPERATIONAL", Title: "Down", State: "ACTIVE"},
+					},
+				},
+				DataContract: &types.DataContract{
+					Status: "PASSING",
+					AssertionResults: []types.AssertionResult{
+						{Type: "FRESHNESS", ResultType: "SUCCESS"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	adapter, _ := NewWithClient(Config{}, mock)
+	tc, err := adapter.GetTableContext(ctx, semantic.TableIdentifier{Schema: "public", Table: "users"})
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+
+	// Structured properties
+	if len(tc.StructuredProperties) != 1 {
+		t.Fatalf("StructuredProperties len = %d, want 1", len(tc.StructuredProperties))
+	}
+	if tc.StructuredProperties[0].QualifiedName != "retention" {
+		t.Errorf("StructuredProperties[0].QualifiedName = %q", tc.StructuredProperties[0].QualifiedName)
+	}
+
+	// Incidents
+	if tc.ActiveIncidents != 1 {
+		t.Errorf("ActiveIncidents = %d, want 1", tc.ActiveIncidents)
+	}
+	if len(tc.Incidents) != 1 {
+		t.Fatalf("Incidents len = %d, want 1", len(tc.Incidents))
+	}
+	if tc.Incidents[0].Title != "Down" {
+		t.Errorf("Incidents[0].Title = %q", tc.Incidents[0].Title)
+	}
+
+	// Data contract
+	if tc.DataContract == nil {
+		t.Fatal("DataContract is nil")
+	}
+	if tc.DataContract.Status != "PASSING" {
+		t.Errorf("DataContract.Status = %q", tc.DataContract.Status)
+	}
+}
+
+func TestGetTableContext_V13Compat(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockDataHubClient{
+		getEntityFunc: func(_ context.Context, _ string) (*types.Entity, error) {
+			return &types.Entity{
+				URN:         "urn:li:dataset:test",
+				Description: "legacy table",
+				// No v1.4 fields — simulates DataHub 1.3.x
+			}, nil
+		},
+	}
+
+	adapter, _ := NewWithClient(Config{}, mock)
+	tc, err := adapter.GetTableContext(ctx, semantic.TableIdentifier{Schema: "public", Table: "users"})
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+
+	if len(tc.StructuredProperties) != 0 {
+		t.Errorf("expected no structured properties, got %d", len(tc.StructuredProperties))
+	}
+	if tc.ActiveIncidents != 0 {
+		t.Errorf("expected 0 active incidents, got %d", tc.ActiveIncidents)
+	}
+	if tc.DataContract != nil {
+		t.Errorf("expected nil data contract, got %v", tc.DataContract)
+	}
 }
 
 // Verify Adapter implements interfaces.
