@@ -311,6 +311,25 @@ func (w *spyWriter) CreateCuratedQuery(_ context.Context, urn, name, sqlText, _ 
 	return "urn:li:query:generated-id", nil
 }
 
+func (w *spyWriter) UpsertStructuredProperties(_ context.Context, urn, propertyURN string, _ []any) error {
+	return w.recordAndCheck("UpsertStructuredProperties", urn, propertyURN, "")
+}
+
+func (w *spyWriter) RemoveStructuredProperty(_ context.Context, urn, propertyURN string) error {
+	return w.recordAndCheck("RemoveStructuredProperty", urn, propertyURN, "")
+}
+
+func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc string) (string, error) {
+	if err := w.recordAndCheck("RaiseIncident", entityURN, title, desc); err != nil {
+		return "", err
+	}
+	return "urn:li:incident:generated-id", nil
+}
+
+func (w *spyWriter) ResolveIncident(_ context.Context, incidentURN, message string) error {
+	return w.recordAndCheck("ResolveIncident", incidentURN, message, "")
+}
+
 var _ DataHubWriter = (*spyWriter)(nil)
 
 // ---------------------------------------------------------------------------
@@ -2577,14 +2596,14 @@ func TestExecuteChanges_UnknownType(t *testing.T) {
 	writer := &spyWriter{}
 	tk := &Toolkit{datahubWriter: writer}
 
-	// An unrecognized change type should be a no-op in executeChanges
-	// (the switch statement falls through without error)
+	// An unrecognized change type should return an error
 	changes := []ApplyChange{
 		{ChangeType: "unknown_type", Detail: "detail"},
 	}
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported change type")
 	assert.Empty(t, writer.WriteCalls, "unknown type should not produce writer calls")
 }
 
@@ -3065,4 +3084,139 @@ func TestRegisterPrompts(t *testing.T) {
 		require.True(t, ok)
 		assert.NotEmpty(t, textContent.Text)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// DataHub 1.4.x change types
+// ---------------------------------------------------------------------------
+
+func TestHandleApply_StructuredProperties(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes: []ApplyChange{
+			{ChangeType: "set_structured_property", Target: "io.acryl.privacy.retentionTime", Detail: "90"},
+			{ChangeType: "remove_structured_property", Target: "urn:li:structuredProperty:io.acryl.old", Detail: "no longer needed"},
+		},
+		InsightIDs: []string{"ins-1"},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
+
+	require.Len(t, writer.WriteCalls, 2)
+	assert.Equal(t, "UpsertStructuredProperties", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:structuredProperty:io.acryl.privacy.retentionTime", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "RemoveStructuredProperty", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:structuredProperty:io.acryl.old", writer.WriteCalls[1].Arg1)
+}
+
+func TestHandleApply_Incidents(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes: []ApplyChange{
+			{ChangeType: "raise_incident", Target: "Pipeline failure", Detail: "ETL job crashed"},
+			{ChangeType: "resolve_incident", Target: "urn:li:incident:abc123", Detail: "Fixed the ETL job"},
+		},
+		InsightIDs: []string{"ins-1"},
+	}
+
+	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
+
+	require.Len(t, writer.WriteCalls, 2)
+	assert.Equal(t, "RaiseIncident", writer.WriteCalls[0].Method)
+	assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
+	assert.Equal(t, "Pipeline failure", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "ETL job crashed", writer.WriteCalls[0].Arg2)
+	assert.Equal(t, "ResolveIncident", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:incident:abc123", writer.WriteCalls[1].URN)
+	assert.Equal(t, "Fixed the ETL job", writer.WriteCalls[1].Arg1)
+}
+
+func TestParsePropertyValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		detail  string
+		want    int
+		wantErr bool
+	}{
+		{name: "plain string", detail: "PII", want: 1},
+		{name: "json array", detail: `["PII", "sensitive"]`, want: 2},
+		{name: "json number", detail: "90", want: 1},
+		{name: "empty", detail: "", wantErr: true},
+		{name: "whitespace only", detail: "  ", wantErr: true},
+		{name: "invalid json array", detail: `[invalid`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			values, err := parsePropertyValues(tt.detail)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, values, tt.want)
+		})
+	}
+
+	t.Run("json number preserves int type", func(t *testing.T) {
+		values, err := parsePropertyValues("90")
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(int64)
+		assert.True(t, ok, "expected int64, got %T", values[0])
+		assert.Equal(t, int64(90), values[0])
+	})
+
+	t.Run("json float preserves float type", func(t *testing.T) {
+		values, err := parsePropertyValues("3.14")
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(float64)
+		assert.True(t, ok, "expected float64, got %T", values[0])
+		assert.InDelta(t, 3.14, values[0], 0.001)
+	})
+
+	t.Run("json array preserves int type for integers", func(t *testing.T) {
+		values, err := parsePropertyValues(`[90, "PII"]`)
+		require.NoError(t, err)
+		require.Len(t, values, 2)
+		_, ok := values[0].(int64)
+		assert.True(t, ok, "expected int64 in array, got %T", values[0])
+		assert.Equal(t, int64(90), values[0])
+		assert.Equal(t, "PII", values[1])
+	})
+
+	t.Run("json array preserves float type for decimals", func(t *testing.T) {
+		values, err := parsePropertyValues(`[3.14]`)
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(float64)
+		assert.True(t, ok, "expected float64 in array, got %T", values[0])
+		assert.InDelta(t, 3.14, values[0], 0.001)
+	})
+}
+
+func TestNormalizeStructuredPropertyURN(t *testing.T) {
+	assert.Equal(t, "urn:li:structuredProperty:foo.bar", normalizeStructuredPropertyURN("foo.bar"))
+	assert.Equal(t, "urn:li:structuredProperty:foo.bar", normalizeStructuredPropertyURN("urn:li:structuredProperty:foo.bar"))
 }

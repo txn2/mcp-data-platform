@@ -250,16 +250,20 @@ func (s *Sanitizer) SanitizeTableContext(tc *TableContext) *TableContext {
 	}
 
 	return &TableContext{
-		URN:              tc.URN, // URN is a system identifier, keep as-is
-		Description:      s.SanitizeDescription(tc.Description),
-		Owners:           s.sanitizeOwners(tc.Owners),
-		Tags:             s.SanitizeTags(tc.Tags),
-		GlossaryTerms:    s.sanitizeGlossaryTerms(tc.GlossaryTerms),
-		Domain:           s.sanitizeDomain(tc.Domain),
-		Deprecation:      s.sanitizeDeprecation(tc.Deprecation),
-		CustomProperties: s.sanitizeProperties(tc.CustomProperties),
-		QualityScore:     tc.QualityScore,
-		LastModified:     tc.LastModified,
+		URN:                  tc.URN, // URN is a system identifier, keep as-is
+		Description:          s.SanitizeDescription(tc.Description),
+		Owners:               s.sanitizeOwners(tc.Owners),
+		Tags:                 s.SanitizeTags(tc.Tags),
+		GlossaryTerms:        s.sanitizeGlossaryTerms(tc.GlossaryTerms),
+		Domain:               s.sanitizeDomain(tc.Domain),
+		Deprecation:          s.sanitizeDeprecation(tc.Deprecation),
+		CustomProperties:     s.sanitizeProperties(tc.CustomProperties),
+		QualityScore:         tc.QualityScore,
+		LastModified:         tc.LastModified,
+		StructuredProperties: s.sanitizeStructuredProperties(tc.StructuredProperties),
+		ActiveIncidents:      tc.ActiveIncidents,
+		Incidents:            s.sanitizeIncidents(tc.Incidents),
+		DataContract:         tc.DataContract, // Contract status is system-generated, pass through
 	}
 }
 
@@ -353,6 +357,57 @@ func (s *Sanitizer) sanitizeProperties(props map[string]string) map[string]strin
 
 	if len(result) == 0 {
 		return nil
+	}
+	return result
+}
+
+// sanitizeStructuredProperties sanitizes structured property display names and string values.
+func (s *Sanitizer) sanitizeStructuredProperties(props []StructuredProperty) []StructuredProperty {
+	if len(props) == 0 {
+		return nil
+	}
+	result := make([]StructuredProperty, len(props))
+	for i, p := range props {
+		result[i] = StructuredProperty{
+			QualifiedName: p.QualifiedName, // System identifier
+			DisplayName:   s.SanitizeString(p.DisplayName),
+			Values:        s.sanitizePropertyValues(p.Values),
+		}
+	}
+	return result
+}
+
+// sanitizePropertyValues sanitizes string values in a property value slice.
+func (s *Sanitizer) sanitizePropertyValues(values []any) []any {
+	if len(values) == 0 {
+		return values
+	}
+	result := make([]any, len(values))
+	for i, v := range values {
+		if str, ok := v.(string); ok {
+			result[i] = s.SanitizeString(str)
+		} else {
+			result[i] = v
+		}
+	}
+	return result
+}
+
+// sanitizeIncidents sanitizes incident titles and descriptions.
+func (s *Sanitizer) sanitizeIncidents(incidents []Incident) []Incident {
+	if len(incidents) == 0 {
+		return nil
+	}
+	result := make([]Incident, len(incidents))
+	for i, inc := range incidents {
+		result[i] = Incident{
+			URN:         inc.URN, // System identifier
+			Type:        inc.Type,
+			Title:       s.SanitizeString(inc.Title),
+			Description: s.SanitizeDescription(inc.Description),
+			State:       inc.State,
+			Created:     inc.Created,
+		}
 	}
 	return result
 }

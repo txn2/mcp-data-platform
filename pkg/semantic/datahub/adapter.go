@@ -365,16 +365,21 @@ func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableCont
 	a.logInjectionAttempts(entity)
 
 	tc := &semantic.TableContext{
-		URN:              entity.URN,
-		Description:      entity.Description,
-		Owners:           convertOwners(entity.Owners),
-		Tags:             convertTags(entity.Tags),
-		GlossaryTerms:    convertGlossaryTerms(entity.GlossaryTerms),
-		Domain:           convertDomain(entity.Domain),
-		Deprecation:      convertDeprecation(entity.Deprecation),
-		CustomProperties: convertProperties(entity.Properties),
-		LastModified:     convertTimestamp(entity.LastModified),
+		URN:                  entity.URN,
+		Description:          entity.Description,
+		Owners:               convertOwners(entity.Owners),
+		Tags:                 convertTags(entity.Tags),
+		GlossaryTerms:        convertGlossaryTerms(entity.GlossaryTerms),
+		Domain:               convertDomain(entity.Domain),
+		Deprecation:          convertDeprecation(entity.Deprecation),
+		CustomProperties:     convertProperties(entity.Properties),
+		LastModified:         convertTimestamp(entity.LastModified),
+		StructuredProperties: convertStructuredProperties(entity.StructuredProperties),
+		DataContract:         convertDataContract(entity.DataContract),
 	}
+
+	// Populate incidents from enriched entity response (DataHub 1.4.x)
+	tc.ActiveIncidents, tc.Incidents = convertIncidents(entity.ActiveIncidents)
 
 	return tc
 }
@@ -410,6 +415,26 @@ func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
 	for key, value := range entity.Properties {
 		if str, ok := value.(string); ok {
 			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("properties[%s]", key), str)
+		}
+	}
+
+	// Check structured property display names and string values (DataHub 1.4.x)
+	for i, sp := range entity.StructuredProperties {
+		if sp.Definition != nil {
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].displayName", i), sp.Definition.DisplayName)
+		}
+		for j, v := range sp.Values {
+			if str, ok := v.(string); ok {
+				logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].values[%d]", i, j), str)
+			}
+		}
+	}
+
+	// Check incident titles and descriptions (DataHub 1.4.x)
+	if entity.ActiveIncidents != nil {
+		for i, inc := range entity.ActiveIncidents.Incidents {
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].title", i), inc.Title)
+			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].description", i), inc.Description)
 		}
 	}
 }
@@ -595,6 +620,66 @@ func extractFieldName(fieldPath string) string {
 		return fieldPath
 	}
 	return parts[len(parts)-1]
+}
+
+// convertStructuredProperties converts DataHub structured properties to semantic types.
+func convertStructuredProperties(props []types.StructuredPropertyValue) []semantic.StructuredProperty {
+	if len(props) == 0 {
+		return nil
+	}
+	result := make([]semantic.StructuredProperty, len(props))
+	for i, p := range props {
+		sp := semantic.StructuredProperty{
+			Values: p.Values,
+		}
+		if p.Definition != nil {
+			sp.QualifiedName = p.Definition.QualifiedName
+			sp.DisplayName = p.Definition.DisplayName
+		}
+		result[i] = sp
+	}
+	return result
+}
+
+// convertIncidents converts DataHub incident result to semantic types.
+// Returns (total, incidents) where total comes from ir.Total and may exceed
+// len(incidents) if DataHub paginates or truncates the incident list.
+func convertIncidents(ir *types.IncidentResult) (int, []semantic.Incident) {
+	if ir == nil || ir.Total == 0 {
+		return 0, nil
+	}
+	incidents := make([]semantic.Incident, len(ir.Incidents))
+	for i, inc := range ir.Incidents {
+		incidents[i] = semantic.Incident{
+			URN:         inc.URN,
+			Type:        inc.Type,
+			Title:       inc.Title,
+			Description: inc.Description,
+			State:       inc.State,
+			Created:     inc.Created,
+		}
+	}
+	return ir.Total, incidents
+}
+
+// convertDataContract converts DataHub data contract to semantic types.
+func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
+	if dc == nil {
+		return nil
+	}
+	result := &semantic.DataContractStatus{
+		Status: dc.Status,
+	}
+	if len(dc.AssertionResults) > 0 {
+		result.AssertionResults = make([]semantic.AssertionResult, len(dc.AssertionResults))
+		for i, ar := range dc.AssertionResults {
+			result.AssertionResults[i] = semantic.AssertionResult{
+				Type:       ar.Type,
+				ResultType: ar.ResultType,
+			}
+		}
+	}
+	return result
 }
 
 // Verify interface compliance.

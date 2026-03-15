@@ -210,6 +210,20 @@ func (*mockDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ strin
 	return "", nil
 }
 
+func (*mockDataHubWriter) UpsertStructuredProperties(_ context.Context, _, _ string, _ []any) error {
+	return nil
+}
+
+func (*mockDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (*mockDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+
+func (*mockDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
+
 // Verify interface compliance.
 var _ knowledge.DataHubWriter = (*mockDataHubWriter)(nil)
 

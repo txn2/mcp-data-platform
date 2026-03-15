@@ -60,15 +60,15 @@ var captureInsightSchema = json.RawMessage(`{
         "properties": {
           "action_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query"
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident"
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id'). For add_documentation, this is the URL. For remove_tag, this is ignored. Leave empty for dataset-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions. For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for dataset-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove, glossary term name or URN, quality issue description, documentation link description, or query name (for add_curated_query)"
+            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array of values (for set_structured_property), removal reason (for remove_structured_property), optional description (for raise_incident), or resolution message (for resolve_incident)"
           },
           "query_sql": {
             "type": "string",
@@ -115,15 +115,15 @@ var applyKnowledgeSchema = json.RawMessage(`{
         "properties": {
           "change_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only."
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only. Structured properties and incidents require DataHub 1.4.x."
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (e.g., 'column:location_type_id', dataset-only). For add_documentation, this is the URL. For remove_tag, this is ignored. Leave empty for entity-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For remove_tag, this is ignored. Leave empty for entity-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'), tag URN to remove (e.g., 'urn:li:tag:QualityIssue'), glossary term name or URN, quality issue description, documentation link description, or query name (for add_curated_query)"
+            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array (for set_structured_property), removal reason (for remove_structured_property), optional description (for raise_incident), or resolution message (for resolve_incident)"
           },
           "query_sql": {
             "type": "string",

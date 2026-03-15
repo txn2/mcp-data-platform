@@ -148,7 +148,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Title: "Apply Knowledge",
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
-				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query. " +
+				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
+				"set_structured_property, remove_structured_property, raise_incident, resolve_incident. " +
 				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
 				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
 				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
@@ -157,7 +158,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
 				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
 				"For add_documentation, target is the URL, detail is the link description. " +
-				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional.",
+				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional. " +
+				"For set_structured_property, target is the property qualified name or URN, detail is the value or JSON array. " +
+				"For remove_structured_property, target is the property qualified name or URN. " +
+				"For raise_incident, target is the incident title, detail is the optional description. " +
+				"For resolve_incident, target is the incident URN, detail is the resolution message. " +
+				"Structured properties and incidents require DataHub 1.4.x.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
@@ -532,14 +538,50 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 	case string(actionFlagQualityIssue):
 		err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
 	case string(actionAddCuratedQuery):
-		queryURN, qErr := t.datahubWriter.CreateCuratedQuery(ctx, urn, c.Detail, c.QuerySQL, c.QueryDescription)
-		if qErr != nil {
-			return "", fmt.Errorf("curated query: %w", qErr)
-		}
-		return queryURN, nil
+		return t.dispatchCuratedQuery(ctx, urn, c)
+	default:
+		return t.dispatchV14Change(ctx, urn, c)
 	}
 	if err != nil {
-		return "", fmt.Errorf("executing %s: %w", c.ChangeType, err)
+		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+	}
+	return "", nil
+}
+
+// dispatchCuratedQuery handles add_curated_query changes.
+func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	queryURN, err := t.datahubWriter.CreateCuratedQuery(ctx, urn, c.Detail, c.QuerySQL, c.QueryDescription)
+	if err != nil {
+		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+	}
+	return queryURN, nil
+}
+
+// dispatchV14Change handles DataHub 1.4.x change types.
+func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	var err error
+	switch c.ChangeType {
+	case string(actionSetStructuredProperty):
+		values, parseErr := parsePropertyValues(c.Detail)
+		if parseErr != nil {
+			return "", fmt.Errorf("parsing property values: %w", parseErr)
+		}
+		err = t.datahubWriter.UpsertStructuredProperties(ctx, urn, normalizeStructuredPropertyURN(c.Target), values)
+	case string(actionRemoveStructuredProperty):
+		err = t.datahubWriter.RemoveStructuredProperty(ctx, urn, normalizeStructuredPropertyURN(c.Target))
+	case string(actionRaiseIncident):
+		incidentURN, iErr := t.datahubWriter.RaiseIncident(ctx, urn, c.Target, c.Detail)
+		if iErr != nil {
+			return "", fmt.Errorf(errFmtExecuting, c.ChangeType, iErr)
+		}
+		return incidentURN, nil
+	case string(actionResolveIncident):
+		err = t.datahubWriter.ResolveIncident(ctx, c.Target, c.Detail)
+	default:
+		return "", fmt.Errorf("unsupported change type: %s", c.ChangeType)
+	}
+	if err != nil {
+		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
 	}
 	return "", nil
 }
@@ -562,10 +604,67 @@ func normalizeGlossaryTermURN(term string) string {
 	return "urn:li:glossaryTerm:" + term
 }
 
+// errFmtExecuting is the format string for change dispatch errors.
+const errFmtExecuting = "executing %s: %w"
+
 // qualityIssueTagURN is the single fixed DataHub tag applied by flag_quality_issue.
 // Instead of encoding quality issue details into dynamic tag names (which pollutes
 // the tag namespace), the detail text is stored as a knowledge insight for admin review.
 const qualityIssueTagURN = "urn:li:tag:QualityIssue"
+
+// normalizeStructuredPropertyURN ensures a property name is a full DataHub URN.
+func normalizeStructuredPropertyURN(name string) string {
+	if strings.HasPrefix(name, "urn:li:structuredProperty:") {
+		return name
+	}
+	return "urn:li:structuredProperty:" + name
+}
+
+// parsePropertyValues parses the detail field into property values.
+// Accepts JSON arrays (e.g., [90, "PII"]) or single values (e.g., "90").
+func parsePropertyValues(detail string) ([]any, error) {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return nil, fmt.Errorf("detail is required for structured property values")
+	}
+
+	// Try parsing as JSON array first, using UseNumber to preserve int64/float64 types
+	if strings.HasPrefix(detail, "[") {
+		var values []any
+		dec := json.NewDecoder(strings.NewReader(detail))
+		dec.UseNumber()
+		if err := dec.Decode(&values); err != nil {
+			return nil, fmt.Errorf("invalid JSON array: %w", err)
+		}
+		// Convert json.Number to int64 or float64
+		for i, v := range values {
+			if n, ok := v.(json.Number); ok {
+				values[i] = convertJSONNumber(n)
+			}
+		}
+		return values, nil
+	}
+
+	// Try parsing as JSON number, preserving numeric type
+	var num json.Number
+	if err := json.Unmarshal([]byte(detail), &num); err == nil {
+		return []any{convertJSONNumber(num)}, nil
+	}
+
+	// Treat as a plain string value
+	return []any{detail}, nil
+}
+
+// convertJSONNumber converts a json.Number to int64 or float64, preferring int64.
+func convertJSONNumber(n json.Number) any {
+	if i, err := n.Int64(); err == nil {
+		return i
+	}
+	if f, err := n.Float64(); err == nil {
+		return f
+	}
+	return n.String()
+}
 
 // executeUpdateDescription routes description updates to dataset-level or column-level
 // based on the target field. A target of "column:<fieldPath>" routes to column description.

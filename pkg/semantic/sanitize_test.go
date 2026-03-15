@@ -566,3 +566,131 @@ func BenchmarkDetectInjection(b *testing.B) {
 		s.DetectInjection(input)
 	}
 }
+
+func TestSanitizer_SanitizeStructuredProperties(t *testing.T) {
+	s := NewSanitizer(DefaultSanitizeConfig())
+
+	t.Run("nil", func(t *testing.T) {
+		result := s.sanitizeStructuredProperties(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		result := s.sanitizeStructuredProperties([]StructuredProperty{})
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("sanitizes display name and string values", func(t *testing.T) {
+		input := []StructuredProperty{
+			{
+				QualifiedName: "retention.days",
+				DisplayName:   "Retention Days",
+				Values:        []any{"normal value", float64(90)},
+			},
+		}
+		result := s.sanitizeStructuredProperties(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 property, got %d", len(result))
+		}
+		if result[0].QualifiedName != "retention.days" {
+			t.Errorf("QualifiedName should pass through: %q", result[0].QualifiedName)
+		}
+		if result[0].DisplayName != "Retention Days" {
+			t.Errorf("DisplayName = %q", result[0].DisplayName)
+		}
+		if len(result[0].Values) != 2 {
+			t.Errorf("Values len = %d, want 2", len(result[0].Values))
+		}
+		// String values should be sanitized
+		if str, ok := result[0].Values[0].(string); !ok || str != "normal value" {
+			t.Errorf("Values[0] = %v", result[0].Values[0])
+		}
+		// Numeric values should pass through
+		if num, ok := result[0].Values[1].(float64); !ok || num != 90 {
+			t.Errorf("Values[1] = %v", result[0].Values[1])
+		}
+	})
+}
+
+func TestSanitizer_SanitizeIncidents(t *testing.T) {
+	s := NewSanitizer(DefaultSanitizeConfig())
+
+	t.Run("nil", func(t *testing.T) {
+		result := s.sanitizeIncidents(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		result := s.sanitizeIncidents([]Incident{})
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("sanitizes title and description", func(t *testing.T) {
+		input := []Incident{
+			{
+				URN:         "urn:li:incident:1",
+				Type:        "OPERATIONAL",
+				Title:       "Pipeline down",
+				Description: "The ETL pipeline crashed",
+				State:       "ACTIVE",
+				Created:     1700000000000,
+			},
+		}
+		result := s.sanitizeIncidents(input)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 incident, got %d", len(result))
+		}
+		if result[0].URN != "urn:li:incident:1" {
+			t.Errorf("URN should pass through: %q", result[0].URN)
+		}
+		if result[0].Title != "Pipeline down" {
+			t.Errorf("Title = %q", result[0].Title)
+		}
+		if result[0].Created != 1700000000000 {
+			t.Errorf("Created = %d", result[0].Created)
+		}
+	})
+}
+
+func TestSanitizePropertyValues(t *testing.T) {
+	s := NewSanitizer(DefaultSanitizeConfig())
+
+	t.Run("nil values", func(t *testing.T) {
+		result := s.sanitizePropertyValues(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty values", func(t *testing.T) {
+		result := s.sanitizePropertyValues([]any{})
+		if len(result) != 0 {
+			t.Errorf("expected empty, got %v", result)
+		}
+	})
+
+	t.Run("mixed types", func(t *testing.T) {
+		input := []any{"text", float64(42), true}
+		result := s.sanitizePropertyValues(input)
+		if len(result) != 3 {
+			t.Fatalf("expected 3, got %d", len(result))
+		}
+		if str, ok := result[0].(string); !ok || str != "text" {
+			t.Errorf("result[0] = %v", result[0])
+		}
+		if num, ok := result[1].(float64); !ok || num != 42 {
+			t.Errorf("result[1] = %v", result[1])
+		}
+		if b, ok := result[2].(bool); !ok || !b {
+			t.Errorf("result[2] = %v", result[2])
+		}
+	})
+}
