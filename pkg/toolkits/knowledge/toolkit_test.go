@@ -3195,6 +3195,25 @@ func TestParsePropertyValues(t *testing.T) {
 		assert.True(t, ok, "expected float64, got %T", values[0])
 		assert.InDelta(t, 3.14, values[0], 0.001)
 	})
+
+	t.Run("json array preserves int type for integers", func(t *testing.T) {
+		values, err := parsePropertyValues(`[90, "PII"]`)
+		require.NoError(t, err)
+		require.Len(t, values, 2)
+		_, ok := values[0].(int64)
+		assert.True(t, ok, "expected int64 in array, got %T", values[0])
+		assert.Equal(t, int64(90), values[0])
+		assert.Equal(t, "PII", values[1])
+	})
+
+	t.Run("json array preserves float type for decimals", func(t *testing.T) {
+		values, err := parsePropertyValues(`[3.14]`)
+		require.NoError(t, err)
+		require.Len(t, values, 1)
+		_, ok := values[0].(float64)
+		assert.True(t, ok, "expected float64 in array, got %T", values[0])
+		assert.InDelta(t, 3.14, values[0], 0.001)
+	})
 }
 
 func TestNormalizeStructuredPropertyURN(t *testing.T) {

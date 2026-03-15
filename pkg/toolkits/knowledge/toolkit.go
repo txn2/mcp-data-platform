@@ -628,11 +628,19 @@ func parsePropertyValues(detail string) ([]any, error) {
 		return nil, fmt.Errorf("detail is required for structured property values")
 	}
 
-	// Try parsing as JSON array first
+	// Try parsing as JSON array first, using UseNumber to preserve int64/float64 types
 	if strings.HasPrefix(detail, "[") {
 		var values []any
-		if err := json.Unmarshal([]byte(detail), &values); err != nil {
+		dec := json.NewDecoder(strings.NewReader(detail))
+		dec.UseNumber()
+		if err := dec.Decode(&values); err != nil {
 			return nil, fmt.Errorf("invalid JSON array: %w", err)
+		}
+		// Convert json.Number to int64 or float64
+		for i, v := range values {
+			if n, ok := v.(json.Number); ok {
+				values[i] = convertJSONNumber(n)
+			}
 		}
 		return values, nil
 	}
@@ -640,17 +648,22 @@ func parsePropertyValues(detail string) ([]any, error) {
 	// Try parsing as JSON number, preserving numeric type
 	var num json.Number
 	if err := json.Unmarshal([]byte(detail), &num); err == nil {
-		if i, iErr := num.Int64(); iErr == nil {
-			return []any{i}, nil
-		}
-		if f, fErr := num.Float64(); fErr == nil {
-			return []any{f}, nil
-		}
-		return []any{num.String()}, nil
+		return []any{convertJSONNumber(num)}, nil
 	}
 
 	// Treat as a plain string value
 	return []any{detail}, nil
+}
+
+// convertJSONNumber converts a json.Number to int64 or float64, preferring int64.
+func convertJSONNumber(n json.Number) any {
+	if i, err := n.Int64(); err == nil {
+		return i
+	}
+	if f, err := n.Float64(); err == nil {
+		return f
+	}
+	return n.String()
 }
 
 // executeUpdateDescription routes description updates to dataset-level or column-level
