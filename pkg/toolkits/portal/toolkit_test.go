@@ -824,12 +824,12 @@ func TestResolveOwnerEmail(t *testing.T) {
 	})
 	assert.Equal(t, "test@example.com", resolveOwnerEmail(ctx))
 
-	// Empty email
+	// Empty email falls back to "anonymous"
 	ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{})
-	assert.Equal(t, "", resolveOwnerEmail(ctx))
+	assert.Equal(t, "anonymous", resolveOwnerEmail(ctx))
 
-	// No platform context
-	assert.Equal(t, "", resolveOwnerEmail(context.Background()))
+	// No platform context falls back to "anonymous"
+	assert.Equal(t, "anonymous", resolveOwnerEmail(context.Background()))
 }
 
 func TestManageArtifact_SoftDeleteError(t *testing.T) {

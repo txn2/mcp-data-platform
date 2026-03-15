@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -226,8 +227,8 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   asset.ContentType,
 		SizeBytes:     int64(len(data)),
-		CreatedBy:     "admin",
-		ChangeSummary: "Content updated (admin)",
+		CreatedBy:     adminUserEmail(r),
+		ChangeSummary: adminChangeSummary(r, "Content updated (admin)"),
 	}
 
 	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
@@ -461,7 +462,7 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   targetVer.ContentType,
 		SizeBytes:     int64(len(data)),
-		CreatedBy:     "admin",
+		CreatedBy:     adminUserEmail(r),
 		ChangeSummary: fmt.Sprintf("Reverted from v%d (admin)", versionNum),
 	}
 	assignedVersion, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
@@ -507,6 +508,28 @@ func cleanupOrphanedS3(ctx context.Context, s3Client portal.S3Client, bucket, ke
 		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
 			"bucket", bucket, "key", key, "error", err)
 	}
+}
+
+// adminUserEmail extracts the authenticated admin user's email from the request
+// context, falling back to "admin" if no user or email is set.
+func adminUserEmail(r *http.Request) string {
+	if user := GetUser(r.Context()); user != nil && user.Email != "" {
+		return user.Email
+	}
+	return "admin"
+}
+
+// adminChangeSummary reads the X-Change-Summary header from the request.
+// If the header is empty or whitespace-only, it returns the provided fallback.
+// The result is truncated to the portal max change summary length.
+func adminChangeSummary(r *http.Request, fallback string) string {
+	if s := strings.TrimSpace(r.Header.Get("X-Change-Summary")); s != "" {
+		if len(s) > portal.MaxChangeSummaryLength {
+			return s[:portal.MaxChangeSummaryLength]
+		}
+		return s
+	}
+	return fallback
 }
 
 // adminIntParam extracts an integer query parameter with a default value.

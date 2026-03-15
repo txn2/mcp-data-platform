@@ -393,8 +393,8 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   asset.ContentType,
 		SizeBytes:     int64(len(data)),
-		CreatedBy:     user.UserID,
-		ChangeSummary: "Content updated",
+		CreatedBy:     user.Email,
+		ChangeSummary: changeSummaryFromHeader(r, "Content updated"),
 	}
 
 	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
@@ -752,7 +752,7 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assignedVersion, revertErr := h.revertContentToVersion(r.Context(), asset, id, targetVer, user.UserID)
+	assignedVersion, revertErr := h.revertContentToVersion(r.Context(), asset, id, targetVer, user.Email)
 	if revertErr != nil {
 		writeError(w, revertErr.code, revertErr.msg)
 		return
@@ -769,7 +769,7 @@ type httpError struct {
 	msg  string
 }
 
-func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, assetID string, targetVer *AssetVersion, userID string) (int, *httpError) {
+func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, assetID string, targetVer *AssetVersion, createdBy string) (int, *httpError) {
 	data, _, err := h.deps.S3Client.GetObject(ctx, targetVer.S3Bucket, targetVer.S3Key)
 	if err != nil {
 		return 0, &httpError{http.StatusInternalServerError, "failed to read version content"}
@@ -790,7 +790,7 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 		S3Bucket:      asset.S3Bucket,
 		ContentType:   targetVer.ContentType,
 		SizeBytes:     int64(len(data)),
-		CreatedBy:     userID,
+		CreatedBy:     createdBy,
 		ChangeSummary: fmt.Sprintf("Reverted from v%d", targetVer.Version),
 	}
 	assignedVersion, err := h.deps.VersionStore.CreateVersion(ctx, av)
@@ -843,7 +843,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	share, buildErr := buildShare(assetID, user.UserID, req)
+	share, buildErr := buildShare(assetID, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
 		return
@@ -863,7 +863,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildShare validates the request and constructs a Share, returning an error for invalid input.
-func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
+func buildShare(assetID, createdBy string, req createShareRequest) (Share, error) {
 	token, err := generateToken()
 	if err != nil {
 		return Share{}, fmt.Errorf("failed to generate share token")
@@ -893,7 +893,7 @@ func buildShare(assetID, userID string, req createShareRequest) (Share, error) {
 		ID:               uuid.New().String(),
 		AssetID:          assetID,
 		Token:            token,
-		CreatedBy:        userID,
+		CreatedBy:        createdBy,
 		SharedWithUserID: req.SharedWithUserID,
 		SharedWithEmail:  email,
 		Permission:       perm,
@@ -1197,6 +1197,19 @@ func intParam(r *http.Request, name string, fallback int) int {
 	return n
 }
 
+// changeSummaryFromHeader reads the X-Change-Summary header from the request.
+// If the header is empty or whitespace-only, it returns the provided fallback.
+// The result is truncated to MaxChangeSummaryLength characters.
+func changeSummaryFromHeader(r *http.Request, fallback string) string {
+	if s := strings.TrimSpace(r.Header.Get("X-Change-Summary")); s != "" {
+		if len(s) > MaxChangeSummaryLength {
+			return s[:MaxChangeSummaryLength]
+		}
+		return s
+	}
+	return fallback
+}
+
 // tokenBytes is the number of random bytes used for share tokens (256 bits).
 const tokenBytes = 32
 
@@ -1385,7 +1398,7 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 			S3Bucket:      h.deps.S3Bucket,
 			ContentType:   contentType,
 			SizeBytes:     int64(len(data)),
-			CreatedBy:     user.UserID,
+			CreatedBy:     user.Email,
 			ChangeSummary: "Copied from " + asset.ID,
 		}
 		if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {

@@ -100,9 +100,11 @@ type mockAdminVersionStore struct {
 	getErr        error
 	latestVer     *portal.AssetVersion
 	latestErr     error
+	lastCreated   *portal.AssetVersion // captures the most recent CreateVersion call
 }
 
-func (m *mockAdminVersionStore) CreateVersion(_ context.Context, _ portal.AssetVersion) (int, error) {
+func (m *mockAdminVersionStore) CreateVersion(_ context.Context, av portal.AssetVersion) (int, error) {
+	m.lastCreated = &av
 	return m.createVersion, m.createErr
 }
 
@@ -497,6 +499,79 @@ func TestUpdateAdminAssetContentSuccess(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", resp.Status)
+}
+
+func TestUpdateAdminAssetContentChangeSummaryHeader(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	t.Run("with header", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Change-Summary", "Admin fix: corrected data table")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Admin fix: corrected data table", vs.lastCreated.ChangeSummary)
+	})
+
+	t.Run("without header uses default", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Content updated (admin)", vs.lastCreated.ChangeSummary)
+	})
+
+	t.Run("long header truncated", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		longSummary := strings.Repeat("x", portal.MaxChangeSummaryLength+100)
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Change-Summary", longSummary)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, portal.MaxChangeSummaryLength, len(vs.lastCreated.ChangeSummary))
+	})
+
+	t.Run("whitespace-only header uses default", func(t *testing.T) {
+		vs := &mockAdminVersionStore{createVersion: 2}
+		h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, vs, &mockAdminS3Client{})
+
+		req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/admin/assets/a1/content",
+			strings.NewReader("updated content"))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Change-Summary", "   ")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, vs.lastCreated)
+		assert.Equal(t, "Content updated (admin)", vs.lastCreated.ChangeSummary)
+	})
 }
 
 func TestUpdateAdminAssetContentNoVersionStore(t *testing.T) {
@@ -1408,6 +1483,23 @@ func TestAdminIntParam(t *testing.T) {
 			assert.Equal(t, tt.want, adminIntParam(req, tt.param, tt.defaultVal))
 		})
 	}
+}
+
+func TestAdminUserEmail(t *testing.T) {
+	t.Run("with email", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "uid", Email: "admin@example.com"})
+		req := httptest.NewRequestWithContext(ctx, "GET", "/", http.NoBody)
+		assert.Equal(t, "admin@example.com", adminUserEmail(req))
+	})
+	t.Run("no email", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "uid"})
+		req := httptest.NewRequestWithContext(ctx, "GET", "/", http.NoBody)
+		assert.Equal(t, "admin", adminUserEmail(req))
+	})
+	t.Run("no user", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+		assert.Equal(t, "admin", adminUserEmail(req))
+	})
 }
 
 func TestExtensionForContentType(t *testing.T) {

@@ -144,12 +144,15 @@ export function useDeleteAsset() {
 export function useUpdateAssetContent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, content }: { id: string; content: string }) =>
-      apiFetch(`/assets/${id}/content`, {
+    mutationFn: ({ id, content, changeSummary }: { id: string; content: string; changeSummary?: string }) => {
+      const headers: Record<string, string> = { "Content-Type": "text/plain" };
+      if (changeSummary) headers["X-Change-Summary"] = changeSummary;
+      return apiFetch(`/assets/${id}/content`, {
         method: "PUT",
-        headers: { "Content-Type": "text/plain" },
+        headers,
         body: content,
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["asset-content"] });
       void qc.invalidateQueries({ queryKey: ["asset"] });

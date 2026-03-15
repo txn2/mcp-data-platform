@@ -120,6 +120,7 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		"ImplementorName":    h.deps.ImplementorName,
 		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
 		"ImplementorURL":     h.deps.ImplementorURL,
+		"Version":            asset.CurrentVersion,
 		"ExpiresAtISO":       expiresAtISO,
 		"HideExpiration":     share.HideExpiration,
 		"NoticeText":         share.NoticeText,
