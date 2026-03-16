@@ -418,7 +418,14 @@ func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
 		}
 	}
 
-	// Check structured property display names and string values (DataHub 1.4.x)
+	a.logInjectionAttemptsV14(entity)
+}
+
+// logInjectionAttemptsV14 checks DataHub 1.4.x fields for prompt injection attempts.
+func (a *Adapter) logInjectionAttemptsV14(entity *types.Entity) {
+	logger := semantic.DefaultInjectionLogger
+
+	// Check structured property display names and string values
 	for i, sp := range entity.StructuredProperties {
 		if sp.Definition != nil {
 			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].displayName", i), sp.Definition.DisplayName)
@@ -430,7 +437,7 @@ func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
 		}
 	}
 
-	// Check incident titles and descriptions (DataHub 1.4.x)
+	// Check incident titles and descriptions
 	if entity.ActiveIncidents != nil {
 		for i, inc := range entity.ActiveIncidents.Incidents {
 			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].title", i), inc.Title)

@@ -383,7 +383,7 @@ func TestDataHubClientWriter_UpsertStructuredProperties(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := graphQLResponse{
-			Data: json.RawMessage(`{"upsertStructuredProperties": true}`),
+			Data: json.RawMessage(`{"upsertStructuredProperties": {"properties": [{"structuredProperty": {"urn": "urn:li:structuredProperty:io.acryl.privacy.retentionTime"}}]}}`),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -421,7 +421,7 @@ func TestDataHubClientWriter_RemoveStructuredProperty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := graphQLResponse{
-			Data: json.RawMessage(`{"removeStructuredProperties": true}`),
+			Data: json.RawMessage(`{"removeStructuredProperties": {"properties": []}}`),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
