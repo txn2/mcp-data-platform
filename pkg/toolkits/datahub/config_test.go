@@ -490,6 +490,55 @@ func TestDatahubGetBool(t *testing.T) {
 	}
 }
 
+func TestParseConfigReadOnly(t *testing.T) {
+	t.Run("read_only enabled", func(t *testing.T) {
+		cfg := map[string]any{
+			dhCfgTestURLKey: dhCfgTestExampleURL,
+			"read_only":     true,
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
+		}
+
+		if !result.ReadOnly {
+			t.Error("expected ReadOnly to be true")
+		}
+	})
+
+	t.Run("read_only disabled explicitly", func(t *testing.T) {
+		cfg := map[string]any{
+			dhCfgTestURLKey: dhCfgTestExampleURL,
+			"read_only":     false,
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
+		}
+
+		if result.ReadOnly {
+			t.Error("expected ReadOnly to be false")
+		}
+	})
+
+	t.Run("read_only defaults to false", func(t *testing.T) {
+		cfg := map[string]any{
+			dhCfgTestURLKey: dhCfgTestExampleURL,
+		}
+
+		result, err := ParseConfig(cfg)
+		if err != nil {
+			t.Fatalf(dhCfgTestUnexpectedErr, err)
+		}
+
+		if result.ReadOnly {
+			t.Error("expected ReadOnly to default to false")
+		}
+	})
+}
+
 func TestParseConfigDebug(t *testing.T) {
 	t.Run("debug enabled", func(t *testing.T) {
 		cfg := map[string]any{
