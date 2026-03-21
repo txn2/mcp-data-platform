@@ -332,6 +332,7 @@ toolkits:
       max_lineage_depth: 5
       connection_name: "Primary Catalog"
       debug: false
+      read_only: true
       descriptions:
         datahub_search: "Search the data catalog for datasets and dashboards"
         datahub_get_entity: "Get full metadata for a catalog entity by URN"
@@ -347,6 +348,7 @@ toolkits:
 | `max_lineage_depth` | int | `5` | Maximum lineage depth |
 | `connection_name` | string | instance name | Display name |
 | `debug` | bool | `false` | Enable debug logging for GraphQL operations |
+| `read_only` | bool | `false` | Restrict to read operations (disables `datahub_create`, `datahub_update`, `datahub_delete`) |
 | `descriptions` | map | `{}` | Override tool descriptions (key: tool name, value: description text) |
 
 ### S3

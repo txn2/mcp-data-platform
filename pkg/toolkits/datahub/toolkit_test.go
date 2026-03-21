@@ -190,6 +190,22 @@ func TestConfig_Fields(t *testing.T) {
 	}
 }
 
+func TestConfig_ReadOnlyField(t *testing.T) {
+	t.Run("read_only defaults to false", func(t *testing.T) {
+		cfg := Config{URL: dhTestLocalhostURL}
+		if cfg.ReadOnly {
+			t.Error("ReadOnly should default to false")
+		}
+	})
+
+	t.Run("read_only can be set to true", func(t *testing.T) {
+		cfg := Config{URL: dhTestLocalhostURL, ReadOnly: true}
+		if !cfg.ReadOnly {
+			t.Error("ReadOnly should be true when set")
+		}
+	})
+}
+
 func TestConfig_DebugField(t *testing.T) {
 	t.Run("debug defaults to false", func(t *testing.T) {
 		cfg := Config{URL: dhTestLocalhostURL}
@@ -281,6 +297,9 @@ func TestToolkit_Tools(t *testing.T) {
 		"datahub_browse",
 		"datahub_get_glossary_term",
 		"datahub_get_data_product",
+		"datahub_create",
+		"datahub_update",
+		"datahub_delete",
 	}
 
 	if len(tools) != len(expectedTools) {
@@ -290,6 +309,36 @@ func TestToolkit_Tools(t *testing.T) {
 	for _, expected := range expectedTools {
 		if !slices.Contains(tools, expected) {
 			t.Errorf("missing expected tool: %s", expected)
+		}
+	}
+}
+
+func TestToolkit_Tools_ReadOnly(t *testing.T) {
+	tk := &Toolkit{
+		name:   "test-datahub-readonly",
+		config: Config{ReadOnly: true},
+	}
+	tools := tk.Tools()
+
+	expectedReadTools := []string{
+		"datahub_search",
+		"datahub_get_entity",
+		"datahub_get_schema",
+		"datahub_get_lineage",
+		"datahub_get_queries",
+		"datahub_browse",
+		"datahub_get_glossary_term",
+		"datahub_get_data_product",
+	}
+
+	if len(tools) != len(expectedReadTools) {
+		t.Errorf("Tools() returned %d tools in read-only mode, want %d", len(tools), len(expectedReadTools))
+	}
+
+	writeTools := []string{"datahub_create", "datahub_update", "datahub_delete"}
+	for _, wt := range writeTools {
+		if slices.Contains(tools, wt) {
+			t.Errorf("found write tool %s in read-only mode", wt)
 		}
 	}
 }
@@ -438,6 +487,33 @@ func TestAnnotationConfigToMCP(t *testing.T) {
 	})
 }
 
+func TestCreateToolkit_WriteEnabled(t *testing.T) {
+	t.Run("write enabled when not read-only", func(t *testing.T) {
+		cfg := Config{
+			URL:          dhTestLocalhostURL,
+			DefaultLimit: dhTestDefLimit,
+			MaxLimit:     dhTestDefMaxLimit,
+		}
+		tk := createToolkit(nil, cfg)
+		if tk == nil {
+			t.Fatal("expected non-nil toolkit")
+		}
+	})
+
+	t.Run("write disabled when read-only", func(t *testing.T) {
+		cfg := Config{
+			URL:          dhTestLocalhostURL,
+			DefaultLimit: dhTestDefLimit,
+			MaxLimit:     dhTestDefMaxLimit,
+			ReadOnly:     true,
+		}
+		tk := createToolkit(nil, cfg)
+		if tk == nil {
+			t.Fatal("expected non-nil toolkit")
+		}
+	})
+}
+
 func TestCreateToolkit_WithTitles(t *testing.T) {
 	cfg := Config{
 		URL:          dhTestLocalhostURL,
@@ -467,7 +543,7 @@ func TestToolkit_RegisterTools(_ *testing.T) {
 func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
 	// Construct a Toolkit with a non-nil datahubToolkit to exercise
 	// the Register branch in RegisterTools.
-	innerToolkit := dhtools.NewToolkit(nil, dhtools.Config{})
+	innerToolkit := dhtools.NewToolkit(nil, dhtools.Config{WriteEnabled: true})
 	tk := &Toolkit{
 		name: "reg-test",
 		config: Config{
@@ -489,6 +565,43 @@ func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
 	for _, tool := range tk.Tools() {
 		if tool == "datahub_list_connections" {
 			t.Error("datahub_list_connections should not be in Tools()")
+		}
+	}
+
+	// Verify write tools ARE in the declared Tools() list (default non-readonly).
+	writeTools := []string{"datahub_create", "datahub_update", "datahub_delete"}
+	for _, wt := range writeTools {
+		if !slices.Contains(tk.Tools(), wt) {
+			t.Errorf("expected write tool %s in non-readonly mode", wt)
+		}
+	}
+}
+
+func TestToolkit_RegisterTools_ReadOnly(t *testing.T) {
+	innerToolkit := dhtools.NewToolkit(nil, dhtools.Config{})
+	tk := &Toolkit{
+		name: "reg-test-readonly",
+		config: Config{
+			URL:            dhTestLocalhostURL,
+			ConnectionName: "reg-test-readonly",
+			ReadOnly:       true,
+		},
+		datahubToolkit: innerToolkit,
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "test",
+		Version: "1.0.0",
+	}, nil)
+
+	// Should register tools without panic in read-only mode.
+	tk.RegisterTools(server)
+
+	// Verify write tools are NOT in the declared Tools() list.
+	writeTools := []string{"datahub_create", "datahub_update", "datahub_delete"}
+	for _, wt := range writeTools {
+		if slices.Contains(tk.Tools(), wt) {
+			t.Errorf("found write tool %s in read-only mode", wt)
 		}
 	}
 }

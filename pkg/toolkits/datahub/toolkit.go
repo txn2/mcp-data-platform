@@ -36,7 +36,8 @@ type Config struct {
 	MaxLimit        int                         `yaml:"max_limit"`
 	MaxLineageDepth int                         `yaml:"max_lineage_depth"`
 	ConnectionName  string                      `yaml:"connection_name"`
-	Debug           bool                        `yaml:"debug"` // Enable debug logging
+	Debug           bool                        `yaml:"debug"`     // Enable debug logging
+	ReadOnly        bool                        `yaml:"read_only"` // Restrict to read operations
 	Titles          map[string]string           `yaml:"titles"`
 	Descriptions    map[string]string           `yaml:"descriptions"`
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
@@ -151,6 +152,7 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 		MaxLimit:        cfg.MaxLimit,
 		MaxLineageDepth: cfg.MaxLineageDepth,
 		Debug:           cfg.Debug,
+		WriteEnabled:    !cfg.ReadOnly,
 	}, opts...)
 }
 
@@ -199,27 +201,34 @@ func (t *Toolkit) Connection() string {
 	return t.config.ConnectionName
 }
 
+// datahubReadTools lists the read-only DataHub tools registered by the platform.
+// This excludes datahub_list_connections (replaced by the unified list_connections).
+var datahubReadTools = []dhtools.ToolName{
+	dhtools.ToolSearch,
+	dhtools.ToolGetEntity,
+	dhtools.ToolGetSchema,
+	dhtools.ToolGetLineage,
+	dhtools.ToolGetQueries,
+	dhtools.ToolBrowse,
+	dhtools.ToolGetGlossaryTerm,
+	dhtools.ToolGetDataProduct,
+}
+
 // RegisterTools registers DataHub tools with the MCP server.
 // The platform provides a unified list_connections tool, so the per-toolkit
 // datahub_list_connections is excluded.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.datahubToolkit != nil {
-		t.datahubToolkit.Register(s,
-			dhtools.ToolSearch,
-			dhtools.ToolGetEntity,
-			dhtools.ToolGetSchema,
-			dhtools.ToolGetLineage,
-			dhtools.ToolGetQueries,
-			dhtools.ToolBrowse,
-			dhtools.ToolGetGlossaryTerm,
-			dhtools.ToolGetDataProduct,
-		)
+		t.datahubToolkit.Register(s, datahubReadTools...)
+		if !t.config.ReadOnly {
+			t.datahubToolkit.Register(s, dhtools.WriteTools()...)
+		}
 	}
 }
 
 // Tools returns the list of tool names that would be provided by this toolkit.
-func (*Toolkit) Tools() []string {
-	return []string{
+func (t *Toolkit) Tools() []string {
+	tools := []string{
 		"datahub_search",
 		"datahub_get_entity",
 		"datahub_get_schema",
@@ -229,6 +238,16 @@ func (*Toolkit) Tools() []string {
 		"datahub_get_glossary_term",
 		"datahub_get_data_product",
 	}
+
+	if !t.config.ReadOnly {
+		tools = append(tools,
+			"datahub_create",
+			"datahub_update",
+			"datahub_delete",
+		)
+	}
+
+	return tools
 }
 
 // SetSemanticProvider sets the semantic metadata provider for enrichment.

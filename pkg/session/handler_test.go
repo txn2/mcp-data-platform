@@ -539,16 +539,14 @@ func TestHandler_ConcurrentAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range handlerTestGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 50 {
 				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, handlerTestPath, http.NoBody)
 				req.Header.Set(sessionIDHeader, "concurrent-sess")
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
