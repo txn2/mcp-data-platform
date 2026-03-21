@@ -41,6 +41,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 
 	// Optional bool fields
 	c.Debug = getBool(cfg, "debug", false)
+	c.ReadOnly = getBool(cfg, "read_only", false)
 
 	// Optional description overrides
 	c.Descriptions = getStringMap(cfg, "descriptions")

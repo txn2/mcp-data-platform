@@ -1072,33 +1072,17 @@ Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=doma
 
 Get data product details. Parameters: `urn` (required), `connection`.
 
-### datahub_update_description
+### datahub_create
 
-Update the description of a DataHub entity. Parameters: `urn` (required), `description` (required), `connection`.
+Create a new entity in DataHub. Uses `what` discriminator to select entity type: tag, domain, glossary_term, data_product, document (1.4.x+), application, query, incident, structured_property, data_contract. Parameters: `what` (required), `name` (required for most types), additional fields vary by type, `connection`. Only available when `read_only: false`.
 
-### datahub_add_tag
+### datahub_update
 
-Add a tag to a DataHub entity. Parameters: `urn` (required), `tag_urn` (required, e.g. urn:li:tag:PII), `connection`.
+Update metadata on a DataHub entity. Uses `what` discriminator: description, column_description, tag (add/remove), glossary_term (add/remove), link (add/remove), owner (add/remove), domain (set/remove), structured_properties (set/remove), structured_property, incident_status, incident, query, document_contents (1.4.x+), document_status (1.4.x+), document_related_entities (1.4.x+), document_sub_type (1.4.x+), data_contract. Parameters: `what` (required), `urn` (varies), `action` (required for tag/glossary_term/link/owner), `connection`. Only available when `read_only: false`.
 
-### datahub_remove_tag
+### datahub_delete
 
-Remove a tag from a DataHub entity. Parameters: `urn` (required), `tag_urn` (required), `connection`.
-
-### datahub_add_glossary_term
-
-Add a glossary term to a DataHub entity. Parameters: `urn` (required), `term_urn` (required), `connection`.
-
-### datahub_remove_glossary_term
-
-Remove a glossary term from a DataHub entity. Parameters: `urn` (required), `term_urn` (required), `connection`.
-
-### datahub_add_link
-
-Add a link to a DataHub entity. Parameters: `urn` (required), `url` (required), `description` (required), `connection`.
-
-### datahub_remove_link
-
-Remove a link from a DataHub entity. Parameters: `urn` (required), `url` (required), `connection`.
+Delete an entity from DataHub. Uses `what` discriminator: query, tag, domain, glossary_entity, data_product, application, document, structured_property. Parameters: `what` (required), `urn` (required), `connection`. Only available when `read_only: false`.
 
 ### datahub_list_connections
 
