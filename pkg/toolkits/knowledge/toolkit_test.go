@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -328,6 +329,21 @@ func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc stri
 
 func (w *spyWriter) ResolveIncident(_ context.Context, incidentURN, message string) error {
 	return w.recordAndCheck("ResolveIncident", incidentURN, message, "")
+}
+
+func (*spyWriter) GetContextDocuments(_ context.Context, _ string) ([]types.ContextDocument, error) {
+	return nil, nil
+}
+
+func (w *spyWriter) UpsertContextDocument(_ context.Context, urn string, doc types.ContextDocumentInput) (*types.ContextDocument, error) {
+	if err := w.recordAndCheck("UpsertContextDocument", urn, doc.Title, doc.ID); err != nil {
+		return nil, err
+	}
+	return &types.ContextDocument{ID: "generated-doc-id", Title: doc.Title, Content: doc.Content}, nil
+}
+
+func (w *spyWriter) DeleteContextDocument(_ context.Context, documentID string) error {
+	return w.recordAndCheck("DeleteContextDocument", documentID, "", "")
 }
 
 var _ DataHubWriter = (*spyWriter)(nil)
@@ -2247,7 +2263,7 @@ func TestHandleApply_NoConfirmationRequired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// AC: handleApply with add_curated_query returns created_query_urns
+// AC: handleApply with add_curated_query returns created_ids
 // ---------------------------------------------------------------------------
 
 func TestHandleApply_AddCuratedQuery(t *testing.T) {
@@ -2274,9 +2290,9 @@ func TestHandleApply_AddCuratedQuery(t *testing.T) {
 	assert.NotEmpty(t, m["changeset_id"])
 	assert.Equal(t, testEntityURN, m["entity_urn"])
 
-	// Verify created_query_urns is in the response
-	urns, ok := m["created_query_urns"].([]any)
-	require.True(t, ok, "expected created_query_urns to be an array")
+	// Verify created_ids is in the response
+	urns, ok := m["created_ids"].([]any)
+	require.True(t, ok, "expected created_ids to be an array")
 	require.Len(t, urns, 1)
 	assert.Equal(t, "urn:li:query:new-query", urns[0])
 
@@ -2302,8 +2318,8 @@ func TestHandleApply_NoCuratedQueryURNs_OmitsField(t *testing.T) {
 	require.False(t, result.IsError)
 
 	m := parseJSONResult(t, result)
-	_, hasCreatedURNs := m["created_query_urns"]
-	assert.False(t, hasCreatedURNs, "created_query_urns should be omitted when no queries created")
+	_, hasCreatedURNs := m["created_ids"]
+	assert.False(t, hasCreatedURNs, "created_ids should be omitted when no queries created")
 }
 
 // ---------------------------------------------------------------------------
@@ -3149,6 +3165,100 @@ func TestHandleApply_Incidents(t *testing.T) {
 	assert.Equal(t, "ResolveIncident", writer.WriteCalls[1].Method)
 	assert.Equal(t, "urn:li:incident:abc123", writer.WriteCalls[1].URN)
 	assert.Equal(t, "Fixed the ETL job", writer.WriteCalls[1].Arg1)
+}
+
+func TestHandleApply_ContextDocuments(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	ctx := ctxWithUser("admin-1", "sess-1", "admin")
+
+	t.Run("add and remove context documents", func(t *testing.T) {
+		input := applyKnowledgeInput{
+			Action:    "apply",
+			EntityURN: testEntityURN,
+			Changes: []ApplyChange{
+				{
+					ChangeType:       "add_context_document",
+					Target:           "Analysis Notes",
+					Detail:           "This table contains revenue data",
+					QueryDescription: "analysis",
+				},
+				{
+					ChangeType: "remove_context_document",
+					Target:     "old-doc-id",
+				},
+			},
+			InsightIDs: []string{"ins-1"},
+		}
+
+		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+		require.Nil(t, callErr)
+		require.False(t, result.IsError, "expected success but got error: %v", result.Content)
+
+		require.Len(t, writer.WriteCalls, 2)
+		assert.Equal(t, "UpsertContextDocument", writer.WriteCalls[0].Method)
+		assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
+		assert.Equal(t, "Analysis Notes", writer.WriteCalls[0].Arg1) // title
+		assert.Equal(t, "", writer.WriteCalls[0].Arg2)               // empty ID = create
+		assert.Equal(t, "DeleteContextDocument", writer.WriteCalls[1].Method)
+		assert.Equal(t, "old-doc-id", writer.WriteCalls[1].URN)
+	})
+
+	t.Run("update context document", func(t *testing.T) {
+		writer.WriteCalls = nil
+		writer.currentCall = 0
+
+		input := applyKnowledgeInput{
+			Action:    "apply",
+			EntityURN: testEntityURN,
+			Changes: []ApplyChange{
+				{
+					ChangeType:       "update_context_document",
+					Target:           "existing-doc-id",
+					Detail:           "Updated content",
+					QuerySQL:         "New Title",
+					QueryDescription: "notes",
+				},
+			},
+			InsightIDs: []string{"ins-1"},
+		}
+
+		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+		require.Nil(t, callErr)
+		require.False(t, result.IsError, "expected success but got error: %v", result.Content)
+
+		require.Len(t, writer.WriteCalls, 1)
+		assert.Equal(t, "UpsertContextDocument", writer.WriteCalls[0].Method)
+		assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
+		assert.Equal(t, "New Title", writer.WriteCalls[0].Arg1)       // title from QuerySQL
+		assert.Equal(t, "existing-doc-id", writer.WriteCalls[0].Arg2) // populated ID = update
+	})
+
+	t.Run("add_context_document returns created_ids", func(t *testing.T) {
+		writer.WriteCalls = nil
+		writer.currentCall = 0
+
+		input := applyKnowledgeInput{
+			Action:    "apply",
+			EntityURN: testEntityURN,
+			Changes: []ApplyChange{
+				{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+			},
+		}
+
+		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
+		require.Nil(t, callErr)
+		require.False(t, result.IsError)
+
+		m := parseJSONResult(t, result)
+		ids, ok := m["created_ids"].([]any)
+		require.True(t, ok, "expected created_ids to be an array")
+		assert.Len(t, ids, 1)
+		assert.Equal(t, "generated-doc-id", ids[0])
+	})
 }
 
 func TestParsePropertyValues(t *testing.T) {

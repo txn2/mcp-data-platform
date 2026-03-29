@@ -533,7 +533,7 @@ Record domain knowledge shared during a session. Available to all personas when 
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
-| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query |
+| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document |
 
 ---
 
@@ -559,6 +559,26 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights
 - **apply**: Write changes to DataHub with changeset tracking
+
+**Supported change types for `apply` action:**
+
+| Change Type | Target | Detail | Entity Types |
+|-------------|--------|--------|--------------|
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text | datasets (column+entity), dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
+| `add_tag` / `remove_tag` | Ignored | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) | All |
+| `add_glossary_term` | Ignored | Term name or URN | All |
+| `flag_quality_issue` | Ignored | Quality issue description | All |
+| `add_documentation` | URL | Link description | All |
+| `add_curated_query` | Ignored | Query name | Datasets only |
+| `set_structured_property` | Property qualified name or URN | Value or JSON array | All (DataHub 1.4.x) |
+| `remove_structured_property` | Property qualified name or URN | Removal reason | All (DataHub 1.4.x) |
+| `raise_incident` | Incident title | Description | All (DataHub 1.4.x) |
+| `resolve_incident` | Incident URN | Resolution message | All (DataHub 1.4.x) |
+| `add_context_document` | Document title | Document content | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
+| `update_context_document` | Document ID | New content (`query_sql` = new title) | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
+| `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
+
+For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
 
 ---
 

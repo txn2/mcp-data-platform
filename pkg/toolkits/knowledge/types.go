@@ -157,12 +157,17 @@ const (
 	actionRemoveStructuredProperty actionType = "remove_structured_property"
 	actionRaiseIncident            actionType = "raise_incident"
 	actionResolveIncident          actionType = "resolve_incident"
+
+	// Context document actions (DataHub 1.4.x with document support).
+	actionAddContextDocument    actionType = "add_context_document"
+	actionUpdateContextDocument actionType = "update_context_document"
+	actionRemoveContextDocument actionType = "remove_context_document"
 )
 
 // actionTypeList is a human-readable list of valid action types for error messages.
 const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, " +
 	"add_documentation, add_curated_query, set_structured_property, remove_structured_property, " +
-	"raise_incident, resolve_incident"
+	"raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
@@ -177,6 +182,9 @@ var validActionTypes = map[actionType]bool{
 	actionRemoveStructuredProperty: true,
 	actionRaiseIncident:            true,
 	actionResolveIncident:          true,
+	actionAddContextDocument:       true,
+	actionUpdateContextDocument:    true,
+	actionRemoveContextDocument:    true,
 }
 
 // SuggestedAction represents a proposed catalog change.

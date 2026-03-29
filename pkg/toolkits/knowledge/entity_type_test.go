@@ -200,6 +200,66 @@ func TestValidateEntityTypeForChange(t *testing.T) {
 			errContain: "Supported operations for tag",
 		},
 
+		// Context document operations: supported entity types
+		{
+			name:   "add_context_document on dataset",
+			urn:    datasetURN,
+			change: ApplyChange{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+		},
+		{
+			name:   "add_context_document on glossaryTerm",
+			urn:    glossaryURN,
+			change: ApplyChange{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+		},
+		{
+			name:   "add_context_document on container",
+			urn:    "urn:li:container:abc",
+			change: ApplyChange{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+		},
+		{
+			name:   "update_context_document on dataset",
+			urn:    datasetURN,
+			change: ApplyChange{ChangeType: "update_context_document", Target: "doc-123", Detail: "new content"},
+		},
+		{
+			name:   "remove_context_document on dataset",
+			urn:    datasetURN,
+			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
+		},
+		{
+			name:   "remove_context_document on domain (entity-type-independent)",
+			urn:    domainURN,
+			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
+		},
+		{
+			name:   "remove_context_document on tag (entity-type-independent)",
+			urn:    tagURN,
+			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
+		},
+
+		// Context document operations: unsupported entity types for add/update
+		{
+			name:       "add_context_document on domain (unsupported)",
+			urn:        domainURN,
+			change:     ApplyChange{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+			wantErr:    true,
+			errContain: "add_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
+		},
+		{
+			name:       "update_context_document on tag (unsupported)",
+			urn:        tagURN,
+			change:     ApplyChange{ChangeType: "update_context_document", Target: "doc-123", Detail: "content"},
+			wantErr:    true,
+			errContain: "update_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
+		},
+		{
+			name:       "add_context_document on dataProduct (unsupported)",
+			urn:        dataProductURN,
+			change:     ApplyChange{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
+			wantErr:    true,
+			errContain: "add_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
+		},
+
 		// Invalid URN
 		{
 			name:       "invalid URN",
@@ -231,21 +291,26 @@ func TestSupportedOpsForType(t *testing.T) {
 	}{
 		{
 			entityType:   "dataset",
-			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "add_curated_query"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
 		},
 		{
 			entityType:   "domain",
-			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue"},
-			wantMissing:  []string{"add_curated_query"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "remove_context_document"},
+			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document"},
 		},
 		{
 			entityType:   "tag",
-			wantContains: []string{"add_tag", "remove_tag", "add_glossary_term"},
-			wantMissing:  []string{"update_description", "add_curated_query"},
+			wantContains: []string{"add_tag", "remove_tag", "add_glossary_term", "remove_context_document"},
+			wantMissing:  []string{"update_description", "add_curated_query", "add_context_document", "update_context_document"},
 		},
 		{
 			entityType:   "glossaryTerm",
-			wantContains: []string{"update_description", "add_tag"},
+			wantContains: []string{"update_description", "add_tag", "add_context_document", "update_context_document", "remove_context_document"},
+			wantMissing:  []string{"add_curated_query"},
+		},
+		{
+			entityType:   "container",
+			wantContains: []string{"add_tag", "add_context_document", "update_context_document", "remove_context_document"},
 			wantMissing:  []string{"add_curated_query"},
 		},
 	}
