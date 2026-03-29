@@ -176,8 +176,8 @@ toolkits:
         enabled: true
         endpoint: "http://localhost:9000"
         region: "us-east-1"
-        access_key_id: "minioadmin"
-        secret_access_key: "minioadmin"
+        access_key_id: "dev-access-key"
+        secret_access_key: "dev-secret-key"
         force_path_style: true
 
 # Providers: noop (no external services)

@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import Papa from "papaparse";
 import DOMPurify from "dompurify";
 import html2canvas from "html2canvas";
+import mermaid from "mermaid";
 import {
   THUMB_WIDTH,
   THUMB_HEIGHT,
@@ -221,23 +222,50 @@ function DomCapture({
     const el = containerRef.current;
     if (!el) return;
 
-    // If content is already rendered (SVG via dangerouslySetInnerHTML), capture
-    // after one animation frame so layout settles.
-    if (el.querySelector("svg, p, h1, h2, h3, li, pre, blockquote, table")) {
-      const raf = requestAnimationFrame(() => void doCapture());
-      return () => cancelAnimationFrame(raf);
+    async function renderMermaidAndCapture() {
+      // Wait for ReactMarkdown to render child nodes
+      await new Promise<void>((resolve) => {
+        if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
+          resolve();
+          return;
+        }
+        const observer = new MutationObserver(() => {
+          if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(el, { childList: true, subtree: true });
+      });
+
+      // Render mermaid code blocks if present
+      const mermaidBlocks = el.querySelectorAll<HTMLElement>("code.language-mermaid");
+      if (mermaidBlocks.length > 0) {
+        mermaid.initialize({ startOnLoad: false, theme: "default", fontFamily: "system-ui, sans-serif" });
+        for (let i = 0; i < mermaidBlocks.length; i++) {
+          const codeEl = mermaidBlocks[i]!;
+          const preEl = codeEl.parentElement;
+          if (!preEl || preEl.tagName !== "PRE") continue;
+          try {
+            const { svg } = await mermaid.render(`thumb-mermaid-${i}`, codeEl.textContent || "");
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = svg;
+            wrapper.style.display = "flex";
+            wrapper.style.justifyContent = "center";
+            wrapper.style.margin = "0.5em 0";
+            preEl.replaceWith(wrapper);
+          } catch {
+            // Leave as code block on failure
+          }
+        }
+      }
+
+      // Let layout settle after mermaid SVGs are inserted
+      await new Promise((r) => requestAnimationFrame(r));
+      void doCapture();
     }
 
-    // Otherwise wait for ReactMarkdown to render child nodes.
-    const observer = new MutationObserver(() => {
-      if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table")) {
-        observer.disconnect();
-        // One more frame to let layout settle after the DOM mutation.
-        requestAnimationFrame(() => void doCapture());
-      }
-    });
-    observer.observe(el, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    void renderMermaidAndCapture();
   }, [doCapture]);
 
   // Timeout: if capture hasn't completed, give up

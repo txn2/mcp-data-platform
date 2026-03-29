@@ -36,8 +36,8 @@ function makeAsset(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("MyAssetsPage: title does not overlap share icons", () => {
-  it("title row has pr-12 padding to clear absolutely-positioned share icons", () => {
+describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
+  it("both share icons appear when asset has user share and public link", () => {
     mockUseAssets.mockReturnValue({
       data: {
         data: [makeAsset()],
@@ -53,31 +53,18 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
-    // The share icons should be present
     expect(screen.getByTitle("Shared with users")).toBeInTheDocument();
     expect(screen.getByTitle("Has public link")).toBeInTheDocument();
 
-    // The title text element
-    const titleSpan = screen.getByText(
-      "A very long asset name that should be truncated before it reaches the icons",
-    );
-    // The title row is the parent div containing the icon + title span
-    const titleRow = titleSpan.closest("div");
-    expect(titleRow).not.toBeNull();
-    expect(titleRow!.className).toContain("pr-12");
-
-    // The share icon container should be absolutely positioned.
-    // Structure: <button> > <div class="absolute ..."> > <span title="..."> > <svg>
-    // So shareIcon's parentElement is the <span>, and its parentElement is the <div>.
+    // Share icons are in an overlay container positioned on the card (top-2 right-2)
     const shareIcon = screen.getByTitle("Shared with users");
-    // shareIcon is the <span>, its parent is the absolute div
     const iconContainer = shareIcon.parentElement!;
     expect(iconContainer.className).toContain("absolute");
-    expect(iconContainer.className).toContain("top-4");
-    expect(iconContainer.className).toContain("right-4");
+    expect(iconContainer.className).toContain("top-2");
+    expect(iconContainer.className).toContain("right-2");
   });
 
-  it("title row has pr-12 with only one share icon (user share)", () => {
+  it("only user share icon when has_public_link is false", () => {
     mockUseAssets.mockReturnValue({
       data: {
         data: [makeAsset()],
@@ -95,15 +82,9 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
 
     expect(screen.getByTitle("Shared with users")).toBeInTheDocument();
     expect(screen.queryByTitle("Has public link")).not.toBeInTheDocument();
-
-    const titleSpan = screen.getByText(
-      "A very long asset name that should be truncated before it reaches the icons",
-    );
-    const titleRow = titleSpan.closest("div");
-    expect(titleRow!.className).toContain("pr-12");
   });
 
-  it("title row has pr-12 with only one share icon (public link)", () => {
+  it("only public link icon when has_user_share is false", () => {
     mockUseAssets.mockReturnValue({
       data: {
         data: [makeAsset()],
@@ -121,15 +102,9 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
 
     expect(screen.queryByTitle("Shared with users")).not.toBeInTheDocument();
     expect(screen.getByTitle("Has public link")).toBeInTheDocument();
-
-    const titleSpan = screen.getByText(
-      "A very long asset name that should be truncated before it reaches the icons",
-    );
-    const titleRow = titleSpan.closest("div");
-    expect(titleRow!.className).toContain("pr-12");
   });
 
-  it("title row has pr-12 even when no share icons are present", () => {
+  it("no share icons when share_summaries is empty", () => {
     mockUseAssets.mockReturnValue({
       data: {
         data: [makeAsset()],
@@ -143,12 +118,12 @@ describe("MyAssetsPage: title does not overlap share icons", () => {
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
-    const titleSpan = screen.getByText(
-      "A very long asset name that should be truncated before it reaches the icons",
-    );
-    const titleRow = titleSpan.closest("div");
-    expect(titleRow).not.toBeNull();
-    // pr-12 is always applied regardless of icon presence (avoids layout shift)
-    expect(titleRow!.className).toContain("pr-12");
+    expect(screen.queryByTitle("Shared with users")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Has public link")).not.toBeInTheDocument();
+
+    // Title should still render correctly
+    expect(
+      screen.getByText("A very long asset name that should be truncated before it reaches the icons"),
+    ).toBeInTheDocument();
   });
 });

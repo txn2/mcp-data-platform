@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 24px; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: #64748b; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .card .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .card .change { font-size: 12px; margin-top: 4px; }
+  .up { color: #16a34a; }
+  .down { color: #dc2626; }
+  .chart-area { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 160px; }
+  .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .bar { width: 100%; background: #3b82f6; border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s; }
+  .bar:hover { background: #2563eb; }
+  .bar-label { font-size: 10px; color: #64748b; }
+  .bar-value { font-size: 10px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin-top: 24px; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th { background: #f1f5f9; text-align: left; padding: 10px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+  td { padding: 10px 16px; font-size: 13px; border-top: 1px solid #f1f5f9; }
+  tr:hover td { background: #f8fafc; }
+</style>
+</head>
+<body>
+<h1>Weekly Revenue Dashboard</h1>
+<p class="subtitle">Week of Mar 22 – Mar 28, 2026</p>
+<div class="grid">
+  <div class="card">
+    <div class="label">Total Revenue</div>
+    <div class="value">$2.4M</div>
+    <div class="change up">↑ 8.3% vs last week</div>
+  </div>
+  <div class="card">
+    <div class="label">Transactions</div>
+    <div class="value">48,291</div>
+    <div class="change up">↑ 3.1% vs last week</div>
+  </div>
+  <div class="card">
+    <div class="label">Avg Order Value</div>
+    <div class="value">$49.70</div>
+    <div class="change up">↑ 5.0% vs last week</div>
+  </div>
+</div>
+<div class="chart-area">
+  <div class="chart-title">Daily Revenue</div>
+  <div class="bar-chart">
+    <div class="bar-group"><div class="bar-value">$310K</div><div class="bar" style="height:78%"></div><div class="bar-label">Mon</div></div>
+    <div class="bar-group"><div class="bar-value">$345K</div><div class="bar" style="height:86%"></div><div class="bar-label">Tue</div></div>
+    <div class="bar-group"><div class="bar-value">$328K</div><div class="bar" style="height:82%"></div><div class="bar-label">Wed</div></div>
+    <div class="bar-group"><div class="bar-value">$362K</div><div class="bar" style="height:90%"></div><div class="bar-label">Thu</div></div>
+    <div class="bar-group"><div class="bar-value">$398K</div><div class="bar" style="height:100%"></div><div class="bar-label">Fri</div></div>
+    <div class="bar-group"><div class="bar-value">$380K</div><div class="bar" style="height:95%"></div><div class="bar-label">Sat</div></div>
+    <div class="bar-group"><div class="bar-value">$277K</div><div class="bar" style="height:69%"></div><div class="bar-label">Sun</div></div>
+  </div>
+</div>
+<table>
+  <thead><tr><th>Store</th><th>Revenue</th><th>Transactions</th><th>Avg Order</th><th>vs Last Week</th></tr></thead>
+  <tbody>
+    <tr><td>Downtown Flagship</td><td>$412,500</td><td>6,840</td><td>$60.31</td><td class="up">+12.4%</td></tr>
+    <tr><td>Mall of America</td><td>$385,200</td><td>7,120</td><td>$54.10</td><td class="up">+9.1%</td></tr>
+    <tr><td>Westfield Center</td><td>$298,700</td><td>5,480</td><td>$54.51</td><td class="up">+6.8%</td></tr>
+    <tr><td>Airport Terminal B</td><td>$276,400</td><td>4,920</td><td>$56.18</td><td class="down">-2.3%</td></tr>
+    <tr><td>University District</td><td>$245,100</td><td>5,890</td><td>$41.61</td><td class="up">+4.5%</td></tr>
+  </tbody>
+</table>
+</body>
+</html>

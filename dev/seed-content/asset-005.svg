@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" font-family="-apple-system, BlinkMacSystemFont, sans-serif">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22c55e"/><stop offset="1" stop-color="#16a34a"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#2563eb"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#d97706"/></linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ef4444"/><stop offset="1" stop-color="#dc2626"/></linearGradient>
+    <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="#f8fafc" rx="8"/>
+  <text x="32" y="36" font-size="18" font-weight="600" fill="#1e293b">Regional Sales Heatmap</text>
+  <text x="32" y="56" font-size="12" fill="#64748b">Revenue by region and category — Q1 2026 ($K)</text>
+
+  <!-- Column headers -->
+  <text x="220" y="90" font-size="11" fill="#64748b" text-anchor="middle">Electronics</text>
+  <text x="340" y="90" font-size="11" fill="#64748b" text-anchor="middle">Grocery</text>
+  <text x="460" y="90" font-size="11" fill="#64748b" text-anchor="middle">Apparel</text>
+  <text x="580" y="90" font-size="11" fill="#64748b" text-anchor="middle">Home</text>
+  <text x="700" y="90" font-size="11" fill="#64748b" text-anchor="middle">Sports</text>
+
+  <!-- Row: Northeast -->
+  <text x="140" y="140" font-size="13" fill="#1e293b" text-anchor="end">Northeast</text>
+  <rect x="165" y="105" width="110" height="50" rx="6" fill="#16a34a" opacity="0.9"/><text x="220" y="135" font-size="14" fill="white" text-anchor="middle" font-weight="600">$842</text>
+  <rect x="285" y="105" width="110" height="50" rx="6" fill="#16a34a" opacity="0.7"/><text x="340" y="135" font-size="14" fill="white" text-anchor="middle" font-weight="600">$634</text>
+  <rect x="405" y="105" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.8"/><text x="460" y="135" font-size="14" fill="white" text-anchor="middle" font-weight="600">$521</text>
+  <rect x="525" y="105" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.6"/><text x="580" y="135" font-size="14" fill="white" text-anchor="middle" font-weight="600">$412</text>
+  <rect x="645" y="105" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.7"/><text x="700" y="135" font-size="14" fill="white" text-anchor="middle" font-weight="600">$298</text>
+
+  <!-- Row: Southeast -->
+  <text x="140" y="210" font-size="13" fill="#1e293b" text-anchor="end">Southeast</text>
+  <rect x="165" y="175" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.8"/><text x="220" y="205" font-size="14" fill="white" text-anchor="middle" font-weight="600">$567</text>
+  <rect x="285" y="175" width="110" height="50" rx="6" fill="#16a34a" opacity="0.85"/><text x="340" y="205" font-size="14" fill="white" text-anchor="middle" font-weight="600">$712</text>
+  <rect x="405" y="175" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.7"/><text x="460" y="205" font-size="14" fill="white" text-anchor="middle" font-weight="600">$489</text>
+  <rect x="525" y="175" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.6"/><text x="580" y="205" font-size="14" fill="white" text-anchor="middle" font-weight="600">$334</text>
+  <rect x="645" y="175" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.8"/><text x="700" y="205" font-size="14" fill="white" text-anchor="middle" font-weight="600">$356</text>
+
+  <!-- Row: Midwest -->
+  <text x="140" y="280" font-size="13" fill="#1e293b" text-anchor="end">Midwest</text>
+  <rect x="165" y="245" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.6"/><text x="220" y="275" font-size="14" fill="white" text-anchor="middle" font-weight="600">$445</text>
+  <rect x="285" y="245" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.7"/><text x="340" y="275" font-size="14" fill="white" text-anchor="middle" font-weight="600">$523</text>
+  <rect x="405" y="245" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.6"/><text x="460" y="275" font-size="14" fill="white" text-anchor="middle" font-weight="600">$312</text>
+  <rect x="525" y="245" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.6"/><text x="580" y="275" font-size="14" fill="white" text-anchor="middle" font-weight="600">$401</text>
+  <rect x="645" y="245" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.5"/><text x="700" y="275" font-size="14" fill="white" text-anchor="middle" font-weight="600">$245</text>
+
+  <!-- Row: West -->
+  <text x="140" y="350" font-size="13" fill="#1e293b" text-anchor="end">West</text>
+  <rect x="165" y="315" width="110" height="50" rx="6" fill="#16a34a" opacity="0.95"/><text x="220" y="345" font-size="14" fill="white" text-anchor="middle" font-weight="600">$923</text>
+  <rect x="285" y="315" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.65"/><text x="340" y="345" font-size="14" fill="white" text-anchor="middle" font-weight="600">$478</text>
+  <rect x="405" y="315" width="110" height="50" rx="6" fill="#16a34a" opacity="0.75"/><text x="460" y="345" font-size="14" fill="white" text-anchor="middle" font-weight="600">$612</text>
+  <rect x="525" y="315" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.75"/><text x="580" y="345" font-size="14" fill="white" text-anchor="middle" font-weight="600">$534</text>
+  <rect x="645" y="315" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.7"/><text x="700" y="345" font-size="14" fill="white" text-anchor="middle" font-weight="600">$467</text>
+
+  <!-- Row: Southwest -->
+  <text x="140" y="420" font-size="13" fill="#1e293b" text-anchor="end">Southwest</text>
+  <rect x="165" y="385" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.7"/><text x="220" y="415" font-size="14" fill="white" text-anchor="middle" font-weight="600">$378</text>
+  <rect x="285" y="385" width="110" height="50" rx="6" fill="#3b82f6" opacity="0.6"/><text x="340" y="415" font-size="14" fill="white" text-anchor="middle" font-weight="600">$445</text>
+  <rect x="405" y="385" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.5"/><text x="460" y="415" font-size="14" fill="white" text-anchor="middle" font-weight="600">$267</text>
+  <rect x="525" y="385" width="110" height="50" rx="6" fill="#f59e0b" opacity="0.55"/><text x="580" y="415" font-size="14" fill="white" text-anchor="middle" font-weight="600">$289</text>
+  <rect x="645" y="385" width="110" height="50" rx="6" fill="#ef4444" opacity="0.6"/><text x="700" y="415" font-size="14" fill="white" text-anchor="middle" font-weight="600">$189</text>
+
+  <!-- Legend -->
+  <rect x="165" y="460" width="16" height="12" rx="2" fill="#16a34a"/><text x="186" y="471" font-size="10" fill="#64748b">$600K+</text>
+  <rect x="260" y="460" width="16" height="12" rx="2" fill="#3b82f6"/><text x="281" y="471" font-size="10" fill="#64748b">$400–599K</text>
+  <rect x="380" y="460" width="16" height="12" rx="2" fill="#f59e0b"/><text x="401" y="471" font-size="10" fill="#64748b">$200–399K</text>
+  <rect x="500" y="460" width="16" height="12" rx="2" fill="#ef4444"/><text x="521" y="471" font-size="10" fill="#64748b">&lt;$200K</text>
+</svg>

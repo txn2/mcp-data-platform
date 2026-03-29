@@ -33,7 +33,8 @@ GOLINT := golangci-lint
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
-	dev-up dev-down preview-apps preview-platform-info
+	dev dev-up dev-down mock-check \
+	preview-apps preview-platform-info
 
 ## all: Build and test
 all: build test lint
@@ -444,6 +445,22 @@ dev-down:
 	@echo "Stopping ACME dev environment..."
 	$(DEV_COMPOSE) down -v
 	@echo "ACME dev environment stopped."
+
+## dev: Start full dev environment with hot-reload (Docker + Go + Vite)
+## Runs pre-flight checks (Docker, air, ports), starts services sequentially,
+## waits for health, seeds data on first run, and reports clear status.
+dev:
+	@bash dev/start.sh
+
+## mock-check: Verify MSW mocks conform to Swagger spec types
+mock-check: swagger
+	@echo "Generating TypeScript types from Swagger spec..."
+	cd $(UI_DIR) && npm run generate-api-types
+	@echo "Type-checking mocks against generated types..."
+	cd $(UI_DIR) && npx tsc --noEmit
+	@echo "Running mock conformance tests..."
+	cd $(UI_DIR) && npx vitest run src/mocks/conformance.test.ts
+	@echo "Mock conformance check passed."
 
 ## preview-apps: Serve MCP apps locally at http://localhost:8000/test-harness.html (no server needed)
 preview-apps:

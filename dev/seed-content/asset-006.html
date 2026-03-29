@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 24px; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: #64748b; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .metric { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .metric .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+  .metric .value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .metric .sub { font-size: 11px; margin-top: 2px; }
+  .up { color: #16a34a; } .down { color: #dc2626; } .flat { color: #64748b; }
+  .section { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+  .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+  .bar-bg { height: 8px; background: #e2e8f0; border-radius: 4px; margin-top: 4px; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Q3 Financial Summary</h1>
+<p class="subtitle">FY2026 Q3 (Oct 1 – Dec 31, 2025) — ACME Corporation</p>
+
+<div class="grid">
+  <div class="metric">
+    <div class="label">Revenue</div>
+    <div class="value">$28.4M</div>
+    <div class="sub up">↑ 11.2% YoY</div>
+  </div>
+  <div class="metric">
+    <div class="label">Gross Margin</div>
+    <div class="value">42.3%</div>
+    <div class="sub up">↑ 1.8pp YoY</div>
+  </div>
+  <div class="metric">
+    <div class="label">Operating Income</div>
+    <div class="value">$3.8M</div>
+    <div class="sub up">↑ 18.7% YoY</div>
+  </div>
+  <div class="metric">
+    <div class="label">Net Income</div>
+    <div class="value">$2.6M</div>
+    <div class="sub up">↑ 14.2% YoY</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Revenue by Category</div>
+  <table>
+    <thead><tr><th>Category</th><th>Revenue</th><th>% of Total</th><th>YoY Change</th><th>Margin</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Electronics</td><td>$9.2M</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:32.4%;background:#3b82f6"></div></div>32.4%</td>
+        <td class="up">+15.3%</td><td>38.1%</td>
+      </tr>
+      <tr>
+        <td>Grocery</td><td>$7.8M</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:27.5%;background:#22c55e"></div></div>27.5%</td>
+        <td class="up">+8.6%</td><td>31.2%</td>
+      </tr>
+      <tr>
+        <td>Apparel</td><td>$5.1M</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:18%;background:#f59e0b"></div></div>18.0%</td>
+        <td class="up">+12.1%</td><td>52.4%</td>
+      </tr>
+      <tr>
+        <td>Home &amp; Living</td><td>$3.8M</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:13.4%;background:#8b5cf6"></div></div>13.4%</td>
+        <td class="up">+6.2%</td><td>44.8%</td>
+      </tr>
+      <tr>
+        <td>Sports &amp; Outdoor</td><td>$2.5M</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:8.8%;background:#ec4899"></div></div>8.8%</td>
+        <td class="down">-2.4%</td><td>46.3%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <div class="section-title">Quarterly Trend (FY2026)</div>
+  <table>
+    <thead><tr><th>Quarter</th><th>Revenue</th><th>Gross Margin</th><th>Op. Income</th><th>Stores</th></tr></thead>
+    <tbody>
+      <tr><td>Q1 (Feb–Apr)</td><td>$24.1M</td><td>39.8%</td><td>$2.9M</td><td>985</td></tr>
+      <tr><td>Q2 (May–Jul)</td><td>$26.7M</td><td>41.1%</td><td>$3.4M</td><td>992</td></tr>
+      <tr><td><strong>Q3 (Oct–Dec)</strong></td><td><strong>$28.4M</strong></td><td><strong>42.3%</strong></td><td><strong>$3.8M</strong></td><td><strong>1,000</strong></td></tr>
+      <tr style="color:#94a3b8"><td>Q4 (Nov–Jan) est.</td><td>$31.2M</td><td>43.0%</td><td>$4.2M</td><td>1,008</td></tr>
+    </tbody>
+  </table>
+</div>
+</body>
+</html>

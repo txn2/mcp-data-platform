@@ -65,6 +65,7 @@ ui/dist/
 ui/dist-content-viewer/
 ui/.vite/
 ui/test-results/
+ui/src/api/generated/
 
 # Root node_modules (if any)
 node_modules/
