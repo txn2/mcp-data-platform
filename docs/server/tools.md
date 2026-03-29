@@ -27,13 +27,9 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | DataHub | `datahub_get_glossary_term` | Get glossary term details |
 | DataHub | `datahub_browse` | Browse tags, domains, or data products |
 | DataHub | `datahub_get_data_product` | Get data product details |
-| DataHub | `datahub_update_description` | Update entity description |
-| DataHub | `datahub_add_tag` | Add a tag to an entity |
-| DataHub | `datahub_remove_tag` | Remove a tag from an entity |
-| DataHub | `datahub_add_glossary_term` | Add a glossary term to an entity |
-| DataHub | `datahub_remove_glossary_term` | Remove a glossary term from an entity |
-| DataHub | `datahub_add_link` | Add a link to an entity |
-| DataHub | `datahub_remove_link` | Remove a link from an entity |
+| DataHub | `datahub_create` | Create entities — tags, domains, glossary terms, etc. (if not read-only) |
+| DataHub | `datahub_update` | Update metadata — descriptions, tags, owners, domains, etc. (if not read-only) |
+| DataHub | `datahub_delete` | Delete entities — tags, domains, queries, etc. (if not read-only) |
 | DataHub | `datahub_list_connections` | List configured DataHub connections |
 | S3 | `s3_list_buckets` | List S3 buckets |
 | S3 | `s3_list_objects` | List objects in a bucket |
@@ -284,102 +280,97 @@ Get details about a data product.
 
 ---
 
-### datahub_update_description
+### datahub_create
 
-Update the description of a DataHub entity.
+Create a new entity or resource in DataHub. Uses the `what` discriminator to select the entity type.
+
+Only available when `read_only: false` in the DataHub toolkit configuration.
+
+Annotated with `DestructiveHint: false`, `IdempotentHint: false`, `OpenWorldHint: true`.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `description` | string | Yes | - | New description text |
+| `what` | string | Yes | - | Entity type to create (see table below) |
+| `name` | string | Varies | - | Entity name (required for most types) |
 | `connection` | string | No | default | Connection name to use |
+
+Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details per entity type.
+
+| `what` | Creates | Key fields |
+|--------|---------|------------|
+| `tag` | Tag | `name` |
+| `domain` | Domain | `name` |
+| `glossary_term` | Glossary term | `name` |
+| `data_product` | Data product | `name`, `domain_urn` |
+| `document` | Context document (1.4.x+) | `name` |
+| `application` | Application | `name` |
+| `query` | Saved query | `value` (SQL) |
+| `incident` | Incident | `name`, `incident_type`, `entity_urns` |
+| `structured_property` | Structured property | `qualified_name`, `value_type`, `entity_types` |
+| `data_contract` | Data contract | `dataset_urns` |
 
 ---
 
-### datahub_add_tag
+### datahub_update
 
-Add a tag to a DataHub entity.
+Update metadata on an existing DataHub entity. Uses the `what` discriminator to select what to update, with an optional `action` for add/remove operations.
+
+Only available when `read_only: false` in the DataHub toolkit configuration.
+
+Annotated with `DestructiveHint: false`, `IdempotentHint: true`, `OpenWorldHint: true`.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `tag_urn` | string | Yes | - | Tag URN (e.g., `urn:li:tag:PII`) |
+| `what` | string | Yes | - | What to update (see table below) |
+| `urn` | string | Varies | - | Entity URN to update |
+| `action` | string | Varies | - | `add` or `remove` (required for tags, glossary terms, links, owners) |
 | `connection` | string | No | default | Connection name to use |
+
+Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details.
+
+| `what` | `action` | Description |
+|--------|----------|-------------|
+| `description` | — | Set entity description |
+| `column_description` | — | Set schema field description |
+| `tag` | add/remove | Add or remove a tag |
+| `glossary_term` | add/remove | Add or remove a glossary term |
+| `link` | add/remove | Add or remove a link |
+| `owner` | add/remove | Add or remove an owner |
+| `domain` | set/remove | Set or remove domain assignment |
+| `structured_properties` | set/remove | Set or remove structured property values |
+| `structured_property` | — | Update a structured property definition |
+| `incident_status` | — | Update incident status |
+| `incident` | — | Update incident details |
+| `query` | — | Update query properties |
+| `document_contents` | — | Update document title/text (1.4.x+) |
+| `document_status` | — | Update document status (1.4.x+) |
+| `document_related_entities` | — | Update document related entities (1.4.x+) |
+| `document_sub_type` | — | Update document sub-type (1.4.x+) |
+| `data_contract` | — | Upsert a data contract |
 
 ---
 
-### datahub_remove_tag
+### datahub_delete
 
-Remove a tag from a DataHub entity.
+Delete an entity or resource from DataHub. Uses the `what` discriminator to select the entity type.
 
-**Parameters:**
+Only available when `read_only: false` in the DataHub toolkit configuration.
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `tag_urn` | string | Yes | - | Tag URN to remove |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_add_glossary_term
-
-Add a glossary term to a DataHub entity.
+Annotated with `DestructiveHint: true`, `IdempotentHint: true`, `OpenWorldHint: true`.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `term_urn` | string | Yes | - | Glossary term URN (e.g., `urn:li:glossaryTerm:Classification`) |
+| `what` | string | Yes | - | Entity type to delete (see below) |
+| `urn` | string | Yes | - | Entity URN to delete |
 | `connection` | string | No | default | Connection name to use |
 
----
-
-### datahub_remove_glossary_term
-
-Remove a glossary term from a DataHub entity.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `term_urn` | string | Yes | - | Glossary term URN to remove |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_add_link
-
-Add a link to a DataHub entity.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `url` | string | Yes | - | URL of the link |
-| `description` | string | Yes | - | Description of the link |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_remove_link
-
-Remove a link from a DataHub entity.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `url` | string | Yes | - | URL of the link to remove |
-| `connection` | string | No | default | Connection name to use |
+Supported `what` values: `query`, `tag`, `domain`, `glossary_entity`, `data_product`, `application`, `document`, `structured_property`.
 
 ---
 
@@ -542,7 +533,7 @@ Record domain knowledge shared during a session. Available to all personas when 
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
-| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query |
+| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document |
 
 ---
 
@@ -568,6 +559,26 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights
 - **apply**: Write changes to DataHub with changeset tracking
+
+**Supported change types for `apply` action:**
+
+| Change Type | Target | Detail | Entity Types |
+|-------------|--------|--------|--------------|
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text | datasets (column+entity), dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
+| `add_tag` / `remove_tag` | Ignored | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) | All |
+| `add_glossary_term` | Ignored | Term name or URN | All |
+| `flag_quality_issue` | Ignored | Quality issue description | All |
+| `add_documentation` | URL | Link description | All |
+| `add_curated_query` | Ignored | Query name | Datasets only |
+| `set_structured_property` | Property qualified name or URN | Value or JSON array | All (DataHub 1.4.x) |
+| `remove_structured_property` | Property qualified name or URN | Removal reason | All (DataHub 1.4.x) |
+| `raise_incident` | Incident title | Description | All (DataHub 1.4.x) |
+| `resolve_incident` | Incident URN | Resolution message | All (DataHub 1.4.x) |
+| `add_context_document` | Document title | Document content | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
+| `update_context_document` | Document ID | New content (`query_sql` = new title) | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
+| `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
+
+For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
 
 ---
 

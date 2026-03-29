@@ -141,13 +141,9 @@ Use these exact names in your patterns:
 - `datahub_get_glossary_term`
 - `datahub_browse`
 - `datahub_get_data_product`
-- `datahub_update_description`
-- `datahub_add_tag`
-- `datahub_remove_tag`
-- `datahub_add_glossary_term`
-- `datahub_remove_glossary_term`
-- `datahub_add_link`
-- `datahub_remove_link`
+- `datahub_create` (if not read-only)
+- `datahub_update` (if not read-only)
+- `datahub_delete` (if not read-only)
 - `datahub_list_connections`
 
 **S3 Tools:**

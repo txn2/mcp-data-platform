@@ -455,6 +455,7 @@ toolkits:
       max_limit: 100
       max_lineage_depth: 5
       connection_name: primary
+      read_only: true
 ```
 
 | Field | Type | Default | Description |
@@ -466,6 +467,7 @@ toolkits:
 | `max_limit` | int | `100` | Maximum search result limit |
 | `max_lineage_depth` | int | `5` | Maximum lineage traversal depth |
 | `connection_name` | string | instance name | Display name for this connection |
+| `read_only` | bool | `false` | Restrict to read operations (disables write tools) |
 
 ### S3
 

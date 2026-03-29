@@ -575,6 +575,121 @@ List configured DataHub connections.
 
 ---
 
+### datahub_create
+
+Create a new entity or resource in DataHub. Uses the `what` discriminator to select the entity type. Only available when `read_only: false`.
+
+Annotated with `DestructiveHint: false`, `IdempotentHint: false`, `OpenWorldHint: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `what` | string | Yes | - | Entity type to create (see table below) |
+| `name` | string | Varies | - | Entity name (required for most types) |
+| `connection` | string | No | first configured | DataHub connection name |
+
+Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details per entity type.
+
+| `what` | Creates | Key fields |
+|--------|---------|------------|
+| `tag` | Tag | `name` |
+| `domain` | Domain | `name` |
+| `glossary_term` | Glossary term | `name` |
+| `data_product` | Data product | `name`, `domain_urn` |
+| `document` | Context document (1.4.x+) | `name` |
+| `application` | Application | `name` |
+| `query` | Saved query | `value` (SQL) |
+| `incident` | Incident | `name`, `incident_type`, `entity_urns` |
+| `structured_property` | Structured property | `qualified_name`, `value_type`, `entity_types` |
+| `data_contract` | Data contract | `dataset_urns` |
+
+**Response Schema:**
+
+```json
+{
+  "urn": "urn:li:tag:new-tag",
+  "message": "Created tag 'new-tag'"
+}
+```
+
+---
+
+### datahub_update
+
+Update metadata on an existing DataHub entity. Uses the `what` discriminator to select what to update, with an optional `action` for add/remove operations. Only available when `read_only: false`.
+
+Annotated with `DestructiveHint: false`, `IdempotentHint: true`, `OpenWorldHint: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `what` | string | Yes | - | What to update (see table below) |
+| `urn` | string | Varies | - | Entity URN to update |
+| `action` | string | Varies | - | `add` or `remove` (required for tags, glossary terms, links, owners) |
+| `connection` | string | No | first configured | DataHub connection name |
+
+Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details.
+
+| `what` | `action` | Description |
+|--------|----------|-------------|
+| `description` | — | Set entity description |
+| `column_description` | — | Set schema field description |
+| `tag` | add/remove | Add or remove a tag |
+| `glossary_term` | add/remove | Add or remove a glossary term |
+| `link` | add/remove | Add or remove a link |
+| `owner` | add/remove | Add or remove an owner |
+| `domain` | set/remove | Set or remove domain assignment |
+| `structured_properties` | set/remove | Set or remove structured property values |
+| `structured_property` | — | Update a structured property definition |
+| `incident_status` | — | Update incident status |
+| `incident` | — | Update incident details |
+| `query` | — | Update query properties |
+| `document_contents` | — | Update document title/text (1.4.x+) |
+| `document_status` | — | Update document status (1.4.x+) |
+| `document_related_entities` | — | Update document related entities (1.4.x+) |
+| `document_sub_type` | — | Update document sub-type (1.4.x+) |
+| `data_contract` | — | Upsert a data contract |
+
+**Response Schema:**
+
+```json
+{
+  "urn": "urn:li:dataset:...",
+  "message": "Updated description on urn:li:dataset:..."
+}
+```
+
+---
+
+### datahub_delete
+
+Delete an entity or resource from DataHub. Uses the `what` discriminator to select the entity type. Only available when `read_only: false`.
+
+Annotated with `DestructiveHint: true`, `IdempotentHint: true`, `OpenWorldHint: true`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `what` | string | Yes | - | Entity type to delete (see below) |
+| `urn` | string | Yes | - | Entity URN to delete |
+| `connection` | string | No | first configured | DataHub connection name |
+
+Supported `what` values: `query`, `tag`, `domain`, `glossary_entity`, `data_product`, `application`, `document`, `structured_property`.
+
+**Response Schema:**
+
+```json
+{
+  "urn": "urn:li:tag:old-tag",
+  "message": "Deleted tag 'old-tag'"
+}
+```
+
+---
+
 ## S3 Tools
 
 ### s3_list_buckets
@@ -887,11 +1002,29 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query` |
-| `target` | string | Yes | Target of the change |
-| `detail` | string | Yes | Change detail (query name for `add_curated_query`) |
-| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`) |
-| `query_description` | string | No | Optional description for `add_curated_query` |
+| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document` |
+| `target` | string | Yes | Target of the change (see below) |
+| `detail` | string | Yes | Change detail (see below) |
+| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`). For `update_context_document`, the new title |
+| `query_description` | string | No | Optional description for `add_curated_query`. For `add_context_document`/`update_context_document`, the document category |
+
+**Target and detail by change type:**
+
+| Change Type | Target | Detail |
+|-------------|--------|--------|
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text |
+| `add_tag` / `remove_tag` | Ignored | Tag name or URN |
+| `add_glossary_term` | Ignored | Term name or URN |
+| `flag_quality_issue` | Ignored | Quality issue description |
+| `add_documentation` | URL | Link description |
+| `add_curated_query` | Ignored | Query name |
+| `set_structured_property` | Property qualified name or URN | Value or JSON array |
+| `remove_structured_property` | Property qualified name or URN | Removal reason |
+| `raise_incident` | Incident title | Description |
+| `resolve_incident` | Incident URN | Resolution message |
+| `add_context_document` | Document title | Document content |
+| `update_context_document` | Document ID | New content |
+| `remove_context_document` | Document ID | Ignored |
 
 **Actions:**
 
