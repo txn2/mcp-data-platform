@@ -3,6 +3,7 @@ import { Search, FileText, Image, Code, File, Table2 } from "lucide-react";
 import { useSharedWithMe } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
+import { AuthImg } from "@/components/AuthImg";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -110,11 +111,10 @@ export function SharedWithMePage({ onNavigate }: Props) {
               >
                 <div className="w-full aspect-[4/3] bg-muted">
                   {item.asset.thumbnail_s3_key ? (
-                    <img
+                    <AuthImg
                       src={`/api/v1/portal/assets/${item.asset.id}/thumbnail`}
                       alt=""
                       className="w-full h-full object-cover object-top"
-                      loading="lazy"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">

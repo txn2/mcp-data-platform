@@ -1,0 +1,21 @@
+sku,product_name,category,current_stock,reorder_point,reorder_qty,stock_status,risk_score,last_restock,warehouse
+SKU-1001,Premium Wireless Headphones,Electronics,342,150,500,OK,0.12,2026-03-15,West
+SKU-1002,Organic Coffee Beans 1lb,Grocery,89,200,600,LOW,0.78,2026-03-10,Central
+SKU-1003,Running Shoes Pro X,Footwear,523,100,300,OK,0.05,2026-03-20,East
+SKU-1004,Stainless Steel Water Bottle,Home,1205,400,1000,OK,0.02,2026-03-18,West
+SKU-1005,Yoga Mat Premium,Sports,45,100,250,CRITICAL,0.92,2026-02-28,Central
+SKU-1006,Bluetooth Speaker Mini,Electronics,678,200,500,OK,0.08,2026-03-22,East
+SKU-1007,Protein Bar Variety 12pk,Grocery,156,300,800,LOW,0.65,2026-03-12,Central
+SKU-1008,Hiking Backpack 40L,Outdoor,234,80,200,OK,0.15,2026-03-19,West
+SKU-1009,LED Desk Lamp,Home,890,250,600,OK,0.04,2026-03-25,East
+SKU-1010,Thermal Jacket,Apparel,12,50,150,CRITICAL,0.95,2026-02-15,West
+SKU-1011,Wireless Charging Pad,Electronics,445,150,400,OK,0.10,2026-03-21,Central
+SKU-1012,Organic Green Tea 50ct,Grocery,267,200,500,OK,0.18,2026-03-17,East
+SKU-1013,Trail Running Shoes,Footwear,178,100,300,OK,0.22,2026-03-14,West
+SKU-1014,Cast Iron Skillet 12in,Home,356,120,300,OK,0.09,2026-03-23,Central
+SKU-1015,Resistance Band Set,Sports,67,100,250,LOW,0.71,2026-03-08,East
+SKU-1016,Noise Canceling Earbuds,Electronics,298,175,450,OK,0.16,2026-03-20,West
+SKU-1017,Almond Butter Organic,Grocery,34,150,400,CRITICAL,0.88,2026-03-01,Central
+SKU-1018,Winter Hiking Boots,Footwear,89,60,150,OK,0.25,2026-03-16,East
+SKU-1019,Smart Home Hub,Electronics,512,200,500,OK,0.07,2026-03-24,West
+SKU-1020,Camping Tent 4-Person,Outdoor,145,50,120,OK,0.13,2026-03-19,Central

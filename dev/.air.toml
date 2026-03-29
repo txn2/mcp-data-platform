@@ -1,0 +1,21 @@
+root = "."
+tmp_dir = "build/air"
+
+[build]
+  bin = "./build/air/mcp-data-platform"
+  args_bin = ["--config", "dev/platform.yaml"]
+  cmd = "go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform"
+  delay = 500
+  exclude_dir = ["ui", "build", "dist", "node_modules", "dev", "test", "apps", "docs", ".git", "internal/apidocs", "internal/ui/dist", "internal/contentviewer/dist"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go", "yaml"]
+  include_file = ["dev/platform.yaml"]
+  kill_delay = 500
+  send_interrupt = true
+  stop_on_error = false
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

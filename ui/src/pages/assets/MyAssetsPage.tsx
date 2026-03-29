@@ -3,6 +3,7 @@ import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucid
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
+import { AuthImg } from "@/components/AuthImg";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -113,11 +114,10 @@ export function MyAssetsPage({ onNavigate }: Props) {
               >
                 <div className="w-full aspect-[4/3] bg-muted">
                   {asset.thumbnail_s3_key ? (
-                    <img
+                    <AuthImg
                       src={`/api/v1/portal/assets/${asset.id}/thumbnail`}
                       alt=""
                       className="w-full h-full object-cover object-top"
-                      loading="lazy"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">

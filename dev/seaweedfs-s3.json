@@ -4,8 +4,8 @@
       "name": "admin",
       "credentials": [
         {
-          "accessKey": "minioadmin",
-          "secretKey": "minioadmin"
+          "accessKey": "dev-access-key",
+          "secretKey": "dev-secret-key"
         }
       ],
       "actions": ["Admin", "Read", "Write", "List", "Tagging"]

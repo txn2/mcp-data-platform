@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "generate-api-types": "npx swagger2openapi ../internal/apidocs/swagger.json -o src/api/generated/openapi3.json && openapi-typescript src/api/generated/openapi3.json -o src/api/generated/admin-api.d.ts"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -32,6 +33,7 @@
     "dompurify": "^3.3.2",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.469.0",
+    "mermaid": "^11.13.0",
     "papaparse": "^5.5.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -56,6 +58,8 @@
     "globals": "^16.1.0",
     "jsdom": "^26.1.0",
     "msw": "^2.12.10",
+    "openapi-typescript": "^7.6.1",
+    "swagger2openapi": "^7.0.8",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.33.0",
