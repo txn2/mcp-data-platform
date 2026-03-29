@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -149,7 +150,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
-				"set_structured_property, remove_structured_property, raise_incident, resolve_incident. " +
+				"set_structured_property, remove_structured_property, raise_incident, resolve_incident, " +
+				"add_context_document, update_context_document, remove_context_document. " +
 				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
 				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
 				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
@@ -163,7 +165,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For remove_structured_property, target is the property qualified name or URN. " +
 				"For raise_incident, target is the incident title, detail is the optional description. " +
 				"For resolve_incident, target is the incident URN, detail is the resolution message. " +
-				"Structured properties and incidents require DataHub 1.4.x.",
+				"For add_context_document, target is the document title, detail is the content, query_description is the category. " +
+				"For update_context_document, target is the document ID, detail is the new content, query_sql is the new title, query_description is the category. " +
+				"For remove_context_document, target is the document ID. " +
+				"add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, and containers. " +
+				"Structured properties, incidents, and context documents require DataHub 1.4.x.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}
@@ -479,7 +485,7 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 	}
 
 	if len(createdURNs) > 0 {
-		result["created_query_urns"] = createdURNs
+		result["created_ids"] = createdURNs
 	}
 
 	return jsonResult(result)
@@ -498,7 +504,7 @@ func userIDFromContext(ctx context.Context) string {
 const columnTargetPrefix = "column:"
 
 // executeChanges applies changes to DataHub, rolling back on failure.
-// Returns a list of URNs created by add_curated_query changes.
+// Returns a list of IDs/URNs created by changes (query URNs, document IDs, incident URNs).
 func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
 	// Pre-flight: validate entity type compatibility for all changes before executing any.
 	for i, c := range changes {
@@ -521,7 +527,7 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 }
 
 // dispatchChange executes a single change against DataHub.
-// Returns a non-empty query URN only for add_curated_query changes.
+// Returns a non-empty ID/URN for changes that create resources (queries, documents, incidents).
 func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
 	switch c.ChangeType {
@@ -578,10 +584,53 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 	case string(actionResolveIncident):
 		err = t.datahubWriter.ResolveIncident(ctx, c.Target, c.Detail)
 	default:
-		return "", fmt.Errorf("unsupported change type: %s", c.ChangeType)
+		return t.dispatchContextDocumentChange(ctx, urn, c)
 	}
 	if err != nil {
 		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+	}
+	return "", nil
+}
+
+// dispatchContextDocumentChange routes context document change types, falling back to
+// unsupported for anything else.
+func (t *Toolkit) dispatchContextDocumentChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	switch c.ChangeType {
+	case string(actionAddContextDocument), string(actionUpdateContextDocument):
+		return t.dispatchContextDocumentUpsert(ctx, urn, c)
+	case string(actionRemoveContextDocument):
+		if err := t.datahubWriter.DeleteContextDocument(ctx, c.Target); err != nil {
+			return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+		}
+		return "", nil
+	default:
+		return "", fmt.Errorf("unsupported change type: %s", c.ChangeType)
+	}
+}
+
+// dispatchContextDocumentUpsert handles add_context_document and update_context_document.
+// For add: target = title, detail = content, query_description = category.
+// For update: target = document ID, detail = content, query_sql = new title, query_description = category.
+func (t *Toolkit) dispatchContextDocumentUpsert(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	doc := types.ContextDocumentInput{
+		Content:  c.Detail,
+		Category: c.QueryDescription,
+	}
+
+	if c.ChangeType == string(actionAddContextDocument) {
+		doc.Title = c.Target
+	} else {
+		doc.ID = c.Target
+		doc.Title = c.QuerySQL
+	}
+
+	result, err := t.datahubWriter.UpsertContextDocument(ctx, urn, doc)
+	if err != nil {
+		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+	}
+
+	if result != nil {
+		return result.ID, nil
 	}
 	return "", nil
 }
@@ -926,12 +975,12 @@ func filterByIDs(insights []Insight, ids []string) []Insight {
 }
 
 func summarizeChangeTypes(changes []ApplyChange) string {
-	types := make(map[string]bool)
+	seen := make(map[string]bool)
 	for _, c := range changes {
-		types[c.ChangeType] = true
+		seen[c.ChangeType] = true
 	}
-	result := make([]string, 0, len(types))
-	for t := range types {
+	result := make([]string, 0, len(seen))
+	for t := range seen {
 		result = append(result, t)
 	}
 	if len(result) == 1 {

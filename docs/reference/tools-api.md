@@ -1002,11 +1002,29 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query` |
-| `target` | string | Yes | Target of the change |
-| `detail` | string | Yes | Change detail (query name for `add_curated_query`) |
-| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`) |
-| `query_description` | string | No | Optional description for `add_curated_query` |
+| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document` |
+| `target` | string | Yes | Target of the change (see below) |
+| `detail` | string | Yes | Change detail (see below) |
+| `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`). For `update_context_document`, the new title |
+| `query_description` | string | No | Optional description for `add_curated_query`. For `add_context_document`/`update_context_document`, the document category |
+
+**Target and detail by change type:**
+
+| Change Type | Target | Detail |
+|-------------|--------|--------|
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text |
+| `add_tag` / `remove_tag` | Ignored | Tag name or URN |
+| `add_glossary_term` | Ignored | Term name or URN |
+| `flag_quality_issue` | Ignored | Quality issue description |
+| `add_documentation` | URL | Link description |
+| `add_curated_query` | Ignored | Query name |
+| `set_structured_property` | Property qualified name or URN | Value or JSON array |
+| `remove_structured_property` | Property qualified name or URN | Removal reason |
+| `raise_incident` | Incident title | Description |
+| `resolve_incident` | Incident URN | Resolution message |
+| `add_context_document` | Document title | Document content |
+| `update_context_document` | Document ID | New content |
+| `remove_context_document` | Document ID | Ignored |
 
 **Actions:**
 
