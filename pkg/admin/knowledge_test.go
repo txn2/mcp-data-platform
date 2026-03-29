@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -223,6 +224,12 @@ func (*mockDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (stri
 }
 
 func (*mockDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
+
+func (*mockDataHubWriter) UpsertContextDocument(_ context.Context, _ string, _ types.ContextDocumentInput) (*types.ContextDocument, error) {
+	return &types.ContextDocument{}, nil
+}
+
+func (*mockDataHubWriter) DeleteContextDocument(_ context.Context, _ string) error { return nil }
 
 // Verify interface compliance.
 var _ knowledge.DataHubWriter = (*mockDataHubWriter)(nil)

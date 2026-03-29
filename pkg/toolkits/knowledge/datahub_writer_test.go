@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-datahub/pkg/types"
 )
 
 const testDatasetURN = "urn:li:dataset:foo" //nolint:revive // test constant
@@ -145,5 +146,23 @@ func TestNoopDataHubWriter_RaiseIncident(t *testing.T) {
 func TestNoopDataHubWriter_ResolveIncident(t *testing.T) {
 	writer := &NoopDataHubWriter{}
 	err := writer.ResolveIncident(context.Background(), "urn:li:incident:1", "fixed")
+	assert.NoError(t, err)
+}
+
+// --- Context document noop methods ---
+
+func TestNoopDataHubWriter_UpsertContextDocument(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	doc, err := writer.UpsertContextDocument(context.Background(), "urn:1", types.ContextDocumentInput{
+		Title:   "Test",
+		Content: "content",
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, doc)
+}
+
+func TestNoopDataHubWriter_DeleteContextDocument(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.DeleteContextDocument(context.Background(), "doc-123")
 	assert.NoError(t, err)
 }
