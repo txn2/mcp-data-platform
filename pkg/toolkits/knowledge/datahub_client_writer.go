@@ -150,15 +150,6 @@ func (w *DataHubClientWriter) ResolveIncident(ctx context.Context, incidentURN, 
 	return nil
 }
 
-// GetContextDocuments retrieves context documents linked to an entity.
-func (w *DataHubClientWriter) GetContextDocuments(ctx context.Context, urn string) ([]types.ContextDocument, error) {
-	docs, err := w.client.GetContextDocuments(ctx, urn)
-	if err != nil {
-		return nil, fmt.Errorf("getting context documents for %s: %w", urn, err)
-	}
-	return docs, nil
-}
-
 // UpsertContextDocument creates or updates a context document on an entity.
 func (w *DataHubClientWriter) UpsertContextDocument(ctx context.Context, entityURN string, doc types.ContextDocumentInput) (*types.ContextDocument, error) {
 	result, err := w.client.UpsertContextDocument(ctx, entityURN, doc)

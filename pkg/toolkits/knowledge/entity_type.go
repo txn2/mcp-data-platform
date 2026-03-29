@@ -42,10 +42,11 @@ var contextDocumentSupportedTypes = map[string]bool{
 	"container":    true,
 }
 
-// contextDocumentWriteOps are change types that require context document support.
-var contextDocumentWriteOps = map[actionType]bool{
+// contextDocumentOps are change types that require context document support.
+var contextDocumentOps = map[actionType]bool{
 	actionAddContextDocument:    true,
 	actionUpdateContextDocument: true,
+	actionRemoveContextDocument: true,
 }
 
 // supportedOpsForType returns the list of supported operations for a given entity type.
@@ -67,12 +68,8 @@ func supportedOpsForType(entityType string) []string {
 	}
 
 	if contextDocumentSupportedTypes[entityType] {
-		ops = append(ops, "add_context_document", "update_context_document")
+		ops = append(ops, "add_context_document", "update_context_document", "remove_context_document")
 	}
-
-	// remove_context_document is always listed since it deletes by document ID
-	// and is entity-type-independent.
-	ops = append(ops, "remove_context_document")
 
 	return ops
 }
@@ -132,9 +129,8 @@ func validateEntityTypeForChange(urn string, c ApplyChange) error {
 		)
 	}
 
-	// Context document write operations (add/update) require supported entity types.
-	// remove_context_document is entity-type-independent (deletes by document ID).
-	if contextDocumentWriteOps[actionType(c.ChangeType)] && !contextDocumentSupportedTypes[entityType] {
+	// Context document operations require supported entity types.
+	if contextDocumentOps[actionType(c.ChangeType)] && !contextDocumentSupportedTypes[entityType] {
 		return fmt.Errorf(
 			"%s is only supported for datasets, glossaryTerms, glossaryNodes, and containers, not %s entities. "+
 				"Supported operations for %s: %s",

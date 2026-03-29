@@ -225,10 +225,6 @@ func (*mockDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (stri
 
 func (*mockDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
 
-func (*mockDataHubWriter) GetContextDocuments(_ context.Context, _ string) ([]types.ContextDocument, error) {
-	return nil, nil
-}
-
 func (*mockDataHubWriter) UpsertContextDocument(_ context.Context, _ string, _ types.ContextDocumentInput) (*types.ContextDocument, error) {
 	return &types.ContextDocument{}, nil
 }

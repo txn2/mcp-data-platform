@@ -151,13 +151,6 @@ func TestNoopDataHubWriter_ResolveIncident(t *testing.T) {
 
 // --- Context document noop methods ---
 
-func TestNoopDataHubWriter_GetContextDocuments(t *testing.T) {
-	writer := &NoopDataHubWriter{}
-	docs, err := writer.GetContextDocuments(context.Background(), "urn:1")
-	assert.NoError(t, err)
-	assert.Nil(t, docs)
-}
-
 func TestNoopDataHubWriter_UpsertContextDocument(t *testing.T) {
 	writer := &NoopDataHubWriter{}
 	doc, err := writer.UpsertContextDocument(context.Background(), "urn:1", types.ContextDocumentInput{

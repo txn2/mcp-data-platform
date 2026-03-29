@@ -405,11 +405,39 @@ func ValidateApplyChanges(changes []ApplyChange) error {
 		return fmt.Errorf("changes exceeds maximum of %d (got %d)", MaxApplyChanges, len(changes))
 	}
 	for i, c := range changes {
-		if !validActionTypes[actionType(c.ChangeType)] {
-			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: %s", i, c.ChangeType, actionTypeList)
+		if err := validateApplyChange(c); err != nil {
+			return fmt.Errorf("changes[%d]: %w", i, err)
 		}
-		if c.ChangeType == string(actionAddCuratedQuery) && c.QuerySQL == "" {
-			return fmt.Errorf("changes[%d]: query_sql is required for add_curated_query", i)
+	}
+	return nil
+}
+
+// validateApplyChange checks a single change for required fields.
+func validateApplyChange(c ApplyChange) error {
+	if !validActionTypes[actionType(c.ChangeType)] {
+		return fmt.Errorf("invalid change_type %q: must be one of: %s", c.ChangeType, actionTypeList)
+	}
+	return validateChangeRequiredFields(c)
+}
+
+// validateChangeRequiredFields checks type-specific required fields for a change.
+func validateChangeRequiredFields(c ApplyChange) error {
+	switch c.ChangeType {
+	case string(actionAddCuratedQuery):
+		if c.QuerySQL == "" {
+			return fmt.Errorf("query_sql is required for add_curated_query")
+		}
+	case string(actionAddContextDocument):
+		if c.Target == "" || c.Detail == "" {
+			return fmt.Errorf("target (title) and detail (content) are required for add_context_document")
+		}
+	case string(actionUpdateContextDocument):
+		if c.Target == "" {
+			return fmt.Errorf("target (document ID) is required for update_context_document")
+		}
+	case string(actionRemoveContextDocument):
+		if c.Target == "" {
+			return fmt.Errorf("target (document ID) is required for remove_context_document")
 		}
 	}
 	return nil

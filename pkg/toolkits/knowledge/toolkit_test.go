@@ -331,10 +331,6 @@ func (w *spyWriter) ResolveIncident(_ context.Context, incidentURN, message stri
 	return w.recordAndCheck("ResolveIncident", incidentURN, message, "")
 }
 
-func (*spyWriter) GetContextDocuments(_ context.Context, _ string) ([]types.ContextDocument, error) {
-	return nil, nil
-}
-
 func (w *spyWriter) UpsertContextDocument(_ context.Context, urn string, doc types.ContextDocumentInput) (*types.ContextDocument, error) {
 	if err := w.recordAndCheck("UpsertContextDocument", urn, doc.Title, doc.ID); err != nil {
 		return nil, err

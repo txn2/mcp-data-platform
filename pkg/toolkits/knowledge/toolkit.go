@@ -527,7 +527,7 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 }
 
 // dispatchChange executes a single change against DataHub.
-// Returns a non-empty query URN only for add_curated_query changes.
+// Returns a non-empty ID/URN for changes that create resources (queries, documents, incidents).
 func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
 	switch c.ChangeType {

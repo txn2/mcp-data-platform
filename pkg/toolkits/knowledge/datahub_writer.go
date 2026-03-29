@@ -26,7 +26,6 @@ type DataHubWriter interface {
 	ResolveIncident(ctx context.Context, incidentURN, message string) error
 
 	// Context documents (DataHub 1.4.x with document support)
-	GetContextDocuments(ctx context.Context, urn string) ([]types.ContextDocument, error)
 	UpsertContextDocument(ctx context.Context, entityURN string, doc types.ContextDocumentInput) (*types.ContextDocument, error)
 	DeleteContextDocument(ctx context.Context, documentID string) error
 }
@@ -85,11 +84,6 @@ func (*NoopDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (stri
 
 // ResolveIncident is a no-op.
 func (*NoopDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
-
-// GetContextDocuments is a no-op.
-func (*NoopDataHubWriter) GetContextDocuments(_ context.Context, _ string) ([]types.ContextDocument, error) {
-	return nil, nil
-}
 
 // UpsertContextDocument is a no-op.
 func (*NoopDataHubWriter) UpsertContextDocument(_ context.Context, _ string, _ types.ContextDocumentInput) (*types.ContextDocument, error) {

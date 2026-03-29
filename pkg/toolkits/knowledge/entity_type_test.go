@@ -226,18 +226,8 @@ func TestValidateEntityTypeForChange(t *testing.T) {
 			urn:    datasetURN,
 			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
 		},
-		{
-			name:   "remove_context_document on domain (entity-type-independent)",
-			urn:    domainURN,
-			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
-		},
-		{
-			name:   "remove_context_document on tag (entity-type-independent)",
-			urn:    tagURN,
-			change: ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
-		},
 
-		// Context document operations: unsupported entity types for add/update
+		// Context document operations: unsupported entity types
 		{
 			name:       "add_context_document on domain (unsupported)",
 			urn:        domainURN,
@@ -251,6 +241,20 @@ func TestValidateEntityTypeForChange(t *testing.T) {
 			change:     ApplyChange{ChangeType: "update_context_document", Target: "doc-123", Detail: "content"},
 			wantErr:    true,
 			errContain: "update_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
+		},
+		{
+			name:       "remove_context_document on domain (unsupported)",
+			urn:        domainURN,
+			change:     ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
+			wantErr:    true,
+			errContain: "remove_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
+		},
+		{
+			name:       "remove_context_document on tag (unsupported)",
+			urn:        tagURN,
+			change:     ApplyChange{ChangeType: "remove_context_document", Target: "doc-123"},
+			wantErr:    true,
+			errContain: "remove_context_document is only supported for datasets, glossaryTerms, glossaryNodes, and containers",
 		},
 		{
 			name:       "add_context_document on dataProduct (unsupported)",
@@ -295,13 +299,13 @@ func TestSupportedOpsForType(t *testing.T) {
 		},
 		{
 			entityType:   "domain",
-			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "remove_context_document"},
-			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue"},
+			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
 		},
 		{
 			entityType:   "tag",
-			wantContains: []string{"add_tag", "remove_tag", "add_glossary_term", "remove_context_document"},
-			wantMissing:  []string{"update_description", "add_curated_query", "add_context_document", "update_context_document"},
+			wantContains: []string{"add_tag", "remove_tag", "add_glossary_term"},
+			wantMissing:  []string{"update_description", "add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
 		},
 		{
 			entityType:   "glossaryTerm",
