@@ -157,12 +157,17 @@ const (
 	actionRemoveStructuredProperty actionType = "remove_structured_property"
 	actionRaiseIncident            actionType = "raise_incident"
 	actionResolveIncident          actionType = "resolve_incident"
+
+	// Context document actions (DataHub 1.4.x with document support).
+	actionAddContextDocument    actionType = "add_context_document"
+	actionUpdateContextDocument actionType = "update_context_document"
+	actionRemoveContextDocument actionType = "remove_context_document"
 )
 
 // actionTypeList is a human-readable list of valid action types for error messages.
 const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, " +
 	"add_documentation, add_curated_query, set_structured_property, remove_structured_property, " +
-	"raise_incident, resolve_incident"
+	"raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
@@ -177,6 +182,9 @@ var validActionTypes = map[actionType]bool{
 	actionRemoveStructuredProperty: true,
 	actionRaiseIncident:            true,
 	actionResolveIncident:          true,
+	actionAddContextDocument:       true,
+	actionUpdateContextDocument:    true,
+	actionRemoveContextDocument:    true,
 }
 
 // SuggestedAction represents a proposed catalog change.
@@ -397,11 +405,39 @@ func ValidateApplyChanges(changes []ApplyChange) error {
 		return fmt.Errorf("changes exceeds maximum of %d (got %d)", MaxApplyChanges, len(changes))
 	}
 	for i, c := range changes {
-		if !validActionTypes[actionType(c.ChangeType)] {
-			return fmt.Errorf("changes[%d]: invalid change_type %q: must be one of: %s", i, c.ChangeType, actionTypeList)
+		if err := validateApplyChange(c); err != nil {
+			return fmt.Errorf("changes[%d]: %w", i, err)
 		}
-		if c.ChangeType == string(actionAddCuratedQuery) && c.QuerySQL == "" {
-			return fmt.Errorf("changes[%d]: query_sql is required for add_curated_query", i)
+	}
+	return nil
+}
+
+// validateApplyChange checks a single change for required fields.
+func validateApplyChange(c ApplyChange) error {
+	if !validActionTypes[actionType(c.ChangeType)] {
+		return fmt.Errorf("invalid change_type %q: must be one of: %s", c.ChangeType, actionTypeList)
+	}
+	return validateChangeRequiredFields(c)
+}
+
+// validateChangeRequiredFields checks type-specific required fields for a change.
+func validateChangeRequiredFields(c ApplyChange) error {
+	switch c.ChangeType {
+	case string(actionAddCuratedQuery):
+		if c.QuerySQL == "" {
+			return fmt.Errorf("query_sql is required for add_curated_query")
+		}
+	case string(actionAddContextDocument):
+		if c.Target == "" || c.Detail == "" {
+			return fmt.Errorf("target (title) and detail (content) are required for add_context_document")
+		}
+	case string(actionUpdateContextDocument):
+		if c.Target == "" {
+			return fmt.Errorf("target (document ID) is required for update_context_document")
+		}
+	case string(actionRemoveContextDocument):
+		if c.Target == "" {
+			return fmt.Errorf("target (document ID) is required for remove_context_document")
 		}
 	}
 	return nil

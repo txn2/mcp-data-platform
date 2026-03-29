@@ -1351,7 +1351,7 @@ Records domain knowledge shared during a session.
 | `related_columns` | array | No | Columns related to this insight (max 20) |
 | `suggested_actions` | array | No | Proposed catalog changes (max 5) |
 
-**Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`
+**Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document`
 
 **Target field:** Use `column:<fieldPath>` (e.g., `column:location_type_id`) for column-level descriptions. For `add_documentation`, the target is the URL. For other types, leave empty or omit.
 

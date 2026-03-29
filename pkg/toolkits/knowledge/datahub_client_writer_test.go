@@ -3,12 +3,14 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -528,6 +530,116 @@ func TestDataHubClientWriter_ResolveIncident_Error(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "resolving incident")
+}
+
+func TestDataHubClientWriter_UpsertContextDocument(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		requestCount++
+
+		// Read body to determine which GraphQL operation this is
+		body, _ := io.ReadAll(r.Body)
+		bodyStr := string(body)
+
+		if strings.Contains(bodyStr, "createDocument") {
+			// CreateDocument response
+			resp := graphQLResponse{
+				Data: json.RawMessage(`{"createDocument": "urn:li:document:new-doc-id"}`),
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// GetDocument response (post-create fetch) — uses "document" not "entity"
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{
+				"document": {
+					"urn": "urn:li:document:new-doc-id",
+					"type": "DOCUMENT",
+					"subType": "analysis",
+					"info": {
+						"title": "Test Doc",
+						"contents": {"text": "content here"},
+						"created": {"time": 1700000000000},
+						"lastModified": {"time": 1700000000000}
+					},
+					"ownership": {
+						"owners": [{
+							"owner": {"urn": "urn:li:corpuser:admin", "type": "CORP_USER"},
+							"type": "DATAOWNER"
+						}]
+					}
+				}
+			}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	doc, err := writer.UpsertContextDocument(context.Background(), testURN, types.ContextDocumentInput{
+		Title:   "Test Doc",
+		Content: "content here",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	assert.Equal(t, "new-doc-id", doc.ID)
+	assert.Equal(t, "Test Doc", doc.Title)
+}
+
+func TestDataHubClientWriter_UpsertContextDocument_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "creation failed"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.UpsertContextDocument(context.Background(), testURN, types.ContextDocumentInput{
+		Title:   "Test Doc",
+		Content: "content here",
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "upserting context document")
+}
+
+func TestDataHubClientWriter_DeleteContextDocument(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Data: json.RawMessage(`{"deleteDocument": true}`),
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteContextDocument(context.Background(), "doc-123")
+
+	assert.NoError(t, err)
+}
+
+func TestDataHubClientWriter_DeleteContextDocument_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := graphQLResponse{
+			Errors: []any{map[string]any{"message": "not found"}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteContextDocument(context.Background(), "doc-123")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting context document")
 }
 
 func TestDataHubClientWriter_InterfaceCompliance(t *testing.T) {
