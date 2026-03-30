@@ -168,8 +168,8 @@ func TestDataContractStatus_JSON(t *testing.T) {
 	dc := DataContractStatus{
 		Status: "FAILING",
 		AssertionResults: []AssertionResult{
-			{Type: "FRESHNESS", ResultType: "FAILURE"},
-			{Type: "SCHEMA", ResultType: "SUCCESS"},
+			{AssertionURN: "urn:li:assertion:freshness-1", Type: "FRESHNESS"},
+			{AssertionURN: "urn:li:assertion:schema-1", Type: "SCHEMA"},
 		},
 	}
 	data, err := json.Marshal(dc)
@@ -186,7 +186,7 @@ func TestDataContractStatus_JSON(t *testing.T) {
 	if len(got.AssertionResults) != 2 {
 		t.Fatalf("AssertionResults len = %d, want 2", len(got.AssertionResults))
 	}
-	if got.AssertionResults[0].Type != "FRESHNESS" || got.AssertionResults[0].ResultType != "FAILURE" {
+	if got.AssertionResults[0].Type != "FRESHNESS" || got.AssertionResults[0].AssertionURN != "urn:li:assertion:freshness-1" {
 		t.Errorf("AssertionResults[0] mismatch: %+v", got.AssertionResults[0])
 	}
 }

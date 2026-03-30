@@ -681,8 +681,8 @@ func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
 		result.AssertionResults = make([]semantic.AssertionResult, len(dc.AssertionResults))
 		for i, ar := range dc.AssertionResults {
 			result.AssertionResults[i] = semantic.AssertionResult{
-				Type:       ar.Type,
-				ResultType: ar.ResultType,
+				AssertionURN: ar.AssertionURN,
+				Type:         ar.Type,
 			}
 		}
 	}

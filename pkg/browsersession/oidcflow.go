@@ -146,8 +146,8 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
-	http.SetCookie(w, &http.Cookie{
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure is cfg-driven (defaults true, opt-out for local dev without TLS)
 		Name:     stateCookieName,
 		Value:    stateToken,
 		Path:     "/portal/auth/",
@@ -245,8 +245,8 @@ func (f *Flow) validateCallbackState(r *http.Request, state string) (string, err
 
 // clearStateCookie removes the temporary OIDC state cookie.
 func (f *Flow) clearStateCookie(w http.ResponseWriter) {
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
-	http.SetCookie(w, &http.Cookie{
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure is cfg-driven (defaults true, opt-out for local dev without TLS)
 		Name:     stateCookieName,
 		Value:    "",
 		Path:     "/portal/auth/",

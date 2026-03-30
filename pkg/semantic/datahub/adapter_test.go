@@ -1098,8 +1098,8 @@ func TestConvertDataContract(t *testing.T) {
 		input := &types.DataContract{
 			Status: "PASSING",
 			AssertionResults: []types.AssertionResult{
-				{Type: "FRESHNESS", ResultType: "SUCCESS"},
-				{Type: "SCHEMA", ResultType: "SUCCESS"},
+				{AssertionURN: "urn:li:assertion:freshness-1", Type: "FRESHNESS"},
+				{AssertionURN: "urn:li:assertion:schema-1", Type: "SCHEMA"},
 			},
 		}
 		result := convertDataContract(input)
@@ -1158,7 +1158,7 @@ func TestGetTableContext_WithV14Fields(t *testing.T) {
 				DataContract: &types.DataContract{
 					Status: "PASSING",
 					AssertionResults: []types.AssertionResult{
-						{Type: "FRESHNESS", ResultType: "SUCCESS"},
+						{AssertionURN: "urn:li:assertion:freshness-1", Type: "FRESHNESS"},
 					},
 				},
 			}, nil

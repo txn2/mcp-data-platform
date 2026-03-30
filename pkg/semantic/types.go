@@ -238,8 +238,8 @@ type DataContractStatus struct {
 	AssertionResults []AssertionResult `json:"assertion_results,omitempty"`
 }
 
-// AssertionResult represents a single assertion outcome within a data contract.
+// AssertionResult represents a single assertion reference within a data contract.
 type AssertionResult struct {
-	Type       string `json:"type"`        // FRESHNESS, SCHEMA, DATA_QUALITY
-	ResultType string `json:"result_type"` // SUCCESS, FAILURE
+	AssertionURN string `json:"assertion_urn,omitempty"` // URN identifying the assertion
+	Type         string `json:"type"`                    // FRESHNESS, SCHEMA, DATA_QUALITY
 }
