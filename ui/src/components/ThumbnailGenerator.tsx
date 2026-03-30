@@ -221,25 +221,27 @@ function DomCapture({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // Capture as non-null for the async closure (TS can't narrow across await).
+    const container: HTMLDivElement = el;
 
     async function renderMermaidAndCapture() {
       // Wait for ReactMarkdown to render child nodes
       await new Promise<void>((resolve) => {
-        if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
+        if (container.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
           resolve();
           return;
         }
         const observer = new MutationObserver(() => {
-          if (el.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
+          if (container.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
             observer.disconnect();
             resolve();
           }
         });
-        observer.observe(el, { childList: true, subtree: true });
+        observer.observe(container, { childList: true, subtree: true });
       });
 
       // Render mermaid code blocks if present
-      const mermaidBlocks = el.querySelectorAll<HTMLElement>("code.language-mermaid");
+      const mermaidBlocks = container.querySelectorAll<HTMLElement>("code.language-mermaid");
       if (mermaidBlocks.length > 0) {
         mermaid.initialize({ startOnLoad: false, theme: "default", fontFamily: "system-ui, sans-serif" });
         for (let i = 0; i < mermaidBlocks.length; i++) {

@@ -3675,7 +3675,7 @@ func TestBuildTrinoSemanticContext_V14Fields(t *testing.T) {
 		DataContract: &semantic.DataContractStatus{
 			Status: "FAILING",
 			AssertionResults: []semantic.AssertionResult{
-				{Type: "FRESHNESS", ResultType: "FAILURE"},
+				{AssertionURN: "urn:li:assertion:freshness-1", Type: "FRESHNESS"},
 			},
 		},
 	}

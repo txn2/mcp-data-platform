@@ -98,8 +98,9 @@ func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 
 // SetCookie writes the session JWT as an HTTP-only cookie.
 func SetCookie(w http.ResponseWriter, cfg *CookieConfig, tokenString string) {
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
-	http.SetCookie(w, &http.Cookie{
+	// Secure is cfg-driven (defaults true, opt-out for local dev without TLS).
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure is cfg-driven (defaults true, opt-out for local dev without TLS)
 		Name:     cfg.effectiveName(),
 		Value:    tokenString,
 		Domain:   cfg.Domain,
@@ -113,8 +114,8 @@ func SetCookie(w http.ResponseWriter, cfg *CookieConfig, tokenString string) {
 
 // ClearCookie removes the session cookie.
 func ClearCookie(w http.ResponseWriter, cfg *CookieConfig) {
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is cfg-driven (defaults true, opt-out for local dev)
-	http.SetCookie(w, &http.Cookie{
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure is cfg-driven (defaults true, opt-out for local dev without TLS)
 		Name:     cfg.effectiveName(),
 		Value:    "",
 		Domain:   cfg.Domain,
