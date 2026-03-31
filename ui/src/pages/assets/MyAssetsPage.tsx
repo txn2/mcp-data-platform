@@ -1,9 +1,17 @@
 import { useState } from "react";
-import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucide-react";
+import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List } from "lucide-react";
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
+
+const VIEW_STORAGE_KEY = "asset-view-mode";
+type ViewMode = "grid" | "table";
+
+function getStoredViewMode(): ViewMode {
+  const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+  return stored === "table" ? "table" : "grid";
+}
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -32,6 +40,12 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+
+  function toggleViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    localStorage.setItem(VIEW_STORAGE_KEY, mode);
+  }
 
   const { data, isLoading } = useAssets({
     content_type: contentType || undefined,
@@ -78,6 +92,22 @@ export function MyAssetsPage({ onNavigate }: Props) {
           placeholder="Filter by tag..."
           className="rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
         />
+        <div className="flex gap-0.5 rounded-md border p-0.5">
+          <button
+            onClick={() => toggleViewMode("grid")}
+            title="Grid view"
+            className={`rounded-sm p-1.5 transition-colors ${viewMode === "grid" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => toggleViewMode("table")}
+            title="Table view"
+            className={`rounded-sm p-1.5 transition-colors ${viewMode === "table" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <List className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Results */}
@@ -100,7 +130,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
             </p>
           </div>
         </div>
-      ) : (
+      ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {assets.map((asset) => {
             const Icon = contentTypeIcon(asset.content_type);
@@ -170,6 +200,82 @@ export function MyAssetsPage({ onNavigate }: Props) {
               </button>
             );
           })}
+        </div>
+        ) : (
+        <div className="rounded-lg border bg-card overflow-hidden">
+          <table className="w-full text-sm table-fixed">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[35%]">Name</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Type</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[20%]">Tags</th>
+                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-[8%]">Size</th>
+                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assets.map((asset) => {
+                const Icon = contentTypeIcon(asset.content_type);
+                const summary = data?.share_summaries?.[asset.id];
+                return (
+                  <tr
+                    key={asset.id}
+                    onClick={() => onNavigate(`/assets/${asset.id}`)}
+                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+                  >
+                    <td className="px-4 py-2.5 max-w-0">
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium truncate block">{asset.name}</span>
+                          {asset.description && (
+                            <span className="text-xs text-muted-foreground truncate block">{asset.description}</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(asset.content_type)}`}>
+                        {asset.content_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 max-w-0">
+                      <div className="flex flex-wrap gap-1">
+                        {asset.tags.slice(0, 3).map((t) => (
+                          <span
+                            key={t}
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                        {asset.tags.length > 3 && (
+                          <span className="text-[10px] text-muted-foreground">+{asset.tags.length - 3}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-muted-foreground">
+                      {formatBytes(asset.size_bytes)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex justify-center gap-1.5">
+                        {summary?.has_user_share && (
+                          <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                        )}
+                        {summary?.has_public_link && (
+                          <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {new Date(asset.created_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
