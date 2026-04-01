@@ -514,12 +514,13 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	}
 
 	deps := portal.Deps{
-		AssetStore:    p.PortalAssetStore(),
-		ShareStore:    p.PortalShareStore(),
-		VersionStore:  p.PortalVersionStore(),
-		S3Client:      p.PortalS3Client(),
-		S3Bucket:      p.Config().Portal.S3Bucket,
-		PublicBaseURL: p.Config().Portal.PublicBaseURL,
+		AssetStore:      p.PortalAssetStore(),
+		ShareStore:      p.PortalShareStore(),
+		VersionStore:    p.PortalVersionStore(),
+		CollectionStore: p.PortalCollectionStore(),
+		S3Client:        p.PortalS3Client(),
+		S3Bucket:        p.Config().Portal.S3Bucket,
+		PublicBaseURL:   p.Config().Portal.PublicBaseURL,
 		RateLimit: portal.RateLimitConfig{
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,

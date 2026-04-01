@@ -44,6 +44,11 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
         },
+        "/portal/view": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
       },
     },
   };

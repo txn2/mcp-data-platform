@@ -14,6 +14,10 @@ import type {
   BreakdownEntry,
   Insight,
   InsightStats,
+  Collection,
+  CollectionConfig,
+  CollectionResponse,
+  SharedCollection,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -364,5 +368,169 @@ export function useMyInsightStats() {
   return useQuery({
     queryKey: ["my-insight-stats"],
     queryFn: () => apiFetch<InsightStats>("/knowledge/insights/stats"),
+  });
+}
+
+// --- Collections ---
+
+export function useCollections(params?: { search?: string; limit?: number; offset?: number }) {
+  const searchParams = new URLSearchParams();
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery({
+    queryKey: ["collections", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<Collection>>(`/collections${qs ? `?${qs}` : ""}`),
+  });
+}
+
+export function useCollection(id: string) {
+  return useQuery({
+    queryKey: ["collection", id],
+    queryFn: () => apiFetch<CollectionResponse>(`/collections/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string }) =>
+      apiFetch<Collection>("/collections", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useUpdateCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; name?: string; description?: string }) =>
+      apiFetch<Collection>(`/collections/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+      void qc.invalidateQueries({ queryKey: ["collection"] });
+    },
+  });
+}
+
+export function useDeleteCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/collections/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useUpdateCollectionSections() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, sections }: {
+      id: string;
+      sections: { title: string; description?: string; items: { asset_id: string }[] }[];
+    }) =>
+      apiFetch<CollectionResponse>(`/collections/${id}/sections`, {
+        method: "PUT",
+        body: JSON.stringify({ sections }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collection"] });
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useUpdateCollectionConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, config }: { id: string; config: CollectionConfig }) =>
+      apiFetch<Collection>(`/collections/${id}/config`, {
+        method: "PUT",
+        body: JSON.stringify(config),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collection"] });
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useUploadCollectionThumbnail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, blob }: { id: string; blob: Blob }) => {
+      const res = await apiFetchRaw(`/collections/${id}/thumbnail`, {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: blob,
+      });
+      if (!res.ok) throw new Error("Failed to upload thumbnail");
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+      void qc.invalidateQueries({ queryKey: ["collection"] });
+    },
+  });
+}
+
+export function useCollectionShares(collectionId: string) {
+  return useQuery({
+    queryKey: ["collection-shares", collectionId],
+    queryFn: () => apiFetch<Share[]>(`/collections/${collectionId}/shares`),
+    enabled: !!collectionId,
+  });
+}
+
+export function useCreateCollectionShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      collectionId,
+      ...body
+    }: {
+      collectionId: string;
+      expires_in?: string;
+      shared_with_user_id?: string;
+      shared_with_email?: string;
+      hide_expiration?: boolean;
+      notice_text?: string;
+      permission?: SharePermission;
+    }) =>
+      apiFetch<ShareResponse>(`/collections/${collectionId}/shares`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: ["collection-shares", vars.collectionId] });
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useSharedCollections(params?: { limit?: number; offset?: number }) {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery({
+    queryKey: ["shared-collections", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<SharedCollection>>(
+        `/shared-collections${qs ? `?${qs}` : ""}`,
+      ),
   });
 }

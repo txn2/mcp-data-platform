@@ -18,6 +18,7 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 type AssetStore interface {
 	Insert(ctx context.Context, asset Asset) error
 	Get(ctx context.Context, id string) (*Asset, error)
+	GetByIDs(ctx context.Context, ids []string) (map[string]*Asset, error)
 	List(ctx context.Context, filter AssetFilter) ([]Asset, int, error)
 	Update(ctx context.Context, id string, updates AssetUpdate) error
 	SoftDelete(ctx context.Context, id string) error
@@ -35,14 +36,18 @@ type VersionStore interface {
 	GetLatest(ctx context.Context, assetID string) (*AssetVersion, error)
 }
 
-// ShareStore persists and queries share links.
+// ShareStore persists and queries share links for assets and collections.
 type ShareStore interface {
 	Insert(ctx context.Context, share Share) error
 	GetByID(ctx context.Context, id string) (*Share, error)
 	GetByToken(ctx context.Context, token string) (*Share, error)
 	ListByAsset(ctx context.Context, assetID string) ([]Share, error)
+	ListByCollection(ctx context.Context, collectionID string) ([]Share, error)
+	GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error)
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
+	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
+	ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error)
 	Revoke(ctx context.Context, id string) error
 	IncrementAccess(ctx context.Context, id string) error
 }
@@ -120,19 +125,89 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 	return &asset, nil
 }
 
+func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[string]*Asset, error) { //nolint:revive // interface impl
+	if len(ids) == 0 {
+		return map[string]*Asset{}, nil
+	}
+
+	query := `
+		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
+		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       created_at, updated_at, deleted_at
+		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
+	`
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("querying assets by IDs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	result := make(map[string]*Asset, len(ids))
+	for rows.Next() {
+		var asset Asset
+		var tags, prov []byte
+		var deletedAt sql.NullTime
+
+		if err := rows.Scan(
+			&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
+			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+			&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning asset row: %w", err)
+		}
+
+		if deletedAt.Valid {
+			asset.DeletedAt = &deletedAt.Time
+		}
+		if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+			return nil, err
+		}
+
+		a := asset
+		result[a.ID] = &a
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating asset rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
+	total, err := s.countAssets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	assets, err := s.queryAssets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Populate collection associations for each asset.
+	if err := s.populateCollections(ctx, assets); err != nil {
+		return nil, 0, fmt.Errorf("populating collections: %w", err)
+	}
+
+	return assets, total, nil
+}
+
+func (s *postgresAssetStore) countAssets(ctx context.Context, filter AssetFilter) (int, error) {
 	countQB := applyAssetFilter(psq.Select("COUNT(*)").From("portal_assets"), filter)
 	countQB = countQB.Where("deleted_at IS NULL")
 	countQuery, countArgs, err := countQB.ToSql()
 	if err != nil {
-		return nil, 0, fmt.Errorf("building count query: %w", err)
+		return 0, fmt.Errorf("building count query: %w", err)
 	}
 
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("counting assets: %w", err)
+		return 0, fmt.Errorf("counting assets: %w", err)
 	}
+	return total, nil
+}
 
+func (s *postgresAssetStore) queryAssets(ctx context.Context, filter AssetFilter) ([]Asset, error) {
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
@@ -143,20 +218,20 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 		OrderBy("created_at DESC")
 
 	if limit > 0 {
-		selectQB = selectQB.Limit(uint64(limit))
+		selectQB = selectQB.Limit(uint64(limit)) //nolint:gosec // validated positive
 	}
 	if filter.Offset > 0 {
-		selectQB = selectQB.Offset(uint64(filter.Offset))
+		selectQB = selectQB.Offset(uint64(filter.Offset)) //nolint:gosec // validated positive
 	}
 
 	selectQuery, selectArgs, err := selectQB.ToSql()
 	if err != nil {
-		return nil, 0, fmt.Errorf("building select query: %w", err)
+		return nil, fmt.Errorf("building select query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...)
+	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...) //nolint:gosec // builder-generated query
 	if err != nil {
-		return nil, 0, fmt.Errorf("querying assets: %w", err)
+		return nil, fmt.Errorf("querying assets: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
 
@@ -164,15 +239,68 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 	for rows.Next() {
 		asset, scanErr := scanAssetRow(rows)
 		if scanErr != nil {
-			return nil, 0, scanErr
+			return nil, scanErr
 		}
 		assets = append(assets, asset)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterating asset rows: %w", err)
+		return nil, fmt.Errorf("iterating asset rows: %w", err)
 	}
 
-	return assets, total, nil
+	return assets, nil
+}
+
+// populateCollections fetches collection associations for a batch of assets in one query.
+func (s *postgresAssetStore) populateCollections(ctx context.Context, assets []Asset) error {
+	if len(assets) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(assets))
+	for i, a := range assets {
+		ids[i] = a.ID
+	}
+
+	query := `
+		SELECT ci.asset_id, pc.id, pc.name
+		FROM portal_collection_items ci
+		JOIN portal_collection_sections cs ON cs.id = ci.section_id
+		JOIN portal_collections pc ON pc.id = cs.collection_id AND pc.deleted_at IS NULL
+		WHERE ci.asset_id = ANY($1)
+		ORDER BY pc.name
+	`
+	collRows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("querying asset collections: %w", err)
+	}
+	defer collRows.Close() //nolint:errcheck // best-effort cleanup
+
+	collMap := make(map[string][]AssetCollectionRef)
+	for collRows.Next() {
+		var assetID, collID, collName string
+		if err := collRows.Scan(&assetID, &collID, &collName); err != nil {
+			return fmt.Errorf("scanning collection ref: %w", err)
+		}
+		collMap[assetID] = append(collMap[assetID], AssetCollectionRef{ID: collID, Name: collName})
+	}
+	if err := collRows.Err(); err != nil {
+		return fmt.Errorf("iterating collection refs: %w", err)
+	}
+
+	// Deduplicate (an asset can appear in multiple sections of the same collection)
+	for i := range assets {
+		refs := collMap[assets[i].ID]
+		seen := make(map[string]bool)
+		var deduped []AssetCollectionRef
+		for _, ref := range refs {
+			if !seen[ref.ID] {
+				seen[ref.ID] = true
+				deduped = append(deduped, ref)
+			}
+		}
+		assets[i].Collections = deduped
+	}
+	return nil
 }
 
 func (s *postgresAssetStore) Update(ctx context.Context, id string, updates AssetUpdate) error { //nolint:revive // interface impl
@@ -276,9 +404,17 @@ func NewPostgresShareStore(db *sql.DB) ShareStore {
 func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO portal_shares
-		(id, asset_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		(id, asset_id, collection_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
+
+	var assetID, collectionID sql.NullString
+	if share.AssetID != "" {
+		assetID = sql.NullString{String: share.AssetID, Valid: true}
+	}
+	if share.CollectionID != "" {
+		collectionID = sql.NullString{String: share.CollectionID, Valid: true}
+	}
 
 	var expiresAt sql.NullTime
 	if share.ExpiresAt != nil {
@@ -301,7 +437,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 	}
 
 	_, err := s.db.ExecContext(ctx, query,
-		share.ID, share.AssetID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
+		share.ID, assetID, collectionID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
@@ -311,7 +447,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 
 func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE id = $1
 	`
@@ -320,7 +456,7 @@ func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, er
 
 func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE token = $1
 	`
@@ -329,11 +465,42 @@ func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Sha
 
 func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE asset_id = $1 ORDER BY created_at DESC
 	`
-	rows, err := s.db.QueryContext(ctx, query, assetID)
+	return s.listShares(ctx, query, assetID)
+}
+
+func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID string) ([]Share, error) { //nolint:revive // interface impl
+	query := `
+		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		FROM portal_shares WHERE collection_id = $1 ORDER BY created_at DESC
+	`
+	return s.listShares(ctx, query, collectionID)
+}
+
+func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) { //nolint:revive // interface impl
+	query := `
+		SELECT permission FROM portal_shares
+		WHERE collection_id = $1
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (shared_with_user_id = $2 OR ($3 != '' AND LOWER(shared_with_email) = LOWER($3)))
+		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END
+		LIMIT 1
+	`
+	var perm string
+	err := s.db.QueryRowContext(ctx, query, collectionID, userID, email).Scan(&perm)
+	if err != nil {
+		return "", fmt.Errorf("querying user collection permission: %w", err)
+	}
+	return SharePermission(perm), nil
+}
+
+func (s *postgresShareStore) listShares(ctx context.Context, query, id string) ([]Share, error) {
+	rows, err := s.db.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, fmt.Errorf("querying shares: %w", err)
 	}
@@ -462,6 +629,112 @@ func (s *postgresShareStore) ListActiveShareSummaries(ctx context.Context, asset
 	return result, nil
 }
 
+func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error) { //nolint:revive // interface impl
+	countQuery := `
+		SELECT COUNT(*)
+		FROM portal_shares ps
+		JOIN portal_collections pc ON ps.collection_id = pc.id
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
+	`
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, userID, email).Scan(&total); err != nil { //nolint:gosec // constant query
+		return nil, 0, fmt.Errorf("counting shared collections: %w", err)
+	}
+
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	selectQuery := `
+		SELECT pc.id, pc.owner_id, pc.owner_email, pc.name, pc.description,
+		       pc.thumbnail_s3_key, pc.config, pc.created_at, pc.updated_at, pc.deleted_at,
+		       ps.id, COALESCE(NULLIF(pc.owner_email, ''), ps.created_by), ps.created_at, ps.permission
+		FROM portal_shares ps
+		JOIN portal_collections pc ON ps.collection_id = pc.id
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
+		ORDER BY ps.created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := s.db.QueryContext(ctx, selectQuery, userID, email, limit, offset) //nolint:gosec // constant query
+	if err != nil {
+		return nil, 0, fmt.Errorf("querying shared collections: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	var results []SharedCollection
+	for rows.Next() {
+		var sc SharedCollection
+		var deletedAt sql.NullTime
+		var configJSON []byte
+
+		if err := rows.Scan(
+			&sc.Collection.ID, &sc.Collection.OwnerID, &sc.Collection.OwnerEmail,
+			&sc.Collection.Name, &sc.Collection.Description, &sc.Collection.ThumbnailS3Key, &configJSON,
+			&sc.Collection.CreatedAt, &sc.Collection.UpdatedAt, &deletedAt,
+			&sc.ShareID, &sc.SharedBy, &sc.SharedAt, &sc.Permission,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scanning shared collection row: %w", err)
+		}
+
+		if deletedAt.Valid {
+			sc.Collection.DeletedAt = &deletedAt.Time
+		}
+		if len(configJSON) > 0 {
+			_ = json.Unmarshal(configJSON, &sc.Collection.Config)
+		}
+		results = append(results, sc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating shared collection rows: %w", err)
+	}
+
+	return results, total, nil
+}
+
+func (s *postgresShareStore) ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
+	if len(collectionIDs) == 0 {
+		return map[string]ShareSummary{}, nil
+	}
+
+	query := `
+		SELECT collection_id,
+		       BOOL_OR(shared_with_user_id IS NOT NULL OR shared_with_email IS NOT NULL),
+		       BOOL_OR(shared_with_user_id IS NULL AND shared_with_email IS NULL)
+		FROM portal_shares
+		WHERE collection_id = ANY($1)
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		GROUP BY collection_id
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(collectionIDs)) //nolint:gosec // constant query
+	if err != nil {
+		return nil, fmt.Errorf("querying collection share summaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	result := make(map[string]ShareSummary)
+	for rows.Next() {
+		var id string
+		var summary ShareSummary
+		if err := rows.Scan(&id, &summary.HasUserShare, &summary.HasPublicLink); err != nil {
+			return nil, fmt.Errorf("scanning collection share summary row: %w", err)
+		}
+		result[id] = summary
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating collection share summary rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (s *postgresShareStore) Revoke(ctx context.Context, id string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_shares SET revoked = TRUE WHERE id = $1 AND revoked = FALSE`
 	result, err := s.db.ExecContext(ctx, query, id)
@@ -491,11 +764,12 @@ func (s *postgresShareStore) IncrementAccess(ctx context.Context, id string) err
 
 func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (*Share, error) {
 	var share Share
+	var assetID, collectionID sql.NullString
 	var expiresAt, lastAccessed sql.NullTime
 	var sharedWith, sharedEmail sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, arg).Scan(
-		&share.ID, &share.AssetID, &share.Token, &share.CreatedBy,
+		&share.ID, &assetID, &collectionID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
 		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	)
@@ -503,6 +777,12 @@ func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (
 		return nil, fmt.Errorf("querying share: %w", err)
 	}
 
+	if assetID.Valid {
+		share.AssetID = assetID.String
+	}
+	if collectionID.Valid {
+		share.CollectionID = collectionID.String
+	}
 	if sharedWith.Valid {
 		share.SharedWithUserID = sharedWith.String
 	}
@@ -533,6 +813,10 @@ func (*noopAssetStore) Insert(_ context.Context, _ Asset) error { return nil }
 
 func (*noopAssetStore) Get(_ context.Context, _ string) (*Asset, error) { //nolint:revive // interface impl
 	return nil, fmt.Errorf("asset not found")
+}
+
+func (*noopAssetStore) GetByIDs(_ context.Context, _ []string) (map[string]*Asset, error) { //nolint:revive // interface impl
+	return map[string]*Asset{}, nil
 }
 
 func (*noopAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
@@ -566,11 +850,27 @@ func (*noopShareStore) ListByAsset(_ context.Context, _ string) ([]Share, error)
 	return nil, nil
 }
 
+func (*noopShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) { //nolint:revive // interface impl
+	return nil, nil
+}
+
+func (*noopShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) { //nolint:revive // interface impl
+	return "", fmt.Errorf("no shares")
+}
+
 func (*noopShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
 }
 
+func (*noopShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) { //nolint:revive // interface impl
+	return nil, 0, nil
+}
+
 func (*noopShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
+	return map[string]ShareSummary{}, nil
+}
+
+func (*noopShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
 	return map[string]ShareSummary{}, nil
 }
 
@@ -637,17 +937,24 @@ func scanAssetRow(rows *sql.Rows) (Asset, error) {
 
 func scanShareRow(rows *sql.Rows) (Share, error) {
 	var share Share
+	var assetID, collectionID sql.NullString
 	var expiresAt, lastAccessed sql.NullTime
 	var sharedWith, sharedEmail sql.NullString
 
 	if err := rows.Scan(
-		&share.ID, &share.AssetID, &share.Token, &share.CreatedBy,
+		&share.ID, &assetID, &collectionID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
 		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	); err != nil {
 		return share, fmt.Errorf("scanning share row: %w", err)
 	}
 
+	if assetID.Valid {
+		share.AssetID = assetID.String
+	}
+	if collectionID.Valid {
+		share.CollectionID = collectionID.String
+	}
 	if sharedWith.Valid {
 		share.SharedWithUserID = sharedWith.String
 	}

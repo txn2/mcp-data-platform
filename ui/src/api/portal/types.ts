@@ -1,3 +1,8 @@
+export interface AssetCollectionRef {
+  id: string;
+  name: string;
+}
+
 export interface Asset {
   id: string;
   owner_id: string;
@@ -13,6 +18,7 @@ export interface Asset {
   provenance: Provenance;
   session_id: string;
   current_version: number;
+  collections?: AssetCollectionRef[];
   created_at: string;
   updated_at: string;
   deleted_at?: string;
@@ -91,6 +97,62 @@ export interface PaginatedResponse<T> {
 export interface ShareResponse {
   share: Share;
   share_url?: string;
+}
+
+// --- Collection types ---
+
+export interface CollectionConfig {
+  thumbnail_size?: "large" | "medium" | "small" | "none";
+}
+
+export interface Collection {
+  id: string;
+  owner_id: string;
+  owner_email: string;
+  name: string;
+  description: string;
+  thumbnail_s3_key?: string;
+  config: CollectionConfig;
+  sections: CollectionSection[];
+  asset_tags?: string[];
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface CollectionSection {
+  id: string;
+  collection_id: string;
+  title: string;
+  description: string;
+  position: number;
+  items: CollectionItem[];
+  created_at: string;
+}
+
+export interface CollectionItem {
+  id: string;
+  section_id: string;
+  asset_id: string;
+  position: number;
+  asset_name?: string;
+  asset_content_type?: string;
+  asset_thumbnail_s3_key?: string;
+  asset_description?: string;
+  created_at: string;
+}
+
+export interface CollectionResponse extends Collection {
+  is_owner: boolean;
+  share_permission?: SharePermission;
+}
+
+export interface SharedCollection {
+  collection: Collection;
+  share_id: string;
+  shared_by: string;
+  shared_at: string;
+  permission: SharePermission;
 }
 
 export interface Branding {

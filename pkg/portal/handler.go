@@ -66,6 +66,7 @@ type Deps struct {
 	AssetStore      AssetStore
 	ShareStore      ShareStore
 	VersionStore    VersionStore
+	CollectionStore CollectionStore
 	S3Client        S3Client
 	S3Bucket        string
 	PublicBaseURL   string
@@ -144,6 +145,22 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/shared-with-me", h.listSharedWithMe)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/copy", h.copyAsset)
 
+	// Collection routes
+	if h.deps.CollectionStore != nil {
+		h.mux.HandleFunc("POST /api/v1/portal/collections", h.createCollection)
+		h.mux.HandleFunc("GET /api/v1/portal/collections", h.listCollections)
+		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}", h.getCollection)
+		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}", h.updateCollection)
+		h.mux.HandleFunc("DELETE /api/v1/portal/collections/{id}", h.deleteCollection)
+		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/config", h.updateCollectionConfig)
+		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/sections", h.setCollectionSections)
+		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/thumbnail", h.uploadCollectionThumbnail)
+		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/thumbnail", h.getCollectionThumbnail)
+		h.mux.HandleFunc("POST /api/v1/portal/collections/{id}/shares", h.createCollectionShare)
+		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/shares", h.listCollectionShares)
+		h.mux.HandleFunc("GET /api/v1/portal/shared-collections", h.listSharedCollections)
+	}
+
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {
 		h.mux.HandleFunc("GET /api/v1/portal/activity/overview", h.getActivityOverview)
@@ -157,9 +174,15 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights/stats", h.getMyInsightStats)
 	}
 
-	// Public route (rate limited)
+	// Public routes (rate limited)
 	h.publicMux.Handle("GET /portal/view/{token}",
 		h.rateLimiter.Middleware(http.HandlerFunc(h.publicView)))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content",
+		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemContent)))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail",
+		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemThumbnail)))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view",
+		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemView)))
 }
 
 // --- Me handler ---
@@ -843,7 +866,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	share, buildErr := buildShare(assetID, user.Email, req)
+	share, buildErr := buildShare(shareTarget{AssetID: assetID}, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
 		return
@@ -862,8 +885,14 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// shareTarget identifies what a share is for — either an asset or a collection.
+type shareTarget struct {
+	AssetID      string
+	CollectionID string
+}
+
 // buildShare validates the request and constructs a Share, returning an error for invalid input.
-func buildShare(assetID, createdBy string, req createShareRequest) (Share, error) {
+func buildShare(target shareTarget, createdBy string, req createShareRequest) (Share, error) {
 	token, err := generateToken()
 	if err != nil {
 		return Share{}, fmt.Errorf("failed to generate share token")
@@ -891,7 +920,8 @@ func buildShare(assetID, createdBy string, req createShareRequest) (Share, error
 
 	share := Share{
 		ID:               uuid.New().String(),
-		AssetID:          assetID,
+		AssetID:          target.AssetID,
+		CollectionID:     target.CollectionID,
 		Token:            token,
 		CreatedBy:        createdBy,
 		SharedWithUserID: req.SharedWithUserID,

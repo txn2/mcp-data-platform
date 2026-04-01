@@ -30,8 +30,7 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       content={content}
       isLoading={isLoading}
       contentUrl={`/api/v1/admin/assets/${assetId}/content`}
-      backPath="/admin/assets"
-      backLabel="Back to Assets"
+      onBack={() => onNavigate("/admin/assets")}
       onNavigate={onNavigate}
       updateMutation={updateMutation}
       deleteMutation={deleteMutation}

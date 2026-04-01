@@ -122,6 +122,11 @@ func TestPostgresAssetStoreList(t *testing.T) {
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
+	// populateCollections query
+	mock.ExpectQuery("SELECT ci.asset_id").WillReturnRows(
+		sqlmock.NewRows([]string{"asset_id", "id", "name"}),
+	)
+
 	assets, total, err := store.List(context.Background(), AssetFilter{OwnerID: "user1"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
@@ -297,7 +302,7 @@ func TestPostgresShareStoreInsert(t *testing.T) {
 	}
 
 	mock.ExpectExec("INSERT INTO portal_shares").
-		WithArgs(share.ID, share.AssetID, share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer").
+		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Insert(context.Background(), share)
@@ -314,9 +319,9 @@ func TestPostgresShareStoreGetByToken(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
-		"id", "asset_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"id", "asset_id", "collection_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
 		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission",
-	}).AddRow("share1", "abc123", "tok123", "user1", nil, nil, nil, false, false, defaultNoticeText, 5, now, now, "viewer")
+	}).AddRow("share1", "abc123", nil, "tok123", "user1", nil, nil, nil, false, false, defaultNoticeText, 5, now, now, "viewer")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
 		WithArgs("tok123").
@@ -338,9 +343,9 @@ func TestPostgresShareStoreListByAsset(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
-		"id", "asset_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"id", "asset_id", "collection_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
 		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission",
-	}).AddRow("share1", "abc123", "tok1", "user1", nil, nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer")
+	}).AddRow("share1", "abc123", nil, "tok1", "user1", nil, nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE asset_id").
 		WithArgs("abc123").
@@ -362,9 +367,9 @@ func TestPostgresShareStoreListByAssetAllFields(t *testing.T) {
 	expires := now.Add(24 * time.Hour)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "asset_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"id", "asset_id", "collection_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
 		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission",
-	}).AddRow("share1", "abc123", "tok1", "user1", "user2", "user2@example.com", expires, false, true, "Custom notice", 3, now, now, "editor")
+	}).AddRow("share1", "abc123", nil, "tok1", "user1", "user2", "user2@example.com", expires, false, true, "Custom notice", 3, now, now, "editor")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE asset_id").
 		WithArgs("abc123").
@@ -647,6 +652,11 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
+	// populateCollections query
+	mock.ExpectQuery("SELECT ci.asset_id").WillReturnRows(
+		sqlmock.NewRows([]string{"asset_id", "id", "name"}),
+	)
+
 	assets, _, err := store.List(context.Background(), AssetFilter{
 		OwnerID: "user1", Offset: 10, Limit: 5,
 	})
@@ -824,9 +834,9 @@ func TestPostgresShareStoreGetByID(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
-		"id", "asset_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"id", "asset_id", "collection_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
 		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission",
-	}).AddRow("share1", "abc123", "tok123", "user1", "shareduser", nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer")
+	}).AddRow("share1", "abc123", nil, "tok123", "user1", "shareduser", nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE id").
 		WithArgs("share1").
@@ -1004,7 +1014,7 @@ func TestPostgresShareStoreInsertWithSharedWithUser(t *testing.T) {
 	}
 
 	mock.ExpectExec("INSERT INTO portal_shares").
-		WithArgs(share.ID, share.AssetID, share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer").
+		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Insert(context.Background(), share)
@@ -1038,9 +1048,9 @@ func TestPostgresShareStoreGetByTokenWithExpiration(t *testing.T) {
 	expires := now.Add(24 * time.Hour)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "asset_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"id", "asset_id", "collection_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
 		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission",
-	}).AddRow("share1", "abc123", "tok123", "user1", nil, nil, expires, false, false, defaultNoticeText, 0, nil, now, "viewer")
+	}).AddRow("share1", "abc123", nil, "tok123", "user1", nil, nil, expires, false, false, defaultNoticeText, 0, nil, now, "viewer")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
 		WithArgs("tok123").

@@ -35,6 +35,18 @@ func (m *mockAssetStore) Get(_ context.Context, _ string) (*Asset, error) {
 	return m.getAsset, m.getErr
 }
 
+func (m *mockAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*Asset, error) {
+	result := make(map[string]*Asset)
+	if m.getAsset != nil {
+		for _, id := range ids {
+			if id == m.getAsset.ID {
+				result[id] = m.getAsset
+			}
+		}
+	}
+	return result, m.getErr
+}
+
 func (m *mockAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) {
 	return m.listRes, m.listTotal, m.listErr
 }
@@ -81,6 +93,22 @@ func (m *mockShareStore) Revoke(_ context.Context, _ string) error          { re
 func (m *mockShareStore) IncrementAccess(_ context.Context, _ string) error { return m.incrementErr }
 func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
 	return m.summaries, m.summariesErr
+}
+
+func (*mockShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) {
+	return nil, nil
+}
+
+func (*mockShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) {
+	return "", fmt.Errorf("no shares")
+}
+
+func (*mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) {
+	return nil, 0, nil
+}
+
+func (*mockShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
+	return map[string]ShareSummary{}, nil
 }
 
 type mockS3Client struct {
@@ -168,6 +196,22 @@ func (c *captureShareStore) IncrementAccess(ctx context.Context, id string) erro
 
 func (c *captureShareStore) ListActiveShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
 	return c.inner.ListActiveShareSummaries(ctx, ids)
+}
+
+func (c *captureShareStore) ListByCollection(ctx context.Context, id string) ([]Share, error) {
+	return c.inner.ListByCollection(ctx, id)
+}
+
+func (c *captureShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) {
+	return c.inner.GetUserCollectionPermission(ctx, collectionID, userID, email)
+}
+
+func (c *captureShareStore) ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error) {
+	return c.inner.ListSharedCollectionsWithUser(ctx, userID, email, limit, offset)
+}
+
+func (c *captureShareStore) ListActiveCollectionShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
+	return c.inner.ListActiveCollectionShareSummaries(ctx, ids)
 }
 
 // authMiddleware injects a User into the context for testing.

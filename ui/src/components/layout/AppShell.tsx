@@ -9,6 +9,9 @@ import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { SharedWithMePage } from "@/pages/shared/SharedWithMePage";
 import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
+import { CollectionsPage } from "@/pages/collections/CollectionsPage";
+import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
+import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
 
 // Admin pages (admin only)
 import { HomePage } from "@/pages/home/HomePage";
@@ -23,6 +26,7 @@ import { ShieldAlert } from "lucide-react";
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
   "/": "My Assets",
+  "/collections": "Collections",
   "/shared": "Shared With Me",
   "/my-knowledge": "My Knowledge",
   "/admin": "Dashboard",
@@ -48,9 +52,16 @@ function readPath(): string {
   return route;
 }
 
+/** Routes that auto-collapse the sidebar (deep detail/edit views). */
 function isAssetRoute(path: string): boolean {
   const route = path.split("#")[0] ?? "";
-  return /^\/assets\/.+$/.test(route) || /^\/admin\/assets\/.+$/.test(route);
+  return (
+    /^\/assets\/.+$/.test(route) ||
+    /^\/admin\/assets\/.+$/.test(route) ||
+    /^\/collections\/.+\/assets\/.+$/.test(route) ||
+    /^\/shared\/assets\/.+$/.test(route) ||
+    /^\/collections\/.+\/edit$/.test(route)
+  );
 }
 
 function AccessDenied() {
@@ -103,17 +114,8 @@ export function AppShell() {
     }
   }, [currentPath, sidebarCollapsed]);
 
-  // Track the last non-asset route so the back arrow returns to the correct page
-  const lastListPath = useRef(isAssetRoute(initialPath) ? "/" : initialPath);
-
   const navigate = useCallback((path: string) => {
-    setCurrentPath((prev) => {
-      const prevRoute = prev.split("#")[0] ?? "";
-      if (!isAssetRoute(prevRoute)) {
-        lastListPath.current = prevRoute;
-      }
-      return path;
-    });
+    setCurrentPath(path);
     const hashIdx = path.indexOf("#");
     const pathname = hashIdx >= 0 ? path.slice(0, hashIdx) : path;
     const hash = hashIdx >= 0 ? path.slice(hashIdx) : "";
@@ -121,14 +123,7 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    const onPop = () => {
-      const path = readPath();
-      const route = path.split("#")[0] ?? "";
-      if (!isAssetRoute(route)) {
-        lastListPath.current = route;
-      }
-      setCurrentPath(path);
-    };
+    const onPop = () => setCurrentPath(readPath());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -137,15 +132,26 @@ export function AppShell() {
   const route = hashIdx >= 0 ? currentPath.slice(0, hashIdx) : currentPath;
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
 
-  // Asset viewer routes: /assets/:id and /admin/assets/:id
+  // Asset viewer routes
+  const collectionAssetMatch = route.match(/^\/collections\/([^/]+)\/assets\/(.+)$/);
+  const sharedAssetMatch = route.match(/^\/shared\/assets\/(.+)$/);
   const assetMatch = route.match(/^\/assets\/(.+)$/);
   const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
+  // Collection routes: /collections/:id and /collections/:id/edit
+  const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
+  const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
+    ? route.match(/^\/collections\/([^/]+)$/)
+    : null;
 
-  const title = assetMatch
+  const title = collectionAssetMatch || sharedAssetMatch || assetMatch
     ? "Asset Viewer"
     : adminAssetMatch
       ? "Asset Viewer"
-      : (pageTitles[route] ?? "My Assets");
+      : collectionEditMatch
+        ? "Edit Collection"
+        : collectionViewMatch
+          ? "Collection"
+          : (pageTitles[route] ?? "My Assets");
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -163,15 +169,38 @@ export function AppShell() {
         <main className="flex-1 overflow-auto bg-muted/40 p-6">
           {/* Portal routes — everyone */}
           {!isAdminRoute && route === "/activity" && <ActivityPage />}
-          {!isAdminRoute && !assetMatch && route !== "/shared" && route !== "/activity" && route !== "/my-knowledge" && (
+          {!isAdminRoute && route === "/" && (
             <MyAssetsPage onNavigate={navigate} />
+          )}
+          {!isAdminRoute && route === "/collections" && (
+            <CollectionsPage onNavigate={navigate} />
+          )}
+          {collectionViewMatch && (
+            <CollectionViewerPage
+              collectionId={collectionViewMatch[1]!}
+              onNavigate={navigate}
+              onBack={() => navigate("/collections")}
+            />
+          )}
+          {collectionEditMatch && (
+            <CollectionEditorPage
+              collectionId={collectionEditMatch[1]!}
+              onBack={() => navigate(`/collections/${collectionEditMatch[1]!}`)}
+              onNavigate={navigate}
+            />
           )}
           {!isAdminRoute && route === "/shared" && (
             <SharedWithMePage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
+          {collectionAssetMatch && (
+            <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
+          )}
+          {sharedAssetMatch && (
+            <AssetViewerPage assetId={sharedAssetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/shared")} />
+          )}
           {assetMatch && (
-            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} backPath={lastListPath.current} />
+            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/")} />
           )}
 
           {/* Admin routes — admin only (defense in depth) */}

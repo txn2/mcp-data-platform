@@ -14,25 +14,32 @@ const MaxContentUploadBytes = 10 << 20
 // MaxThumbnailUploadBytes is the maximum size for thumbnail uploads (512 KB).
 const MaxThumbnailUploadBytes = 512 << 10
 
+// AssetCollectionRef is a lightweight reference to a collection that contains an asset.
+type AssetCollectionRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
-	ID             string     `json:"id"`
-	OwnerID        string     `json:"owner_id"`
-	OwnerEmail     string     `json:"owner_email"`
-	Name           string     `json:"name"`
-	Description    string     `json:"description,omitempty"`
-	ContentType    string     `json:"content_type"`
-	S3Bucket       string     `json:"s3_bucket"`
-	S3Key          string     `json:"s3_key"`
-	ThumbnailS3Key string     `json:"thumbnail_s3_key,omitempty"`
-	SizeBytes      int64      `json:"size_bytes"`
-	Tags           []string   `json:"tags"`
-	Provenance     Provenance `json:"provenance"`
-	SessionID      string     `json:"session_id,omitempty"`
-	CurrentVersion int        `json:"current_version"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	ID             string               `json:"id"`
+	OwnerID        string               `json:"owner_id"`
+	OwnerEmail     string               `json:"owner_email"`
+	Name           string               `json:"name"`
+	Description    string               `json:"description,omitempty"`
+	ContentType    string               `json:"content_type"`
+	S3Bucket       string               `json:"s3_bucket"`
+	S3Key          string               `json:"s3_key"`
+	ThumbnailS3Key string               `json:"thumbnail_s3_key,omitempty"`
+	SizeBytes      int64                `json:"size_bytes"`
+	Tags           []string             `json:"tags"`
+	Provenance     Provenance           `json:"provenance"`
+	SessionID      string               `json:"session_id,omitempty"`
+	CurrentVersion int                  `json:"current_version"`
+	Collections    []AssetCollectionRef `json:"collections,omitempty"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+	DeletedAt      *time.Time           `json:"deleted_at,omitempty"`
 }
 
 // AssetVersion records a single version of an asset's content.
@@ -96,10 +103,12 @@ func ValidSharePermission(p string) bool {
 	return p == string(PermissionViewer) || p == string(PermissionEditor)
 }
 
-// Share represents a share link for an asset.
+// Share represents a share link for an asset or collection.
+// Exactly one of AssetID or CollectionID is set.
 type Share struct {
 	ID               string          `json:"id"`
-	AssetID          string          `json:"asset_id"`
+	AssetID          string          `json:"asset_id,omitempty"`
+	CollectionID     string          `json:"collection_id,omitempty"`
 	Token            string          `json:"token"`
 	CreatedBy        string          `json:"created_by"`
 	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
@@ -239,6 +248,151 @@ const MaxChangeSummaryLength = 500
 func ValidateChangeSummary(s string) error {
 	if len(s) > MaxChangeSummaryLength {
 		return fmt.Errorf("change_summary exceeds %d characters", MaxChangeSummaryLength)
+	}
+	return nil
+}
+
+// --- Collection types ---
+
+// CollectionConfig holds extensible per-collection settings.
+type CollectionConfig struct {
+	ThumbnailSize string `json:"thumbnail_size,omitempty"` // "large", "medium", "small", "none"
+}
+
+// Collection represents a curated, ordered group of assets organized into sections.
+type Collection struct {
+	ID             string              `json:"id"`
+	OwnerID        string              `json:"owner_id"`
+	OwnerEmail     string              `json:"owner_email"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	ThumbnailS3Key string              `json:"thumbnail_s3_key,omitempty"`
+	Config         CollectionConfig    `json:"config"`
+	Sections       []CollectionSection `json:"sections"`
+	AssetTags      []string            `json:"asset_tags,omitempty"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+	DeletedAt      *time.Time          `json:"deleted_at,omitempty"`
+}
+
+// CollectionSection is an ordered section within a collection.
+type CollectionSection struct {
+	ID           string           `json:"id"`
+	CollectionID string           `json:"collection_id"`
+	Title        string           `json:"title"`
+	Description  string           `json:"description"`
+	Position     int              `json:"position"`
+	Items        []CollectionItem `json:"items"`
+	CreatedAt    time.Time        `json:"created_at"`
+}
+
+// CollectionItem is an ordered reference to an asset within a section.
+// Asset* fields are populated by the store on read (JOIN with portal_assets).
+type CollectionItem struct {
+	ID               string    `json:"id"`
+	SectionID        string    `json:"section_id"`
+	AssetID          string    `json:"asset_id"`
+	Position         int       `json:"position"`
+	AssetName        string    `json:"asset_name,omitempty"`
+	AssetContentType string    `json:"asset_content_type,omitempty"`
+	AssetThumbnail   string    `json:"asset_thumbnail_s3_key,omitempty"`
+	AssetDescription string    `json:"asset_description,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+// CollectionFilter defines filtering criteria for listing collections.
+type CollectionFilter struct {
+	OwnerID string `json:"owner_id,omitempty"`
+	Search  string `json:"search,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Offset  int    `json:"offset,omitempty"`
+}
+
+// EffectiveLimit returns the limit with defaults applied.
+func (f *CollectionFilter) EffectiveLimit() int {
+	if f.Limit <= 0 {
+		return defaultLimit
+	}
+	if f.Limit > maxLimit {
+		return maxLimit
+	}
+	return f.Limit
+}
+
+// SharedCollection combines a Collection with share metadata.
+type SharedCollection struct {
+	Collection Collection      `json:"collection"`
+	ShareID    string          `json:"share_id"`
+	SharedBy   string          `json:"shared_by"`
+	SharedAt   time.Time       `json:"shared_at"`
+	Permission SharePermission `json:"permission"`
+}
+
+// maxCollectionDescriptionLength is the maximum length for collection descriptions.
+const maxCollectionDescriptionLength = 50000
+
+// maxSectionDescriptionLength is the maximum length for section descriptions.
+const maxSectionDescriptionLength = 10000
+
+// maxSectionTitleLength is the maximum length for section titles.
+const maxSectionTitleLength = 255
+
+// maxSections is the maximum number of sections per collection.
+const maxSections = 50
+
+// maxItemsPerSection is the maximum number of items per section.
+const maxItemsPerSection = 100
+
+// ValidateCollectionName checks that a collection name is valid.
+func ValidateCollectionName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if len(name) > maxNameLength {
+		return fmt.Errorf("name exceeds %d characters", maxNameLength)
+	}
+	return nil
+}
+
+// ValidateCollectionDescription checks collection description length.
+func ValidateCollectionDescription(desc string) error {
+	if len(desc) > maxCollectionDescriptionLength {
+		return fmt.Errorf("description exceeds %d characters", maxCollectionDescriptionLength)
+	}
+	return nil
+}
+
+// ValidateSectionTitle checks section title length.
+func ValidateSectionTitle(title string) error {
+	if len(title) > maxSectionTitleLength {
+		return fmt.Errorf("title exceeds %d characters", maxSectionTitleLength)
+	}
+	return nil
+}
+
+// ValidateSectionDescription checks section description length.
+func ValidateSectionDescription(desc string) error {
+	if len(desc) > maxSectionDescriptionLength {
+		return fmt.Errorf("description exceeds %d characters", maxSectionDescriptionLength)
+	}
+	return nil
+}
+
+// ValidateSections checks sections count and content validity.
+func ValidateSections(sections []CollectionSection) error {
+	if len(sections) > maxSections {
+		return fmt.Errorf("too many sections: %d (max %d)", len(sections), maxSections)
+	}
+	for i, s := range sections {
+		if err := ValidateSectionTitle(s.Title); err != nil {
+			return fmt.Errorf("section %d: %w", i, err)
+		}
+		if err := ValidateSectionDescription(s.Description); err != nil {
+			return fmt.Errorf("section %d: %w", i, err)
+		}
+		if len(s.Items) > maxItemsPerSection {
+			return fmt.Errorf("section %d: too many items: %d (max %d)", i, len(s.Items), maxItemsPerSection)
+		}
 	}
 	return nil
 }

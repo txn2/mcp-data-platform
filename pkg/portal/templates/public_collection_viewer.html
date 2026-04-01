@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{{.Name}}</title>
+<style>{{.ContentViewerCSS}}</style>
+<style>
+:root{--bg:#fff;--fg:#111;--muted:#666;--border:#e5e5e5;--card-bg:#fafafa;--accent:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#999;--border:#333;--card-bg:#1a1a1a;--accent:#60a5fa}}
+[data-theme=light]{--bg:#fff;--fg:#111;--muted:#666;--border:#e5e5e5;--card-bg:#fafafa;--accent:#2563eb}
+[data-theme=dark]{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#999;--border:#333;--card-bg:#1a1a1a;--accent:#60a5fa}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;border-bottom:1px solid var(--border);background:var(--card-bg)}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--fg)}
+.brand svg{width:28px;height:28px}
+.brand span{font-weight:600;font-size:14px}
+.header-right{display:flex;align-items:center;gap:12px}
+.theme-toggle{display:flex;gap:2px;border:1px solid var(--border);border-radius:6px;padding:2px}
+.theme-toggle button{background:none;border:none;padding:4px 6px;border-radius:4px;cursor:pointer;color:var(--muted);font-size:12px}
+.theme-toggle button.active{background:var(--border);color:var(--fg)}
+main{max-width:960px;margin:0 auto;padding:32px 24px}
+.collection-header{margin-bottom:32px}
+.collection-header h1{font-size:24px;font-weight:700;margin-bottom:8px}
+.collection-desc,.section-desc{font-size:14px;line-height:1.7;color:var(--fg)}
+.collection-desc h1,.section-desc h1{font-size:1.25em;font-weight:700;margin:16px 0 8px}
+.collection-desc h2,.section-desc h2{font-size:1.15em;font-weight:600;margin:14px 0 6px}
+.collection-desc h3,.section-desc h3{font-size:1.05em;font-weight:600;margin:12px 0 4px}
+.collection-desc p,.section-desc p{margin:0 0 10px}
+.collection-desc ul,.collection-desc ol,.section-desc ul,.section-desc ol{margin:4px 0 10px;padding-left:24px}
+.collection-desc li,.section-desc li{margin:2px 0}
+.collection-desc pre,.section-desc pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;font-size:13px;margin:8px 0}
+.collection-desc code,.section-desc code{background:var(--card-bg);padding:2px 5px;border-radius:3px;font-size:0.9em}
+.collection-desc pre code,.section-desc pre code{background:none;padding:0}
+.collection-desc a,.section-desc a{color:var(--accent);text-decoration:underline}
+.collection-desc blockquote,.section-desc blockquote{border-left:3px solid var(--border);padding-left:12px;margin:8px 0;color:var(--muted)}
+.collection-desc table,.section-desc table{border-collapse:collapse;margin:8px 0;width:100%}
+.collection-desc th,.collection-desc td,.section-desc th,.section-desc td{border:1px solid var(--border);padding:6px 10px;text-align:left;font-size:13px}
+.collection-desc th,.section-desc th{background:var(--card-bg);font-weight:600}
+.collection-desc strong,.section-desc strong{font-weight:600}
+.collection-desc em,.section-desc em{font-style:italic}
+.collection-desc hr,.section-desc hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.collection-desc img,.section-desc img{max-width:100%;border-radius:4px}
+.section{margin-bottom:32px}
+.section-title{font-size:18px;font-weight:600;margin-bottom:4px}
+.section-desc{margin-bottom:12px}
+.items-grid{display:grid;gap:12px;margin-top:1.14286em}
+.items-grid.thumb-large{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.items-grid.thumb-medium{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.items-grid.thumb-small{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.items-grid.thumb-none{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.item-card{border:1px solid var(--border);border-radius:8px;background:var(--card-bg);cursor:pointer;overflow:hidden;transition:border-color .15s}
+.item-card:hover{border-color:var(--accent)}
+.item-thumb{width:100%;background:var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:24px}
+.thumb-large .item-thumb{aspect-ratio:4/3}
+.thumb-medium .item-thumb{aspect-ratio:3/2;max-height:120px}
+.thumb-small .item-thumb{aspect-ratio:2/1;max-height:80px}
+.thumb-none .item-thumb{display:none}
+.item-thumb img{width:100%;height:100%;object-fit:cover;object-position:top}
+.item-info{padding:10px 12px}
+.item-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-type{font-size:11px;color:var(--muted);margin-top:2px}
+.item-desc{font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* Modal overlay */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-content{background:var(--bg);border-radius:12px;width:95vw;height:92vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)}
+.modal-header h2{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--fg);padding:4px 8px;border-radius:4px}
+.modal-close:hover{background:var(--border)}
+.modal-body{flex:1;overflow:auto;position:relative}
+.modal-body iframe{width:100%;height:100%;border:none}
+.notice{text-align:center;padding:8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
+.expires{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:16px">
+    {{if .ImplementorName}}
+    <a class="brand" {{if .ImplementorURL}}href="{{.ImplementorURL}}" target="_blank" rel="noopener"{{end}}>
+      {{if .ImplementorLogoSVG}}<span style="display:flex">{{.ImplementorLogoSVG}}</span>{{end}}
+      <span>{{.ImplementorName}}</span>
+    </a>
+    {{end}}
+  </div>
+  <div class="header-right">
+    {{if and .ExpiresAtISO (not .HideExpiration)}}<span class="expires" id="expires"></span>{{end}}
+    <div class="theme-toggle">
+      <button onclick="setTheme('light')" id="tl">Light</button>
+      <button onclick="setTheme('dark')" id="td">Dark</button>
+      <button onclick="setTheme('system')" id="ts">System</button>
+    </div>
+    <a class="brand" {{if .BrandURL}}href="{{.BrandURL}}" target="_blank" rel="noopener"{{end}}>
+      <span style="display:flex">{{.BrandLogoSVG}}</span>
+      <span>{{.BrandName}}</span>
+    </a>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" onclick="closeModal()" title="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+{{if .NoticeText}}<div class="notice">{{.NoticeText}}</div>{{end}}
+
+<script type="application/json" id="collection-data">{{.CollectionJSON}}</script>
+<script>{{.ContentViewerJS}}</script>
+<script>
+(function(){
+  var theme = localStorage.getItem('mdp-theme') || 'system';
+  function applyTheme(t){
+    theme = t; localStorage.setItem('mdp-theme', t);
+    var isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme:dark)').matches);
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    document.documentElement.classList.toggle('dark', isDark);
+    document.querySelectorAll('.theme-toggle button').forEach(function(b){b.className=''});
+    var btn = document.getElementById(t==='light'?'tl':t==='dark'?'td':'ts');
+    if(btn) btn.className='active';
+  }
+  window.setTheme = applyTheme;
+  applyTheme(theme);
+
+  // Expiration countdown
+  var expiresISO = '{{.ExpiresAtISO}}';
+  if(expiresISO){
+    var el = document.getElementById('expires');
+    if(el){
+      function updateExpiry(){
+        var diff = new Date(expiresISO) - Date.now();
+        if(diff <= 0){ el.textContent = 'Expired'; return; }
+        var h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000);
+        el.textContent = 'Expires in ' + (h > 0 ? h + 'h ' : '') + m + 'm';
+      }
+      updateExpiry(); setInterval(updateExpiry, 60000);
+    }
+  }
+
+  var data = JSON.parse(document.getElementById('collection-data').textContent);
+  var main = document.getElementById('main');
+  var token = '{{.Token}}';
+  var thumbSize = data.thumbnailSize || 'large';
+
+  // Render collection structure as DOM, then use window.renderMarkdown for descriptions.
+  var header = document.createElement('div');
+  header.className = 'collection-header';
+  header.innerHTML = '<h1>' + esc(data.name) + '</h1>';
+  if(data.description){
+    var descEl = document.createElement('div');
+    descEl.className = 'collection-desc';
+    header.appendChild(descEl);
+    if(window.renderMarkdown) window.renderMarkdown(descEl, data.description);
+  }
+  main.appendChild(header);
+
+  (data.sections || []).forEach(function(sec){
+    var secDiv = document.createElement('div');
+    secDiv.className = 'section';
+    if(sec.title) secDiv.innerHTML += '<h2 class="section-title">' + esc(sec.title) + '</h2>';
+    if(sec.description){
+      var secDescEl = document.createElement('div');
+      secDescEl.className = 'section-desc';
+      secDiv.appendChild(secDescEl);
+      if(window.renderMarkdown) window.renderMarkdown(secDescEl, sec.description);
+    }
+    var grid = document.createElement('div');
+    grid.className = 'items-grid thumb-' + thumbSize;
+    (sec.items || []).forEach(function(item){
+      var thumb = item.hasThumbnail
+        ? '<img src="/portal/view/' + token + '/items/' + item.assetId + '/thumbnail" alt="" onerror="this.parentNode.innerHTML=\'&#x1f4c4;\'">'
+        : '&#x1f4c4;';
+      grid.innerHTML += '<div class="item-card" onclick="openItem(\'' + item.assetId + '\',\'' + esc(item.name) + '\')">' +
+        '<div class="item-thumb">' + thumb + '</div>' +
+        '<div class="item-info"><div class="item-name">' + esc(item.name) + '</div>' +
+        (item.description ? '<div class="item-desc">' + esc(item.description) + '</div>' : '') +
+        '<div class="item-type">' + esc(item.contentType) + '</div></div></div>';
+    });
+    secDiv.appendChild(grid);
+    main.appendChild(secDiv);
+  });
+
+  // Modal + history state
+  var modal = document.getElementById('modal');
+  var modalIsOpen = false;
+
+  window.openItem = function(assetId, name){
+    document.getElementById('modal-title').textContent = name;
+    var body = document.getElementById('modal-body');
+    body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted)">Loading...</div>';
+    modal.className = 'modal-overlay open';
+    document.body.style.overflow = 'hidden';
+    if (!modalIsOpen) {
+      history.pushState({modal:true}, '');
+      modalIsOpen = true;
+    }
+
+    // Load the full asset viewer (same page as single-asset public shares) in an iframe.
+    var iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%;height:100%;border:none';
+    iframe.src = '/portal/view/' + token + '/items/' + assetId + '/view';
+    body.innerHTML = '';
+    body.appendChild(iframe);
+  };
+
+  window.closeModal = function(){
+    if (!modalIsOpen) return;
+    modal.className = 'modal-overlay';
+    document.body.style.overflow = '';
+    document.getElementById('modal-body').innerHTML = '';
+    modalIsOpen = false;
+  };
+
+  // Browser back button closes the modal
+  window.addEventListener('popstate', function(e){
+    if (modalIsOpen) {
+      closeModal();
+    }
+  });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && modalIsOpen) {
+      history.back(); // triggers popstate which calls closeModal
+    }
+  });
+
+  function esc(s){
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s || ''));
+    return d.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>

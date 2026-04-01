@@ -12,6 +12,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Activity,
+  FolderOpen,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -27,6 +28,7 @@ interface Props {
 const basePortalNavItems = [
   { path: "/activity", label: "My Activity", icon: Activity },
   { path: "/", label: "My Assets", icon: LayoutGrid },
+  { path: "/collections", label: "Collections", icon: FolderOpen },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
 
