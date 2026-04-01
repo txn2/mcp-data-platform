@@ -17,6 +17,9 @@ import (
 // share access counters after the HTTP response has been sent.
 const incrementAccessTimeout = 5 * time.Second
 
+// pathKeyAssetID is the path parameter name for asset IDs in collection share URLs.
+const pathKeyAssetID = "assetId"
+
 // defaultLogoSVG is the MCP Data Platform logo used in the public viewer header
 // when no brand logo is configured. Matches the platform-info app's default icon.
 //
@@ -102,7 +105,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, asset *Asset, data []
 
 	csp := publicCSP()
 	w.Header().Set("Content-Security-Policy", csp)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
 	brandName := h.deps.BrandName
 	if brandName == "" {
@@ -177,7 +180,7 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (*Asset, []b
 
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
-		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) //nolint:gosec // structured log, not user-facing
+		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log, not user-facing
 		return nil, nil, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
 	}
 
@@ -217,7 +220,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		ctx, cancel := context.WithTimeout(context.Background(), incrementAccessTimeout)
 		defer cancel()
 		if incErr := h.deps.ShareStore.IncrementAccess(ctx, share.ID); incErr != nil {
-			slog.Warn("public collection view: failed to increment access", "error", incErr, "share_id", share.ID)
+			slog.Warn("public collection view: failed to increment access", "error", incErr, "share_id", share.ID) // #nosec G706 -- structured log, not user-facing
 		}
 	}()
 
@@ -242,7 +245,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 
 	csp := publicCollectionCSP()
 	w.Header().Set("Content-Security-Policy", csp)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
 	brandName := h.deps.BrandName
 	if brandName == "" {
@@ -259,13 +262,13 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	}
 
 	_ = collectionViewerTemplate.Execute(w, map[string]any{
-		"Name":             coll.Name,
-		"Description":      coll.Description,
-		"CollectionJSON":   template.JS(collJSON),              // #nosec G203 -- json.Marshal output
-		"ContentViewerJS":  template.JS(contentviewer.JS),      // #nosec G203 -- build artifact
-		"ContentViewerCSS": template.CSS(contentviewer.CSS),    // #nosec G203 -- build artifact
-		"BrandName":        brandName,
-		"BrandLogoSVG":       template.HTML(brandLogo),          // #nosec G203 -- operator config
+		"Name":               coll.Name,
+		"Description":        coll.Description,
+		"CollectionJSON":     template.JS(collJSON),           // #nosec G203 -- json.Marshal output
+		"ContentViewerJS":    template.JS(contentviewer.JS),   // #nosec G203 -- build artifact
+		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact
+		"BrandName":          brandName,
+		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator config
 		"BrandURL":           h.deps.BrandURL,
 		"ImplementorName":    h.deps.ImplementorName,
 		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator config
@@ -281,7 +284,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 // Returns the share on success, or writes an HTTP error and returns nil.
 func (h *Handler) validateCollectionItemAccess(w http.ResponseWriter, r *http.Request) *Share {
 	token := r.PathValue("token")
-	assetID := r.PathValue("assetId")
+	assetID := r.PathValue(pathKeyAssetID)
 	if token == "" || assetID == "" {
 		http.NotFound(w, r)
 		return nil
@@ -323,15 +326,15 @@ func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue("assetId"))
+	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
 	if fetchErr != nil {
 		writePublicError(w, fetchErr)
 		return
 	}
 
-	w.Header().Set("Content-Type", asset.ContentType)
+	w.Header().Set(headerContentType, asset.ContentType)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
 }
 
 // publicCollectionItemView renders the full public asset viewer for an item in a collection.
@@ -342,7 +345,7 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue("assetId"))
+	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
 	if fetchErr != nil {
 		writePublicError(w, fetchErr)
 		return
@@ -363,7 +366,7 @@ func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	asset, getErr := h.deps.AssetStore.Get(r.Context(), r.PathValue("assetId"))
+	asset, getErr := h.deps.AssetStore.Get(r.Context(), r.PathValue(pathKeyAssetID))
 	if getErr != nil || asset.DeletedAt != nil || asset.ThumbnailS3Key == "" {
 		http.NotFound(w, r)
 		return
@@ -375,10 +378,10 @@ func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
 }
 
 // collectAssetIDs extracts unique asset IDs from all collection items.
@@ -396,14 +399,12 @@ func collectAssetIDs(coll *Collection) []string {
 	return ids
 }
 
-// fetchAssetMap retrieves basic metadata for a set of asset IDs.
+// fetchAssetMap retrieves basic metadata for a set of asset IDs in a single batch query.
 func (h *Handler) fetchAssetMap(ctx context.Context, assetIDs []string) map[string]*Asset {
-	result := make(map[string]*Asset, len(assetIDs))
-	for _, id := range assetIDs {
-		a, err := h.deps.AssetStore.Get(ctx, id)
-		if err == nil && a.DeletedAt == nil {
-			result[id] = a
-		}
+	result, err := h.deps.AssetStore.GetByIDs(ctx, assetIDs)
+	if err != nil {
+		slog.Warn("fetchAssetMap: batch query failed", "error", err)
+		return map[string]*Asset{}
 	}
 	return result
 }

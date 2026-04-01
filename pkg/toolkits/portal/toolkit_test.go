@@ -419,6 +419,17 @@ func (s *inMemoryAssetStore) SoftDelete(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *inMemoryAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*portal.Asset, error) {
+	result := make(map[string]*portal.Asset, len(ids))
+	for _, id := range ids {
+		if a, ok := s.assets[id]; ok && a.DeletedAt == nil {
+			asset := a
+			result[id] = &asset
+		}
+	}
+	return result, nil
+}
+
 func TestRegisterTools(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 

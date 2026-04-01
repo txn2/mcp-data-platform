@@ -45,6 +45,18 @@ func (m *mockAdminAssetStore) Update(_ context.Context, _ string, u portal.Asset
 }
 func (m *mockAdminAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
 
+func (m *mockAdminAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*portal.Asset, error) {
+	result := make(map[string]*portal.Asset)
+	if m.getAsset != nil {
+		for _, id := range ids {
+			if id == m.getAsset.ID {
+				result[id] = m.getAsset
+			}
+		}
+	}
+	return result, m.getErr
+}
+
 type mockAdminShareStore struct {
 	summaries    map[string]portal.ShareSummary
 	summariesErr error
@@ -70,6 +82,22 @@ func (*mockAdminShareStore) Revoke(_ context.Context, _ string) error          {
 func (*mockAdminShareStore) IncrementAccess(_ context.Context, _ string) error { return nil }
 func (m *mockAdminShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]portal.ShareSummary, error) {
 	return m.summaries, m.summariesErr
+}
+
+func (*mockAdminShareStore) ListByCollection(_ context.Context, _ string) ([]portal.Share, error) {
+	return nil, nil
+}
+
+func (*mockAdminShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (portal.SharePermission, error) {
+	return "", fmt.Errorf("no shares")
+}
+
+func (*mockAdminShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]portal.SharedCollection, int, error) {
+	return nil, 0, nil
+}
+
+func (*mockAdminShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]portal.ShareSummary, error) {
+	return map[string]portal.ShareSummary{}, nil
 }
 
 type mockAdminS3Client struct {

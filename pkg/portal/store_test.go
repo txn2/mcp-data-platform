@@ -122,6 +122,11 @@ func TestPostgresAssetStoreList(t *testing.T) {
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
+	// populateCollections query
+	mock.ExpectQuery("SELECT ci.asset_id").WillReturnRows(
+		sqlmock.NewRows([]string{"asset_id", "id", "name"}),
+	)
+
 	assets, total, err := store.List(context.Background(), AssetFilter{OwnerID: "user1"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
@@ -646,6 +651,11 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 		"", int64(100), tags, prov, "", 1, time.Now(), time.Now(), nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
+
+	// populateCollections query
+	mock.ExpectQuery("SELECT ci.asset_id").WillReturnRows(
+		sqlmock.NewRows([]string{"asset_id", "id", "name"}),
+	)
 
 	assets, _, err := store.List(context.Background(), AssetFilter{
 		OwnerID: "user1", Offset: 10, Limit: 5,

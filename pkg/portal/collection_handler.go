@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -15,6 +14,7 @@ import (
 const (
 	errCollectionNotFound = "collection not found"
 	errCollectionDeleted  = "collection has been deleted"
+	errInvalidRequestBody = "invalid request body"
 )
 
 // --- Create Collection ---
@@ -33,7 +33,7 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 
 	var req createCollectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
 
@@ -72,10 +72,10 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 // --- List Collections ---
 
 type listCollectionsResponse struct {
-	Data           []Collection           `json:"data"`
-	Total          int                    `json:"total"`
-	Limit          int                    `json:"limit"`
-	Offset         int                    `json:"offset"`
+	Data           []Collection            `json:"data"`
+	Total          int                     `json:"total"`
+	Limit          int                     `json:"limit"`
+	Offset         int                     `json:"offset"`
 	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
 }
 
@@ -183,27 +183,11 @@ func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 
 // collectionSharePermission returns the highest share permission for a user on a collection.
 func (h *Handler) collectionSharePermission(r *http.Request, collectionID string, user *User) SharePermission {
-	shares, err := h.deps.ShareStore.ListByCollection(r.Context(), collectionID)
+	perm, err := h.deps.ShareStore.GetUserCollectionPermission(r.Context(), collectionID, user.UserID, user.Email)
 	if err != nil {
 		return ""
 	}
-
-	var best SharePermission
-	for _, share := range shares {
-		if share.Revoked {
-			continue
-		}
-		if share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()) {
-			continue
-		}
-		if share.SharedWithUserID == user.UserID || (share.SharedWithEmail != "" && share.SharedWithEmail == user.Email) {
-			if share.Permission == PermissionEditor {
-				return PermissionEditor
-			}
-			best = PermissionViewer
-		}
-	}
-	return best
+	return perm
 }
 
 // --- Update Collection ---
@@ -233,26 +217,14 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 
 	var req updateCollectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
 
-	name := coll.Name
-	if req.Name != nil {
-		name = *req.Name
-		if err := ValidateCollectionName(name); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	description := coll.Description
-	if req.Description != nil {
-		description = *req.Description
-		if err := ValidateCollectionDescription(description); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
+	name, description, valErr := resolveCollectionUpdate(coll, req)
+	if valErr != nil {
+		writeError(w, http.StatusBadRequest, valErr.Error())
+		return
 	}
 
 	if err := h.deps.CollectionStore.Update(r.Context(), id, name, description); err != nil {
@@ -267,6 +239,27 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// resolveCollectionUpdate merges and validates the update request fields with the existing collection.
+func resolveCollectionUpdate(coll *Collection, req updateCollectionRequest) (resolvedName, resolvedDesc string, err error) {
+	resolvedName = coll.Name
+	if req.Name != nil {
+		resolvedName = *req.Name
+		if err := ValidateCollectionName(resolvedName); err != nil {
+			return "", "", err
+		}
+	}
+
+	resolvedDesc = coll.Description
+	if req.Description != nil {
+		resolvedDesc = *req.Description
+		if err := ValidateCollectionDescription(resolvedDesc); err != nil {
+			return "", "", err
+		}
+	}
+
+	return resolvedName, resolvedDesc, nil
 }
 
 // --- Delete Collection ---
@@ -319,7 +312,7 @@ func (h *Handler) updateCollectionConfig(w http.ResponseWriter, r *http.Request)
 
 	var config CollectionConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
 
@@ -373,27 +366,46 @@ func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) 
 
 	var req setSectionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
 
-	// Convert to domain types, assigning IDs and validating.
-	sections := make([]CollectionSection, len(req.Sections))
-	for i, s := range req.Sections {
+	sections, convErr := convertSectionInputs(req.Sections)
+	if convErr != nil {
+		writeError(w, http.StatusBadRequest, convErr.Error())
+		return
+	}
+
+	if err := h.deps.CollectionStore.SetSections(r.Context(), id, sections); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update sections")
+		return
+	}
+
+	// Return the updated collection.
+	updated, err := h.deps.CollectionStore.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch updated collection")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// convertSectionInputs validates and converts section inputs to domain types.
+func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
+	sections := make([]CollectionSection, len(inputs))
+	for i, s := range inputs {
 		if err := ValidateSectionTitle(s.Title); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("section %d: %s", i, err.Error()))
-			return
+			return nil, fmt.Errorf("section %d: %s", i, err.Error())
 		}
 		if err := ValidateSectionDescription(s.Description); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("section %d: %s", i, err.Error()))
-			return
+			return nil, fmt.Errorf("section %d: %s", i, err.Error())
 		}
 
 		items := make([]CollectionItem, len(s.Items))
 		for j, item := range s.Items {
 			if item.AssetID == "" {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("section %d, item %d: asset_id is required", i, j))
-				return
+				return nil, fmt.Errorf("section %d, item %d: asset_id is required", i, j)
 			}
 			items[j] = CollectionItem{
 				ID:      uuid.New().String(),
@@ -411,23 +423,10 @@ func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) 
 
 	// Validate totals.
 	if err := ValidateSections(sections); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
 
-	if err := h.deps.CollectionStore.SetSections(r.Context(), id, sections); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update sections")
-		return
-	}
-
-	// Return the updated collection.
-	updated, err := h.deps.CollectionStore.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch updated collection")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, updated)
+	return sections, nil
 }
 
 // --- Collection Thumbnail ---
@@ -506,7 +505,7 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set(headerContentType, contentType)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
 }
 
 // --- Collection Sharing ---
@@ -531,7 +530,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 
 	var req createShareRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
 

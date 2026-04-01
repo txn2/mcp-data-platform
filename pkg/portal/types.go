@@ -289,15 +289,15 @@ type CollectionSection struct {
 // CollectionItem is an ordered reference to an asset within a section.
 // Asset* fields are populated by the store on read (JOIN with portal_assets).
 type CollectionItem struct {
-	ID              string    `json:"id"`
-	SectionID       string    `json:"section_id"`
-	AssetID         string    `json:"asset_id"`
-	Position        int       `json:"position"`
-	AssetName       string    `json:"asset_name,omitempty"`
-	AssetContentType string   `json:"asset_content_type,omitempty"`
-	AssetThumbnail  string    `json:"asset_thumbnail_s3_key,omitempty"`
-	AssetDescription string   `json:"asset_description,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	SectionID        string    `json:"section_id"`
+	AssetID          string    `json:"asset_id"`
+	Position         int       `json:"position"`
+	AssetName        string    `json:"asset_name,omitempty"`
+	AssetContentType string    `json:"asset_content_type,omitempty"`
+	AssetThumbnail   string    `json:"asset_thumbnail_s3_key,omitempty"`
+	AssetDescription string    `json:"asset_description,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // CollectionFilter defines filtering criteria for listing collections.

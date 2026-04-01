@@ -18,6 +18,7 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 type AssetStore interface {
 	Insert(ctx context.Context, asset Asset) error
 	Get(ctx context.Context, id string) (*Asset, error)
+	GetByIDs(ctx context.Context, ids []string) (map[string]*Asset, error)
 	List(ctx context.Context, filter AssetFilter) ([]Asset, int, error)
 	Update(ctx context.Context, id string, updates AssetUpdate) error
 	SoftDelete(ctx context.Context, id string) error
@@ -42,6 +43,7 @@ type ShareStore interface {
 	GetByToken(ctx context.Context, token string) (*Share, error)
 	ListByAsset(ctx context.Context, assetID string) ([]Share, error)
 	ListByCollection(ctx context.Context, collectionID string) ([]Share, error)
+	GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error)
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
 	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
@@ -123,19 +125,89 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 	return &asset, nil
 }
 
+func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[string]*Asset, error) { //nolint:revive // interface impl
+	if len(ids) == 0 {
+		return map[string]*Asset{}, nil
+	}
+
+	query := `
+		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
+		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       created_at, updated_at, deleted_at
+		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
+	`
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("querying assets by IDs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	result := make(map[string]*Asset, len(ids))
+	for rows.Next() {
+		var asset Asset
+		var tags, prov []byte
+		var deletedAt sql.NullTime
+
+		if err := rows.Scan(
+			&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
+			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+			&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning asset row: %w", err)
+		}
+
+		if deletedAt.Valid {
+			asset.DeletedAt = &deletedAt.Time
+		}
+		if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+			return nil, err
+		}
+
+		a := asset
+		result[a.ID] = &a
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating asset rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
+	total, err := s.countAssets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	assets, err := s.queryAssets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Populate collection associations for each asset.
+	if err := s.populateCollections(ctx, assets); err != nil {
+		return nil, 0, fmt.Errorf("populating collections: %w", err)
+	}
+
+	return assets, total, nil
+}
+
+func (s *postgresAssetStore) countAssets(ctx context.Context, filter AssetFilter) (int, error) {
 	countQB := applyAssetFilter(psq.Select("COUNT(*)").From("portal_assets"), filter)
 	countQB = countQB.Where("deleted_at IS NULL")
 	countQuery, countArgs, err := countQB.ToSql()
 	if err != nil {
-		return nil, 0, fmt.Errorf("building count query: %w", err)
+		return 0, fmt.Errorf("building count query: %w", err)
 	}
 
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("counting assets: %w", err)
+		return 0, fmt.Errorf("counting assets: %w", err)
 	}
+	return total, nil
+}
 
+func (s *postgresAssetStore) queryAssets(ctx context.Context, filter AssetFilter) ([]Asset, error) {
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
@@ -146,20 +218,20 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 		OrderBy("created_at DESC")
 
 	if limit > 0 {
-		selectQB = selectQB.Limit(uint64(limit))
+		selectQB = selectQB.Limit(uint64(limit)) //nolint:gosec // validated positive
 	}
 	if filter.Offset > 0 {
-		selectQB = selectQB.Offset(uint64(filter.Offset))
+		selectQB = selectQB.Offset(uint64(filter.Offset)) //nolint:gosec // validated positive
 	}
 
 	selectQuery, selectArgs, err := selectQB.ToSql()
 	if err != nil {
-		return nil, 0, fmt.Errorf("building select query: %w", err)
+		return nil, fmt.Errorf("building select query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...)
+	rows, err := s.db.QueryContext(ctx, selectQuery, selectArgs...) //nolint:gosec // builder-generated query
 	if err != nil {
-		return nil, 0, fmt.Errorf("querying assets: %w", err)
+		return nil, fmt.Errorf("querying assets: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
 
@@ -167,20 +239,15 @@ func (s *postgresAssetStore) List(ctx context.Context, filter AssetFilter) ([]As
 	for rows.Next() {
 		asset, scanErr := scanAssetRow(rows)
 		if scanErr != nil {
-			return nil, 0, scanErr
+			return nil, scanErr
 		}
 		assets = append(assets, asset)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterating asset rows: %w", err)
+		return nil, fmt.Errorf("iterating asset rows: %w", err)
 	}
 
-	// Populate collection associations for each asset.
-	if err := s.populateCollections(ctx, assets); err != nil {
-		return nil, 0, fmt.Errorf("populating collections: %w", err)
-	}
-
-	return assets, total, nil
+	return assets, nil
 }
 
 // populateCollections fetches collection associations for a batch of assets in one query.
@@ -412,6 +479,24 @@ func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID 
 		FROM portal_shares WHERE collection_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, collectionID)
+}
+
+func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) { //nolint:revive // interface impl
+	query := `
+		SELECT permission FROM portal_shares
+		WHERE collection_id = $1
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (shared_with_user_id = $2 OR ($3 != '' AND LOWER(shared_with_email) = LOWER($3)))
+		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END
+		LIMIT 1
+	`
+	var perm string
+	err := s.db.QueryRowContext(ctx, query, collectionID, userID, email).Scan(&perm)
+	if err != nil {
+		return "", fmt.Errorf("querying user collection permission: %w", err)
+	}
+	return SharePermission(perm), nil
 }
 
 func (s *postgresShareStore) listShares(ctx context.Context, query, id string) ([]Share, error) {
@@ -730,6 +815,10 @@ func (*noopAssetStore) Get(_ context.Context, _ string) (*Asset, error) { //noli
 	return nil, fmt.Errorf("asset not found")
 }
 
+func (*noopAssetStore) GetByIDs(_ context.Context, _ []string) (map[string]*Asset, error) { //nolint:revive // interface impl
+	return map[string]*Asset{}, nil
+}
+
 func (*noopAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
 }
@@ -763,6 +852,10 @@ func (*noopShareStore) ListByAsset(_ context.Context, _ string) ([]Share, error)
 
 func (*noopShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) { //nolint:revive // interface impl
 	return nil, nil
+}
+
+func (*noopShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) { //nolint:revive // interface impl
+	return "", fmt.Errorf("no shares")
 }
 
 func (*noopShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) { //nolint:revive // interface impl

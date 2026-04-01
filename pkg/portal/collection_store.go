@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,11 +17,22 @@ type CollectionStore interface {
 	Insert(ctx context.Context, c Collection) error
 	Get(ctx context.Context, id string) (*Collection, error)
 	List(ctx context.Context, filter CollectionFilter) ([]Collection, int, error)
-	Update(ctx context.Context, id string, name, description string) error
+	Update(ctx context.Context, id, name, description string) error
 	UpdateConfig(ctx context.Context, id string, config CollectionConfig) error
 	UpdateThumbnail(ctx context.Context, id, thumbnailS3Key string) error
 	SoftDelete(ctx context.Context, id string) error
 	SetSections(ctx context.Context, collectionID string, sections []CollectionSection) error
+}
+
+// Sentinel errors for collection store operations.
+var (
+	errCollStoreNotFound    = errors.New("collection not found")
+	errCollStoreNotFoundDel = errors.New("collection not found or already deleted")
+)
+
+// wrapRowsAffected wraps an error from RowsAffected with a standard prefix.
+func wrapRowsAffected(err error) error {
+	return fmt.Errorf("checking rows affected: %w", err)
 }
 
 // --- PostgreSQL CollectionStore ---
@@ -34,7 +46,7 @@ func NewPostgresCollectionStore(db *sql.DB) CollectionStore {
 	return &postgresCollectionStore{db: db}
 }
 
-func (s *postgresCollectionStore) Insert(ctx context.Context, c Collection) error {
+func (s *postgresCollectionStore) Insert(ctx context.Context, c Collection) error { //nolint:revive // interface impl
 	configJSON, err := json.Marshal(c.Config)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
@@ -50,7 +62,7 @@ func (s *postgresCollectionStore) Insert(ctx context.Context, c Collection) erro
 	return nil
 }
 
-func (s *postgresCollectionStore) Get(ctx context.Context, id string) (*Collection, error) {
+func (s *postgresCollectionStore) Get(ctx context.Context, id string) (*Collection, error) { //nolint:revive // interface impl
 	// Fetch the collection header.
 	coll, err := s.getHeader(ctx, id)
 	if err != nil {
@@ -128,7 +140,10 @@ func (s *postgresCollectionStore) getSections(ctx context.Context, collectionID 
 		}
 		sections = append(sections, sec)
 	}
-	return sections, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating section rows: %w", err)
+	}
+	return sections, nil
 }
 
 func (s *postgresCollectionStore) getItemsBySections(ctx context.Context, sectionIDs []string) (map[string][]CollectionItem, error) {
@@ -162,18 +177,42 @@ func (s *postgresCollectionStore) getItemsBySections(ctx context.Context, sectio
 		}
 		result[item.SectionID] = append(result[item.SectionID], item)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating item rows: %w", err)
+	}
+	return result, nil
 }
 
-func (s *postgresCollectionStore) List(ctx context.Context, filter CollectionFilter) ([]Collection, int, error) {
+func (s *postgresCollectionStore) List(ctx context.Context, filter CollectionFilter) ([]Collection, int, error) { //nolint:revive // interface impl
 	limit := filter.EffectiveLimit()
 
-	countQB := psq.Select("COUNT(*)").From("portal_collections").Where("deleted_at IS NULL")
-	selectQB := psq.Select(
+	countQB, selectQB := s.buildListQueries(filter, limit)
+
+	total, err := s.countQuery(ctx, countQB)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	collections, err := s.executeListQuery(ctx, selectQB)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := s.populateAssetTags(ctx, collections); err != nil {
+		return nil, 0, fmt.Errorf("populating asset tags: %w", err)
+	}
+
+	return collections, total, nil
+}
+
+// buildListQueries constructs the count and select query builders for listing collections.
+func (*postgresCollectionStore) buildListQueries(filter CollectionFilter, limit int) (countQB, selectQB sq.SelectBuilder) {
+	countQB = psq.Select("COUNT(*)").From("portal_collections").Where("deleted_at IS NULL")
+	selectQB = psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "thumbnail_s3_key", "config",
 		"created_at", "updated_at", "deleted_at",
 	).From("portal_collections").Where("deleted_at IS NULL").
-		OrderBy("created_at DESC").Limit(uint64(limit)).Offset(uint64(filter.Offset))
+		OrderBy("created_at DESC").Limit(uint64(limit)).Offset(uint64(filter.Offset)) // #nosec G115 -- limit/offset are validated positive ints from EffectiveLimit()
 
 	if filter.OwnerID != "" {
 		countQB = countQB.Where(sq.Eq{"owner_id": filter.OwnerID})
@@ -186,24 +225,33 @@ func (s *postgresCollectionStore) List(ctx context.Context, filter CollectionFil
 		selectQB = selectQB.Where(cond)
 	}
 
-	countSQL, countArgs, err := countQB.ToSql()
+	return countQB, selectQB
+}
+
+// countQuery executes a count query and returns the total.
+func (s *postgresCollectionStore) countQuery(ctx context.Context, qb sq.SelectBuilder) (int, error) {
+	countSQL, countArgs, err := qb.ToSql()
 	if err != nil {
-		return nil, 0, fmt.Errorf("building count query: %w", err)
+		return 0, fmt.Errorf("building count query: %w", err)
 	}
 
 	var total int
-	if err := s.db.QueryRowContext(ctx, countSQL, countArgs...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("counting collections: %w", err)
+	if err := s.db.QueryRowContext(ctx, countSQL, countArgs...).Scan(&total); err != nil { // #nosec G701 -- builder-generated query
+		return 0, fmt.Errorf("counting collections: %w", err)
+	}
+	return total, nil
+}
+
+// executeListQuery runs the select query and scans the results into a collection slice.
+func (s *postgresCollectionStore) executeListQuery(ctx context.Context, qb sq.SelectBuilder) ([]Collection, error) {
+	selectSQL, selectArgs, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building select query: %w", err)
 	}
 
-	selectSQL, selectArgs, err := selectQB.ToSql()
+	rows, err := s.db.QueryContext(ctx, selectSQL, selectArgs...) // #nosec G701 -- builder-generated query
 	if err != nil {
-		return nil, 0, fmt.Errorf("building select query: %w", err)
-	}
-
-	rows, err := s.db.QueryContext(ctx, selectSQL, selectArgs...) //nolint:gosec // builder-generated query
-	if err != nil {
-		return nil, 0, fmt.Errorf("querying collections: %w", err)
+		return nil, fmt.Errorf("querying collections: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
@@ -216,7 +264,7 @@ func (s *postgresCollectionStore) List(ctx context.Context, filter CollectionFil
 			&c.ID, &c.OwnerID, &c.OwnerEmail, &c.Name, &c.Description, &c.ThumbnailS3Key, &configJSON,
 			&c.CreatedAt, &c.UpdatedAt, &deletedAt,
 		); err != nil {
-			return nil, 0, fmt.Errorf("scanning collection row: %w", err)
+			return nil, fmt.Errorf("scanning collection row: %w", err)
 		}
 		if deletedAt.Valid {
 			c.DeletedAt = &deletedAt.Time
@@ -227,15 +275,10 @@ func (s *postgresCollectionStore) List(ctx context.Context, filter CollectionFil
 		collections = append(collections, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterating collection rows: %w", err)
+		return nil, fmt.Errorf("iterating collection rows: %w", err)
 	}
 
-	// Populate aggregated asset tags for each collection.
-	if err := s.populateAssetTags(ctx, collections); err != nil {
-		return nil, 0, fmt.Errorf("populating asset tags: %w", err)
-	}
-
-	return collections, total, nil
+	return collections, nil
 }
 
 // populateAssetTags fetches unique asset tags for a batch of collections in one query.
@@ -286,7 +329,7 @@ func (s *postgresCollectionStore) populateAssetTags(ctx context.Context, collect
 	return nil
 }
 
-func (s *postgresCollectionStore) Update(ctx context.Context, id string, name, description string) error {
+func (s *postgresCollectionStore) Update(ctx context.Context, id, name, description string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_collections SET name = $1, description = $2, updated_at = $3 WHERE id = $4 AND deleted_at IS NULL`
 	result, err := s.db.ExecContext(ctx, query, name, description, time.Now(), id)
 	if err != nil {
@@ -294,15 +337,15 @@ func (s *postgresCollectionStore) Update(ctx context.Context, id string, name, d
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return wrapRowsAffected(err)
 	}
 	if affected == 0 {
-		return fmt.Errorf("collection not found")
+		return errCollStoreNotFound
 	}
 	return nil
 }
 
-func (s *postgresCollectionStore) UpdateConfig(ctx context.Context, id string, config CollectionConfig) error {
+func (s *postgresCollectionStore) UpdateConfig(ctx context.Context, id string, config CollectionConfig) error { //nolint:revive // interface impl
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
@@ -314,15 +357,15 @@ func (s *postgresCollectionStore) UpdateConfig(ctx context.Context, id string, c
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return wrapRowsAffected(err)
 	}
 	if affected == 0 {
-		return fmt.Errorf("collection not found")
+		return errCollStoreNotFound
 	}
 	return nil
 }
 
-func (s *postgresCollectionStore) UpdateThumbnail(ctx context.Context, id, thumbnailS3Key string) error {
+func (s *postgresCollectionStore) UpdateThumbnail(ctx context.Context, id, thumbnailS3Key string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_collections SET thumbnail_s3_key = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
 	result, err := s.db.ExecContext(ctx, query, thumbnailS3Key, time.Now(), id)
 	if err != nil {
@@ -330,15 +373,15 @@ func (s *postgresCollectionStore) UpdateThumbnail(ctx context.Context, id, thumb
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return wrapRowsAffected(err)
 	}
 	if affected == 0 {
-		return fmt.Errorf("collection not found")
+		return errCollStoreNotFound
 	}
 	return nil
 }
 
-func (s *postgresCollectionStore) SoftDelete(ctx context.Context, id string) error {
+func (s *postgresCollectionStore) SoftDelete(ctx context.Context, id string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_collections SET deleted_at = $1, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`
 	result, err := s.db.ExecContext(ctx, query, time.Now(), id)
 	if err != nil {
@@ -346,27 +389,37 @@ func (s *postgresCollectionStore) SoftDelete(ctx context.Context, id string) err
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return wrapRowsAffected(err)
 	}
 	if affected == 0 {
-		return fmt.Errorf("collection not found or already deleted")
+		return errCollStoreNotFoundDel
 	}
 	return nil
 }
 
-func (s *postgresCollectionStore) SetSections(ctx context.Context, collectionID string, sections []CollectionSection) error {
+func (s *postgresCollectionStore) SetSections(ctx context.Context, collectionID string, sections []CollectionSection) error { //nolint:revive // interface impl
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	// Delete existing sections (cascade deletes items).
+	if err := s.replaceSections(ctx, tx, collectionID, sections); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+	return nil
+}
+
+// replaceSections deletes existing sections and inserts new ones within a transaction.
+func (*postgresCollectionStore) replaceSections(ctx context.Context, tx *sql.Tx, collectionID string, sections []CollectionSection) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM portal_collection_sections WHERE collection_id = $1`, collectionID); err != nil {
 		return fmt.Errorf("deleting existing sections: %w", err)
 	}
 
-	// Insert new sections and items.
 	sectionStmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO portal_collection_sections (id, collection_id, title, description, position) VALUES ($1, $2, $3, $4, $5)`)
 	if err != nil {
@@ -397,7 +450,7 @@ func (s *postgresCollectionStore) SetSections(ctx context.Context, collectionID 
 		return fmt.Errorf("updating collection timestamp: %w", err)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // --- Noop CollectionStore ---
@@ -413,17 +466,18 @@ func NewNoopCollectionStore() CollectionStore {
 func (*noopCollectionStore) Insert(_ context.Context, _ Collection) error { return nil }
 
 func (*noopCollectionStore) Get(_ context.Context, _ string) (*Collection, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("collection not found")
+	return nil, errCollStoreNotFound
 }
 
 func (*noopCollectionStore) List(_ context.Context, _ CollectionFilter) ([]Collection, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
 }
 
-func (*noopCollectionStore) Update(_ context.Context, _, _, _ string) error { return nil }          //nolint:revive // interface impl
+func (*noopCollectionStore) Update(_ context.Context, _, _, _ string) error { return nil } //nolint:revive // interface impl
 func (*noopCollectionStore) UpdateConfig(_ context.Context, _ string, _ CollectionConfig) error { //nolint:revive // interface impl
 	return nil
 }
+
 func (*noopCollectionStore) UpdateThumbnail(_ context.Context, _, _ string) error { //nolint:revive // interface impl
 	return nil
 }

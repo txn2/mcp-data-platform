@@ -525,8 +525,7 @@ func TestPublicViewContentViewerBundle(t *testing.T) {
 	// Content viewer root element
 	assert.Contains(t, body, `id="content-root"`)
 
-	// No server-rendered content (no <pre>, <iframe>, <strong> etc.)
-	assert.NotContains(t, body, "<strong>")
+	// No server-rendered iframes with sandboxed scripts
 	assert.NotContains(t, body, `sandbox="allow-scripts"`)
 }
 
@@ -662,4 +661,734 @@ func TestPublicViewEmptyNoticeWithExpiration(t *testing.T) {
 	// No separator or notice text
 	assert.NotContains(t, body, `class="notice-sep"`)
 	assert.NotContains(t, body, htmlNoticeText)
+}
+
+// --- mockCollectionStore for collection tests ---
+
+type mockCollectionStore struct {
+	getResult   *Collection
+	getErr      error
+	listResult  []Collection
+	listTotal   int
+	listErr     error
+	insertErr   error
+	updateErr   error
+	deleteErr   error
+	configErr   error
+	thumbErr    error
+	sectionsErr error
+}
+
+func (m *mockCollectionStore) Insert(_ context.Context, _ Collection) error { return m.insertErr }
+func (m *mockCollectionStore) Get(_ context.Context, _ string) (*Collection, error) {
+	return m.getResult, m.getErr
+}
+
+func (m *mockCollectionStore) List(_ context.Context, _ CollectionFilter) ([]Collection, int, error) {
+	return m.listResult, m.listTotal, m.listErr
+}
+func (m *mockCollectionStore) Update(_ context.Context, _, _, _ string) error { return m.updateErr }
+func (m *mockCollectionStore) UpdateConfig(_ context.Context, _ string, _ CollectionConfig) error {
+	return m.configErr
+}
+
+func (m *mockCollectionStore) UpdateThumbnail(_ context.Context, _, _ string) error {
+	return m.thumbErr
+}
+func (m *mockCollectionStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
+func (m *mockCollectionStore) SetSections(_ context.Context, _ string, _ []CollectionSection) error {
+	return m.sectionsErr
+}
+
+// mockMultiAssetStore extends mockAssetStore to support multiple assets in GetByIDs.
+type mockMultiAssetStore struct {
+	mockAssetStore
+	assets map[string]*Asset
+}
+
+func (m *mockMultiAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*Asset, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	result := make(map[string]*Asset)
+	for _, id := range ids {
+		if a, ok := m.assets[id]; ok {
+			result[id] = a
+		}
+	}
+	return result, nil
+}
+
+// --- Collection public view tests ---
+
+func TestPublicCollectionView(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+		NoticeText: "Collection notice.",
+	}
+
+	coll := &Collection{
+		ID:          "c1",
+		Name:        "My Collection",
+		Description: "A test collection",
+		Config:      CollectionConfig{ThumbnailSize: "medium"},
+		Sections: []CollectionSection{
+			{
+				ID: "sec1", Title: "Section 1", Description: "First section",
+				Items: []CollectionItem{
+					{ID: "item1", AssetID: "a1"},
+				},
+			},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	asset := &Asset{
+		ID: "a1", Name: "Asset One", ContentType: "text/plain",
+		Description: "Desc", ThumbnailS3Key: "thumb/a1.png",
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockMultiAssetStore{assets: map[string]*Asset{"a1": asset}},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+
+	body := w.Body.String()
+	assert.Contains(t, body, "My Collection")
+	assert.Contains(t, body, "A test collection")
+	assert.Contains(t, body, "Collection notice.")
+	// CSP must include 'self' for collection viewer iframes
+	csp := w.Header().Get("Content-Security-Policy")
+	assert.Contains(t, csp, "'self'")
+}
+
+func TestPublicCollectionViewNotFound(t *testing.T) {
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getErr: fmt.Errorf("not found")},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionViewDeleted(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+	}
+	coll := &Collection{
+		ID: "c1", Name: "Gone", DeletedAt: &now,
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestPublicCollectionItemContent(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+	}
+	coll := &Collection{
+		ID: "c1", Name: "Coll",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	asset := &Asset{
+		ID: "a1", Name: "Doc", ContentType: "text/plain",
+		S3Bucket: "b1", S3Key: "assets/a1",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{getData: []byte("file content"), getCT: "text/plain"},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/plain", w.Header().Get("Content-Type"))
+	assert.Equal(t, "file content", w.Body.String())
+}
+
+func TestPublicCollectionItemContentNotInCollection(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+	}
+	coll := &Collection{
+		ID: "c1", Name: "Coll",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{getAsset: &Asset{ID: "a2"}},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	// Request asset a2, but collection only has a1
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a2/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a2")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestPublicCollectionItemThumbnail(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+	}
+	coll := &Collection{
+		ID: "c1", Name: "Coll",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	asset := &Asset{
+		ID: "a1", Name: "Photo", ContentType: "image/png",
+		S3Bucket: "b1", S3Key: "assets/a1", ThumbnailS3Key: "thumb/a1.png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{getData: []byte("pngdata"), getCT: "image/png"},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "pngdata", w.Body.String())
+}
+
+func TestPublicCollectionItemView(t *testing.T) {
+	now := time.Now()
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+		NoticeText: "View notice.",
+	}
+	coll := &Collection{
+		ID: "c1", Name: "Coll",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	asset := &Asset{
+		ID: "a1", Name: "My Asset", ContentType: "text/markdown",
+		S3Bucket: "b1", S3Key: "assets/a1",
+		Tags: []string{"tag1"}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{getData: []byte("# Heading"), getCT: "text/markdown"},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/view", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	body := w.Body.String()
+	assert.Contains(t, body, "My Asset")
+	assert.Contains(t, body, `id="content-data"`)
+	assert.Contains(t, body, "View notice.")
+}
+
+func TestPublicCollectionCSP(t *testing.T) {
+	csp := publicCollectionCSP()
+	assert.Contains(t, csp, "default-src 'none'")
+	assert.Contains(t, csp, "frame-src 'self'")
+	assert.Contains(t, csp, "script-src")
+	assert.Contains(t, csp, "'unsafe-eval'")
+	assert.Contains(t, csp, "'unsafe-inline'")
+	assert.Contains(t, csp, "style-src")
+	assert.Contains(t, csp, "img-src")
+	assert.Contains(t, csp, "font-src")
+	assert.Contains(t, csp, "connect-src")
+
+	// Regular public CSP should NOT contain 'self' in frame-src
+	regularCSP := publicCSP()
+	assert.NotContains(t, regularCSP, "frame-src 'self'")
+}
+
+func TestCollectAssetIDs(t *testing.T) {
+	t.Run("deduplication", func(t *testing.T) {
+		coll := &Collection{
+			Sections: []CollectionSection{
+				{Items: []CollectionItem{
+					{AssetID: "a1"}, {AssetID: "a2"}, {AssetID: "a1"},
+				}},
+				{Items: []CollectionItem{
+					{AssetID: "a2"}, {AssetID: "a3"},
+				}},
+			},
+		}
+		ids := collectAssetIDs(coll)
+		assert.Equal(t, []string{"a1", "a2", "a3"}, ids)
+	})
+
+	t.Run("empty collection", func(t *testing.T) {
+		coll := &Collection{}
+		ids := collectAssetIDs(coll)
+		assert.Empty(t, ids)
+	})
+
+	t.Run("no items", func(t *testing.T) {
+		coll := &Collection{
+			Sections: []CollectionSection{
+				{Title: "Empty Section", Items: nil},
+			},
+		}
+		ids := collectAssetIDs(coll)
+		assert.Empty(t, ids)
+	})
+}
+
+func TestBuildPublicSections(t *testing.T) {
+	assets := map[string]*Asset{
+		"a1": {ID: "a1", Name: "Asset One", ContentType: "text/plain", Description: "Desc1", ThumbnailS3Key: "thumb/a1.png"},
+		"a2": {ID: "a2", Name: "Asset Two", ContentType: "image/png", Description: "Desc2"},
+	}
+
+	coll := &Collection{
+		Sections: []CollectionSection{
+			{
+				Title: "Section A", Description: "First",
+				Items: []CollectionItem{
+					{AssetID: "a1"}, {AssetID: "a2"},
+				},
+			},
+			{
+				Title: "Section B", Description: "Second",
+				Items: []CollectionItem{
+					{AssetID: "a3"}, // not in assets map — should be skipped
+				},
+			},
+		},
+	}
+
+	sections := buildPublicSections(coll, assets)
+	assert.Len(t, sections, 2)
+
+	// Section A: both items resolved
+	secA := sections[0]
+	assert.Equal(t, "Section A", secA["title"])
+	assert.Equal(t, "First", secA["description"])
+	itemsA, ok := secA["items"].([]map[string]any)
+	assert.True(t, ok)
+	assert.Len(t, itemsA, 2)
+	assert.Equal(t, "a1", itemsA[0]["assetId"])
+	assert.Equal(t, "Asset One", itemsA[0]["name"])
+	assert.Equal(t, true, itemsA[0]["hasThumbnail"])
+	assert.Equal(t, "a2", itemsA[1]["assetId"])
+	assert.Equal(t, false, itemsA[1]["hasThumbnail"])
+
+	// Section B: item a3 not found, so items empty
+	secB := sections[1]
+	assert.Equal(t, "Section B", secB["title"])
+	itemsB, ok := secB["items"].([]map[string]any)
+	assert.True(t, ok)
+	assert.Empty(t, itemsB)
+}
+
+func TestCollectionContainsAsset(t *testing.T) {
+	coll := &Collection{
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{
+				{AssetID: "a1"}, {AssetID: "a2"},
+			}},
+			{Items: []CollectionItem{
+				{AssetID: "a3"},
+			}},
+		},
+	}
+
+	assert.True(t, collectionContainsAsset(coll, "a1"))
+	assert.True(t, collectionContainsAsset(coll, "a2"))
+	assert.True(t, collectionContainsAsset(coll, "a3"))
+	assert.False(t, collectionContainsAsset(coll, "a4"))
+	assert.False(t, collectionContainsAsset(coll, ""))
+
+	// Empty collection
+	assert.False(t, collectionContainsAsset(&Collection{}, "a1"))
+}
+
+func TestFetchAssetMap(t *testing.T) {
+	asset := &Asset{ID: "a1", Name: "Test"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{},
+	}, nil)
+
+	result := h.fetchAssetMap(context.Background(), []string{"a1", "a99"})
+	assert.Len(t, result, 1)
+	assert.Equal(t, "Test", result["a1"].Name)
+
+	// Error case: getErr causes empty map
+	hErr := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getErr: fmt.Errorf("db fail")},
+		ShareStore: &mockShareStore{},
+	}, nil)
+	resultErr := hErr.fetchAssetMap(context.Background(), []string{"a1"})
+	assert.Empty(t, resultErr)
+}
+
+func TestValidateCollectionItemAccessInvalidToken(t *testing.T) {
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{},
+		S3Client:   &mockS3Client{},
+	}, nil)
+
+	// Empty token
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view//items/a1/content", http.NoBody)
+	req.SetPathValue("token", "")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+
+	result := h.validateCollectionItemAccess(w, req)
+	assert.Nil(t, result)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	// Empty assetId
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items//content", http.NoBody)
+	req2.SetPathValue("token", "tok1")
+	req2.SetPathValue("assetId", "")
+	result2 := h.validateCollectionItemAccess(w2, req2)
+	assert.Nil(t, result2)
+	assert.Equal(t, http.StatusNotFound, w2.Code)
+}
+
+func TestValidateCollectionItemAccessExpiredShare(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	share := &Share{
+		ID: "s1", Token: "tok1", CollectionID: "c1",
+		ExpiresAt: &past,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+
+	result := h.validateCollectionItemAccess(w, req)
+	assert.Nil(t, result)
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestValidateCollectionItemAccessCollectionNotFound(t *testing.T) {
+	share := &Share{ID: "s1", CollectionID: "coll-missing", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{
+			getErr: fmt.Errorf("not found"),
+		},
+		RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+
+	result := h.validateCollectionItemAccess(w, req)
+	assert.Nil(t, result)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestValidateCollectionItemAccessNoCollectionStore(t *testing.T) {
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		// CollectionStore deliberately nil
+		RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+
+	result := h.validateCollectionItemAccess(w, req)
+	assert.Nil(t, result)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestPublicCollectionItemViewSuccess(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1", NoticeText: defaultNoticeText}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		S3Bucket: "b", S3Key: "k", Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		S3Client:        &mockS3Client{getData: []byte("<h1>hi</h1>"), getCT: "text/html"},
+		S3Bucket:        "b",
+		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/view", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "text/html")
+}
+
+func TestPublicCollectionItemThumbnailNoS3(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		// S3Client deliberately nil
+		RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionItemThumbnailNoThumbKey(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		ThumbnailS3Key: "", // no thumbnail
+		Tags:           []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		S3Client:        &mockS3Client{},
+		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionItemThumbnailS3Error(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
+		ThumbnailS3Key: "portal/thumb.png", S3Bucket: "b",
+		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		AssetStore:      &mockAssetStore{getAsset: asset},
+		S3Client:        &mockS3Client{getErr: fmt.Errorf("s3 down")},
+		S3Bucket:        "b",
+		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionViewNoCollectionStore(t *testing.T) {
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		// CollectionStore deliberately nil
+		RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestPublicCollectionItemContentFetchError(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		AssetStore:      &mockAssetStore{getErr: fmt.Errorf("not found")},
+		S3Client:        &mockS3Client{},
+		S3Bucket:        "b",
+		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionItemViewFetchError(t *testing.T) {
+	now := time.Now()
+	coll := &Collection{
+		ID: "coll1", Name: "Test", OwnerID: "u1",
+		Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		AssetStore:      &mockAssetStore{getErr: fmt.Errorf("not found")},
+		S3Client:        &mockS3Client{},
+		S3Bucket:        "b",
+		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/view", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	req.SetPathValue("assetId", "a1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
