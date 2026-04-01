@@ -1589,6 +1589,34 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 
 The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.
 
+## Collections
+
+Collections organize related assets into curated, shareable groups with rich markdown descriptions.
+
+Structure: Collection → Sections (ordered) → Items (ordered asset references). Each level has a title and markdown description.
+
+Features:
+- Drag-and-drop reordering for sections and items within sections
+- Markdown descriptions with full GFM support (tables, code blocks, mermaid diagrams)
+- Configurable thumbnail sizes per collection (large, medium, small, none) via collection config
+- Sharing via public links (token-based, time-limited) and user shares (email, viewer/editor permission)
+- Public collection viewer renders markdown using the same content viewer bundle as single-asset shares
+- Asset content opens in full-screen modal overlay in the public viewer
+- Grid/table view toggle on the collections list page (shared localStorage key with assets)
+
+Collection API endpoints:
+- CRUD: POST/GET/PUT/DELETE `/api/v1/portal/collections[/{id}]`
+- Sections: PUT `/api/v1/portal/collections/{id}/sections` (full replace)
+- Config: PUT `/api/v1/portal/collections/{id}/config`
+- Sharing: POST/GET `/api/v1/portal/collections/{id}/shares`
+- Shared with me: GET `/api/v1/portal/shared-collections`
+- Public view: GET `/portal/view/{token}` (branches on collection vs asset)
+- Public item content: GET `/portal/view/{token}/items/{assetId}/content`
+- Public item thumbnail: GET `/portal/view/{token}/items/{assetId}/thumbnail`
+- Public item view: GET `/portal/view/{token}/items/{assetId}/view`
+
+Database tables: portal_collections, portal_collection_sections, portal_collection_items. portal_shares extended with collection_id (CHECK constraint: exactly one of asset_id/collection_id set).
+
 ## Dashboard
 
 Real-time platform health overview with configurable time ranges (1h, 6h, 24h, 7d):

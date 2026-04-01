@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Search, FileText, Image, Code, File, Table2, LayoutGrid, List } from "lucide-react";
-import { useSharedWithMe } from "@/api/portal/hooks";
+import { Search, FileText, Image, Code, File, Table2, LayoutGrid, List, FolderOpen } from "lucide-react";
+import { useSharedWithMe, useSharedCollections } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
@@ -36,11 +36,14 @@ function contentTypeBadgeColor(ct: string) {
   return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
 }
 
+type SharedTab = "assets" | "collections";
+
 export function SharedWithMePage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+  const [tab, setTab] = useState<SharedTab>("assets");
 
   function toggleViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -48,6 +51,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
   }
 
   const { data, isLoading } = useSharedWithMe();
+  const { data: collectionsData, isLoading: collectionsLoading } = useSharedCollections();
 
   const items = (data?.data ?? []).filter(
     (item) =>
@@ -64,9 +68,85 @@ export function SharedWithMePage({ onNavigate }: Props) {
 
   const assets = filteredItems.map((item) => item.asset);
 
+  const sharedCollections = collectionsData?.data ?? [];
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Tabs */}
+      <div className="flex gap-0.5 rounded-md border p-0.5 w-fit">
+        <button
+          onClick={() => setTab("assets")}
+          className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${tab === "assets" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Assets
+        </button>
+        <button
+          onClick={() => setTab("collections")}
+          className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${tab === "collections" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Collections
+        </button>
+      </div>
+
+      {tab === "collections" ? (
+        /* Collections tab */
+        collectionsLoading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
+        ) : sharedCollections.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <FolderOpen className="h-12 w-12 mb-2 opacity-30" />
+            <p className="text-sm">No shared collections</p>
+            <p className="text-xs mt-1">Collections shared with you will appear here.</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[35%]">Name</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[20%]">Shared By</th>
+                  <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[10%]">Access</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Shared</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sharedCollections.map((item) => (
+                  <tr
+                    key={item.share_id}
+                    onClick={() => onNavigate(`/collections/${item.collection.id}`)}
+                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+                  >
+                    <td className="px-4 py-2.5 max-w-0">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium truncate block">{item.collection.name}</span>
+                          {item.collection.description && (
+                            <span className="text-xs text-muted-foreground truncate block">{item.collection.description}</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 max-w-0">
+                      <span className="text-muted-foreground truncate block">{item.shared_by}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                        {item.permission === "editor" ? "Editor" : "Viewer"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {new Date(item.shared_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+      <>
+      {/* Asset filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -136,7 +216,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
               <button
                 key={item.share_id}
                 type="button"
-                onClick={() => onNavigate(`/assets/${item.asset.id}`)}
+                onClick={() => onNavigate(`/shared/assets/${item.asset.id}`)}
                 className="relative flex flex-col items-start rounded-lg border bg-card text-left transition-colors hover:bg-accent/50 hover:border-primary/30 overflow-hidden"
               >
                 <div className="w-full aspect-[4/3] bg-muted">
@@ -216,7 +296,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                 return (
                   <tr
                     key={item.share_id}
-                    onClick={() => onNavigate(`/assets/${item.asset.id}`)}
+                    onClick={() => onNavigate(`/shared/assets/${item.asset.id}`)}
                     className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
                   >
                     <td className="px-4 py-2.5 max-w-0">
@@ -279,6 +359,8 @@ export function SharedWithMePage({ onNavigate }: Props) {
       )}
 
       <ThumbnailQueue assets={assets} />
+      </>
+      )}
     </div>
   );
 }

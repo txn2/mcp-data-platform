@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List } from "lucide-react";
+import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
 import { useAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
+import { AssetPreviewModal } from "@/components/AssetPreviewModal";
 
 const VIEW_STORAGE_KEY = "asset-view-mode";
 type ViewMode = "grid" | "table";
@@ -41,6 +42,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+  const [previewing, setPreviewing] = useState<{ id: string; name: string; contentType: string } | null>(null);
 
   function toggleViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -192,6 +194,16 @@ export function MyAssetsPage({ onNavigate }: Props) {
                       </span>
                     ))}
                   </div>
+                  {(asset.collections ?? []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {(asset.collections ?? []).slice(0, 2).map((c) => (
+                        <span key={c.id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary inline-flex items-center gap-0.5">
+                          <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+                          {c.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
                     <span>{formatBytes(asset.size_bytes)}</span>
                     <span>{new Date(asset.created_at).toLocaleDateString()}</span>
@@ -206,12 +218,14 @@ export function MyAssetsPage({ onNavigate }: Props) {
           <table className="w-full text-sm table-fixed">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[35%]">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Type</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[20%]">Tags</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[28%]">Name</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[10%]">Type</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[15%]">Tags</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[15%]">Collections</th>
                 <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-[8%]">Size</th>
                 <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Created</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[10%]">Created</th>
+                <th className="px-4 py-2.5 w-[4%]" />
               </tr>
             </thead>
             <tbody>
@@ -255,6 +269,26 @@ export function MyAssetsPage({ onNavigate }: Props) {
                         )}
                       </div>
                     </td>
+                    <td className="px-4 py-2.5 max-w-0">
+                      <div className="flex flex-wrap gap-1">
+                        {(asset.collections ?? []).slice(0, 2).map((c) => (
+                          <span
+                            key={c.id}
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary truncate max-w-[100px] inline-flex items-center gap-0.5"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(`/collections/${c.id}`); }}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onNavigate(`/collections/${c.id}`); } }}
+                          >
+                            <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+                            {c.name}
+                          </span>
+                        ))}
+                        {(asset.collections ?? []).length > 2 && (
+                          <span className="text-[10px] text-muted-foreground">+{(asset.collections ?? []).length - 2}</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 text-right text-muted-foreground">
                       {formatBytes(asset.size_bytes)}
                     </td>
@@ -271,6 +305,15 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {new Date(asset.created_at).toLocaleDateString()}
                     </td>
+                    <td className="px-2 py-2.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPreviewing({ id: asset.id, name: asset.name, contentType: asset.content_type }); }}
+                        className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
+                        title="Quick preview"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -286,6 +329,15 @@ export function MyAssetsPage({ onNavigate }: Props) {
       )}
 
       <ThumbnailQueue assets={assets} />
+
+      {previewing && (
+        <AssetPreviewModal
+          assetId={previewing.id}
+          assetName={previewing.name}
+          contentType={previewing.contentType}
+          onClose={() => setPreviewing(null)}
+        />
+      )}
     </div>
   );
 }

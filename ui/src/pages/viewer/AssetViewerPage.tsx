@@ -2,18 +2,13 @@ import { useState } from "react";
 import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 
-const backLabels: Record<string, string> = {
-  "/": "Back to My Assets",
-  "/shared": "Back to Shared With Me",
-};
-
 interface Props {
   assetId: string;
   onNavigate: (path: string) => void;
-  backPath?: string;
+  onBack: () => void;
 }
 
-export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) {
+export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const { data: asset, isLoading } = useAsset(assetId);
   const { data: content } = useAssetContent(assetId);
   const updateMutation = useUpdateAsset();
@@ -39,8 +34,7 @@ export function AssetViewerPage({ assetId, onNavigate, backPath = "/" }: Props) 
       content={content}
       isLoading={isLoading}
       contentUrl={`/api/v1/portal/assets/${assetId}/content`}
-      backPath={backPath}
-      backLabel={backLabels[backPath] ?? "Back"}
+      onBack={onBack}
       onNavigate={onNavigate}
       updateMutation={updateMutation}
       deleteMutation={deleteMutation}

@@ -3,15 +3,23 @@
 -- Run AFTER the Go server has started once (to create the schema via migrations).
 -- Usage: docker exec acme-dev-postgres psql -U platform -d mcp_platform -f /tmp/seed.sql
 --
+-- All inserts use ON CONFLICT upserts so this file can be re-run safely.
+-- Demo data gets reset to latest; user-created data is preserved.
+--
 -- Seeds:
 --   ~5,000 audit events over the past 7 days
+--   50 fresh audit events within the last hour (new each restart)
 --   8 knowledge insights in various states
 --   2 knowledge changesets (1 applied, 1 rolled back)
 --   6 portal assets with versions and shares
+--   3 portal collections with sections, items, and a public share
 
 -- ============================================================================
 -- Audit Events (~5,000 over 7 days)
+-- Delete seed events and re-insert so timestamps are always relative to NOW().
 -- ============================================================================
+
+DELETE FROM audit_logs WHERE id LIKE 'evt-%';
 
 INSERT INTO audit_logs (
   id, request_id, session_id, user_id, user_email, persona,
@@ -140,6 +148,83 @@ FROM
   ) AS t;
 
 -- ============================================================================
+-- Fresh Activity (50 new events each restart, simulating recent usage)
+-- Uses gen_random_uuid() so each restart adds unique events.
+-- ============================================================================
+
+INSERT INTO audit_logs (
+  id, request_id, session_id, user_id, user_email, persona,
+  tool_name, toolkit_kind, toolkit_name, connection,
+  parameters, success, error_message,
+  duration_ms, response_chars, request_chars, content_blocks,
+  transport, source, enrichment_applied, authorized,
+  "timestamp", created_date
+)
+SELECT
+  'fresh-' || gen_random_uuid()::text,
+  'req-' || gen_random_uuid()::text,
+  'sess-' || ((n % 20) + 200),
+  u.email,
+  u.email,
+  u.persona,
+  t.tool_name,
+  t.toolkit_kind,
+  t.toolkit_name,
+  t.connection,
+  CASE t.toolkit_kind
+    WHEN 'trino' THEN jsonb_build_object(
+      'catalog', (ARRAY['iceberg','hive','memory'])[1 + (n % 3)],
+      'schema', (ARRAY['retail','inventory','finance','analytics','staging'])[1 + (n % 5)],
+      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
+    )
+    WHEN 'datahub' THEN jsonb_build_object(
+      'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
+    )
+    WHEN 's3' THEN jsonb_build_object(
+      'bucket', (ARRAY['acme-raw-transactions','acme-analytics-output','acme-ml-features','acme-report-archive'])[1 + (n % 4)],
+      'prefix', (ARRAY['raw/2024/','processed/daily/','exports/regional/','ml/features/'])[1 + (n % 4)]
+    )
+  END,
+  true,
+  '',
+  30 + (n * 7 % 500),
+  100 + (n * 13 % 5000),
+  50 + (n * 7 % 400),
+  1 + (n % 4),
+  'http',
+  'mcp',
+  (n % 3) != 0,
+  true,
+  NOW() - ((n * 3 % 60) || ' minutes')::interval - ((n * 17 % 60) || ' seconds')::interval,
+  CURRENT_DATE
+FROM
+  generate_series(1, 50) AS n,
+  LATERAL (
+    SELECT email, persona FROM (VALUES
+      ('sarah.chen@example.com',       'admin'),
+      ('marcus.johnson@example.com',   'data-engineer'),
+      ('rachel.thompson@example.com',  'inventory-analyst'),
+      ('david.park@example.com',       'regional-director'),
+      ('amanda.lee@example.com',       'data-engineer'),
+      ('lisa.chang@example.com',       'data-engineer')
+    ) AS users(email, persona)
+    OFFSET (n % 6)
+    LIMIT 1
+  ) AS u,
+  LATERAL (
+    SELECT tool_name, toolkit_kind, toolkit_name, connection FROM (VALUES
+      ('trino_query',          'trino',   'acme-warehouse', 'acme-warehouse'),
+      ('trino_describe_table', 'trino',   'acme-warehouse', 'acme-warehouse'),
+      ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
+      ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
+      ('s3_list_objects',      's3',      'acme-data-lake',  'acme-data-lake'),
+      ('s3_get_object',        's3',      'acme-data-lake',  'acme-data-lake')
+    ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
+    OFFSET (n % 6)
+    LIMIT 1
+  ) AS t;
+
+-- ============================================================================
 -- Knowledge Insights (8 in various states)
 -- ============================================================================
 
@@ -236,7 +321,14 @@ INSERT INTO knowledge_insights (
   '[]'::jsonb,
   'pending', '', '', '', '',
   NOW() - interval '12 hours'
-);
+)
+ON CONFLICT (id) DO UPDATE SET
+  category = EXCLUDED.category,
+  insight_text = EXCLUDED.insight_text,
+  confidence = EXCLUDED.confidence,
+  status = EXCLUDED.status,
+  reviewed_by = EXCLUDED.reviewed_by,
+  review_notes = EXCLUDED.review_notes;
 
 -- ============================================================================
 -- Knowledge Changesets (2: 1 applied, 1 rolled back)
@@ -269,7 +361,12 @@ INSERT INTO knowledge_changesets (
   'sarah.chen@example.com', 'sarah.chen@example.com',
   true, 'sarah.chen@example.com',
   NOW() - interval '6 days'
-);
+)
+ON CONFLICT (id) DO UPDATE SET
+  change_type = EXCLUDED.change_type,
+  previous_value = EXCLUDED.previous_value,
+  new_value = EXCLUDED.new_value,
+  rolled_back = EXCLUDED.rolled_back;
 
 -- ============================================================================
 -- Portal Assets (6 assets across different users and content types)
@@ -345,7 +442,12 @@ INSERT INTO portal_assets (
   '{"tool": "save_artifact", "session_id": "sess-206"}'::jsonb,
   'sess-206', 1,
   NOW() - interval '1 day', NOW() - interval '1 day'
-);
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  content_type = EXCLUDED.content_type,
+  tags = EXCLUDED.tags;
 
 -- Asset versions (one per asset, matching the current_version=1)
 INSERT INTO portal_asset_versions (
@@ -357,7 +459,8 @@ INSERT INTO portal_asset_versions (
 ('ver-003', 'asset-003', 1, 'portal/apikey:admin/asset-003/v1/content.jsx',  'portal-assets', 'text/jsx',      6340, 'apikey:admin', 'Initial version', NOW() - interval '4 days'),
 ('ver-004', 'asset-004', 1, 'portal/apikey:admin/asset-004/v1/content.md',   'portal-assets', 'text/markdown', 2890, 'apikey:admin', 'Initial version', NOW() - interval '3 days'),
 ('ver-005', 'asset-005', 1, 'portal/apikey:admin/asset-005/v1/content.svg',  'portal-assets', 'image/svg+xml', 8150, 'apikey:admin', 'Initial version', NOW() - interval '2 days'),
-('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day');
+('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
 
 -- Shares (2 assets shared: one user share, one public link)
 INSERT INTO portal_shares (
@@ -373,4 +476,147 @@ INSERT INTO portal_shares (
   'share-002', 'asset-002', 'tok-inventory-marcus',
   'apikey:admin', NULL, NOW() - interval '4 days',
   'apikey:admin', 'marcus.johnson@example.com', 'viewer'
-);
+)
+ON CONFLICT (id) DO UPDATE SET
+  expires_at = EXCLUDED.expires_at,
+  permission = EXCLUDED.permission;
+
+-- ============================================================================
+-- Portal Collections (2 curated collections)
+-- ============================================================================
+
+INSERT INTO portal_collections (
+  id, owner_id, owner_email, name, description, config,
+  created_at, updated_at
+) VALUES
+(
+  'coll-001', 'apikey:admin', 'admin@apikey.local',
+  'Q3 2025 Executive Review',
+  E'Comprehensive **quarterly business review** package prepared for the executive leadership team.\n\nThis collection brings together financial results, operational metrics, and strategic insights from Q3 2025. Each section focuses on a different aspect of business performance.\n\n> *"Data is the new oil, but only if you refine it."*\n\n### How to use this collection\n\n- Start with the **Financial Overview** for top-line results\n- Review **Operations & Inventory** for supply chain health\n- Finish with **Technical Architecture** for platform investment context',
+  '{"thumbnail_size": "medium"}'::jsonb,
+  NOW() - interval '2 days', NOW() - interval '2 days'
+),
+(
+  'coll-002', 'apikey:admin', 'admin@apikey.local',
+  'Regional Sales Deep Dive',
+  E'A focused analysis of **regional sales performance** across all product categories and store locations.\n\nThis collection was assembled to support the upcoming regional managers meeting. It includes:\n\n1. Revenue dashboards with week-over-week trends\n2. Store-level comparisons and rankings\n3. Geographic heatmaps for visual pattern recognition\n\n---\n\n*Prepared by the Analytics team using the ACME Data Platform.*',
+  '{"thumbnail_size": "large"}'::jsonb,
+  NOW() - interval '1 day', NOW() - interval '1 day'
+)
+,
+(
+  'coll-003', 'apikey:admin', 'admin@apikey.local',
+  '2025 Sales Insights',
+  E'This is a demo collection. Bacon ipsum dolor amet ground round porchetta filet mignon turducken chicken hamburger tenderloin jowl jerky strip steak alcatra shoulder.\n\nA curated set of dashboards, reports, and analyses covering 2025 sales performance across all regions.',
+  '{"thumbnail_size": "large"}'::jsonb,
+  NOW() - interval '1 day', NOW() - interval '1 day'
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  config = EXCLUDED.config;
+
+-- Collection sections with descriptions
+INSERT INTO portal_collection_sections (
+  id, collection_id, title, description, position, created_at
+) VALUES
+-- Collection 1: Q3 Executive Review
+(
+  'sec-001', 'coll-001',
+  'Financial Overview',
+  E'Top-line **financial results** for Q3 2025.\n\nKey metrics to watch:\n- Revenue vs. plan\n- Margin trends\n- Year-over-year growth rates',
+  0, NOW() - interval '2 days'
+),
+(
+  'sec-002', 'coll-001',
+  'Operations & Inventory',
+  E'Supply chain health and inventory management metrics.\n\nThis section highlights stock levels, reorder alerts, and warehouse utilization across all categories.',
+  1, NOW() - interval '2 days'
+),
+(
+  'sec-003', 'coll-001',
+  'Technical Architecture',
+  E'Overview of the **data platform architecture** powering these analytics.\n\n```\nSources → Ingestion → Warehouse → Serving → Dashboards\n```\n\nIncluded for context on platform investment and capabilities.',
+  2, NOW() - interval '2 days'
+),
+-- Collection 2: Regional Sales Deep Dive
+(
+  'sec-004', 'coll-002',
+  'Revenue Dashboards',
+  E'Interactive revenue views showing **weekly trends** and category breakdowns.\n\nUse these to identify:\n- Which categories are driving growth\n- Week-over-week momentum shifts\n- Seasonal patterns emerging in Q3',
+  0, NOW() - interval '1 day'
+),
+(
+  'sec-005', 'coll-002',
+  'Store Rankings & Comparisons',
+  E'Head-to-head store performance analysis covering:\n\n| Metric | Description |\n|--------|-------------|\n| Revenue | Total sales volume |\n| Traffic | Foot traffic counts |\n| Conversion | Visit-to-purchase rate |\n\nStores are ranked by composite score.',
+  1, NOW() - interval '1 day'
+),
+(
+  'sec-006', 'coll-002',
+  'Geographic Analysis',
+  E'Visual **geographic breakdown** of sales by region and product category.\n\nThe heatmap reveals concentration patterns that are not obvious from tabular data alone.',
+  2, NOW() - interval '1 day'
+)
+,
+-- Collection 3: 2025 Sales Insights
+(
+  'sec-007', 'coll-003',
+  'Sales Overview',
+  E'Top-level revenue and performance dashboards for 2025.',
+  0, NOW() - interval '1 day'
+),
+(
+  'sec-008', 'coll-003',
+  'Regional Breakdown',
+  E'Regional performance analysis with geographic visualizations.',
+  1, NOW() - interval '1 day'
+)
+ON CONFLICT (id) DO UPDATE SET
+  title = EXCLUDED.title,
+  description = EXCLUDED.description,
+  position = EXCLUDED.position;
+
+-- Collection items (assets assigned to sections)
+INSERT INTO portal_collection_items (
+  id, section_id, asset_id, position, created_at
+) VALUES
+-- Collection 1, Section 1: Financial Overview
+('item-001', 'sec-001', 'asset-006', 0, NOW() - interval '2 days'),  -- Q3 Financial Summary
+('item-002', 'sec-001', 'asset-001', 1, NOW() - interval '2 days'),  -- Weekly Revenue Dashboard
+-- Collection 1, Section 2: Operations & Inventory
+('item-003', 'sec-002', 'asset-002', 0, NOW() - interval '2 days'),  -- Inventory Health Report
+-- Collection 1, Section 3: Technical Architecture
+('item-004', 'sec-003', 'asset-004', 0, NOW() - interval '2 days'),  -- Data Pipeline Architecture
+-- Collection 2, Section 1: Revenue Dashboards
+('item-005', 'sec-004', 'asset-001', 0, NOW() - interval '1 day'),   -- Weekly Revenue Dashboard
+('item-006', 'sec-004', 'asset-006', 1, NOW() - interval '1 day'),   -- Q3 Financial Summary
+-- Collection 2, Section 2: Store Rankings
+('item-007', 'sec-005', 'asset-003', 0, NOW() - interval '1 day'),   -- Store Performance Comparison
+-- Collection 2, Section 3: Geographic Analysis
+('item-008', 'sec-006', 'asset-005', 0, NOW() - interval '1 day'),   -- Regional Sales Heatmap
+('item-009', 'sec-006', 'asset-002', 1, NOW() - interval '1 day'),   -- Inventory Health Report
+-- Collection 3, Section 1: Sales Overview
+('item-010', 'sec-007', 'asset-001', 0, NOW() - interval '1 day'),  -- Weekly Revenue Dashboard
+('item-011', 'sec-007', 'asset-006', 1, NOW() - interval '1 day'),  -- Q3 Financial Summary
+-- Collection 3, Section 2: Regional Breakdown
+('item-012', 'sec-008', 'asset-005', 0, NOW() - interval '1 day'),  -- Regional Sales Heatmap
+('item-013', 'sec-008', 'asset-003', 1, NOW() - interval '1 day')   -- Store Performance Comparison
+ON CONFLICT (id) DO UPDATE SET
+  section_id = EXCLUDED.section_id,
+  asset_id = EXCLUDED.asset_id,
+  position = EXCLUDED.position;
+
+-- Share collection 1 with a public link
+INSERT INTO portal_shares (
+  id, collection_id, token, created_by, expires_at, created_at,
+  shared_with_user_id, shared_with_email, permission
+) VALUES
+(
+  'share-003', 'coll-001', 'tok-q3-exec-review-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '2 days',
+  NULL, NULL, 'viewer'
+)
+ON CONFLICT (id) DO UPDATE SET
+  expires_at = EXCLUDED.expires_at,
+  permission = EXCLUDED.permission;

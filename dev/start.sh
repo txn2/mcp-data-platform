@@ -144,24 +144,14 @@ ok "Go server ready on :8080"
 
 echo ""
 
-# ─── Seed data if needed ────────────────────────────────────────────
+# ─── Seed data ──────────────────────────────────────────────────────
 
-# Use docker exec to query PostgreSQL (no psql dependency required)
-COUNT=$(docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc \
-  "SELECT count(*) FROM audit_logs" 2>/dev/null | tr -d '[:space:]' || echo "0")
-
-if [ "$COUNT" = "0" ]; then
-  echo -e "${BOLD}Seeding development data${NC}"
-  # Seed PostgreSQL
-  docker cp dev/seed.sql "$PG_CONTAINER":/tmp/seed.sql
-  docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform -f /tmp/seed.sql > /dev/null 2>&1
-  ok "Database seeded (audit events, knowledge insights, portal assets)"
-  # Upload asset content via the portal API
-  bash dev/seed-s3.sh
-  ok "Asset content uploaded to S3"
-else
-  ok "Seed data present ($COUNT audit events)"
-fi
+echo -e "${BOLD}Seeding development data${NC}"
+docker cp dev/seed.sql "$PG_CONTAINER":/tmp/seed.sql
+docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform -f /tmp/seed.sql > /dev/null 2>&1
+ok "Database seeded"
+bash dev/seed-s3.sh
+ok "Asset content uploaded to S3"
 
 echo ""
 

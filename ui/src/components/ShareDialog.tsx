@@ -1,11 +1,17 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
-import { useShares, useCreateShare, useRevokeShare } from "@/api/portal/hooks";
+import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare } from "@/api/portal/hooks";
 import type { SharePermission } from "@/api/portal/types";
 
+export type ShareTarget =
+  | { type: "asset"; id: string }
+  | { type: "collection"; id: string };
+
 interface Props {
-  assetId: string;
+  /** @deprecated Use `target` instead. */
+  assetId?: string;
+  target?: ShareTarget;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -24,9 +30,17 @@ function formatTimeRemaining(expiresAt?: string): string {
   return `Expires in ${days}d`;
 }
 
-export function ShareDialog({ assetId, open, onOpenChange }: Props) {
-  const { data: shares = [] } = useShares(assetId);
-  const createShare = useCreateShare();
+export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
+  // Resolve target: prefer `target` prop, fall back to `assetId` for backward compat.
+  const resolved: ShareTarget = target ?? { type: "asset", id: assetId ?? "" };
+  const isCollection = resolved.type === "collection";
+
+  const { data: assetShares = [] } = useShares(isCollection ? "" : resolved.id);
+  const { data: collectionShares = [] } = useCollectionShares(isCollection ? resolved.id : "");
+  const shares = isCollection ? collectionShares : assetShares;
+
+  const createAssetShare = useCreateShare();
+  const createCollShare = useCreateCollectionShare();
   const revokeShare = useRevokeShare();
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
@@ -38,18 +52,28 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
     "Proprietary & Confidential. Only share with authorized viewers.",
   );
 
+  const isPending = createAssetShare.isPending || createCollShare.isPending;
+
   function handleCreatePublicLink() {
-    createShare.mutate({
-      assetId,
+    const opts = {
       expires_in: ttl,
       ...(!showExpiration && { hide_expiration: true }),
       notice_text: noticeText.trim(),
-    });
+    };
+    if (isCollection) {
+      createCollShare.mutate({ collectionId: resolved.id, ...opts });
+    } else {
+      createAssetShare.mutate({ assetId: resolved.id, ...opts });
+    }
   }
 
   function handleShareWithUser() {
     if (!email.trim()) return;
-    createShare.mutate({ assetId, shared_with_email: email.trim(), permission });
+    if (isCollection) {
+      createCollShare.mutate({ collectionId: resolved.id, shared_with_email: email.trim(), permission });
+    } else {
+      createAssetShare.mutate({ assetId: resolved.id, shared_with_email: email.trim(), permission });
+    }
     setEmail("");
   }
 
@@ -78,7 +102,7 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-semibold">Share Asset</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold">{isCollection ? "Share Collection" : "Share Asset"}</Dialog.Title>
             <Dialog.Close className="rounded-md p-1 hover:bg-accent">
               <X className="h-4 w-4" />
             </Dialog.Close>
@@ -101,7 +125,7 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={handleCreatePublicLink}
-                disabled={createShare.isPending}
+                disabled={isPending}
                 className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 <Link className="h-3.5 w-3.5" />
@@ -169,7 +193,7 @@ export function ShareDialog({ assetId, open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={handleShareWithUser}
-                disabled={!email.trim() || createShare.isPending}
+                disabled={!email.trim() || isPending}
                 className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
               >
                 Share

@@ -58,6 +58,56 @@ The `hide_expiration` and `notice_text` fields are set per-share when creating a
 {"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
 ```
 
+## Collections
+
+Collections let users organize related assets into curated, shareable groups with rich descriptions. A collection contains ordered **sections**, each with a title, markdown description, and an ordered list of asset references.
+
+### Creating Collections
+
+Navigate to **Collections** in the sidebar and click **New Collection**. Provide a name and optional markdown description, then click **Create**. The editor opens where you can:
+
+- **Add sections** — Each section has a title, markdown description, and a list of assets
+- **Reorder sections** — Drag sections by their handle to change order
+- **Add assets to sections** — Search your assets by name and click to add
+- **Reorder assets** — Drag assets within a section to change order
+- **Configure settings** — Set thumbnail size (Large, Medium, Small, None) under Settings
+
+### Viewing Collections
+
+The collection viewer renders:
+
+- **Collection description** — Full markdown with headings, lists, tables, code blocks, and mermaid diagrams
+- **Section descriptions** — Same markdown support per section
+- **Asset cards** — Thumbnail preview, name, description excerpt, and content type badge
+- **Thumbnail sizes** — Configurable per collection: large (4:3), medium (3:2), small (2:1), or no thumbnails
+
+### Sharing Collections
+
+Collections use the same sharing system as individual assets:
+
+- **Public links** — Time-limited anonymous access via token URL. The public viewer renders the full collection with section navigation and asset content in a modal overlay.
+- **User shares** — Share with specific email addresses with viewer or editor permission
+- **Share management** — View active shares, copy public links, revoke access
+
+The public collection viewer at `/portal/view/{token}` renders all content types (HTML, JSX, Markdown, SVG, CSV) in a full-screen modal when an asset is clicked, using the same content viewer as single-asset public shares.
+
+### Collection API
+
+Collections are managed via the Portal API:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/portal/collections` | Create collection |
+| GET | `/api/v1/portal/collections` | List user's collections |
+| GET | `/api/v1/portal/collections/{id}` | Get collection with sections and items |
+| PUT | `/api/v1/portal/collections/{id}` | Update name and description |
+| PUT | `/api/v1/portal/collections/{id}/config` | Update collection settings |
+| PUT | `/api/v1/portal/collections/{id}/sections` | Replace all sections (full structure) |
+| DELETE | `/api/v1/portal/collections/{id}` | Soft delete |
+| POST | `/api/v1/portal/collections/{id}/shares` | Create share |
+| GET | `/api/v1/portal/collections/{id}/shares` | List shares |
+| GET | `/api/v1/portal/shared-collections` | List collections shared with current user |
+
 ## Dashboard
 
 The home page provides a real-time overview of platform health across configurable time ranges (1h, 6h, 24h, 7d).

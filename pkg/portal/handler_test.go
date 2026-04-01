@@ -82,6 +82,15 @@ func (m *mockShareStore) IncrementAccess(_ context.Context, _ string) error { re
 func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
 	return m.summaries, m.summariesErr
 }
+func (*mockShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) {
+	return nil, nil
+}
+func (*mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) {
+	return nil, 0, nil
+}
+func (*mockShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
+	return map[string]ShareSummary{}, nil
+}
 
 type mockS3Client struct {
 	getData   []byte
@@ -168,6 +177,15 @@ func (c *captureShareStore) IncrementAccess(ctx context.Context, id string) erro
 
 func (c *captureShareStore) ListActiveShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
 	return c.inner.ListActiveShareSummaries(ctx, ids)
+}
+func (c *captureShareStore) ListByCollection(ctx context.Context, id string) ([]Share, error) {
+	return c.inner.ListByCollection(ctx, id)
+}
+func (c *captureShareStore) ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error) {
+	return c.inner.ListSharedCollectionsWithUser(ctx, userID, email, limit, offset)
+}
+func (c *captureShareStore) ListActiveCollectionShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
+	return c.inner.ListActiveCollectionShareSummaries(ctx, ids)
 }
 
 // authMiddleware injects a User into the context for testing.

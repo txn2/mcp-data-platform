@@ -27,8 +27,7 @@ interface AssetViewerProps {
   content: string | ArrayBuffer | undefined;
   isLoading: boolean;
   contentUrl: string;
-  backPath: string;
-  backLabel: string;
+  onBack: () => void;
   onNavigate: (path: string) => void;
   updateMutation: MutationLike<{ id: string; name: string; description: string; tags: string[] }>;
   deleteMutation: MutationLike<string>;
@@ -59,8 +58,7 @@ export function AssetViewer({
   content,
   isLoading,
   contentUrl,
-  backPath,
-  backLabel,
+  onBack,
   onNavigate,
   updateMutation,
   deleteMutation,
@@ -181,10 +179,10 @@ export function AssetViewer({
         <p>Asset not found</p>
         <button
           type="button"
-          onClick={() => onNavigate(backPath)}
+          onClick={onBack}
           className="mt-2 text-sm text-primary hover:underline"
         >
-          {backLabel}
+          Back
         </button>
       </div>
     );
@@ -215,7 +213,7 @@ export function AssetViewer({
     deleteMutation.mutate(asset.id, {
       onSuccess: () => {
         setDeleteModalOpen(false);
-        onNavigate(backPath);
+        onBack();
       },
     });
   }
@@ -227,7 +225,7 @@ export function AssetViewer({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onNavigate(backPath)}
+            onClick={onBack}
             className="rounded-md p-1.5 hover:bg-accent"
           >
             <ArrowLeft className="h-4 w-4" />

@@ -126,7 +126,7 @@ function MermaidBlock({ content }: { content: string }) {
   );
 }
 
-export function MarkdownRenderer({ content }: { content: string }) {
+export function MarkdownRenderer({ content, bare }: { content: string; bare?: boolean }) {
   const components: Components = {
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it
@@ -159,7 +159,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
   };
 
   return (
-    <div className="prose prose-sm max-w-none dark:prose-invert rounded-lg border bg-card p-6">
+    <div className={`prose prose-sm max-w-none dark:prose-invert ${bare ? "" : "rounded-lg border bg-card p-6"}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>
