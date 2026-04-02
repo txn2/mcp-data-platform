@@ -234,6 +234,33 @@ Returns the current configuration as downloadable YAML. Sensitive values are red
 |-----------|------|-------------|
 | `secrets` | string | Set to `true` to include sensitive values |
 
+### Effective Config
+
+```
+GET /api/v1/admin/config/effective
+```
+
+Returns the merged view of all whitelisted config keys: database overrides where present, file defaults otherwise. Each entry includes a `source` field indicating whether the value comes from the file or a database override.
+
+**Response:**
+
+```json
+[
+  {
+    "key": "server.agent_instructions",
+    "value": "You are an AI assistant...",
+    "source": "file"
+  },
+  {
+    "key": "server.description",
+    "value": "ACME Corp analytics platform",
+    "source": "database",
+    "updated_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
+```
+
 ### List Config Entries
 
 ```
@@ -245,17 +272,14 @@ Returns all config entries stored in the database. Each entry represents a per-k
 **Response:**
 
 ```json
-{
-  "entries": [
-    {
-      "key": "server.description",
-      "value": "ACME Corp analytics platform",
-      "updated_by": "admin@example.com",
-      "updated_at": "2025-01-15T14:30:00Z"
-    }
-  ],
-  "total": 1
-}
+[
+  {
+    "key": "server.description",
+    "value": "ACME Corp analytics platform",
+    "updated_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
 ```
 
 ### Get Config Entry
@@ -316,7 +340,7 @@ DELETE /api/v1/admin/config/entries/{key}
 
 Removes a database override for a key, restoring the file default. Returns `404 Not Found` if no override exists.
 
-**Status Codes:** `200 OK`, `404 Not Found`
+**Status Codes:** `204 No Content`, `404 Not Found`
 
 ### Config Changelog
 
@@ -329,18 +353,15 @@ Returns an audit log of config entry changes (creates, updates, deletes).
 **Response:**
 
 ```json
-{
-  "entries": [
-    {
-      "key": "server.description",
-      "action": "set",
-      "value": "ACME Corp analytics platform",
-      "changed_by": "admin@example.com",
-      "changed_at": "2025-01-15T14:30:00Z"
-    }
-  ],
-  "total": 1
-}
+[
+  {
+    "key": "server.description",
+    "action": "set",
+    "value": "ACME Corp analytics platform",
+    "changed_by": "admin@example.com",
+    "changed_at": "2025-01-15T14:30:00Z"
+  }
+]
 ```
 
 ## Persona Endpoints

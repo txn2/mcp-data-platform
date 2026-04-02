@@ -36,34 +36,47 @@ func (s *Store) Get(ctx context.Context, key string) (*configstore.Entry, error)
 	return &e, nil
 }
 
-// Set creates or updates a config entry and logs the change.
+// Set creates or updates a config entry and logs the change atomically.
 func (s *Store) Set(ctx context.Context, key, value, author string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
 	now := time.Now()
-	_, err := s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO config_entries (key, value_text, updated_by, updated_at)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_by = $3, updated_at = $4`,
 		key, value, author, now,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("upserting config entry: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO config_changelog (key, action, value_text, changed_by, changed_at)
 		 VALUES ($1, 'set', $2, $3, $4)`,
 		key, value, author, now,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("logging config change: %w", err)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing config set: %w", err)
+	}
 	return nil
 }
 
-// Delete removes a config entry and logs the change.
+// Delete removes a config entry and logs the change atomically.
 func (s *Store) Delete(ctx context.Context, key, author string) error {
-	result, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	result, err := tx.ExecContext(ctx,
 		`DELETE FROM config_entries WHERE key = $1`,
 		key,
 	)
@@ -78,15 +91,17 @@ func (s *Store) Delete(ctx context.Context, key, author string) error {
 		return configstore.ErrNotFound
 	}
 
-	_, err = s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO config_changelog (key, action, changed_by, changed_at)
 		 VALUES ($1, 'delete', $2, $3)`,
 		key, author, time.Now(),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("logging config delete: %w", err)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing config delete: %w", err)
+	}
 	return nil
 }
 

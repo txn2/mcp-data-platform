@@ -1360,3 +1360,23 @@ session_gate:
 		t.Errorf("ExemptTools[0] = %q, want %q", cfg.SessionGate.ExemptTools[0], cfgTestToolListConns)
 	}
 }
+
+func TestApplyConfigEntry(t *testing.T) {
+	cfg := &Config{}
+
+	cfg.ApplyConfigEntry("server.description", "test description")
+	if cfg.Server.Description != "test description" {
+		t.Errorf("Description = %q, want %q", cfg.Server.Description, "test description")
+	}
+
+	cfg.ApplyConfigEntry("server.agent_instructions", "test instructions")
+	if cfg.Server.AgentInstructions != "test instructions" {
+		t.Errorf("AgentInstructions = %q, want %q", cfg.Server.AgentInstructions, "test instructions")
+	}
+
+	// Unknown key should be a no-op.
+	cfg.ApplyConfigEntry("unknown.key", "value")
+	if cfg.Server.Description != "test description" {
+		t.Error("unknown key should not modify config")
+	}
+}

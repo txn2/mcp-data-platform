@@ -301,12 +301,7 @@ func (p *Platform) buildConfigEntryMap() map[string]string {
 
 // applyConfigEntry updates a live config field for a whitelisted key.
 func (p *Platform) applyConfigEntry(key, value string) {
-	switch key {
-	case "server.description":
-		p.config.Server.Description = value
-	case "server.agent_instructions":
-		p.config.Server.AgentInstructions = value
-	}
+	p.config.ApplyConfigEntry(key, value)
 }
 
 // initOAuthSigningKey parses or generates the OAuth signing key.

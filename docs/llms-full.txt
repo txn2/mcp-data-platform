@@ -1901,10 +1901,11 @@ Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is
 - `GET /config` — Current config as JSON (sensitive values redacted)
 - `GET /config/mode` — Config store mode and read-only status
 - `GET /config/export` — Downloadable YAML config (`?secrets=true` to include sensitive values)
+- `GET /config/effective` — Merged view: file defaults + DB overrides with source indicator
 - `GET /config/entries` — List all database config entries (per-key overrides)
 - `GET /config/entries/{key}` — Get single config entry
 - `PUT /config/entries/{key}` — Set config entry (whitelisted keys only, hot-reload)
-- `DELETE /config/entries/{key}` — Remove database override (restores file default)
+- `DELETE /config/entries/{key}` — Remove database override (restores file default, 204 No Content)
 - `GET /config/changelog` — Audit log of config entry changes
 
 ## Persona Endpoints

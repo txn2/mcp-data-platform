@@ -99,13 +99,14 @@ func TestPostgresStore_Get_DBError(t *testing.T) {
 func TestPostgresStore_Set_Success(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO config_entries").
 		WithArgs("server.name", "new-val", "admin", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-
 	mock.ExpectExec("INSERT INTO config_changelog").
 		WithArgs("server.name", "new-val", "admin", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	err := store.Set(context.Background(), "server.name", "new-val", "admin")
 	if err != nil {
@@ -119,9 +120,11 @@ func TestPostgresStore_Set_Success(t *testing.T) {
 func TestPostgresStore_Set_UpsertError(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO config_entries").
 		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
 		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
 
 	err := store.Set(context.Background(), "key", "val", "admin")
 	if err == nil {
@@ -132,13 +135,14 @@ func TestPostgresStore_Set_UpsertError(t *testing.T) {
 func TestPostgresStore_Set_ChangelogError(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO config_entries").
 		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-
 	mock.ExpectExec("INSERT INTO config_changelog").
 		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
 		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
 
 	err := store.Set(context.Background(), "key", "val", "admin")
 	if err == nil {
@@ -151,13 +155,14 @@ func TestPostgresStore_Set_ChangelogError(t *testing.T) {
 func TestPostgresStore_Delete_Success(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM config_entries WHERE key").
 		WithArgs("server.name").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-
 	mock.ExpectExec("INSERT INTO config_changelog").
 		WithArgs("server.name", "admin", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	err := store.Delete(context.Background(), "server.name", "admin")
 	if err != nil {
@@ -171,9 +176,11 @@ func TestPostgresStore_Delete_Success(t *testing.T) {
 func TestPostgresStore_Delete_NotFound(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM config_entries WHERE key").
 		WithArgs("missing").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
 
 	err := store.Delete(context.Background(), "missing", "admin")
 	if !errors.Is(err, configstore.ErrNotFound) {
@@ -187,9 +194,11 @@ func TestPostgresStore_Delete_NotFound(t *testing.T) {
 func TestPostgresStore_Delete_DBError(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM config_entries WHERE key").
 		WithArgs("key").
 		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
 
 	err := store.Delete(context.Background(), "key", "admin")
 	if err == nil {
@@ -200,13 +209,14 @@ func TestPostgresStore_Delete_DBError(t *testing.T) {
 func TestPostgresStore_Delete_ChangelogError(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM config_entries WHERE key").
 		WithArgs("key").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-
 	mock.ExpectExec("INSERT INTO config_changelog").
 		WithArgs("key", "admin", sqlmock.AnyArg()).
 		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
 
 	err := store.Delete(context.Background(), "key", "admin")
 	if err == nil {

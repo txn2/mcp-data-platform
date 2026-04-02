@@ -3927,3 +3927,68 @@ func TestNew_WorkflowGatingDisabled(t *testing.T) {
 		t.Error("workflowTracker should be nil when workflow gating is disabled")
 	}
 }
+
+func TestBuildConfigEntryMap(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Server: ServerConfig{
+				Description:       "test desc",
+				AgentInstructions: "test instructions",
+			},
+		},
+	}
+	m := p.buildConfigEntryMap()
+	if m["server.description"] != "test desc" {
+		t.Errorf("description = %q, want %q", m["server.description"], "test desc")
+	}
+	if m["server.agent_instructions"] != "test instructions" {
+		t.Errorf("agent_instructions = %q, want %q", m["server.agent_instructions"], "test instructions")
+	}
+}
+
+func TestApplyConfigEntryPlatform(t *testing.T) {
+	p := &Platform{config: &Config{}}
+	p.applyConfigEntry("server.description", "new desc")
+	if p.config.Server.Description != "new desc" {
+		t.Errorf("Description = %q, want %q", p.config.Server.Description, "new desc")
+	}
+	p.applyConfigEntry("server.agent_instructions", "new instr")
+	if p.config.Server.AgentInstructions != "new instr" {
+		t.Errorf("AgentInstructions = %q, want %q", p.config.Server.AgentInstructions, "new instr")
+	}
+}
+
+func TestFileDefaults(t *testing.T) {
+	p := &Platform{
+		fileDefaults: map[string]string{
+			"server.description": "file desc",
+		},
+	}
+	fd := p.FileDefaults()
+	if fd["server.description"] != "file desc" {
+		t.Errorf("FileDefaults[server.description] = %q, want %q", fd["server.description"], "file desc")
+	}
+}
+
+func TestInitConfigStoreNoDatabase(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Server: ServerConfig{
+				Description:       "file desc",
+				AgentInstructions: "file instr",
+			},
+		},
+	}
+	if err := p.initConfigStore(); err != nil {
+		t.Fatalf("initConfigStore() error = %v", err)
+	}
+	if p.configStore == nil {
+		t.Fatal("configStore should not be nil")
+	}
+	if p.configStore.Mode() != "file" {
+		t.Errorf("Mode() = %q, want %q", p.configStore.Mode(), "file")
+	}
+	if p.fileDefaults["server.description"] != "file desc" {
+		t.Errorf("fileDefaults[server.description] = %q, want %q", p.fileDefaults["server.description"], "file desc")
+	}
+}

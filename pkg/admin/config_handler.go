@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
-	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // defaultChangelogLimit is the maximum number of changelog entries to return.
@@ -150,14 +150,25 @@ type effectiveConfigEntry struct {
 // Returns the merged view: for each whitelisted key, the DB override if present, otherwise the file default.
 func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 	// Get DB overrides.
-	dbEntries, _ := h.deps.ConfigStore.List(r.Context())
+	dbEntries, err := h.deps.ConfigStore.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load config entries")
+		return
+	}
 	dbMap := make(map[string]configstore.Entry)
 	for _, e := range dbEntries {
 		dbMap[e.Key] = e
 	}
 
-	var result []effectiveConfigEntry
-	for key := range configEntryWhitelist {
+	// Build sorted list of whitelisted keys for deterministic order.
+	keys := make([]string, 0, len(configEntryWhitelist))
+	for k := range configEntryWhitelist {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	result := make([]effectiveConfigEntry, 0, len(keys))
+	for _, key := range keys {
 		if dbEntry, ok := dbMap[key]; ok {
 			updatedAt := dbEntry.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
 			result = append(result, effectiveConfigEntry{
@@ -242,7 +253,7 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hot-reload: apply to live config.
-	applyConfigEntry(h.deps.Config, key, req.Value)
+	h.deps.Config.ApplyConfigEntry(key, req.Value)
 
 	// Return the stored entry.
 	entry, err := h.deps.ConfigStore.Get(r.Context(), key)
@@ -280,7 +291,7 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 
 	// Revert to file default.
 	if fileVal, ok := h.deps.FileDefaults[key]; ok {
-		applyConfigEntry(h.deps.Config, key, fileVal)
+		h.deps.Config.ApplyConfigEntry(key, fileVal)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -297,16 +308,6 @@ func (h *Handler) getConfigChangelog(w http.ResponseWriter, r *http.Request) {
 		entries = []configstore.ChangelogEntry{}
 	}
 	writeJSON(w, http.StatusOK, entries)
-}
-
-// applyConfigEntry updates the live in-memory config for a whitelisted key.
-func applyConfigEntry(cfg *platform.Config, key, value string) {
-	switch key {
-	case "server.description":
-		cfg.Server.Description = value
-	case "server.agent_instructions":
-		cfg.Server.AgentInstructions = value
-	}
 }
 
 // --- Redaction helpers ---

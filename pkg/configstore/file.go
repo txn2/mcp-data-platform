@@ -2,6 +2,7 @@ package configstore
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -38,11 +39,17 @@ func (*FileStore) Delete(_ context.Context, _, _ string) error {
 	return ErrReadOnly
 }
 
-// List returns all entries from the static map.
+// List returns all entries from the static map, sorted by key.
 func (s *FileStore) List(_ context.Context) ([]Entry, error) {
-	entries := make([]Entry, 0, len(s.entries))
-	for k, v := range s.entries {
-		entries = append(entries, Entry{Key: k, Value: v, UpdatedAt: time.Time{}})
+	keys := make([]string, 0, len(s.entries))
+	for k := range s.entries {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	entries := make([]Entry, 0, len(keys))
+	for _, k := range keys {
+		entries = append(entries, Entry{Key: k, Value: s.entries[k], UpdatedAt: time.Time{}})
 	}
 	return entries, nil
 }

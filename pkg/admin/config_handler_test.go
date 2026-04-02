@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -577,5 +578,94 @@ func TestFileMode_AuthKeyMutationsBlocked(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestListEffectiveConfig(t *testing.T) {
+	t.Run("returns file defaults when no DB overrides", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description":        "file desc",
+				"server.agent_instructions": "file instructions",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var result []effectiveConfigEntry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		assert.Len(t, result, 2)
+		// Should be sorted by key
+		assert.Equal(t, "server.agent_instructions", result[0].Key)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "file instructions", result[0].Value)
+		assert.Equal(t, "server.description", result[1].Key)
+		assert.Equal(t, "file", result[1].Source)
+		assert.Equal(t, "file desc", result[1].Value)
+	})
+
+	t.Run("DB override replaces file default", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode: "database",
+			entries: map[string]*configstore.Entry{
+				"server.description": {
+					Key:       "server.description",
+					Value:     "db desc",
+					UpdatedBy: "admin@test.com",
+					UpdatedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description":        "file desc",
+				"server.agent_instructions": "file instructions",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var result []effectiveConfigEntry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		assert.Len(t, result, 2)
+		// agent_instructions from file, description from DB
+		assert.Equal(t, "server.agent_instructions", result[0].Key)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "server.description", result[1].Key)
+		assert.Equal(t, "database", result[1].Source)
+		assert.Equal(t, "db desc", result[1].Value)
+		assert.NotNil(t, result[1].UpdatedBy)
+		assert.Equal(t, "admin@test.com", *result[1].UpdatedBy)
+	})
+
+	t.Run("returns 500 on DB error", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode:    "database",
+			listErr: fmt.Errorf("connection refused"),
+		}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description": "file desc",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }

@@ -848,6 +848,16 @@ func applySessionDefaults(cfg *Config) {
 	}
 }
 
+// ApplyConfigEntry updates a live config field for a whitelisted config entry key.
+func (c *Config) ApplyConfigEntry(key, value string) {
+	switch key {
+	case "server.description":
+		c.Server.Description = value
+	case "server.agent_instructions":
+		c.Server.AgentInstructions = value
+	}
+}
+
 // Validate validates the configuration.
 func (c *Config) Validate() error {
 	var errs []string
