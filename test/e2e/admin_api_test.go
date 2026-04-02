@@ -220,24 +220,14 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		}
 	})
 
-	t.Run("import_config_409", func(t *testing.T) {
-		// ConfigStore is a FileStore, so import route is registered but blocked
-		_, status, err := client.ImportConfig("apiVersion: v2", "test")
+	t.Run("config_entries_empty_standalone", func(t *testing.T) {
+		// No database → config entry routes not registered; expect 405 or similar
+		status, _, err := client.RawGet("/api/v1/admin/config/entries")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != http.StatusConflict {
-			t.Errorf("expected 409, got %d", status)
-		}
-	})
-
-	t.Run("config_history_409", func(t *testing.T) {
-		_, status, err := client.ConfigHistory()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if status != http.StatusConflict {
-			t.Errorf("expected 409, got %d", status)
+		if status != http.StatusMethodNotAllowed && status != http.StatusNotFound {
+			t.Errorf("expected 405 or 404, got %d", status)
 		}
 	})
 
@@ -460,23 +450,18 @@ func TestAdminAPI_FileDB(t *testing.T) {
 		}
 	})
 
-	t.Run("import_config_blocked_file_mode", func(t *testing.T) {
-		_, status, err := client.ImportConfig("apiVersion: v2", "test")
+	t.Run("config_entries_file_db_mode", func(t *testing.T) {
+		// Config store is file mode, so entry routes are read-only
+		entries, status, err := client.ListConfigEntries()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != http.StatusConflict {
-			t.Errorf("expected 409, got %d", status)
+		if status != http.StatusOK {
+			t.Errorf("expected 200, got %d", status)
 		}
-	})
-
-	t.Run("config_history_blocked_file_mode", func(t *testing.T) {
-		_, status, err := client.ConfigHistory()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if status != http.StatusConflict {
-			t.Errorf("expected 409, got %d", status)
+		// Should return empty list in file mode
+		if len(entries) != 0 {
+			t.Errorf("expected 0 entries, got %d", len(entries))
 		}
 	})
 
@@ -669,47 +654,67 @@ func TestAdminAPI_BootstrapDB(t *testing.T) {
 		}
 	})
 
-	// --- Config import/history ---
+	// --- Config entry CRUD ---
 
-	t.Run("config_import_valid", func(t *testing.T) {
-		validYAML := `apiVersion: v2
-server:
-  name: e2e-import-test
-  transport: stdio
-`
-		result, status, err := client.ImportConfig(validYAML, "e2e-import")
+	t.Run("config_set_entry", func(t *testing.T) {
+		entry, status, err := client.SetConfigEntry("server.description", "e2e test description")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != 200 {
+		if status != http.StatusOK {
 			t.Errorf("expected 200, got %d", status)
 		}
-		if result != nil && result.Status != "saved" {
-			t.Errorf("expected status=saved, got %s", result.Status)
+		if entry != nil && entry.Value != "e2e test description" {
+			t.Errorf("expected value='e2e test description', got %s", entry.Value)
 		}
 	})
 
-	t.Run("config_import_invalid", func(t *testing.T) {
-		_, status, err := client.ImportConfig("{{invalid yaml", "")
+	t.Run("config_get_entry", func(t *testing.T) {
+		entry, status, err := client.GetConfigEntry("server.description")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != http.StatusBadRequest {
-			t.Errorf("expected 400, got %d", status)
+		if status != http.StatusOK {
+			t.Errorf("expected 200, got %d", status)
+		}
+		if entry != nil && entry.Value != "e2e test description" {
+			t.Errorf("expected value='e2e test description', got %s", entry.Value)
 		}
 	})
 
-	t.Run("config_history", func(t *testing.T) {
-		history, status, err := client.ConfigHistory()
+	t.Run("config_list_entries", func(t *testing.T) {
+		entries, status, err := client.ListConfigEntries()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != 200 {
+		if status != http.StatusOK {
 			t.Fatalf("expected 200, got %d", status)
 		}
-		// At least the seed and our import
-		if history.Total < 1 {
-			t.Errorf("expected at least 1 revision, got %d", history.Total)
+		if len(entries) < 1 {
+			t.Errorf("expected at least 1 entry, got %d", len(entries))
+		}
+	})
+
+	t.Run("config_changelog", func(t *testing.T) {
+		changelog, status, err := client.ConfigChangelog()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+		if len(changelog) < 1 {
+			t.Errorf("expected at least 1 changelog entry, got %d", len(changelog))
+		}
+	})
+
+	t.Run("config_delete_entry", func(t *testing.T) {
+		status, err := client.DeleteConfigEntry("server.description")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if status != http.StatusNoContent {
+			t.Errorf("expected 204, got %d", status)
 		}
 	})
 

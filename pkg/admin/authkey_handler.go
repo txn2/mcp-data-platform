@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -79,8 +78,6 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("create auth key %s", req.Name))
-
 	writeJSON(w, http.StatusCreated, authKeyCreateResponse{
 		Name:    req.Name,
 		Key:     keyValue,
@@ -108,8 +105,6 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	}
-
-	h.syncConfig(r, fmt.Sprintf("delete auth key %s", name))
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 }

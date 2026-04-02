@@ -610,6 +610,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	deps := admin.Deps{
 		Config:            p.Config(),
 		ConfigStore:       p.ConfigStore(),
+		FileDefaults:      p.FileDefaults(),
 		PersonaRegistry:   p.PersonaRegistry(),
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		MCPServer:         p.MCPServer(),

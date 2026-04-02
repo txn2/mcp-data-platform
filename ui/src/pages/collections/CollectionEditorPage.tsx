@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ArrowLeft, Plus, Trash2, GripVertical, Save, FileText, Eye, Code, Search, X, ArrowUpDown } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, GripVertical, Save, FileText, Eye, Search, X, ArrowUpDown, ChevronDown } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -26,7 +26,7 @@ import {
   useAssets,
 } from "@/api/portal/hooks";
 import type { Asset, CollectionConfig } from "@/api/portal/types";
-import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { AuthImg } from "@/components/AuthImg";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
 
@@ -53,61 +53,6 @@ interface ItemDraft {
 let draftIdCounter = 0;
 function draftId() {
   return `draft-${++draftIdCounter}`;
-}
-
-/** Side-by-side markdown editor with live preview. */
-function MarkdownEditor({
-  value,
-  onChange,
-  placeholder,
-  rows,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  rows?: number;
-}) {
-  const [previewMode, setPreviewMode] = useState<"write" | "preview">("write");
-
-  return (
-    <div className="rounded-md border overflow-hidden">
-      <div className="flex items-center gap-0.5 border-b bg-muted/30 px-2 py-1">
-        <button
-          type="button"
-          onClick={() => setPreviewMode("write")}
-          className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${previewMode === "write" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <Code className="h-3 w-3" />
-          Write
-        </button>
-        <button
-          type="button"
-          onClick={() => setPreviewMode("preview")}
-          className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${previewMode === "preview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <Eye className="h-3 w-3" />
-          Preview
-        </button>
-      </div>
-      {previewMode === "write" ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={rows ?? 4}
-          className="w-full bg-background px-3 py-2 text-sm outline-none resize-y font-mono"
-        />
-      ) : (
-        <div className="px-3 py-2 min-h-[100px] prose prose-sm dark:prose-invert max-w-none">
-          {value ? (
-            <MarkdownRenderer content={value} />
-          ) : (
-            <p className="text-muted-foreground italic text-sm">Nothing to preview</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** Sortable item card within a section. */
@@ -333,6 +278,8 @@ function SortableSection({
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: section.id });
   const [browserOpen, setBrowserOpen] = useState(false);
   const [itemPreview, setItemPreview] = useState<ItemDraft | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -354,16 +301,29 @@ function SortableSection({
     }
   }
 
+  const displayTitle = section.title || "Untitled Section";
+  const itemCount = section.items.length;
+
   return (
-    <div ref={setNodeRef} style={style} className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center gap-2">
+    <div ref={setNodeRef} style={style} className="rounded-lg border bg-card overflow-hidden">
+      {/* Header — always visible, acts as collapse toggle */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20">
         <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-foreground" title="Drag to reorder">
           <GripVertical className="h-4 w-4" />
         </button>
-        <span className="text-xs text-muted-foreground font-medium">Section {index + 1}</span>
-        <div className="flex-1" />
         <button
-          onClick={() => onRemove(index)}
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
+          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+          <span className="text-sm font-medium truncate">{displayTitle}</span>
+          <span className="text-[10px] text-muted-foreground">
+            {itemCount} {itemCount === 1 ? "asset" : "assets"}
+          </span>
+        </button>
+        <button
+          onClick={() => setConfirmDelete(true)}
           className="text-muted-foreground hover:text-destructive"
           title="Remove section"
         >
@@ -371,51 +331,89 @@ function SortableSection({
         </button>
       </div>
 
-      <input
-        type="text"
-        value={section.title}
-        onChange={(e) => onUpdate(index, "title", e.target.value)}
-        placeholder="Section title"
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-      />
+      {/* Expandable content */}
+      {!collapsed && (
+        <div className="p-4 space-y-3 border-t">
+          <input
+            type="text"
+            value={section.title}
+            onChange={(e) => onUpdate(index, "title", e.target.value)}
+            placeholder="Section title"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          />
 
-      <div>
-        <label className="block text-xs text-muted-foreground mb-1">Description (markdown)</label>
-        <MarkdownEditor
-          value={section.description}
-          onChange={(v) => onUpdate(index, "description", v)}
-          placeholder="Section description..."
-          rows={3}
-        />
-      </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1">Description (markdown)</label>
+            <MarkdownEditor
+              value={section.description}
+              onChange={(v) => onUpdate(index, "description", v)}
+              placeholder="Section description..."
+              minHeight="120px"
+            />
+          </div>
 
-      {/* Items with drag-and-drop */}
-      <div>
-        <label className="block text-xs text-muted-foreground mb-1">Assets</label>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
-          <SortableContext items={section.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-            <div className="space-y-1.5">
-              {section.items.map((item, itemIdx) => (
-                <SortableItem
-                  key={item.id}
-                  item={item}
-                  onRemove={() => onRemoveItem(index, itemIdx)}
-                  onPreview={() => setItemPreview(item)}
-                />
-              ))}
+          {/* Items with drag-and-drop */}
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1">Assets</label>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
+              <SortableContext items={section.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-1.5">
+                  {section.items.map((item, itemIdx) => (
+                    <SortableItem
+                      key={item.id}
+                      item={item}
+                      onRemove={() => onRemoveItem(index, itemIdx)}
+                      onPreview={() => setItemPreview(item)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setBrowserOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            <Plus className="h-3 w-3" />
+            Browse Assets
+          </button>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDelete(false)}>
+          <div className="rounded-lg border bg-card p-6 shadow-lg max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2">Delete Section</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Are you sure you want to delete <strong>{displayTitle}</strong>?
+              {itemCount > 0 && ` This will remove ${itemCount} ${itemCount === 1 ? "asset" : "assets"} from the section.`}
+              {" "}This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDelete(false);
+                  onRemove(index);
+                }}
+                className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </button>
             </div>
-          </SortableContext>
-        </DndContext>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setBrowserOpen(true)}
-        className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-      >
-        <Plus className="h-3 w-3" />
-        Browse Assets
-      </button>
+          </div>
+        </div>
+      )}
 
       {browserOpen && (
         <AssetBrowserModal
@@ -638,7 +636,7 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
           value={description}
           onChange={setDescription}
           placeholder="Describe this collection (supports markdown)..."
-          rows={6}
+          minHeight="200px"
         />
       </div>
 

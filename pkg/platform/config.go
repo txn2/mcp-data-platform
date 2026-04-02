@@ -30,12 +30,6 @@ const (
 	SessionStoreDatabase = "database"
 )
 
-// Config store mode names.
-const (
-	ConfigStoreModeFile     = "file"
-	ConfigStoreModeDatabase = "database"
-)
-
 // Default durations for configuration.
 var (
 	defaultCacheTTL         = 5 * time.Minute
@@ -740,7 +734,6 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
-	applyConfigStoreDefaults(cfg)
 	applyServerDefaults(cfg)
 	applyServiceDefaults(cfg)
 	applySessionDedupDefaults(cfg)
@@ -787,12 +780,6 @@ func applyWorkflowDefaults(cfg *Config) {
 }
 
 // applyConfigStoreDefaults sets defaults for config store settings.
-func applyConfigStoreDefaults(cfg *Config) {
-	if cfg.ConfigStore.Mode == "" {
-		cfg.ConfigStore.Mode = ConfigStoreModeFile
-	}
-}
-
 // applyAdminDefaults sets defaults for admin API config.
 func applyAdminDefaults(cfg *Config) {
 	if cfg.Admin.Persona == "" {
@@ -869,7 +856,6 @@ func (c *Config) Validate() error {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
 
-	errs = c.validateConfigStore(errs)
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
 	errs = c.validateBrowserSession(errs)
@@ -879,14 +865,6 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
-}
-
-// validateConfigStore checks config store configuration validity and appends any errors.
-func (c *Config) validateConfigStore(errs []string) []string {
-	if c.ConfigStore.Mode == ConfigStoreModeDatabase && c.Database.DSN == "" {
-		errs = append(errs, "database.dsn is required when config_store.mode is \"database\"")
-	}
-	return errs
 }
 
 // validateOAuth checks OAuth configuration validity and appends any errors.

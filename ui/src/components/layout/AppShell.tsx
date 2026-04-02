@@ -21,6 +21,7 @@ import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
 import { PersonasPage } from "@/pages/personas/PersonasPage";
+import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
@@ -35,6 +36,7 @@ const pageTitles: Record<string, string> = {
   "/admin/audit": "Audit Log",
   "/admin/knowledge": "Knowledge",
   "/admin/personas": "Personas",
+  "/admin/settings": "Settings",
 };
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
@@ -52,15 +54,14 @@ function readPath(): string {
   return route;
 }
 
-/** Routes that auto-collapse the sidebar (deep detail/edit views). */
+/** Routes that auto-collapse the sidebar (asset detail views). */
 function isAssetRoute(path: string): boolean {
   const route = path.split("#")[0] ?? "";
   return (
     /^\/assets\/.+$/.test(route) ||
     /^\/admin\/assets\/.+$/.test(route) ||
     /^\/collections\/.+\/assets\/.+$/.test(route) ||
-    /^\/shared\/assets\/.+$/.test(route) ||
-    /^\/collections\/.+\/edit$/.test(route)
+    /^\/shared\/assets\/.+$/.test(route)
   );
 }
 
@@ -74,9 +75,44 @@ function AccessDenied() {
   );
 }
 
+/** Redirect bare /admin/settings to /admin/settings#description so the sidebar sub-item highlights. */
+function SettingsRedirect({
+  initialTab,
+  navigate,
+  children,
+}: {
+  initialTab?: string;
+  navigate: (path: string) => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!initialTab) {
+      navigate("/admin/settings#description");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- one-time redirect
+  return <>{children}</>;
+}
+
+const MOBILE_BREAKPOINT = 768;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isMobile;
+}
+
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const isMobile = useIsMobile();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Sidebar collapsed state: auto-collapse on asset deep-link, otherwise restore from localStorage
   const initialPath = useRef(readPath()).current;
@@ -158,15 +194,42 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar
-        currentPath={currentPath}
-        onNavigate={navigate}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={toggleSidebar}
-      />
+      {/* Desktop sidebar */}
+      {!isMobile && (
+        <Sidebar
+          currentPath={currentPath}
+          onNavigate={navigate}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
+        />
+      )}
+
+      {/* Mobile sidebar overlay */}
+      {isMobile && mobileSidebarOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div className="fixed inset-y-0 left-0 z-50">
+            <Sidebar
+              currentPath={currentPath}
+              onNavigate={navigate}
+              collapsed={false}
+              onToggleCollapse={() => {}}
+              mobile
+              onClose={() => setMobileSidebarOpen(false)}
+            />
+          </div>
+        </>
+      )}
+
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header title={title} />
-        <main className="flex-1 overflow-auto bg-muted/40 p-6">
+        <Header
+          title={title}
+          onMenuClick={isMobile ? () => setMobileSidebarOpen(true) : undefined}
+        />
+        <main className="flex-1 overflow-auto bg-muted/40 p-3 sm:p-6">
           {/* Portal routes — everyone */}
           {!isAdminRoute && route === "/activity" && <ActivityPage />}
           {!isAdminRoute && route === "/" && (
@@ -238,6 +301,11 @@ export function AppShell() {
               )}
               {route === "/admin/personas" && (
                 <PersonasPage key={currentPath} initialTab={initialTab} />
+              )}
+              {route === "/admin/settings" && (
+                <SettingsRedirect initialTab={initialTab} navigate={navigate}>
+                  <SettingsPage key={currentPath} initialTab={initialTab} />
+                </SettingsRedirect>
               )}
             </>
           )}

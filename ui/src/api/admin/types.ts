@@ -362,3 +362,29 @@ export interface AdminAssetListResponse {
   share_summaries?: Record<string, import("@/api/portal/types").ShareSummary>;
 }
 
+
+// --- Config entries ---
+
+export interface ConfigEntry {
+  key: string;
+  value: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface ConfigChangelogEntry {
+  id: number;
+  key: string;
+  action: string;
+  value?: string;
+  changed_by: string;
+  changed_at: string;
+}
+
+export interface EffectiveConfigEntry {
+  key: string;
+  value: string;
+  source: "file" | "database";
+  updated_by?: string;
+  updated_at?: string;
+}

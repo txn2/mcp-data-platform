@@ -19,7 +19,6 @@ import (
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	"golang.org/x/crypto/bcrypt"
-	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/apps"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -82,7 +81,8 @@ type Platform struct {
 	auditStore *auditpostgres.Store
 
 	// Config store
-	configStore configstore.Store
+	configStore  configstore.Store
+	fileDefaults map[string]string
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -266,68 +266,47 @@ func (p *Platform) initDatabase() error {
 	return nil
 }
 
-// initConfigStore initializes the config store based on the configured mode.
+// initConfigStore initializes the config store. When a database is available,
+// DB entries override file config for whitelisted keys with hot-reload support.
 func (p *Platform) initConfigStore() error {
-	switch p.config.ConfigStore.Mode {
-	case ConfigStoreModeDatabase:
-		if p.db == nil {
-			return fmt.Errorf("config_store.mode is \"database\" but no database configured")
-		}
+	// Capture file defaults before any DB overlay.
+	p.fileDefaults = p.buildConfigEntryMap()
+
+	if p.db != nil {
 		store := configpostgres.New(p.db)
-		data, err := store.Load(context.Background())
+		entries, err := store.List(context.Background())
 		if err != nil {
-			return fmt.Errorf("loading config from database: %w", err)
+			return fmt.Errorf("loading config entries from database: %w", err)
 		}
-		if data == nil {
-			// First boot: seed the database with the current config
-			slog.Info("config store: first boot, seeding database with bootstrap config")
-			if err := p.seedConfigStore(store); err != nil {
-				return fmt.Errorf("seeding config to database: %w", err)
-			}
-		} else {
-			// Parse the DB config and merge with bootstrap
-			dbCfg, parseErr := LoadConfigFromBytes(data)
-			if parseErr != nil {
-				return fmt.Errorf("parsing stored config: %w", parseErr)
-			}
-			p.config = mergeBootstrap(dbCfg, p.config)
-			slog.Info("config store: loaded config from database, merged with bootstrap")
+		for _, e := range entries {
+			p.applyConfigEntry(e.Key, e.Value)
 		}
 		p.configStore = store
-	default:
-		// File mode (default)
-		p.configStore = configstore.NewFileStore(p.config)
+		if len(entries) > 0 {
+			slog.Info("config store: applied database overrides", "count", len(entries))
+		}
+	} else {
+		p.configStore = configstore.NewFileStore(p.fileDefaults)
 	}
 	return nil
 }
 
-// seedConfigStore marshals the current config and saves it to the store.
-func (p *Platform) seedConfigStore(store configstore.Store) error {
-	data, err := yaml.Marshal(p.config)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
+// buildConfigEntryMap extracts the current whitelisted config values as a key/value map.
+func (p *Platform) buildConfigEntryMap() map[string]string {
+	return map[string]string{
+		"server.description":        p.config.Server.Description,
+		"server.agent_instructions": p.config.Server.AgentInstructions,
 	}
-	if err := store.Save(context.Background(), data, configstore.SaveMeta{
-		Author:  "system",
-		Comment: "initial bootstrap",
-	}); err != nil {
-		return fmt.Errorf("seeding config store: %w", err)
-	}
-	return nil
 }
 
-// mergeBootstrap overlays bootstrap-only fields from the YAML file onto
-// the database-loaded config. Bootstrap fields (server, database, auth,
-// admin, config_store, apiVersion) always come from the YAML file.
-func mergeBootstrap(dbCfg, bootstrap *Config) *Config {
-	merged := *dbCfg
-	merged.APIVersion = bootstrap.APIVersion
-	merged.ConfigStore = bootstrap.ConfigStore
-	merged.Server = bootstrap.Server
-	merged.Database = bootstrap.Database
-	merged.Auth = bootstrap.Auth
-	merged.Admin = bootstrap.Admin
-	return &merged
+// applyConfigEntry updates a live config field for a whitelisted key.
+func (p *Platform) applyConfigEntry(key, value string) {
+	switch key {
+	case "server.description":
+		p.config.Server.Description = value
+	case "server.agent_instructions":
+		p.config.Server.AgentInstructions = value
+	}
 }
 
 // initOAuthSigningKey parses or generates the OAuth signing key.
@@ -1699,6 +1678,12 @@ func (p *Platform) APIKeyAuthenticator() *auth.APIKeyAuthenticator {
 // ConfigStore returns the config store.
 func (p *Platform) ConfigStore() configstore.Store {
 	return p.configStore
+}
+
+// FileDefaults returns the original file-based config values for whitelisted keys.
+// Used to revert to file defaults when a DB override is deleted.
+func (p *Platform) FileDefaults() map[string]string {
+	return p.fileDefaults
 }
 
 // KnowledgeInsightStore returns the insight store, or nil if knowledge is disabled.

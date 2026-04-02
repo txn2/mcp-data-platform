@@ -3136,63 +3136,6 @@ func containsSubstr(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
-func TestMergeBootstrap(t *testing.T) {
-	dbCfg := &Config{
-		APIVersion:  "v0",
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Server:      ServerConfig{Name: "db-name", Transport: "http"},
-		Database:    DatabaseConfig{DSN: "db-dsn"},
-		Auth:        AuthConfig{AllowAnonymous: true},
-		Admin:       AdminConfig{Enabled: true, Persona: "db-admin"},
-		Personas:    PersonasConfig{DefaultPersona: testRoleAnalyst},
-		Audit:       AuditConfig{Enabled: true, RetentionDays: testRetentionDays},
-		Semantic:    SemanticConfig{Provider: testToolkitKeyDatahub},
-	}
-
-	bootstrap := &Config{
-		APIVersion:  "v1",
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Server:      ServerConfig{Name: "bootstrap-name", Transport: "stdio"},
-		Database:    DatabaseConfig{DSN: "bootstrap-dsn"},
-		Auth:        AuthConfig{AllowAnonymous: false},
-		Admin:       AdminConfig{Enabled: true, Persona: "superadmin"},
-		Personas:    PersonasConfig{DefaultPersona: "executive"},
-		Audit:       AuditConfig{Enabled: false, RetentionDays: testDefaultRetention},
-	}
-
-	merged := mergeBootstrap(dbCfg, bootstrap)
-
-	// Bootstrap fields should come from bootstrap
-	if merged.APIVersion != "v1" {
-		t.Errorf("APIVersion = %q, want %q", merged.APIVersion, "v1")
-	}
-	if merged.Server.Name != "bootstrap-name" {
-		t.Errorf("Server.Name = %q, want %q", merged.Server.Name, "bootstrap-name")
-	}
-	if merged.Database.DSN != "bootstrap-dsn" {
-		t.Errorf("Database.DSN = %q, want %q", merged.Database.DSN, "bootstrap-dsn")
-	}
-	if merged.Admin.Persona != "superadmin" {
-		t.Errorf("Admin.Persona = %q, want %q", merged.Admin.Persona, "superadmin")
-	}
-
-	// Non-bootstrap fields should come from DB config
-	if merged.Personas.DefaultPersona != testRoleAnalyst {
-		t.Errorf("Personas.DefaultPersona = %q, want %q", merged.Personas.DefaultPersona, testRoleAnalyst)
-	}
-	if !merged.Audit.Enabled {
-		t.Error("Audit.Enabled = false, want true (from DB)")
-	}
-	if merged.Semantic.Provider != testToolkitKeyDatahub {
-		t.Errorf("Semantic.Provider = %q, want %q", merged.Semantic.Provider, testToolkitKeyDatahub)
-	}
-
-	// Original should not be modified
-	if dbCfg.APIVersion != "v0" {
-		t.Error("mergeBootstrap modified original dbCfg")
-	}
-}
-
 func TestPlatform_ConfigStore_FileMode(t *testing.T) {
 	cfg := &Config{
 		ConfigStore: ConfigStoreConfig{Mode: "file"},

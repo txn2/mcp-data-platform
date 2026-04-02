@@ -1101,45 +1101,23 @@ func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
 }
 
 func TestApplyDefaults_ConfigStore(t *testing.T) {
-	t.Run("defaults to file mode", func(t *testing.T) {
+	t.Run("defaults to empty mode", func(t *testing.T) {
 		cfg := &Config{}
 		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != ConfigStoreModeFile {
-			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeFile)
+		if cfg.ConfigStore.Mode != "" {
+			t.Errorf("ConfigStore.Mode = %q, want empty", cfg.ConfigStore.Mode)
 		}
 	})
 
 	t.Run("preserves explicit mode", func(t *testing.T) {
 		cfg := &Config{
-			ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+			ConfigStore: ConfigStoreConfig{Mode: "database"},
 		}
 		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
-			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
+		if cfg.ConfigStore.Mode != "database" {
+			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
 		}
 	})
-}
-
-func TestConfigValidate_ConfigStoreDatabaseWithoutDSN(t *testing.T) {
-	cfg := &Config{
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Database:    DatabaseConfig{DSN: ""},
-	}
-	err := cfg.Validate()
-	if err == nil {
-		t.Error("Validate() expected error for config_store.mode=database without DSN")
-	}
-}
-
-func TestConfigValidate_ConfigStoreDatabaseWithDSN(t *testing.T) {
-	cfg := &Config{
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Database:    DatabaseConfig{DSN: "postgres://localhost/test"},
-	}
-	err := cfg.Validate()
-	if err != nil {
-		t.Errorf("Validate() unexpected error: %v", err)
-	}
 }
 
 func TestLoadConfig_ConfigStoreFromYAML(t *testing.T) {
@@ -1151,8 +1129,8 @@ config_store:
 database:
   dsn: "postgres://localhost/test"
 `)
-	if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
-		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
+	if cfg.ConfigStore.Mode != "database" {
+		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
 	}
 }
 

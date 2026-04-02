@@ -4,18 +4,15 @@ mcp-data-platform uses YAML configuration with environment variable expansion. V
 
 ## How Configuration Works
 
-The platform has two configuration modes that control how settings are stored and whether they can be changed at runtime:
+**File mode** (default): Configuration is loaded from a YAML file at startup. This is the simplest deployment — no database required.
 
-**File mode** (default): Configuration is loaded from a YAML file at startup and is read-only. This is the simplest deployment — no database required.
-
-**Database mode**: Adding `database.dsn` unlocks persistent platform features (audit logging, knowledge capture, session externalization). Setting `config_store.mode: database` additionally enables runtime configuration mutations through the admin API.
+**File + database**: Adding `database.dsn` unlocks persistent platform features (audit logging, knowledge capture, session externalization). When a database is available, individual config entries stored in the `config_entries` table override file defaults for whitelisted keys. Changes made via the admin API take effect immediately without restart. File defaults are preserved and used as fallback when database entries are deleted.
 
 | What you configure | What it unlocks |
 |--------------------|-----------------|
 | YAML file only | Read-only config, in-memory sessions, no audit |
-| `database.dsn` | Audit logging, knowledge capture, OAuth persistence, database-backed sessions |
-| `database.dsn` + `config_store.mode: database` | All of the above, plus runtime config mutations via admin API |
-| `database.dsn` + `admin.enabled: true` | REST endpoints for system health, config, personas, auth keys, audit |
+| `database.dsn` | Audit logging, knowledge capture, OAuth persistence, database-backed sessions, per-key config overrides via admin API |
+| `database.dsn` + `admin.enabled: true` | REST endpoints for system health, config entries CRUD, personas, auth keys, audit |
 
 See [Operating Modes](operating-modes.md) for the full comparison and [Admin API](admin-api.md) for the REST endpoints.
 
@@ -285,20 +282,25 @@ database:
 
 ## Config Store
 
-The `config_store` block controls where platform configuration is persisted. By default, configuration is loaded from the YAML file and is read-only. Setting mode to `database` enables runtime config mutations via the admin API.
+When a database is available (`database.dsn` is set), the platform uses a granular key/value config store. Individual config entries in the `config_entries` table override file defaults for whitelisted keys. Changes made via the admin API take effect immediately (hot-reload) without restart. Deleting a database entry restores the file default for that key.
+
+**Whitelisted keys (phase 1):**
+
+| Key | Description |
+|-----|-------------|
+| `server.description` | Platform description shown in `platform-overview` prompt and `platform_info` tool |
+| `server.agent_instructions` | Custom instructions appended to agent system prompts |
+
+Only whitelisted keys can be set via the admin API. Attempting to set a non-whitelisted key returns `400 Bad Request`.
 
 ```yaml
 config_store:
-  mode: file      # "file" (default) or "database"
+  mode: file      # Deprecated — ignored. Presence is accepted for backward compatibility.
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | string | `file` | Config storage mode: `file` or `database` |
-
-**`file` mode**: Configuration loaded from YAML at startup. Read-only. Admin API mutation endpoints (config import, persona CRUD, auth key CRUD) return `409 Conflict`. This is the default and requires no database.
-
-**`database` mode**: Configuration persisted to PostgreSQL `config_versions` table. Requires `database.dsn` to be configured. Supports import, export, history, and runtime mutations via the admin API. On startup, bootstrap fields (`server`, `database`, `auth`, `admin`, `config_store`, `apiVersion`) are always loaded from the YAML file and override database values.
+| `config_store.mode` | string | `file` | **Deprecated.** Ignored at runtime. The config entries system activates automatically when `database.dsn` is set. Accepted without error for backward compatibility. |
 
 See [Operating Modes](operating-modes.md) for the full comparison of deployment configurations.
 
@@ -811,9 +813,6 @@ server:
 
 database:
   dsn: ${DATABASE_URL}
-
-config_store:
-  mode: database
 
 portal:
   enabled: true

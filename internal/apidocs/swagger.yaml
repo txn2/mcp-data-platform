@@ -81,22 +81,6 @@ definitions:
       total:
         type: integer
     type: object
-  admin.configHistoryResponse:
-    properties:
-      revisions:
-        items:
-          $ref: '#/definitions/configstore.Revision'
-        type: array
-      total:
-        type: integer
-    type: object
-  admin.configImportResponse:
-    properties:
-      note:
-        type: string
-      status:
-        type: string
-    type: object
   admin.configModeResponse:
     properties:
       mode:
@@ -530,19 +514,6 @@ definitions:
         items:
           type: string
         type: array
-    type: object
-  configstore.Revision:
-    properties:
-      author:
-        type: string
-      comment:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: integer
-      version:
-        type: integer
     type: object
   knowledge.Changeset:
     properties:
@@ -1169,73 +1140,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Export config
-      tags:
-      - Config
-  /config/history:
-    get:
-      description: Returns config revision history. Only available in database config
-        mode.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/admin.configHistoryResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Config history
-      tags:
-      - Config
-  /config/import:
-    post:
-      consumes:
-      - application/x-yaml
-      description: Imports a YAML configuration into the config store. Only available
-        in database config mode.
-      parameters:
-      - description: Revision comment
-        in: query
-        name: comment
-        type: string
-      - description: YAML configuration
-        in: body
-        name: body
-        required: true
-        schema:
-          type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/admin.configImportResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Import config
       tags:
       - Config
   /config/mode:

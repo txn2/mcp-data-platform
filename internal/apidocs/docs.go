@@ -793,112 +793,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/config/history": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns config revision history. Only available in database config mode.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Config"
-                ],
-                "summary": "Config history",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.configHistoryResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/config/import": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Imports a YAML configuration into the config store. Only available in database config mode.",
-                "consumes": [
-                    "application/x-yaml"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Config"
-                ],
-                "summary": "Import config",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Revision comment",
-                        "name": "comment",
-                        "in": "query"
-                    },
-                    {
-                        "description": "YAML configuration",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.configImportResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/config/mode": {
             "get": {
                 "security": [
@@ -1980,31 +1874,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.configHistoryResponse": {
-            "type": "object",
-            "properties": {
-                "revisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/configstore.Revision"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "admin.configImportResponse": {
-            "type": "object",
-            "properties": {
-                "note": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.configModeResponse": {
             "type": "object",
             "properties": {
@@ -2666,26 +2535,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                }
-            }
-        },
-        "configstore.Revision": {
-            "type": "object",
-            "properties": {
-                "author": {
-                    "type": "string"
-                },
-                "comment": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "version": {
-                    "type": "integer"
                 }
             }
         },

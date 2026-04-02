@@ -95,17 +95,18 @@ All errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9
 
 Some endpoints are only available in certain [operating modes](operating-modes.md). When a feature is enabled in config but unavailable at runtime (e.g., no database), endpoints return `409 Conflict` with an explanation. When a feature is disabled in config, endpoints return `404 Not Found`.
 
-| Endpoint Group | Standalone (no DB) | File + DB | Bootstrap + DB Config |
-|---------------|-------------------|-----------|----------------------|
-| System | available | available | available |
-| Config (read) | available | available | available |
-| Config (write) | 409 | 409 | available |
-| Personas (read) | available | available | available |
-| Personas (write) | 409 | 409 | available |
-| Auth keys (read) | available | available | available |
-| Auth keys (write) | 409 | 409 | available |
-| Audit | 409 (if enabled) | available | available |
-| Knowledge | 409 (if enabled) | available | available |
+| Endpoint Group | Standalone (no DB) | File + DB |
+|---------------|-------------------|-----------|
+| System | available | available |
+| Config (read) | available | available |
+| Config entries (CRUD) | 409 | available (whitelisted keys only) |
+| Config changelog | 409 | available |
+| Personas (read) | available | available |
+| Personas (write) | 409 | available |
+| Auth keys (read) | available | available |
+| Auth keys (write) | 409 | available |
+| Audit | 409 (if enabled) | available |
+| Knowledge | 409 (if enabled) | available |
 
 ## System Endpoints
 
@@ -233,52 +234,112 @@ Returns the current configuration as downloadable YAML. Sensitive values are red
 |-----------|------|-------------|
 | `secrets` | string | Set to `true` to include sensitive values |
 
-### Import Config
+### List Config Entries
 
 ```
-POST /api/v1/admin/config/import
+GET /api/v1/admin/config/entries
 ```
 
-Imports a YAML configuration into the config store. Only available in `database` config mode. Returns `409 Conflict` in `file` mode.
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `comment` | string | Optional revision comment |
-
-**Request Body:** YAML configuration (Content-Type: application/x-yaml or text/plain). Max 1MB.
+Returns all config entries stored in the database. Each entry represents a per-key override of the file default.
 
 **Response:**
 
 ```json
 {
-  "status": "saved",
-  "note": "changes take effect on next restart"
+  "entries": [
+    {
+      "key": "server.description",
+      "value": "ACME Corp analytics platform",
+      "updated_by": "admin@example.com",
+      "updated_at": "2025-01-15T14:30:00Z"
+    }
+  ],
+  "total": 1
 }
 ```
 
-### Config History
+### Get Config Entry
 
 ```
-GET /api/v1/admin/config/history
+GET /api/v1/admin/config/entries/{key}
 ```
 
-Returns config revision history. Only available in `database` config mode.
+Returns a single config entry by key. Returns `404 Not Found` if the key has no database override.
 
 **Response:**
 
 ```json
 {
-  "revisions": [
+  "key": "server.description",
+  "value": "ACME Corp analytics platform",
+  "updated_by": "admin@example.com",
+  "updated_at": "2025-01-15T14:30:00Z"
+}
+```
+
+### Set Config Entry
+
+```
+PUT /api/v1/admin/config/entries/{key}
+```
+
+Sets a config entry for a whitelisted key. The change takes effect immediately (hot-reload) without restart. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
+
+**Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
+
+**Request Body:**
+
+```json
+{
+  "value": "ACME Corp analytics platform"
+}
+```
+
+**Response:**
+
+```json
+{
+  "key": "server.description",
+  "value": "ACME Corp analytics platform",
+  "updated_by": "admin@example.com",
+  "updated_at": "2025-01-15T14:30:00Z"
+}
+```
+
+**Status Codes:** `200 OK`, `400 Bad Request` (non-whitelisted key), `409 Conflict` (no database)
+
+### Delete Config Entry
+
+```
+DELETE /api/v1/admin/config/entries/{key}
+```
+
+Removes a database override for a key, restoring the file default. Returns `404 Not Found` if no override exists.
+
+**Status Codes:** `200 OK`, `404 Not Found`
+
+### Config Changelog
+
+```
+GET /api/v1/admin/config/changelog
+```
+
+Returns an audit log of config entry changes (creates, updates, deletes).
+
+**Response:**
+
+```json
+{
+  "entries": [
     {
-      "version": 3,
-      "author": "admin@example.com",
-      "comment": "update persona definitions",
-      "created_at": "2025-01-15T14:30:00Z"
+      "key": "server.description",
+      "action": "set",
+      "value": "ACME Corp analytics platform",
+      "changed_by": "admin@example.com",
+      "changed_at": "2025-01-15T14:30:00Z"
     }
   ],
-  "total": 3
+  "total": 1
 }
 ```
 

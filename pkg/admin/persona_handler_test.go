@@ -181,7 +181,6 @@ func TestCreatePersona(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, "analyst", resp.Name)
 		assert.Equal(t, "Data Analyst", resp.DisplayName)
-		assert.Equal(t, 1, cs.saveCalls, "syncConfig should be called")
 	})
 
 	t.Run("rejects duplicate name", func(t *testing.T) {
@@ -255,7 +254,6 @@ func TestUpdatePersona(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, "analyst", resp.Name)
 		assert.Equal(t, "Updated Analyst", resp.DisplayName)
-		assert.Equal(t, 1, cs.saveCalls, "syncConfig should be called")
 	})
 
 	t.Run("rejects missing display_name", func(t *testing.T) {
@@ -299,7 +297,6 @@ func TestDeletePersona(t *testing.T) {
 		var resp map[string]string
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, "deleted", resp["status"])
-		assert.Equal(t, 1, cs.saveCalls, "syncConfig should be called")
 	})
 
 	t.Run("returns 404 for non-existent persona", func(t *testing.T) {

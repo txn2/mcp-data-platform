@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
 
@@ -174,8 +173,6 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("create persona %s", p.Name))
-
 	writeJSON(w, http.StatusCreated, personaDetail{
 		Name:        p.Name,
 		DisplayName: p.DisplayName,
@@ -225,8 +222,6 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("update persona %s", p.Name))
-
 	writeJSON(w, http.StatusOK, personaDetail{
 		Name:        p.Name,
 		DisplayName: p.DisplayName,
@@ -265,8 +260,6 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "persona not found")
 		return
 	}
-
-	h.syncConfig(r, fmt.Sprintf("delete persona %s", name))
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 }
