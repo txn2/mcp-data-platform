@@ -19,7 +19,7 @@
 -- Delete seed events and re-insert so timestamps are always relative to NOW().
 -- ============================================================================
 
-DELETE FROM audit_logs WHERE id LIKE 'evt-%';
+DELETE FROM audit_logs WHERE id LIKE 'evt-%' OR id LIKE 'ak-%' OR id LIKE 'fr-%';
 
 INSERT INTO audit_logs (
   id, request_id, session_id, user_id, user_email, persona,
@@ -148,6 +148,75 @@ FROM
   ) AS t;
 
 -- ============================================================================
+-- Dev API Key User Activity (apikey:admin / admin@apikey.local)
+-- Generates events for the user associated with the acme-dev-key-2024 API key
+-- so the Activity dashboard and My Activity page show data when logged in.
+-- Uses gen_random_uuid() so each restart adds unique events spread over 7 days.
+-- ============================================================================
+
+INSERT INTO audit_logs (
+  id, request_id, session_id, user_id, user_email, persona,
+  tool_name, toolkit_kind, toolkit_name, connection,
+  parameters, success, error_message,
+  duration_ms, response_chars, request_chars, content_blocks,
+  transport, source, enrichment_applied, authorized,
+  "timestamp", created_date
+)
+SELECT
+  'ak-' || lpad(n::text, 4, '0') || '-' || to_char(NOW(), 'MMDDHH24MI'),
+  'rq-' || lpad(n::text, 4, '0') || '-' || to_char(NOW(), 'MMDDHH24MI'),
+  'sa-' || (n % 10),
+  'apikey:admin',
+  'admin@apikey.local',
+  'admin',
+  t.tool_name,
+  t.toolkit_kind,
+  t.toolkit_name,
+  t.connection,
+  CASE t.toolkit_kind
+    WHEN 'trino' THEN jsonb_build_object(
+      'catalog', (ARRAY['iceberg','hive','memory'])[1 + (n % 3)],
+      'schema', (ARRAY['retail','inventory','finance','analytics'])[1 + (n % 4)],
+      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog'])[1 + (n % 4)]
+    )
+    WHEN 'datahub' THEN jsonb_build_object(
+      'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance'])[1 + (n % 5)]
+    )
+    WHEN 's3' THEN jsonb_build_object(
+      'bucket', (ARRAY['acme-raw-transactions','acme-analytics-output','acme-ml-features'])[1 + (n % 3)],
+      'prefix', (ARRAY['raw/2024/','processed/daily/','exports/regional/'])[1 + (n % 3)]
+    )
+  END,
+  (n % 20) != 0,
+  CASE WHEN (n % 20) = 0 THEN 'query timeout after 30s' ELSE '' END,
+  20 + (n * 11 % 800),
+  80 + (n * 17 % 6000),
+  40 + (n * 7 % 500),
+  1 + (n % 3),
+  'http',
+  'mcp',
+  (n % 2) = 0,
+  true,
+  NOW() - ((n * 97 % 10080) || ' minutes')::interval - ((n * 13 % 60) || ' seconds')::interval,
+  (NOW() - ((n * 97 % 10080) || ' minutes')::interval)::date
+FROM
+  generate_series(1, 80) AS n,
+  LATERAL (
+    SELECT tool_name, toolkit_kind, toolkit_name, connection FROM (VALUES
+      ('trino_query',          'trino',   'acme-warehouse', 'acme-warehouse'),
+      ('trino_describe_table', 'trino',   'acme-warehouse', 'acme-warehouse'),
+      ('trino_browse',         'trino',   'acme-warehouse', 'acme-warehouse'),
+      ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
+      ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
+      ('datahub_get_schema',   'datahub', 'acme-catalog',   'acme-catalog'),
+      ('s3_list_objects',      's3',      'acme-data-lake',  'acme-data-lake'),
+      ('s3_get_object',        's3',      'acme-data-lake',  'acme-data-lake')
+    ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
+    OFFSET (n % 8)
+    LIMIT 1
+  ) AS t;
+
+-- ============================================================================
 -- Fresh Activity (50 new events each restart, simulating recent usage)
 -- Uses gen_random_uuid() so each restart adds unique events.
 -- ============================================================================
@@ -161,8 +230,8 @@ INSERT INTO audit_logs (
   "timestamp", created_date
 )
 SELECT
-  'fresh-' || gen_random_uuid()::text,
-  'req-' || gen_random_uuid()::text,
+  'fr-' || lpad(n::text, 4, '0') || '-' || to_char(NOW(), 'MMDDHH24MI'),
+  'rq-' || lpad(n::text, 4, '0') || '-' || to_char(NOW(), 'MMDDHH24MI'),
   'sess-' || ((n % 20) + 200),
   u.email,
   u.email,
