@@ -53,6 +53,30 @@ func (m *ConnectionSourceMap) Add(src ConnectionSource) {
 	m.bySourceName[src.DataHubSourceName] = append(m.bySourceName[src.DataHubSourceName], &src)
 }
 
+// Remove deletes a connection's DataHub source mapping.
+func (m *ConnectionSourceMap) Remove(kind, name string) {
+	key := kind + "/" + name
+	src, ok := m.byConnection[key]
+	if !ok {
+		return
+	}
+
+	delete(m.byConnection, key)
+
+	// Remove from the bySourceName slice.
+	dsn := src.DataHubSourceName
+	entries := m.bySourceName[dsn]
+	for i, e := range entries {
+		if e.Kind == kind && e.Name == name {
+			m.bySourceName[dsn] = append(entries[:i], entries[i+1:]...)
+			break
+		}
+	}
+	if len(m.bySourceName[dsn]) == 0 {
+		delete(m.bySourceName, dsn)
+	}
+}
+
 // ForConnection returns the DataHub source info for a connection.
 // Returns nil if the connection has no mapping.
 func (m *ConnectionSourceMap) ForConnection(kind, name string) *ConnectionSource {
@@ -167,12 +191,12 @@ func (p *Platform) addDBConnections(m *ConnectionSourceMap) {
 	}
 
 	for _, inst := range instances {
-		m.Add(connectionSourceFromInstance(inst))
+		m.Add(ConnectionSourceFromInstance(inst))
 	}
 }
 
-// connectionSourceFromInstance builds a ConnectionSource from a DB instance.
-func connectionSourceFromInstance(inst ConnectionInstance) ConnectionSource {
+// ConnectionSourceFromInstance builds a ConnectionSource from a DB instance.
+func ConnectionSourceFromInstance(inst ConnectionInstance) ConnectionSource {
 	src := ConnectionSource{
 		Kind:        inst.Kind,
 		Name:        inst.Name,

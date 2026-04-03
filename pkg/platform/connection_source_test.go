@@ -139,7 +139,7 @@ func TestConnectionSourceFromInstance(t *testing.T) {
 			},
 		}
 
-		src := connectionSourceFromInstance(inst)
+		src := ConnectionSourceFromInstance(inst)
 		assert.Equal(t, "trino", src.Kind)
 		assert.Equal(t, "prod", src.Name)
 		assert.Equal(t, "custom_trino", src.DataHubSourceName)
@@ -155,7 +155,7 @@ func TestConnectionSourceFromInstance(t *testing.T) {
 			Config: map[string]any{"bucket": "my-bucket"},
 		}
 
-		src := connectionSourceFromInstance(inst)
+		src := ConnectionSourceFromInstance(inst)
 		assert.Equal(t, "s3", src.DataHubSourceName)
 		assert.Nil(t, src.CatalogMapping)
 	})
@@ -167,7 +167,7 @@ func TestConnectionSourceFromInstance(t *testing.T) {
 			Config: map[string]any{},
 		}
 
-		src := connectionSourceFromInstance(inst)
+		src := ConnectionSourceFromInstance(inst)
 		assert.Equal(t, "trino", src.DataHubSourceName)
 	})
 }

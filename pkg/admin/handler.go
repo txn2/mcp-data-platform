@@ -94,6 +94,7 @@ type Deps struct {
 	S3Client            portal.S3Client
 	S3Bucket            string
 	ConnectionStore     ConnectionStore
+	ConnectionSources   *platform.ConnectionSourceMap
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.

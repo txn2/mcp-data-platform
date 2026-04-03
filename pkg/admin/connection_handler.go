@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"maps"
 	"net/http"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ConnectionStore abstracts platform.ConnectionStore for testability.
@@ -18,6 +20,12 @@ type ConnectionStore interface {
 	Set(ctx context.Context, inst platform.ConnectionInstance) error
 	Delete(ctx context.Context, kind, name string) error
 }
+
+// Structured log field name constants.
+const (
+	logKeyKind = "kind"
+	logKeyName = "name"
+)
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
 // connection instances. DataHub is excluded because the platform connects to a
@@ -169,6 +177,8 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.activateConnection(inst)
+
 	inst.Config = redactConnectionConfig(inst.Config)
 	writeJSON(w, http.StatusOK, inst)
 }
@@ -197,6 +207,14 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 		}
 		writeError(w, http.StatusInternalServerError, "failed to delete connection instance")
 		return
+	}
+
+	// Hot-remove: if the toolkit supports dynamic connections, remove it live.
+	h.hotRemoveConnection(kind, name)
+
+	// Update the connection source map.
+	if h.deps.ConnectionSources != nil {
+		h.deps.ConnectionSources.Remove(kind, name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -338,6 +356,56 @@ func hasRedactedValues(config map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// activateConnection hot-adds the connection to its toolkit and updates the
+// connection source map. Extracted to reduce setConnectionInstance complexity.
+func (h *Handler) activateConnection(inst platform.ConnectionInstance) {
+	h.hotAddConnection(inst.Kind, inst.Name, inst.Config)
+	if h.deps.ConnectionSources != nil {
+		h.deps.ConnectionSources.Add(platform.ConnectionSourceFromInstance(inst))
+	}
+}
+
+// findConnectionManager returns the ConnectionManager for the given toolkit kind,
+// or nil if no matching toolkit exists or the toolkit does not implement ConnectionManager.
+func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
+	if h.deps.ToolkitRegistry == nil {
+		return nil
+	}
+	for _, tk := range h.deps.ToolkitRegistry.All() {
+		if tk.Kind() == kind {
+			cm, _ := tk.(toolkit.ConnectionManager)
+			return cm
+		}
+	}
+	return nil
+}
+
+// hotAddConnection attempts to add the connection to a live toolkit that
+// implements toolkit.ConnectionManager.
+func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
+	cm := h.findConnectionManager(kind)
+	if cm == nil || cm.HasConnection(name) {
+		return
+	}
+	if err := cm.AddConnection(name, config); err != nil { // #nosec G706 -- structured slog call, not a format string
+		slog.Warn("failed to hot-add connection",
+			logKeyKind, kind, logKeyName, name, "error", err)
+	}
+}
+
+// hotRemoveConnection attempts to remove the connection from a live toolkit that
+// implements toolkit.ConnectionManager.
+func (h *Handler) hotRemoveConnection(kind, name string) {
+	cm := h.findConnectionManager(kind)
+	if cm == nil || !cm.HasConnection(name) {
+		return
+	}
+	if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
+		slog.Warn("failed to hot-remove connection",
+			logKeyKind, kind, logKeyName, name, "error", err)
+	}
 }
 
 // mergeRedactedFields replaces "[REDACTED]" values in submitted config with

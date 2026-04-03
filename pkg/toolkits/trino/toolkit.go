@@ -489,6 +489,59 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	return details
 }
 
+// AddConnection adds a named connection at runtime.
+// Requires multi-connection mode (created via NewMulti).
+func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+	if t.manager == nil {
+		return fmt.Errorf("dynamic connections require multi-connection mode")
+	}
+
+	conn := multiserver.ConnectionConfig{
+		Host:     getString(config, "host"),
+		Port:     getInt(config, "port", 0),
+		User:     getString(config, "user"),
+		Password: getString(config, "password"),
+		Catalog:  getString(config, "catalog"),
+		Schema:   getString(config, "schema"),
+	}
+	if ssl, ok := config["ssl"].(bool); ok {
+		conn.SSL = &ssl
+	}
+
+	if err := t.manager.AddConnection(name, conn); err != nil {
+		return fmt.Errorf("adding trino connection %s: %w", name, err)
+	}
+
+	// Keep the description map current for list_connections.
+	if t.connectionDescriptions == nil {
+		t.connectionDescriptions = make(map[string]string)
+	}
+	t.connectionDescriptions[name] = getString(config, "description")
+
+	return nil
+}
+
+// RemoveConnection removes a named connection at runtime.
+// Requires multi-connection mode (created via NewMulti).
+func (t *Toolkit) RemoveConnection(name string) error {
+	if t.manager == nil {
+		return fmt.Errorf("dynamic connections require multi-connection mode")
+	}
+	if err := t.manager.RemoveConnection(name); err != nil {
+		return fmt.Errorf("removing trino connection %s: %w", name, err)
+	}
+	delete(t.connectionDescriptions, name)
+	return nil
+}
+
+// HasConnection returns true if a connection with the given name exists.
+func (t *Toolkit) HasConnection(name string) bool {
+	if t.manager == nil {
+		return false
+	}
+	return t.manager.HasConnection(name)
+}
+
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.manager != nil {
@@ -527,5 +580,6 @@ var (
 		SetQueryProvider(provider query.Provider)
 		Close() error
 	} = (*Toolkit)(nil)
-	_ toolkit.ConnectionLister = (*Toolkit)(nil)
+	_ toolkit.ConnectionLister  = (*Toolkit)(nil)
+	_ toolkit.ConnectionManager = (*Toolkit)(nil)
 )

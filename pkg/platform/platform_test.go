@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -3923,4 +3924,126 @@ func TestInitConfigStoreNoDatabase(t *testing.T) {
 	if p.fileDefaults["server.description"] != "file desc" {
 		t.Errorf("fileDefaults[server.description] = %q, want %q", p.fileDefaults["server.description"], "file desc")
 	}
+}
+
+func TestDecodeEncryptionKey(t *testing.T) {
+	t.Run("hex encoded", func(t *testing.T) {
+		// 32 bytes as hex = 64 hex chars
+		hexKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		key := decodeEncryptionKey(hexKey)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+
+	t.Run("base64 encoded", func(t *testing.T) {
+		// 32 random bytes as base64
+		raw := make([]byte, 32)
+		for i := range raw {
+			raw[i] = byte(i)
+		}
+		b64 := base64.StdEncoding.EncodeToString(raw)
+		key := decodeEncryptionKey(b64)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+
+	t.Run("raw 32 bytes", func(t *testing.T) {
+		rawKey := "01234567890123456789012345678901" // exactly 32 chars
+		key := decodeEncryptionKey(rawKey)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+}
+
+func TestMergeDBConnectionsIntoConfig(t *testing.T) {
+	t.Run("merges DB connections into empty toolkits", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if p.config.Toolkits == nil {
+			t.Fatal("Toolkits should not be nil")
+		}
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind map should exist")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should exist")
+		}
+		if _, ok := instances["prod"]; !ok {
+			t.Error("prod instance should exist")
+		}
+	})
+
+	t.Run("file config takes precedence", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{
+						cfgKeyEnabled: true,
+						cfgKeyInstances: map[string]any{
+							"prod": map[string]any{"host": "file-host"},
+						},
+					},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "db-host"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind map should exist")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should exist")
+		}
+		prodCfg, ok := instances["prod"].(map[string]any)
+		if !ok {
+			t.Fatal("prod config should exist")
+		}
+		if prodCfg["host"] != "file-host" {
+			t.Errorf("expected file-host, got %v", prodCfg["host"])
+		}
+	})
+
+	t.Run("nil store is safe", func(_ *testing.T) {
+		p := &Platform{config: &Config{}}
+		p.mergeDBConnectionsIntoConfig() // should not panic
+	})
+}
+
+// mockConnectionStoreForTest is a simple mock for testing merge logic.
+type mockConnectionStoreForTest struct {
+	instances []ConnectionInstance
+}
+
+func (m *mockConnectionStoreForTest) List(_ context.Context) ([]ConnectionInstance, error) {
+	return m.instances, nil
+}
+
+func (*mockConnectionStoreForTest) Get(_ context.Context, _, _ string) (*ConnectionInstance, error) {
+	return nil, ErrConnectionNotFound
+}
+
+func (*mockConnectionStoreForTest) Set(_ context.Context, _ ConnectionInstance) error { return nil }
+
+func (*mockConnectionStoreForTest) Delete(_ context.Context, _, _ string) error {
+	return ErrConnectionNotFound
 }

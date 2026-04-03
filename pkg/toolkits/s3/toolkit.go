@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Config holds S3 toolkit configuration.
@@ -241,6 +242,38 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 	t.queryProvider = provider
 }
 
+// AddConnection adds a named S3 connection at runtime.
+func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+	cfg, err := ParseConfig(config)
+	if err != nil {
+		return fmt.Errorf("parsing S3 config for %s: %w", name, err)
+	}
+	if cfg.ConnectionName == "" {
+		cfg.ConnectionName = name
+	}
+
+	client, err := createClient(cfg)
+	if err != nil {
+		return fmt.Errorf("creating S3 client for %s: %w", name, err)
+	}
+	t.s3Toolkit.AddClient(name, client)
+	return nil
+}
+
+// RemoveConnection removes a named S3 connection at runtime.
+func (t *Toolkit) RemoveConnection(name string) error {
+	if err := t.s3Toolkit.RemoveClient(name); err != nil {
+		return fmt.Errorf("removing S3 client %s: %w", name, err)
+	}
+	return nil
+}
+
+// HasConnection returns true if a connection with the given name exists.
+func (t *Toolkit) HasConnection(name string) bool {
+	_, err := t.s3Toolkit.GetClient(name)
+	return err == nil
+}
+
 // Close releases resources.
 func (t *Toolkit) Close() error {
 	if t.client != nil {
@@ -262,13 +295,16 @@ func (t *Toolkit) Config() Config {
 }
 
 // Verify interface compliance.
-var _ interface {
-	Kind() string
-	Name() string
-	Connection() string
-	RegisterTools(s *mcp.Server)
-	Tools() []string
-	SetSemanticProvider(provider semantic.Provider)
-	SetQueryProvider(provider query.Provider)
-	Close() error
-} = (*Toolkit)(nil)
+var (
+	_ interface {
+		Kind() string
+		Name() string
+		Connection() string
+		RegisterTools(s *mcp.Server)
+		Tools() []string
+		SetSemanticProvider(provider semantic.Provider)
+		SetQueryProvider(provider query.Provider)
+		Close() error
+	} = (*Toolkit)(nil)
+	_ toolkit.ConnectionManager = (*Toolkit)(nil)
+)
