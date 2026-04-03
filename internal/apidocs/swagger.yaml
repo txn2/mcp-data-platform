@@ -142,7 +142,15 @@ definitions:
         type: string
       agent_instructions_suffix:
         type: string
+      allow_connections:
+        items:
+          type: string
+        type: array
       allow_tools:
+        items:
+          type: string
+        type: array
+      deny_connections:
         items:
           type: string
         type: array
@@ -173,7 +181,15 @@ definitions:
         type: string
       agent_instructions_suffix:
         type: string
+      allow_connections:
+        items:
+          type: string
+        type: array
       allow_tools:
+        items:
+          type: string
+        type: array
+      deny_connections:
         items:
           type: string
         type: array
@@ -235,6 +251,14 @@ definitions:
       title:
         type: string
       type:
+        type: string
+    type: object
+  admin.setConnectionInstanceRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      description:
         type: string
     type: object
   admin.statusResponse:
@@ -664,6 +688,22 @@ definitions:
       query_sql:
         type: string
       target:
+        type: string
+    type: object
+  platform.ConnectionInstance:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      created_by:
+        type: string
+      description:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      updated_at:
         type: string
     type: object
 host: localhost:8080
@@ -1174,6 +1214,136 @@ paths:
       summary: Get config mode
       tags:
       - Config
+  /connection-instances:
+    get:
+      description: Returns all database-managed connection instances.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/platform.ConnectionInstance'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List connection instances
+      tags:
+      - Connections
+  /connection-instances/{kind}/{name}:
+    delete:
+      description: Deletes a database-managed connection instance.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete connection instance
+      tags:
+      - Connections
+    get:
+      description: Returns a single database-managed connection instance by kind and
+        name.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.ConnectionInstance'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get connection instance
+      tags:
+      - Connections
+    put:
+      consumes:
+      - application/json
+      description: Creates or updates a database-managed connection instance.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Connection instance data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.setConnectionInstanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.ConnectionInstance'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create or update connection instance
+      tags:
+      - Connections
   /connections:
     get:
       description: Returns all toolkit connections with their tools.

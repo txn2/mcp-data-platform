@@ -1,0 +1,285 @@
+package admin
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/platform"
+)
+
+// ConnectionStore abstracts platform.ConnectionStore for testability.
+type ConnectionStore interface {
+	List(ctx context.Context) ([]platform.ConnectionInstance, error)
+	Get(ctx context.Context, kind, name string) (*platform.ConnectionInstance, error)
+	Set(ctx context.Context, inst platform.ConnectionInstance) error
+	Delete(ctx context.Context, kind, name string) error
+}
+
+// knownConnectionKinds lists the toolkit kinds that support multiple configurable
+// connection instances. DataHub is excluded because the platform connects to a
+// single catalog instance configured in the YAML file.
+var knownConnectionKinds = map[string]bool{
+	"trino": true,
+	"s3":    true,
+}
+
+// registerConnectionRoutes registers connection instance CRUD endpoints.
+func (h *Handler) registerConnectionRoutes() {
+	// Effective view: merges file connections with DB instances.
+	h.mux.HandleFunc("GET /api/v1/admin/connection-instances/effective", h.listEffectiveConnections)
+	if h.deps.ConnectionStore != nil {
+		h.mux.HandleFunc("GET /api/v1/admin/connection-instances", h.listConnectionInstances)
+		h.mux.HandleFunc("GET /api/v1/admin/connection-instances/{kind}/{name}", h.getConnectionInstance)
+	}
+	if h.isMutable() && h.deps.ConnectionStore != nil {
+		h.mux.HandleFunc("PUT /api/v1/admin/connection-instances/{kind}/{name}", h.setConnectionInstance)
+		h.mux.HandleFunc("DELETE /api/v1/admin/connection-instances/{kind}/{name}", h.deleteConnectionInstance)
+	}
+}
+
+// listConnectionInstances handles GET /api/v1/admin/connection-instances.
+//
+// @Summary      List connection instances
+// @Description  Returns all database-managed connection instances.
+// @Tags         Connections
+// @Produce      json
+// @Success      200  {array}   platform.ConnectionInstance
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /connection-instances [get]
+func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request) {
+	instances, err := h.deps.ConnectionStore.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list connection instances")
+		return
+	}
+	if instances == nil {
+		instances = []platform.ConnectionInstance{}
+	}
+	writeJSON(w, http.StatusOK, instances)
+}
+
+// getConnectionInstance handles GET /api/v1/admin/connection-instances/{kind}/{name}.
+//
+// @Summary      Get connection instance
+// @Description  Returns a single database-managed connection instance by kind and name.
+// @Tags         Connections
+// @Produce      json
+// @Param        kind  path  string  true  "Toolkit kind (trino, datahub, s3)"
+// @Param        name  path  string  true  "Instance name"
+// @Success      200   {object}  platform.ConnectionInstance
+// @Failure      404   {object}  problemDetail
+// @Failure      500   {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /connection-instances/{kind}/{name} [get]
+func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	name := r.PathValue("name")
+
+	inst, err := h.deps.ConnectionStore.Get(r.Context(), kind, name)
+	if err != nil {
+		if errors.Is(err, platform.ErrConnectionNotFound) {
+			writeError(w, http.StatusNotFound, "connection instance not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get connection instance")
+		return
+	}
+	writeJSON(w, http.StatusOK, inst)
+}
+
+// setConnectionInstanceRequest is the JSON body for creating/updating a connection instance.
+type setConnectionInstanceRequest struct {
+	Config      map[string]any `json:"config"`
+	Description string         `json:"description"`
+}
+
+// setConnectionInstance handles PUT /api/v1/admin/connection-instances/{kind}/{name}.
+//
+// @Summary      Create or update connection instance
+// @Description  Creates or updates a database-managed connection instance.
+// @Tags         Connections
+// @Accept       json
+// @Produce      json
+// @Param        kind  path  string                        true  "Toolkit kind (trino, datahub, s3)"
+// @Param        name  path  string                        true  "Instance name"
+// @Param        body  body  setConnectionInstanceRequest  true  "Connection instance data"
+// @Success      200   {object}  platform.ConnectionInstance
+// @Failure      400   {object}  problemDetail
+// @Failure      500   {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /connection-instances/{kind}/{name} [put]
+func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	name := r.PathValue("name")
+
+	if !knownConnectionKinds[kind] {
+		writeError(w, http.StatusBadRequest, "unknown connection kind: "+kind)
+		return
+	}
+
+	var req setConnectionInstanceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	author := ""
+	if user := GetUser(r.Context()); user != nil {
+		author = user.Email
+		if author == "" {
+			author = user.UserID
+		}
+	}
+
+	inst := platform.ConnectionInstance{
+		Kind:        kind,
+		Name:        name,
+		Config:      req.Config,
+		Description: req.Description,
+		CreatedBy:   author,
+		UpdatedAt:   time.Now(),
+	}
+	if inst.Config == nil {
+		inst.Config = map[string]any{}
+	}
+
+	if err := h.deps.ConnectionStore.Set(r.Context(), inst); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save connection instance")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, inst)
+}
+
+// deleteConnectionInstance handles DELETE /api/v1/admin/connection-instances/{kind}/{name}.
+//
+// @Summary      Delete connection instance
+// @Description  Deletes a database-managed connection instance.
+// @Tags         Connections
+// @Param        kind  path  string  true  "Toolkit kind (trino, datahub, s3)"
+// @Param        name  path  string  true  "Instance name"
+// @Success      204
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /connection-instances/{kind}/{name} [delete]
+func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	name := r.PathValue("name")
+
+	if err := h.deps.ConnectionStore.Delete(r.Context(), kind, name); err != nil {
+		if errors.Is(err, platform.ErrConnectionNotFound) {
+			writeError(w, http.StatusNotFound, "connection instance not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete connection instance")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// effectiveConnection merges a live toolkit connection with its DB instance (if any).
+type effectiveConnection struct {
+	Kind        string         `json:"kind"`
+	Name        string         `json:"name"`
+	Connection  string         `json:"connection"`
+	Description string         `json:"description,omitempty"`
+	Source      string         `json:"source"` // "file", "database", or "both"
+	Tools       []string       `json:"tools"`
+	Config      map[string]any `json:"config,omitempty"`
+	CreatedBy   string         `json:"created_by,omitempty"`
+	UpdatedAt   *time.Time     `json:"updated_at,omitempty"`
+}
+
+// listEffectiveConnections returns the merged view of file-configured and DB-managed connections.
+func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Request) {
+	live := h.collectLiveConnections()
+
+	var dbInstances []platform.ConnectionInstance
+	if h.deps.ConnectionStore != nil {
+		var err error
+		dbInstances, err = h.deps.ConnectionStore.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load connection instances")
+			return
+		}
+	}
+
+	result := mergeConnections(live, dbInstances)
+	writeJSON(w, http.StatusOK, result)
+}
+
+// liveConnectionInfo holds metadata from a running toolkit instance.
+type liveConnectionInfo struct {
+	kind, name, connection string
+	tools                  []string
+}
+
+// collectLiveConnections returns info for running data toolkit instances (trino, datahub, s3).
+// Built-in toolkits like knowledge and portal are excluded.
+func (h *Handler) collectLiveConnections() []liveConnectionInfo {
+	if h.deps.ToolkitRegistry == nil {
+		return nil
+	}
+	var live []liveConnectionInfo
+	for _, tk := range h.deps.ToolkitRegistry.All() {
+		if !knownConnectionKinds[tk.Kind()] {
+			continue
+		}
+		live = append(live, liveConnectionInfo{
+			kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
+		})
+	}
+	return live
+}
+
+// mergeConnections combines live connections with DB instances, marking each with its source.
+func mergeConnections(live []liveConnectionInfo, dbInstances []platform.ConnectionInstance) []effectiveConnection {
+	dbMap := make(map[string]platform.ConnectionInstance, len(dbInstances))
+	for _, inst := range dbInstances {
+		dbMap[inst.Kind+"/"+inst.Name] = inst
+	}
+
+	seen := make(map[string]bool)
+	var result []effectiveConnection
+	for _, l := range live {
+		key := l.kind + "/" + l.name
+		seen[key] = true
+		ec := effectiveConnection{
+			Kind: l.kind, Name: l.name, Connection: l.connection, Source: "file", Tools: l.tools,
+		}
+		if inst, ok := dbMap[key]; ok {
+			ec.Source = "both"
+			ec.Description = inst.Description
+			ec.Config = inst.Config
+			ec.CreatedBy = inst.CreatedBy
+			ec.UpdatedAt = &inst.UpdatedAt
+		}
+		result = append(result, ec)
+	}
+
+	for _, inst := range dbInstances {
+		if seen[inst.Kind+"/"+inst.Name] {
+			continue
+		}
+		result = append(result, effectiveConnection{
+			Kind: inst.Kind, Name: inst.Name, Connection: inst.Name, Source: "database",
+			Description: inst.Description, Config: inst.Config, CreatedBy: inst.CreatedBy,
+			UpdatedAt: &inst.UpdatedAt,
+		})
+	}
+
+	if result == nil {
+		result = []effectiveConnection{}
+	}
+	return result
+}

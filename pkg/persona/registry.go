@@ -148,6 +148,10 @@ func (r *Registry) LoadFromConfig(config map[string]*Config) error {
 				Allow: cfg.Tools.Allow,
 				Deny:  cfg.Tools.Deny,
 			},
+			Connections: ConnectionRules{
+				Allow: cfg.Connections.Allow,
+				Deny:  cfg.Connections.Deny,
+			},
 			Context: ContextOverrides{
 				DescriptionPrefix:         cfg.Context.DescriptionPrefix,
 				DescriptionOverride:       cfg.Context.DescriptionOverride,
@@ -166,12 +170,19 @@ func (r *Registry) LoadFromConfig(config map[string]*Config) error {
 
 // Config is the configuration format for personas.
 type Config struct {
-	DisplayName string               `yaml:"display_name"`
-	Description string               `yaml:"description,omitempty"`
-	Roles       []string             `yaml:"roles"`
-	Tools       ToolRulesConfig      `yaml:"tools"`
-	Context     ContextOverridesYAML `yaml:"context"`
-	Priority    int                  `yaml:"priority,omitempty"`
+	DisplayName string                `yaml:"display_name"`
+	Description string                `yaml:"description,omitempty"`
+	Roles       []string              `yaml:"roles"`
+	Tools       ToolRulesConfig       `yaml:"tools"`
+	Connections ConnectionRulesConfig `yaml:"connections"`
+	Context     ContextOverridesYAML  `yaml:"context"`
+	Priority    int                   `yaml:"priority,omitempty"`
+}
+
+// ConnectionRulesConfig is the YAML configuration for connection rules.
+type ConnectionRulesConfig struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // ToolRulesConfig is the YAML configuration for tool rules.

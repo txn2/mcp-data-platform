@@ -26,6 +26,8 @@ type personaDetail struct {
 	Priority                  int      `json:"priority"`
 	AllowTools                []string `json:"allow_tools"`
 	DenyTools                 []string `json:"deny_tools"`
+	AllowConnections          []string `json:"allow_connections,omitempty"`
+	DenyConnections           []string `json:"deny_connections,omitempty"`
 	Tools                     []string `json:"tools"`
 	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
 	DescriptionOverride       string   `json:"description_override,omitempty"`
@@ -41,6 +43,8 @@ type personaCreateRequest struct {
 	Roles                     []string `json:"roles"`
 	AllowTools                []string `json:"allow_tools"`
 	DenyTools                 []string `json:"deny_tools,omitempty"`
+	AllowConnections          []string `json:"allow_connections,omitempty"`
+	DenyConnections           []string `json:"deny_connections,omitempty"`
 	Priority                  int      `json:"priority,omitempty"`
 	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
 	DescriptionOverride       string   `json:"description_override,omitempty"`
@@ -134,6 +138,8 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 		Priority:                  p.Priority,
 		AllowTools:                p.Tools.Allow,
 		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
 		Tools:                     tools,
 		DescriptionPrefix:         p.Context.DescriptionPrefix,
 		DescriptionOverride:       p.Context.DescriptionOverride,
@@ -193,6 +199,8 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		Priority:                  p.Priority,
 		AllowTools:                p.Tools.Allow,
 		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
 		Tools:                     []string{},
 		DescriptionPrefix:         p.Context.DescriptionPrefix,
 		DescriptionOverride:       p.Context.DescriptionOverride,
@@ -246,6 +254,8 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		Priority:                  p.Priority,
 		AllowTools:                p.Tools.Allow,
 		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
 		Tools:                     []string{},
 		DescriptionPrefix:         p.Context.DescriptionPrefix,
 		DescriptionOverride:       p.Context.DescriptionOverride,
@@ -295,6 +305,15 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		deny = []string{}
 	}
 
+	allowConn := req.AllowConnections
+	if allowConn == nil {
+		allowConn = []string{}
+	}
+	denyConn := req.DenyConnections
+	if denyConn == nil {
+		denyConn = []string{}
+	}
+
 	return &persona.Persona{
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
@@ -303,6 +322,10 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		Tools: persona.ToolRules{
 			Allow: allow,
 			Deny:  deny,
+		},
+		Connections: persona.ConnectionRules{
+			Allow: allowConn,
+			Deny:  denyConn,
 		},
 		Context: persona.ContextOverrides{
 			DescriptionPrefix:         req.DescriptionPrefix,

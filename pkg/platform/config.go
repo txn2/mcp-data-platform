@@ -276,12 +276,19 @@ type PersonasConfig struct {
 
 // PersonaDef defines a persona.
 type PersonaDef struct {
-	DisplayName string       `yaml:"display_name"`
-	Description string       `yaml:"description,omitempty"`
-	Roles       []string     `yaml:"roles"`
-	Tools       ToolRulesDef `yaml:"tools"`
-	Context     ContextDef   `yaml:"context"`
-	Priority    int          `yaml:"priority,omitempty"`
+	DisplayName string             `yaml:"display_name"`
+	Description string             `yaml:"description,omitempty"`
+	Roles       []string           `yaml:"roles"`
+	Tools       ToolRulesDef       `yaml:"tools"`
+	Connections ConnectionRulesDef `yaml:"connections"`
+	Context     ContextDef         `yaml:"context"`
+	Priority    int                `yaml:"priority,omitempty"`
+}
+
+// ConnectionRulesDef defines connection access rules in config.
+type ConnectionRulesDef struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // ToolsConfig configures global tool visibility filtering for tools/list responses.

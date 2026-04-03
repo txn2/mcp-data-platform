@@ -24,6 +24,11 @@ type Persona struct {
 	// Tools defines tool access rules (allow/deny glob patterns).
 	Tools ToolRules `json:"tools" yaml:"tools"`
 
+	// Connections defines connection-level access rules. A tool call must pass
+	// both the tool check and the connection check. If Connections.Allow is
+	// empty, all connections are permitted (backward-compatible default).
+	Connections ConnectionRules `json:"connections" yaml:"connections"`
+
 	// Context defines per-persona overrides for the platform description and
 	// agent instructions returned by the platform_info tool.
 	Context ContextOverrides `json:"context" yaml:"context"`
@@ -41,6 +46,18 @@ type ToolRules struct {
 
 	// Deny patterns for denied tools (takes precedence over Allow).
 	Deny []string `json:"deny" yaml:"deny"`
+}
+
+// ConnectionRules defines connection-level access rules for a persona.
+// These work alongside ToolRules — a tool call must pass both the tool
+// check AND the connection check. If the Allow list is empty, all
+// connections are permitted (backward-compatible default).
+type ConnectionRules struct {
+	// Allow patterns for allowed connections (supports wildcards like "prod-*").
+	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
+
+	// Deny patterns for denied connections (takes precedence over Allow).
+	Deny []string `json:"deny,omitempty" yaml:"deny,omitempty"`
 }
 
 // ContextOverrides defines per-persona overrides for the description and
@@ -115,7 +132,8 @@ func DefaultPersona() *Persona {
 			Allow: []string{},    // DENY BY DEFAULT
 			Deny:  []string{"*"}, // EXPLICIT DENY ALL
 		},
-		Context: ContextOverrides{},
+		Connections: ConnectionRules{},
+		Context:     ContextOverrides{},
 	}
 }
 
@@ -130,7 +148,8 @@ func AdminPersona() *Persona {
 			Allow: []string{"*"},
 			Deny:  []string{},
 		},
-		Context:  ContextOverrides{},
-		Priority: defaultPersonaPriority,
+		Connections: ConnectionRules{},
+		Context:     ContextOverrides{},
+		Priority:    defaultPersonaPriority,
 	}
 }

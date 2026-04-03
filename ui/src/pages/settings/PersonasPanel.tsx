@@ -7,8 +7,9 @@ import {
   useDeletePersona,
   useSystemInfo,
   useTools,
+  useConnections,
 } from "@/api/admin/hooks";
-import type { PersonaDetail, ToolInfo } from "@/api/admin/types";
+import type { PersonaDetail, ToolInfo, ConnectionInfo } from "@/api/admin/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { cn } from "@/lib/utils";
 import {
@@ -25,6 +26,7 @@ import {
   Check,
   HelpCircle,
   Search,
+  Cable,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,8 @@ const HELP = {
   priority: `When a user's roles match multiple personas, the one with the highest priority wins. Default is 0. The built-in "admin" persona uses priority 1000.`,
   allowTools: `Glob patterns for tools this persona can access. Use * to match any sequence of characters. Examples: * (all tools), trino_* (all Trino tools), datahub_search (specific tool). If empty, no tools are allowed (deny by default).`,
   denyTools: `Glob patterns for tools explicitly denied to this persona. Deny rules override allow rules. Example: *_delete_* denies all delete operations even if allow includes *.`,
+  allowConnections: `Connection identifiers this persona can access (format: kind/name). If empty, all connections are permitted. Works alongside tool access — a tool call must pass both checks.`,
+  denyConnections: `Connection identifiers explicitly denied to this persona. Deny rules override allow rules.`,
   descriptionPrefix: `Prepended to the platform description when this persona calls platform_info. Use to add persona-specific context before the base description. Ignored if Description Override is set.`,
   descriptionOverride: `Replaces the platform description entirely for this persona. Use when this persona needs a completely different description.`,
   agentInstructionsSuffix: `Appended to the platform agent instructions when this persona calls platform_info. Use to add persona-specific guidance after the base instructions. Ignored if Agent Instructions Override is set.`,
@@ -53,6 +57,8 @@ interface PersonaDraft {
   roles: string[];
   allowTools: string[];
   denyTools: string[];
+  allowConnections: string[];
+  denyConnections: string[];
   priority: number;
   descriptionPrefix: string;
   descriptionOverride: string;
@@ -68,6 +74,8 @@ function emptyDraft(): PersonaDraft {
     roles: [],
     allowTools: [],
     denyTools: [],
+    allowConnections: [],
+    denyConnections: [],
     priority: 0,
     descriptionPrefix: "",
     descriptionOverride: "",
@@ -84,6 +92,8 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     roles: [...d.roles],
     allowTools: [...d.allow_tools],
     denyTools: [...d.deny_tools],
+    allowConnections: [...(d.allow_connections ?? [])],
+    denyConnections: [...(d.deny_connections ?? [])],
     priority: d.priority,
     descriptionPrefix: d.context?.description_prefix ?? "",
     descriptionOverride: d.context?.description_override ?? "",
@@ -384,6 +394,37 @@ function PersonaViewer({
         </div>
       </ViewSection>
 
+      {((detail.allow_connections && detail.allow_connections.length > 0) || (detail.deny_connections && detail.deny_connections.length > 0)) && (
+        <ViewSection icon={Cable} title="Connection Access">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="mb-2 text-[11px] font-medium text-muted-foreground">Allow Connections</p>
+              {detail.allow_connections && detail.allow_connections.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {detail.allow_connections.map((c) => (
+                    <span key={c} className="rounded bg-green-100 px-2 py-0.5 text-xs font-mono text-green-800 dark:bg-green-900/30 dark:text-green-400">{c}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">None (all connections permitted)</p>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-[11px] font-medium text-muted-foreground">Deny Connections</p>
+              {detail.deny_connections && detail.deny_connections.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {detail.deny_connections.map((c) => (
+                    <span key={c} className="rounded bg-red-100 px-2 py-0.5 text-xs font-mono text-red-800 dark:bg-red-900/30 dark:text-red-400">{c}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">None</p>
+              )}
+            </div>
+          </div>
+        </ViewSection>
+      )}
+
       {detail.tools.length > 0 && (
         <Collapsible title={`Resolved Tools (${detail.tools.length})`} defaultOpen={false}>
           <div className="flex flex-wrap gap-1">
@@ -455,6 +496,8 @@ function PersonaEditor({
       roles: draft.roles,
       allow_tools: draft.allowTools,
       deny_tools: draft.denyTools,
+      allow_connections: draft.allowConnections.length > 0 ? draft.allowConnections : undefined,
+      deny_connections: draft.denyConnections.length > 0 ? draft.denyConnections : undefined,
       priority: draft.priority,
       description_prefix: draft.descriptionPrefix || undefined,
       description_override: draft.descriptionOverride || undefined,
@@ -600,6 +643,35 @@ function PersonaEditor({
               <ToolPatternEditor
                 patterns={draft.denyTools}
                 onChange={(denyTools) => onUpdate({ denyTools })}
+                variant="red"
+              />
+            </div>
+          </div>
+        </EditSection>
+
+        {/* Connection Access */}
+        <EditSection icon={Cable} title="Connection Access">
+          <p className="text-[10px] text-muted-foreground mb-3">
+            Connection-level access controls work alongside tool access. A tool call must pass both checks. If the allow list is empty, all connections are permitted. Deny rules override allow rules.
+          </p>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400">
+                Allow Connections <HelpText text={HELP.allowConnections} />
+              </label>
+              <ConnectionPatternEditor
+                patterns={draft.allowConnections}
+                onChange={(allowConnections) => onUpdate({ allowConnections })}
+                variant="green"
+              />
+            </div>
+            <div>
+              <label className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+                Deny Connections <HelpText text={HELP.denyConnections} />
+              </label>
+              <ConnectionPatternEditor
+                patterns={draft.denyConnections}
+                onChange={(denyConnections) => onUpdate({ denyConnections })}
                 variant="red"
               />
             </div>
@@ -793,6 +865,157 @@ function ToolPatternEditor({
             ))}
             {Object.keys(filteredGroups).length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">No tools match "{search}"</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connection Pattern Editor — picker with available connections
+// ---------------------------------------------------------------------------
+
+function ConnectionPatternEditor({
+  patterns,
+  onChange,
+  variant,
+}: {
+  patterns: string[];
+  onChange: (patterns: string[]) => void;
+  variant: "green" | "red";
+}) {
+  const { data: connectionsData } = useConnections();
+  const allConnections = connectionsData?.connections ?? [];
+  const [input, setInput] = useState("");
+  const [showPicker, setShowPicker] = useState(false);
+  const [search, setSearch] = useState("");
+
+  // Group connections by kind
+  const connectionsByKind = useMemo(() => {
+    const groups: Record<string, ConnectionInfo[]> = {};
+    for (const c of allConnections) {
+      const key = c.kind || "other";
+      if (!groups[key]) groups[key] = [];
+      groups[key]!.push(c);
+    }
+    return groups;
+  }, [allConnections]);
+
+  // Filter by search
+  const filteredGroups = useMemo(() => {
+    if (!search) return connectionsByKind;
+    const s = search.toLowerCase();
+    const result: Record<string, ConnectionInfo[]> = {};
+    for (const [kind, conns] of Object.entries(connectionsByKind)) {
+      const filtered = conns.filter(
+        (c) => c.name.toLowerCase().includes(s) || c.connection.toLowerCase().includes(s) || kind.toLowerCase().includes(s),
+      );
+      if (filtered.length > 0) result[kind] = filtered;
+    }
+    return result;
+  }, [connectionsByKind, search]);
+
+  const colorClasses = variant === "green"
+    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+    : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+
+  const add = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && !patterns.includes(trimmed)) {
+      onChange([...patterns, trimmed]);
+    }
+    setInput("");
+  };
+
+  return (
+    <div>
+      {/* Current patterns */}
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {patterns.map((p) => (
+          <span key={p} className={cn("inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-mono", colorClasses)}>
+            {p}
+            <button type="button" onClick={() => onChange(patterns.filter((x) => x !== p))} className="opacity-60 hover:opacity-100">
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+        {patterns.length === 0 && (
+          <span className="text-[10px] text-muted-foreground italic">
+            {variant === "green" ? "None (all connections permitted)" : "Nothing denied"}
+          </span>
+        )}
+      </div>
+
+      {/* Input row */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(input); } }}
+          placeholder="Type a connection id (e.g. trino/primary) or use the picker..."
+          className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
+        />
+        <button type="button" onClick={() => add(input)} disabled={!input.trim()} className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">
+          <Plus className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={() => { setShowPicker((v) => !v); setSearch(""); }}
+          className={cn("rounded-md border px-2.5 py-1.5 text-xs transition-colors", showPicker ? "bg-primary/10 text-primary border-primary/30" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+          title="Browse available connections"
+        >
+          <Search className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* Connection picker dropdown */}
+      {showPicker && (
+        <div className="mt-2 rounded-md border bg-card shadow-sm max-h-64 overflow-hidden flex flex-col">
+          <div className="border-b px-3 py-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search connections..."
+              className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+              autoFocus
+            />
+          </div>
+          <div className="flex-1 overflow-auto">
+            {Object.entries(filteredGroups).sort(([a], [b]) => a.localeCompare(b)).map(([kind, conns]) => (
+              <div key={kind}>
+                <div className="bg-muted/30 px-3 py-1.5 border-b">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kind}</span>
+                </div>
+                {conns.map((c) => {
+                  const connId = c.connection;
+                  const alreadyAdded = patterns.includes(connId);
+                  return (
+                    <button
+                      key={connId}
+                      type="button"
+                      onClick={() => { if (!alreadyAdded) add(connId); }}
+                      disabled={alreadyAdded}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs border-b last:border-0 transition-colors",
+                        alreadyAdded ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/50",
+                      )}
+                    >
+                      <span className="font-mono flex-1">{connId}</span>
+                      <span className="text-muted-foreground truncate max-w-[150px]">{c.name}</span>
+                      {alreadyAdded && <Check className="h-3 w-3 text-green-600" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {Object.keys(filteredGroups).length === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                {search ? `No connections match "${search}"` : "No connections available"}
+              </div>
             )}
           </div>
         </div>

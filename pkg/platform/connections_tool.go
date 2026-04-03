@@ -11,11 +11,12 @@ import (
 
 // connectionEntry describes a single toolkit connection.
 type connectionEntry struct {
-	Kind        string `json:"kind"`
-	Name        string `json:"name"`
-	Connection  string `json:"connection"`
-	Description string `json:"description,omitempty"`
-	IsDefault   bool   `json:"is_default,omitempty"`
+	Kind              string `json:"kind"`
+	Name              string `json:"name"`
+	Connection        string `json:"connection"`
+	Description       string `json:"description,omitempty"`
+	IsDefault         bool   `json:"is_default,omitempty"`
+	DataHubSourceName string `json:"datahub_source_name,omitempty"`
 }
 
 // listConnectionsOutput is the JSON response for the list_connections tool.
@@ -47,20 +48,28 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 	for _, tk := range toolkits {
 		if lister, ok := tk.(toolkit.ConnectionLister); ok {
 			for _, conn := range lister.ListConnections() {
-				entries = append(entries, connectionEntry{
+				entry := connectionEntry{
 					Kind:        tk.Kind(),
 					Name:        conn.Name,
 					Connection:  conn.Name,
 					Description: conn.Description,
 					IsDefault:   conn.IsDefault,
-				})
+				}
+				if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
+					entry.DataHubSourceName = src.DataHubSourceName
+				}
+				entries = append(entries, entry)
 			}
 		} else {
-			entries = append(entries, connectionEntry{
+			entry := connectionEntry{
 				Kind:       tk.Kind(),
 				Name:       tk.Name(),
 				Connection: tk.Connection(),
-			})
+			}
+			if src := p.connectionSources.ForConnection(tk.Kind(), tk.Name()); src != nil {
+				entry.DataHubSourceName = src.DataHubSourceName
+			}
+			entries = append(entries, entry)
 		}
 	}
 

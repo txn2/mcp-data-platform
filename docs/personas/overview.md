@@ -171,6 +171,46 @@ analyst:
 
 Override fields (`description_override`, `agent_instructions_override`) take precedence over prefix/suffix fields. If both a prefix and an override are set, only the override is used.
 
+## Connection Access Control
+
+Personas can restrict which toolkit connections a user may access. This is enforced at the `tools/call` level: a tool call must pass both the tool pattern check and the connection check.
+
+```yaml
+personas:
+  definitions:
+    analyst:
+      display_name: "Data Analyst"
+      roles: ["analyst"]
+      tools:
+        allow: ["trino_*", "datahub_*"]
+      connections:
+        allow: ["prod-*"]
+        deny: ["prod-admin-*"]
+
+    admin:
+      display_name: "Administrator"
+      roles: ["admin"]
+      tools:
+        allow: ["*"]
+      # No connections block = all connections allowed
+```
+
+### How Connection Filtering Works
+
+1. When a tool call arrives, the middleware identifies which toolkit connection the tool belongs to
+2. The user's persona connection rules are evaluated: deny patterns are checked first, then allow patterns
+3. If the connection is denied (or not allowed), the tool call is rejected
+
+If the `connections` block is omitted or both `allow` and `deny` are empty, all connections are permitted. This preserves backward compatibility with existing configurations.
+
+### Pattern Syntax
+
+Connection patterns use the same wildcard syntax as tool patterns:
+
+- `*` matches any sequence of characters
+- `prod-*` matches `prod-trino`, `prod-datahub`, etc.
+- `*-readonly` matches `trino-readonly`, `datahub-readonly`, etc.
+
 ## Knowledge Tool Access
 
 The knowledge capture tools follow the same allow/deny patterns. Control who can capture insights and who can apply them:

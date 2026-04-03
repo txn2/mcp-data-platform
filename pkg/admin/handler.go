@@ -93,6 +93,7 @@ type Deps struct {
 	VersionStore        portal.VersionStore
 	S3Client            portal.S3Client
 	S3Bucket            string
+	ConnectionStore     ConnectionStore
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -165,6 +166,7 @@ func (h *Handler) registerRoutes() {
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
+	h.registerConnectionRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

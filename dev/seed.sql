@@ -689,3 +689,36 @@ INSERT INTO portal_shares (
 ON CONFLICT (id) DO UPDATE SET
   expires_at = EXCLUDED.expires_at,
   permission = EXCLUDED.permission;
+
+-- ============================================================================
+-- Connection Instances (sample toolkit connections for the admin UI)
+-- ============================================================================
+
+INSERT INTO connection_instances (kind, name, config, description, created_by, updated_at) VALUES
+(
+  'trino', 'acme-warehouse',
+  '{"host": "trino.acme.internal", "port": 443, "user": "platform_svc", "catalog": "iceberg", "ssl": true, "datahub_source_name": "trino"}'::jsonb,
+  'Production Iceberg warehouse — retail, inventory, and finance data',
+  'apikey:admin', NOW() - interval '30 days'
+),
+(
+  'trino', 'acme-staging',
+  '{"host": "trino-staging.acme.internal", "port": 8080, "user": "platform_svc", "catalog": "hive", "ssl": false, "datahub_source_name": "trino", "catalog_mapping": {"hive": "warehouse"}}'::jsonb,
+  'Staging environment for testing queries before production',
+  'apikey:admin', NOW() - interval '14 days'
+),
+(
+  's3', 'acme-data-lake',
+  '{"region": "us-east-1", "bucket_prefix": "acme-", "datahub_source_name": "s3"}'::jsonb,
+  'Production data lake — raw ingestion, processed datasets, and ML features',
+  'apikey:admin', NOW() - interval '30 days'
+),
+(
+  's3', 'acme-reports',
+  '{"region": "us-east-1", "bucket_prefix": "acme-reports-", "datahub_source_name": "s3"}'::jsonb,
+  'Report archive — generated dashboards, exports, and scheduled reports',
+  'apikey:admin', NOW() - interval '7 days'
+)
+ON CONFLICT (kind, name) DO UPDATE SET
+  config = EXCLUDED.config,
+  description = EXCLUDED.description;

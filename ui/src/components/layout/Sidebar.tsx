@@ -18,6 +18,7 @@ import {
   Bot,
   Clock,
   ChevronDown,
+  Cable,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -60,6 +61,7 @@ const adminNavItems: NavItem[] = [
       { path: "/admin/settings#description", label: "Description", icon: FileText },
       { path: "/admin/settings#agent-instructions", label: "Agent Instructions", icon: Bot },
       { path: "/admin/settings#personas", label: "Personas", icon: Users },
+      { path: "/admin/settings#connections", label: "Connections", icon: Cable },
       { path: "/admin/settings#changelog", label: "Change Log", icon: Clock },
     ],
   },

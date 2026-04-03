@@ -329,6 +329,8 @@ export interface PersonaDetail {
   priority: number;
   allow_tools: string[];
   deny_tools: string[];
+  allow_connections?: string[];
+  deny_connections?: string[];
   tools: string[];
   context?: PersonaContextOverrides;
 }
@@ -345,6 +347,8 @@ export interface PersonaCreateRequest {
   roles: string[];
   allow_tools: string[];
   deny_tools?: string[];
+  allow_connections?: string[];
+  deny_connections?: string[];
   priority?: number;
   description_prefix?: string;
   description_override?: string;
@@ -390,5 +394,30 @@ export interface EffectiveConfigEntry {
   value: string;
   source: "file" | "database";
   updated_by?: string;
+  updated_at?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Connection Instances (DB-managed)
+// ---------------------------------------------------------------------------
+
+export interface ConnectionInstance {
+  kind: string;
+  name: string;
+  config: Record<string, any>;
+  description: string;
+  created_by: string;
+  updated_at: string;
+}
+
+export interface EffectiveConnection {
+  kind: string;
+  name: string;
+  connection: string;
+  description?: string;
+  source: "file" | "database" | "both";
+  tools: string[];
+  config?: Record<string, any>;
+  created_by?: string;
   updated_at?: string;
 }

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -53,6 +54,12 @@ const providerNoop = "noop"
 // toolkitKindTrino is the toolkit kind name for Trino.
 const toolkitKindTrino = "trino"
 
+// cfgKeyEnabled is the config map key for the "enabled" flag.
+const cfgKeyEnabled = "enabled"
+
+// cfgKeyInstances is the config map key for toolkit instances.
+const cfgKeyInstances = "instances"
+
 // minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
 const minSigningKeyLength = 32
 
@@ -81,8 +88,10 @@ type Platform struct {
 	auditStore *auditpostgres.Store
 
 	// Config store
-	configStore  configstore.Store
-	fileDefaults map[string]string
+	configStore       configstore.Store
+	fileDefaults      map[string]string
+	connectionStore   ConnectionStore
+	connectionSources *ConnectionSourceMap
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -220,6 +229,9 @@ func (p *Platform) initDataInfra() error {
 	if err := p.initDatabase(); err != nil {
 		return err
 	}
+	if err := p.initConnectionStore(); err != nil {
+		return err
+	}
 	return p.initConfigStore()
 }
 
@@ -263,6 +275,41 @@ func (p *Platform) initDatabase() error {
 	}
 
 	return nil
+}
+
+// initConnectionStore initializes the connection instance store.
+// When a database is available, it uses PostgreSQL with field-level encryption
+// for sensitive config values. The encryption key comes from ENCRYPTION_KEY env var.
+func (p *Platform) initConnectionStore() error {
+	if p.db == nil {
+		p.connectionStore = &NoopConnectionStore{}
+		slog.Info("connection store: noop (no database)")
+		return nil
+	}
+
+	encryptor, err := buildFieldEncryptor()
+	if err != nil {
+		return err
+	}
+	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
+	return nil
+}
+
+// buildFieldEncryptor creates a FieldEncryptor from the ENCRYPTION_KEY env var.
+// Returns nil encryptor (encryption disabled) if the env var is not set.
+func buildFieldEncryptor() (*FieldEncryptor, error) {
+	keyStr := os.Getenv("ENCRYPTION_KEY")
+	if keyStr == "" {
+		slog.Warn("connection store: ENCRYPTION_KEY not set — sensitive fields stored in plain text")
+		return nil, nil //nolint:nilnil // nil encryptor = encryption disabled
+	}
+
+	encryptor, err := NewFieldEncryptor([]byte(keyStr))
+	if err != nil {
+		return nil, fmt.Errorf("initializing field encryptor: %w", err)
+	}
+	slog.Info("connection store: encryption enabled")
+	return encryptor, nil
 }
 
 // initConfigStore initializes the config store. When a database is available,
@@ -367,13 +414,19 @@ func (p *Platform) initRegistries(opts *Options) error {
 	// Inject platform-level config into toolkit instances before loading.
 	p.injectToolkitPlatformConfig()
 
-	// Load toolkits from configuration
+	// Merge DB connection instances into toolkit config before loading.
+	p.mergeDBConnectionsIntoConfig()
+
+	// Load toolkits from configuration (file + DB merged)
 	if p.config.Toolkits != nil {
 		loader := registry.NewLoader(p.toolkitRegistry)
 		if err := loader.LoadFromMap(p.config.Toolkits); err != nil {
 			return fmt.Errorf("loading toolkits: %w", err)
 		}
 	}
+
+	// Build the connection→DataHub source mapping for semantic enrichment.
+	p.connectionSources = p.buildConnectionSourceMap()
 
 	return nil
 }
@@ -1300,6 +1353,25 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		SchemaPreviewMaxColumns:     p.config.Injection.EffectiveSchemaPreviewMaxColumns(),
 	}
 
+	// Wire connection source map lookups as closures to avoid import cycles.
+	if p.connectionSources != nil {
+		cfg.ForConnection = func(connectionName string) (string, map[string]string) {
+			src := p.connectionSources.ForConnectionName(connectionName)
+			if src == nil {
+				return "", nil
+			}
+			return src.DataHubSourceName, src.CatalogMapping
+		}
+		cfg.ConnectionsForURN = func(urn string) []string {
+			sources := p.connectionSources.ConnectionsForURN(urn)
+			names := make([]string, len(sources))
+			for i, s := range sources {
+				names[i] = s.Name
+			}
+			return names
+		}
+	}
+
 	if p.config.Injection.SessionDedup.IsEnabled() {
 		p.sessionCache = middleware.NewSessionEnrichmentCache(
 			p.config.Injection.SessionDedup.EntryTTL,
@@ -1325,7 +1397,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 // createSemanticProvider creates the semantic provider based on config.
 func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	switch p.config.Semantic.Provider {
-	case "datahub":
+	case kindDataHub:
 		// Get DataHub config from toolkits
 		datahubCfg := p.getDataHubConfig(p.config.Semantic.Instance)
 		if datahubCfg == nil {
@@ -1449,6 +1521,10 @@ func (p *Platform) loadPersonas() error {
 			Tools: persona.ToolRules{
 				Allow: def.Tools.Allow,
 				Deny:  def.Tools.Deny,
+			},
+			Connections: persona.ConnectionRules{
+				Allow: def.Connections.Allow,
+				Deny:  def.Connections.Deny,
 			},
 			Context: persona.ContextOverrides{
 				DescriptionPrefix:         def.Context.DescriptionPrefix,
@@ -1655,6 +1731,60 @@ func (p *Platform) ConfigStore() configstore.Store {
 	return p.configStore
 }
 
+// ConnectionStore returns the connection instance store, or nil if not initialized.
+func (p *Platform) ConnectionStore() ConnectionStore {
+	return p.connectionStore
+}
+
+// ConnectionSources returns the connection→DataHub source mapping.
+func (p *Platform) ConnectionSources() *ConnectionSourceMap {
+	return p.connectionSources
+}
+
+// mergeDBConnectionsIntoConfig loads DB connection instances and merges them
+// into p.config.Toolkits so the toolkit loader creates clients for them.
+func (p *Platform) mergeDBConnectionsIntoConfig() {
+	if p.connectionStore == nil {
+		return
+	}
+
+	instances, err := p.connectionStore.List(context.Background())
+	if err != nil {
+		slog.Warn("failed to load DB connections for toolkit merge", "error", err)
+		return
+	}
+	if len(instances) == 0 {
+		return
+	}
+
+	if p.config.Toolkits == nil {
+		p.config.Toolkits = make(map[string]any)
+	}
+
+	for _, inst := range instances {
+		kindMap, ok := p.config.Toolkits[inst.Kind].(map[string]any)
+		if !ok {
+			kindMap = map[string]any{cfgKeyEnabled: true}
+			p.config.Toolkits[inst.Kind] = kindMap
+		}
+
+		// Ensure enabled
+		kindMap[cfgKeyEnabled] = true
+
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			instances = make(map[string]any)
+			kindMap[cfgKeyInstances] = instances
+		}
+
+		// Only add if not already present (file config takes precedence)
+		if _, exists := instances[inst.Name]; !exists {
+			instances[inst.Name] = inst.Config
+			slog.Info("merged DB connection into toolkit config", "kind", inst.Kind, "name", inst.Name)
+		}
+	}
+}
+
 // FileDefaults returns the original file-based config values for whitelisted keys.
 // Used to revert to file defaults when a DB override is deleted.
 func (p *Platform) FileDefaults() map[string]string {
@@ -1796,7 +1926,7 @@ type s3Config struct {
 
 // getDataHubConfig extracts DataHub configuration from toolkits config.
 func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
-	instanceCfg := p.getInstanceConfig("datahub", instanceName)
+	instanceCfg := p.getInstanceConfig(kindDataHub, instanceName)
 	if instanceCfg == nil {
 		return nil
 	}
@@ -1876,7 +2006,7 @@ func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[strin
 		return nil
 	}
 
-	instances, ok := kindCfg["instances"].(map[string]any)
+	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -1933,13 +2063,13 @@ func (p *Platform) injectToolkitPlatformConfig() {
 		}
 		if needsElicitation {
 			instanceCfg["elicitation"] = map[string]any{
-				"enabled": true,
+				cfgKeyEnabled: true,
 				"cost_estimation": map[string]any{
-					"enabled":       p.config.Elicitation.CostEstimation.Enabled,
+					cfgKeyEnabled:   p.config.Elicitation.CostEstimation.Enabled,
 					"row_threshold": p.config.Elicitation.CostEstimation.RowThreshold,
 				},
 				"pii_consent": map[string]any{
-					"enabled": p.config.Elicitation.PIIConsent.Enabled,
+					cfgKeyEnabled: p.config.Elicitation.PIIConsent.Enabled,
 				},
 			}
 		}
@@ -1960,7 +2090,7 @@ func (p *Platform) trinoInstanceConfigs() map[string]any {
 	if !ok {
 		return nil
 	}
-	instances, ok := kindCfg["instances"].(map[string]any)
+	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
 	if !ok {
 		return nil
 	}

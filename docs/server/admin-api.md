@@ -695,6 +695,79 @@ Returns session-level discovery patterns: how often users explore the catalog (D
 | `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
 | `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
 
+## Connection Instance Endpoints
+
+Connection instance endpoints manage database-backed toolkit connections. These endpoints require a database connection. Read endpoints are always available; write endpoints require database config mode.
+
+### List Connection Instances
+
+```
+GET /api/v1/admin/connection-instances
+```
+
+Returns all database-managed connection instances ordered by kind and name.
+
+**Response:**
+
+```json
+[
+  {
+    "kind": "trino",
+    "name": "prod",
+    "config": {"host": "trino.example.com", "port": 8080},
+    "description": "Production Trino cluster",
+    "created_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
+```
+
+### Get Connection Instance
+
+```
+GET /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Returns a single connection instance by toolkit kind and instance name.
+
+**Status Codes:** `200 OK`, `404 Not Found`
+
+### Create or Update Connection Instance
+
+```
+PUT /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Creates or updates a database-managed connection instance. Only available in database config mode.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `kind` | Toolkit kind: `trino`, `datahub`, or `s3` |
+| `name` | Instance name |
+
+**Request Body:**
+
+```json
+{
+  "config": {"host": "trino.example.com", "port": 8080},
+  "description": "Production Trino cluster"
+}
+```
+
+**Status Codes:** `200 OK`, `400 Bad Request` (unknown kind or invalid body)
+
+### Delete Connection Instance
+
+```
+DELETE /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Deletes a database-managed connection instance. Only available in database config mode.
+
+**Status Codes:** `204 No Content`, `404 Not Found`
+
 ## Knowledge Endpoints
 
 Knowledge endpoints require `knowledge.enabled: true` and a configured database. Without a database, endpoints return `409 Conflict`. For the full knowledge API reference, see [Knowledge Admin API](../knowledge/admin-api.md).

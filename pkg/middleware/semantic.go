@@ -89,6 +89,15 @@ type EnrichmentConfig struct {
 	// results when the session has not yet called any discovery tool.
 	// If nil, no discovery note is appended.
 	WorkflowTracker *SessionWorkflowTracker
+
+	// ForConnection returns the DataHub source name and catalog mapping for
+	// a named connection. Returns ("", nil) if the connection has no mapping.
+	// This avoids an import cycle between middleware and platform packages.
+	ForConnection func(connectionName string) (datahubSourceName string, catalogMapping map[string]string)
+
+	// ConnectionsForURN returns connection names that can access the dataset
+	// identified by a DataHub URN, based on the URN's platform component.
+	ConnectionsForURN func(urn string) []string
 }
 
 // schemaPreviewColumn is a minimal column entry for search result schema previews.
@@ -99,13 +108,14 @@ type schemaPreviewColumn struct {
 
 // queryContextEntry extends TableAvailability with an optional schema preview.
 type queryContextEntry struct {
-	Available     bool                  `json:"available"`
-	QueryTable    string                `json:"query_table,omitempty"`
-	Connection    string                `json:"connection,omitempty"`
-	EstimatedRows *int64                `json:"estimated_rows,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	SchemaPreview []schemaPreviewColumn `json:"schema_preview,omitempty"`
-	TotalColumns  int                   `json:"total_columns,omitempty"`
+	Available            bool                  `json:"available"`
+	QueryTable           string                `json:"query_table,omitempty"`
+	Connection           string                `json:"connection,omitempty"`
+	AvailableConnections []string              `json:"available_connections,omitempty"`
+	EstimatedRows        *int64                `json:"estimated_rows,omitempty"`
+	Error                string                `json:"error,omitempty"`
+	SchemaPreview        []schemaPreviewColumn `json:"schema_preview,omitempty"`
+	TotalColumns         int                   `json:"total_columns,omitempty"`
 }
 
 // semanticEnricher holds the enrichment dependencies.
@@ -690,30 +700,47 @@ func (e *semanticEnricher) enrichDataHubResult(
 	// Get query context for each URN
 	queryContexts := make(map[string]*queryContextEntry, len(urns))
 	for _, urn := range urns {
-		availability, err := provider.GetTableAvailability(ctx, urn)
-		if err != nil {
-			continue
+		entry := e.buildQueryContextEntry(ctx, provider, urn)
+		if entry != nil {
+			queryContexts[urn] = entry
 		}
-		entry := &queryContextEntry{
-			Available:     availability.Available,
-			QueryTable:    availability.QueryTable,
-			Connection:    availability.Connection,
-			EstimatedRows: availability.EstimatedRows,
-			Error:         availability.Error,
-		}
-		// Best-effort schema preview for available tables
-		if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
-			preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
-			if len(preview) > 0 {
-				entry.SchemaPreview = preview
-				entry.TotalColumns = total
-			}
-		}
-		queryContexts[urn] = entry
 	}
 
 	// Append query context to result
 	return appendQueryContext(result, queryContexts)
+}
+
+// buildQueryContextEntry builds a single query context entry for a URN,
+// including availability, connections, and optional schema preview.
+func (e *semanticEnricher) buildQueryContextEntry(
+	ctx context.Context,
+	provider query.Provider,
+	urn string,
+) *queryContextEntry {
+	availability, err := provider.GetTableAvailability(ctx, urn)
+	if err != nil {
+		return nil
+	}
+	entry := &queryContextEntry{
+		Available:     availability.Available,
+		QueryTable:    availability.QueryTable,
+		Connection:    availability.Connection,
+		EstimatedRows: availability.EstimatedRows,
+		Error:         availability.Error,
+	}
+	// Add all connections that can access this URN via source map lookup.
+	if e.cfg.ConnectionsForURN != nil {
+		entry.AvailableConnections = e.cfg.ConnectionsForURN(urn)
+	}
+	// Best-effort schema preview for available tables.
+	if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
+		preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
+		if len(preview) > 0 {
+			entry.SchemaPreview = preview
+			entry.TotalColumns = total
+		}
+	}
+	return entry
 }
 
 // fetchSchemaPreview resolves a URN to a table and returns a bounded column

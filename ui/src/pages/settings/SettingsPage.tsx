@@ -9,6 +9,7 @@ import {
 import type { EffectiveConfigEntry, ConfigChangelogEntry } from "@/api/admin/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PersonasPanel } from "./PersonasPanel";
+import { ConnectionsPanel } from "./ConnectionsPanel";
 import { cn } from "@/lib/utils";
 import {
   Clock,
@@ -26,7 +27,7 @@ import {
 // Section definitions
 // ---------------------------------------------------------------------------
 
-type Section = "description" | "agent-instructions" | "personas" | "changelog";
+type Section = "description" | "agent-instructions" | "personas" | "connections" | "changelog";
 
 const SECTION_META: Record<string, { label: string; description: string }> = {
   description: {
@@ -76,6 +77,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
   const section: Section =
     initialTab === "agent-instructions" ? "agent-instructions"
     : initialTab === "personas" ? "personas"
+    : initialTab === "connections" ? "connections"
     : initialTab === "changelog" ? "changelog"
     : "description";
 
@@ -101,6 +103,8 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
       <div className="flex-1 overflow-hidden">
         {section === "personas" ? (
           <PersonasPanel />
+        ) : section === "connections" ? (
+          <ConnectionsPanel />
         ) : section === "changelog" ? (
           <ChangelogPanel />
         ) : (

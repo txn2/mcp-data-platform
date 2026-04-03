@@ -1230,6 +1230,21 @@ Patterns support wildcards:
 
 Evaluation order: deny patterns are checked first, then allow patterns.
 
+## Connection Access Control
+
+Personas can restrict which toolkit connections a user may access. A tool call must pass both the tool pattern check and the connection check.
+
+```yaml
+personas:
+  definitions:
+    analyst:
+      connections:
+        allow: ["prod-*"]
+        deny: ["prod-admin-*"]
+```
+
+If the `connections` block is omitted or empty, all connections are permitted (backward-compatible default). Connection patterns use the same wildcard syntax as tool patterns.
+
 ---
 
 # Go Library
@@ -1921,6 +1936,15 @@ Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is
 - `GET /auth/keys` — List API keys (values never exposed)
 - `POST /auth/keys` — Generate new API key (database config mode only, key shown once)
 - `DELETE /auth/keys/{name}` — Delete API key (database config mode only)
+
+## Connection Instance Endpoints
+
+Database-managed toolkit connections. Read endpoints always available; write endpoints require database config mode.
+
+- `GET /connection-instances` — List all connection instances (ordered by kind, name)
+- `GET /connection-instances/{kind}/{name}` — Get single connection instance
+- `PUT /connection-instances/{kind}/{name}` — Create or update connection instance (database mode only, valid kinds: trino, datahub, s3)
+- `DELETE /connection-instances/{kind}/{name}` — Delete connection instance (database mode only)
 
 ## Audit Endpoints
 
