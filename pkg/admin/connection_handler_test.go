@@ -333,3 +333,204 @@ func TestDeleteConnectionInstance(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }
+
+// --- Effective Connections ---
+
+func TestListEffectiveConnections(t *testing.T) {
+	t.Run("file-only connections", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 1)
+		assert.Equal(t, "trino", body[0].Kind)
+		assert.Equal(t, "file", body[0].Source)
+	})
+
+	t.Run("DB-only connections", func(t *testing.T) {
+		store := &mockConnectionStore{
+			instances: []platform.ConnectionInstance{
+				{Kind: "s3", Name: "lake", Description: "Data Lake", Config: map[string]any{"bucket": "b"}},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ConnectionStore: store,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 1)
+		assert.Equal(t, "database", body[0].Source)
+		assert.Equal(t, "lake", body[0].Name)
+	})
+
+	t.Run("both sources merged", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
+			},
+		}
+		store := &mockConnectionStore{
+			instances: []platform.ConnectionInstance{
+				{Kind: "trino", Name: "prod", Description: "DB override", Config: map[string]any{"host": "trino.local"}},
+				{Kind: "s3", Name: "lake", Description: "Data Lake", Config: map[string]any{"bucket": "b"}},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConnectionStore: store,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 2)
+
+		// First: trino/prod from "both" sources
+		assert.Equal(t, "both", body[0].Source)
+		assert.Equal(t, "prod", body[0].Name)
+		assert.Equal(t, "DB override", body[0].Description)
+
+		// Second: s3/lake from database only
+		assert.Equal(t, "database", body[1].Source)
+		assert.Equal(t, "lake", body[1].Name)
+	})
+
+	t.Run("empty state returns empty array", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Len(t, body, 0)
+	})
+}
+
+func TestMergeConnections(t *testing.T) {
+	t.Run("file and DB overlap uses both source", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
+		}
+		db := []platform.ConnectionInstance{
+			{Kind: "trino", Name: "prod", Description: "DB", Config: map[string]any{"host": "h"}},
+		}
+
+		result := mergeConnections(live, db)
+		require.Len(t, result, 1)
+		assert.Equal(t, "both", result[0].Source)
+		assert.Equal(t, "DB", result[0].Description)
+		assert.Equal(t, []string{"trino_query"}, result[0].Tools)
+	})
+
+	t.Run("DB-only entries appended", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
+		}
+		db := []platform.ConnectionInstance{
+			{Kind: "s3", Name: "lake", Description: "Lake"},
+		}
+
+		result := mergeConnections(live, db)
+		require.Len(t, result, 2)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "database", result[1].Source)
+	})
+
+	t.Run("nil inputs return empty array", func(t *testing.T) {
+		result := mergeConnections(nil, nil)
+		assert.NotNil(t, result)
+		assert.Len(t, result, 0)
+	})
+}
+
+// --- Redaction ---
+
+func TestRedactConnectionConfig(t *testing.T) {
+	t.Run("redacts sensitive keys", func(t *testing.T) {
+		config := map[string]any{
+			"host":              "trino.local",
+			"password":          "secret123",
+			"secret_access_key": "AKIA...",
+			"api_key":           "key123",
+		}
+
+		redacted := redactConnectionConfig(config)
+		assert.Equal(t, "trino.local", redacted["host"])
+		assert.Equal(t, "[REDACTED]", redacted["password"])
+		assert.Equal(t, "[REDACTED]", redacted["secret_access_key"])
+		assert.Equal(t, "[REDACTED]", redacted["api_key"])
+	})
+
+	t.Run("nil config returns nil", func(t *testing.T) {
+		assert.Nil(t, redactConnectionConfig(nil))
+	})
+
+	t.Run("does not modify original", func(t *testing.T) {
+		config := map[string]any{"password": "secret"}
+		_ = redactConnectionConfig(config)
+		assert.Equal(t, "secret", config["password"])
+	})
+}
+
+func TestMergeRedactedFields(t *testing.T) {
+	submitted := map[string]any{
+		"host":     "new-host",
+		"password": "[REDACTED]",
+		"api_key":  "new-key",
+	}
+	existing := map[string]any{
+		"host":     "old-host",
+		"password": "real-password",
+		"api_key":  "old-key",
+	}
+
+	merged := mergeRedactedFields(submitted, existing)
+	assert.Equal(t, "new-host", merged["host"])
+	assert.Equal(t, "real-password", merged["password"])
+	assert.Equal(t, "new-key", merged["api_key"])
+}
+
+func TestHasRedactedValues(t *testing.T) {
+	assert.True(t, hasRedactedValues(map[string]any{"password": "[REDACTED]"}))
+	assert.False(t, hasRedactedValues(map[string]any{"password": "real"}))
+	assert.False(t, hasRedactedValues(map[string]any{"host": "[REDACTED]"}))
+	assert.False(t, hasRedactedValues(map[string]any{}))
+}

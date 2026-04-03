@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -296,6 +297,7 @@ func (p *Platform) initConnectionStore() error {
 }
 
 // buildFieldEncryptor creates a FieldEncryptor from the ENCRYPTION_KEY env var.
+// The key can be provided as hex (64 hex chars), base64 (44 chars), or raw bytes (32 bytes).
 // Returns nil encryptor (encryption disabled) if the env var is not set.
 func buildFieldEncryptor() (*FieldEncryptor, error) {
 	keyStr := os.Getenv("ENCRYPTION_KEY")
@@ -304,12 +306,30 @@ func buildFieldEncryptor() (*FieldEncryptor, error) {
 		return nil, nil //nolint:nilnil // nil encryptor = encryption disabled
 	}
 
-	encryptor, err := NewFieldEncryptor([]byte(keyStr))
+	key := decodeEncryptionKey(keyStr)
+
+	encryptor, err := NewFieldEncryptor(key)
 	if err != nil {
 		return nil, fmt.Errorf("initializing field encryptor: %w", err)
 	}
 	slog.Info("connection store: encryption enabled")
 	return encryptor, nil
+}
+
+// decodeEncryptionKey tries hex, then base64, then raw bytes to decode the key.
+func decodeEncryptionKey(keyStr string) []byte {
+	// Try hex first (64 hex chars = 32 bytes).
+	if key, err := hex.DecodeString(keyStr); err == nil && len(key) == aes256KeyLength {
+		return key
+	}
+
+	// Try base64 (44 chars = 32 bytes).
+	if key, err := base64.StdEncoding.DecodeString(keyStr); err == nil && len(key) == aes256KeyLength {
+		return key
+	}
+
+	// Fall back to raw bytes.
+	return []byte(keyStr)
 }
 
 // initConfigStore initializes the config store. When a database is available,
@@ -1771,15 +1791,15 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		// Ensure enabled
 		kindMap[cfgKeyEnabled] = true
 
-		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		kindInstances, ok := kindMap[cfgKeyInstances].(map[string]any)
 		if !ok {
-			instances = make(map[string]any)
-			kindMap[cfgKeyInstances] = instances
+			kindInstances = make(map[string]any)
+			kindMap[cfgKeyInstances] = kindInstances
 		}
 
 		// Only add if not already present (file config takes precedence)
-		if _, exists := instances[inst.Name]; !exists {
-			instances[inst.Name] = inst.Config
+		if _, exists := kindInstances[inst.Name]; !exists {
+			kindInstances[inst.Name] = inst.Config
 			slog.Info("merged DB connection into toolkit config", "kind", inst.Kind, "name", inst.Name)
 		}
 	}

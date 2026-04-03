@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -47,29 +48,9 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 	entries := make([]connectionEntry, 0, len(toolkits))
 	for _, tk := range toolkits {
 		if lister, ok := tk.(toolkit.ConnectionLister); ok {
-			for _, conn := range lister.ListConnections() {
-				entry := connectionEntry{
-					Kind:        tk.Kind(),
-					Name:        conn.Name,
-					Connection:  conn.Name,
-					Description: conn.Description,
-					IsDefault:   conn.IsDefault,
-				}
-				if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
-					entry.DataHubSourceName = src.DataHubSourceName
-				}
-				entries = append(entries, entry)
-			}
+			entries = p.entriesFromLister(entries, tk, lister)
 		} else {
-			entry := connectionEntry{
-				Kind:       tk.Kind(),
-				Name:       tk.Name(),
-				Connection: tk.Connection(),
-			}
-			if src := p.connectionSources.ForConnection(tk.Kind(), tk.Name()); src != nil {
-				entry.DataHubSourceName = src.DataHubSourceName
-			}
-			entries = append(entries, entry)
+			entries = p.entryFromFallback(entries, tk)
 		}
 	}
 
@@ -93,4 +74,40 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 			&mcp.TextContent{Text: string(data)},
 		},
 	}, nil, nil
+}
+
+// entriesFromLister builds connection entries from a toolkit that implements ConnectionLister.
+func (p *Platform) entriesFromLister(entries []connectionEntry, tk registry.Toolkit, lister toolkit.ConnectionLister) []connectionEntry {
+	for _, conn := range lister.ListConnections() {
+		entry := connectionEntry{
+			Kind:        tk.Kind(),
+			Name:        conn.Name,
+			Connection:  conn.Name,
+			Description: conn.Description,
+			IsDefault:   conn.IsDefault,
+		}
+		if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
+			entry.DataHubSourceName = src.DataHubSourceName
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// entryFromFallback builds a single connection entry for toolkits that do not
+// implement ConnectionLister. Non-data toolkits are skipped.
+func (p *Platform) entryFromFallback(entries []connectionEntry, tk registry.Toolkit) []connectionEntry {
+	kind := tk.Kind()
+	if kind != kindTrino && kind != kindDataHub && kind != kindS3 {
+		return entries
+	}
+	entry := connectionEntry{
+		Kind:       kind,
+		Name:       tk.Name(),
+		Connection: tk.Connection(),
+	}
+	if src := p.connectionSources.ForConnection(kind, tk.Name()); src != nil {
+		entry.DataHubSourceName = src.DataHubSourceName
+	}
+	return append(entries, entry)
 }

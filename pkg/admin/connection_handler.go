@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"time"
 
@@ -60,6 +61,9 @@ func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request
 	if instances == nil {
 		instances = []platform.ConnectionInstance{}
 	}
+	for i := range instances {
+		instances[i].Config = redactConnectionConfig(instances[i].Config)
+	}
 	writeJSON(w, http.StatusOK, instances)
 }
 
@@ -90,6 +94,7 @@ func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to get connection instance")
 		return
 	}
+	inst.Config = redactConnectionConfig(inst.Config)
 	writeJSON(w, http.StatusOK, inst)
 }
 
@@ -138,6 +143,18 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+
+	// If any sensitive field is "[REDACTED]", preserve the existing value from the store.
+	if hasRedactedValues(req.Config) {
+		existing, err := h.deps.ConnectionStore.Get(r.Context(), kind, name)
+		if err == nil && existing != nil {
+			req.Config = mergeRedactedFields(req.Config, existing.Config)
+		}
+	}
+
 	inst := platform.ConnectionInstance{
 		Kind:        kind,
 		Name:        name,
@@ -146,15 +163,13 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		CreatedBy:   author,
 		UpdatedAt:   time.Now(),
 	}
-	if inst.Config == nil {
-		inst.Config = map[string]any{}
-	}
 
 	if err := h.deps.ConnectionStore.Set(r.Context(), inst); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save connection instance")
 		return
 	}
 
+	inst.Config = redactConnectionConfig(inst.Config)
 	writeJSON(w, http.StatusOK, inst)
 }
 
@@ -215,6 +230,9 @@ func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Reques
 	}
 
 	result := mergeConnections(live, dbInstances)
+	for i := range result {
+		result[i].Config = redactConnectionConfig(result[i].Config)
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -282,4 +300,57 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		result = []effectiveConnection{}
 	}
 	return result
+}
+
+// redactedValue is the placeholder used for sensitive config fields in API responses.
+const redactedValue = "[REDACTED]"
+
+// connectionSensitiveKeys lists config keys that contain secrets and must be
+// redacted when returning connection instances via the API.
+var connectionSensitiveKeys = []string{
+	"password", "secret_access_key", "secret_key",
+	"token", "access_token", "refresh_token", "api_key",
+}
+
+// redactConnectionConfig returns a copy of config with sensitive fields replaced
+// by "[REDACTED]". Non-sensitive fields are copied as-is.
+func redactConnectionConfig(config map[string]any) map[string]any {
+	if config == nil {
+		return nil
+	}
+	result := make(map[string]any, len(config))
+	maps.Copy(result, config)
+	for _, key := range connectionSensitiveKeys {
+		if _, ok := result[key]; ok {
+			result[key] = redactedValue
+		}
+	}
+	return result
+}
+
+// hasRedactedValues returns true if any sensitive key has the "[REDACTED]" placeholder.
+func hasRedactedValues(config map[string]any) bool {
+	for _, key := range connectionSensitiveKeys {
+		if v, ok := config[key]; ok {
+			if s, isStr := v.(string); isStr && s == redactedValue {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mergeRedactedFields replaces "[REDACTED]" values in submitted config with
+// their existing counterparts from the stored config.
+func mergeRedactedFields(submitted, existing map[string]any) map[string]any {
+	for _, key := range connectionSensitiveKeys {
+		if v, ok := submitted[key]; ok {
+			if s, isStr := v.(string); isStr && s == redactedValue {
+				if existingVal, found := existing[key]; found {
+					submitted[key] = existingVal
+				}
+			}
+		}
+	}
+	return submitted
 }
