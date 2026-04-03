@@ -534,3 +534,100 @@ func TestHasRedactedValues(t *testing.T) {
 	assert.False(t, hasRedactedValues(map[string]any{"host": "[REDACTED]"}))
 	assert.False(t, hasRedactedValues(map[string]any{}))
 }
+
+func TestLookupToolkitInstanceConfig(t *testing.T) {
+	t.Run("returns config for existing instance", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"prod": map[string]any{
+							"host": "trino.example.com",
+							"port": 443,
+						},
+					},
+				},
+			},
+		}, nil)
+
+		cfg := h.lookupToolkitInstanceConfig("trino", "prod")
+		require.NotNil(t, cfg)
+		assert.Equal(t, "trino.example.com", cfg["host"])
+		assert.Equal(t, 443, cfg["port"])
+	})
+
+	t.Run("returns nil for missing kind", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{},
+			},
+		}, nil)
+
+		assert.Nil(t, h.lookupToolkitInstanceConfig("s3", "lake"))
+	})
+
+	t.Run("returns nil for missing instance", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"prod": map[string]any{"host": "trino.local"},
+					},
+				},
+			},
+		}, nil)
+
+		assert.Nil(t, h.lookupToolkitInstanceConfig("trino", "staging"))
+	})
+
+	t.Run("returns nil for nil config", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+		}, nil)
+
+		assert.Nil(t, h.lookupToolkitInstanceConfig("trino", "prod"))
+	})
+
+	t.Run("returns nil for missing instances key", func(t *testing.T) {
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{"enabled": true},
+			},
+		}, nil)
+
+		assert.Nil(t, h.lookupToolkitInstanceConfig("trino", "prod"))
+	})
+
+	t.Run("returns a copy not a reference", func(t *testing.T) {
+		original := map[string]any{"host": "trino.local", "password": "secret"}
+		h := NewHandler(Deps{
+			Config:      testConfig(),
+			ConfigStore: &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"prod": original,
+					},
+				},
+			},
+		}, nil)
+
+		cfg := h.lookupToolkitInstanceConfig("trino", "prod")
+		require.NotNil(t, cfg)
+
+		// Mutate the returned copy
+		cfg["host"] = "MUTATED"
+
+		// Original should be unchanged
+		assert.Equal(t, "trino.local", original["host"])
+	})
+}
