@@ -276,13 +276,12 @@ type PersonasConfig struct {
 
 // PersonaDef defines a persona.
 type PersonaDef struct {
-	DisplayName string            `yaml:"display_name"`
-	Description string            `yaml:"description,omitempty"`
-	Roles       []string          `yaml:"roles"`
-	Tools       ToolRulesDef      `yaml:"tools"`
-	Prompts     PromptsDef        `yaml:"prompts"`
-	Hints       map[string]string `yaml:"hints,omitempty"`
-	Priority    int               `yaml:"priority,omitempty"`
+	DisplayName string       `yaml:"display_name"`
+	Description string       `yaml:"description,omitempty"`
+	Roles       []string     `yaml:"roles"`
+	Tools       ToolRulesDef `yaml:"tools"`
+	Context     ContextDef   `yaml:"context"`
+	Priority    int          `yaml:"priority,omitempty"`
 }
 
 // ToolsConfig configures global tool visibility filtering for tools/list responses.
@@ -300,11 +299,12 @@ type ToolRulesDef struct {
 	Deny  []string `yaml:"deny"`
 }
 
-// PromptsDef defines prompt customizations.
-type PromptsDef struct {
-	SystemPrefix string `yaml:"system_prefix,omitempty"`
-	SystemSuffix string `yaml:"system_suffix,omitempty"`
-	Instructions string `yaml:"instructions,omitempty"`
+// ContextDef defines per-persona context overrides.
+type ContextDef struct {
+	DescriptionPrefix         string `yaml:"description_prefix,omitempty"`
+	DescriptionOverride       string `yaml:"description_override,omitempty"`
+	AgentInstructionsSuffix   string `yaml:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string `yaml:"agent_instructions_override,omitempty"`
 }
 
 // RoleMappingConfig configures role mapping.

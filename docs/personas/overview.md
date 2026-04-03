@@ -9,8 +9,7 @@ A persona is a named configuration that includes:
 - **Display Name** - Human-readable identifier
 - **Roles** - Which authenticated roles map to this persona
 - **Tool Rules** - Allow and deny patterns for tool access
-- **Prompts** - Custom instructions for the AI
-- **Hints** - Tool-specific guidance
+- **Context Overrides** - Per-persona customization of platform description and agent instructions
 
 ## How Personas Work
 
@@ -51,8 +50,8 @@ personas:
           - "datahub_*"
         deny:
           - "*_delete_*"
-      prompts:
-        system_prefix: "You are helping a data analyst explore data."
+      context:
+        description_prefix: "You are helping a data analyst explore data."
 
     admin:
       display_name: "Administrator"
@@ -140,42 +139,37 @@ personas:
 
 A user with roles `["analyst", "senior"]` gets the `senior_analyst` persona (higher priority).
 
-## Prompt Customization
+## Context Overrides
 
-Personas can include custom prompts:
+Personas can include context overrides that customize the platform description and agent instructions returned by the `platform_info` tool:
 
 ```yaml
 analyst:
-  prompts:
-    system_prefix: |
+  context:
+    description_prefix: |
       You are helping a data analyst. Focus on:
       - Data exploration and analysis
       - SQL best practices
       - Statistical insights
 
-    system_suffix: |
-      Always explain query results in business terms.
-
-    instructions: |
+    agent_instructions_suffix: |
       When writing SQL:
       - Use meaningful aliases
       - Add comments for complex logic
       - Limit results to avoid overwhelming output
+      Always explain query results in business terms.
 ```
 
-## Tool Hints
+### Override Fields
 
-Provide tool-specific guidance for the AI:
+| Field | Effect |
+|-------|--------|
+| `description_prefix` | Prepended to the platform description |
+| `description_override` | Replaces the platform description entirely |
+| `agent_instructions_suffix` | Appended to the platform agent instructions |
+| `agent_instructions_override` | Replaces the platform agent instructions entirely |
 
-```yaml
-analyst:
-  hints:
-    trino_query: "Prefer aggregations and sampling for large tables"
-    datahub_search: "Search for datasets by business domain first"
-    s3_list_objects: "Use prefix filtering to narrow results"
-```
-
-Hints are passed to the AI as additional context when using tools.
+Override fields (`description_override`, `agent_instructions_override`) take precedence over prefix/suffix fields. If both a prefix and an override are set, only the override is used.
 
 ## Knowledge Tool Access
 
@@ -227,12 +221,11 @@ personas:
           - "trino_*"
           - "datahub_*"
         deny: []
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are helping a sales analyst.
           Focus on: revenue metrics, customer data, order patterns.
-      hints:
-        trino_query: "Query the hive.sales schema for sales data"
+        agent_instructions_suffix: "Query the hive.sales schema for sales data."
 
     marketing_analyst:
       display_name: "Marketing Domain Analyst"
@@ -242,12 +235,11 @@ personas:
           - "trino_*"
           - "datahub_*"
         deny: []
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are helping a marketing analyst.
           Focus on: campaign metrics, customer segments, attribution.
-      hints:
-        trino_query: "Query the hive.marketing schema for marketing data"
+        agent_instructions_suffix: "Query the hive.marketing schema for marketing data."
 
   default_persona: viewer
 ```

@@ -8,6 +8,7 @@ import {
 } from "@/api/admin/hooks";
 import type { EffectiveConfigEntry, ConfigChangelogEntry } from "@/api/admin/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { PersonasPanel } from "./PersonasPanel";
 import { cn } from "@/lib/utils";
 import {
   Clock,
@@ -25,7 +26,7 @@ import {
 // Section definitions
 // ---------------------------------------------------------------------------
 
-type Section = "description" | "agent-instructions" | "changelog";
+type Section = "description" | "agent-instructions" | "personas" | "changelog";
 
 const SECTION_META: Record<string, { label: string; description: string }> = {
   description: {
@@ -74,6 +75,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
 export function SettingsPage({ initialTab }: { initialTab?: string }) {
   const section: Section =
     initialTab === "agent-instructions" ? "agent-instructions"
+    : initialTab === "personas" ? "personas"
     : initialTab === "changelog" ? "changelog"
     : "description";
 
@@ -97,7 +99,9 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
         />
       )}
       <div className="flex-1 overflow-hidden">
-        {section === "changelog" ? (
+        {section === "personas" ? (
+          <PersonasPanel />
+        ) : section === "changelog" ? (
           <ChangelogPanel />
         ) : (
           <ConfigEditorPanel

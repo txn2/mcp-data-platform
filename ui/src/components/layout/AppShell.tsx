@@ -20,7 +20,6 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
-import { PersonasPage } from "@/pages/personas/PersonasPage";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { ShieldAlert } from "lucide-react";
 
@@ -35,7 +34,6 @@ const pageTitles: Record<string, string> = {
   "/admin/tools": "Tools",
   "/admin/audit": "Audit Log",
   "/admin/knowledge": "Knowledge",
-  "/admin/personas": "Personas",
   "/admin/settings": "Settings",
 };
 
@@ -298,9 +296,6 @@ export function AppShell() {
               )}
               {route === "/admin/knowledge" && (
                 <KnowledgePage key={currentPath} initialTab={initialTab} />
-              )}
-              {route === "/admin/personas" && (
-                <PersonasPage key={currentPath} initialTab={initialTab} />
               )}
               {route === "/admin/settings" && (
                 <SettingsRedirect initialTab={initialTab} navigate={navigate}>

@@ -306,10 +306,11 @@ export interface ToolCallResponse {
 // Personas
 // ---------------------------------------------------------------------------
 
-export interface PersonaPrompts {
-  system_prefix?: string;
-  system_suffix?: string;
-  instructions?: string;
+export interface PersonaContextOverrides {
+  description_prefix?: string;
+  description_override?: string;
+  agent_instructions_suffix?: string;
+  agent_instructions_override?: string;
 }
 
 export interface PersonaSummary {
@@ -329,8 +330,7 @@ export interface PersonaDetail {
   allow_tools: string[];
   deny_tools: string[];
   tools: string[];
-  prompts?: PersonaPrompts;
-  hints?: Record<string, string>;
+  context?: PersonaContextOverrides;
 }
 
 export interface PersonaListResponse {
@@ -346,6 +346,10 @@ export interface PersonaCreateRequest {
   allow_tools: string[];
   deny_tools?: string[];
   priority?: number;
+  description_prefix?: string;
+  description_override?: string;
+  agent_instructions_suffix?: string;
+  agent_instructions_override?: string;
 }
 
 // ---------------------------------------------------------------------------

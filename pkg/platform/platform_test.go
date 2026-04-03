@@ -306,10 +306,9 @@ func TestLoadPersonas(t *testing.T) {
 						Allow: []string{"trino_*"},
 						Deny:  []string{"*_delete"},
 					},
-					Prompts: PromptsDef{
-						SystemPrefix: testSystemPrefix,
+					Context: ContextDef{
+						DescriptionPrefix: testSystemPrefix,
 					},
-					Hints: map[string]string{"key": "value"},
 				},
 				testRoleAdmin: {
 					DisplayName: "Administrator",
@@ -2045,72 +2044,6 @@ func TestInitMCPApps_BuiltinPlatformInfoWithInvalidAssetsPath(t *testing.T) {
 	}
 }
 
-func TestHintManager(t *testing.T) {
-	cfg := &Config{
-		Server:   ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{Provider: testProviderNoop},
-		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	hm := p.HintManager()
-	if hm == nil {
-		t.Fatal("HintManager() returned nil")
-	}
-
-	// Check that default hints were loaded
-	hint, ok := hm.GetHint("datahub_search")
-	if !ok {
-		t.Error("Expected datahub_search hint to be loaded")
-	}
-	if hint == "" {
-		t.Error("datahub_search hint should not be empty")
-	}
-}
-
-func TestPersonaHintsLoadedToHintManager(t *testing.T) {
-	cfg := &Config{
-		Server:   ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{Provider: testProviderNoop},
-		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
-		Personas: PersonasConfig{
-			Definitions: map[string]PersonaDef{
-				testRoleAnalyst: {
-					DisplayName: testDisplayAnalyst,
-					Roles:       []string{testRoleAnalyst},
-					Hints: map[string]string{
-						"custom_tool": "This is a custom hint from persona",
-					},
-				},
-			},
-		},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	hm := p.HintManager()
-
-	// Check persona hint was loaded
-	hint, ok := hm.GetHint("custom_tool")
-	if !ok {
-		t.Error("Expected custom_tool hint from persona to be loaded")
-	}
-	if hint != "This is a custom hint from persona" {
-		t.Errorf("Unexpected hint value: %q", hint)
-	}
-}
-
 func TestInitAuditNoopWhenDisabled(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
@@ -2175,10 +2108,10 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 					Tools: ToolRulesDef{
 						Allow: []string{"trino_*"},
 					},
-					Prompts: PromptsDef{
-						SystemPrefix: testSystemPrefix,
-						SystemSuffix: "Be concise.",
-						Instructions: "Check DataHub first.",
+					Context: ContextDef{
+						DescriptionPrefix:         testSystemPrefix,
+						AgentInstructionsSuffix:   "Check DataHub first.",
+						AgentInstructionsOverride: "",
 					},
 					Priority: testPriority,
 				},
@@ -2204,30 +2137,29 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	if analyst.Priority != testPriority {
 		t.Errorf("Priority = %d, want %d", analyst.Priority, testPriority)
 	}
-	if analyst.Prompts.SystemPrefix != testSystemPrefix {
-		t.Errorf("SystemPrefix = %q", analyst.Prompts.SystemPrefix)
+	if analyst.Context.DescriptionPrefix != testSystemPrefix {
+		t.Errorf("DescriptionPrefix = %q", analyst.Context.DescriptionPrefix)
 	}
-	if analyst.Prompts.SystemSuffix != "Be concise." {
-		t.Errorf("SystemSuffix = %q", analyst.Prompts.SystemSuffix)
-	}
-	if analyst.Prompts.Instructions != "Check DataHub first." {
-		t.Errorf("Instructions = %q", analyst.Prompts.Instructions)
+	if analyst.Context.AgentInstructionsSuffix != "Check DataHub first." {
+		t.Errorf("AgentInstructionsSuffix = %q", analyst.Context.AgentInstructionsSuffix)
 	}
 
-	// Test GetFullSystemPrompt
-	fullPrompt := analyst.GetFullSystemPrompt()
-	if fullPrompt == "" {
-		t.Error("GetFullSystemPrompt() returned empty string")
+	// Test ApplyDescription
+	desc := analyst.ApplyDescription("Base description")
+	if !containsSubstr(desc, testSystemPrefix) {
+		t.Error("ApplyDescription missing DescriptionPrefix")
 	}
-	// Should contain all three parts
-	if !containsSubstr(fullPrompt, testSystemPrefix) {
-		t.Error("fullPrompt missing SystemPrefix")
+	if !containsSubstr(desc, "Base description") {
+		t.Error("ApplyDescription missing base description")
 	}
-	if !containsSubstr(fullPrompt, "Check DataHub first.") {
-		t.Error("fullPrompt missing Instructions")
+
+	// Test ApplyAgentInstructions
+	instructions := analyst.ApplyAgentInstructions("Base instructions")
+	if !containsSubstr(instructions, "Check DataHub first.") {
+		t.Error("ApplyAgentInstructions missing AgentInstructionsSuffix")
 	}
-	if !containsSubstr(fullPrompt, "Be concise.") {
-		t.Error("fullPrompt missing SystemSuffix")
+	if !containsSubstr(instructions, "Base instructions") {
+		t.Error("ApplyAgentInstructions missing base instructions")
 	}
 }
 

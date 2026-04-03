@@ -222,19 +222,16 @@ function PersonaCard({
         </div>
       )}
 
-      {/* Prompt snippet */}
-      {detail?.prompts?.system_prefix && (
+      {/* Context snippet */}
+      {detail?.context?.description_prefix && (
         <p className="mb-3 line-clamp-2 text-xs text-muted-foreground italic">
-          {detail.prompts.system_prefix.trim()}
+          {detail.context.description_prefix.trim()}
         </p>
       )}
 
       {/* Footer stats */}
       <div className="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
         <span>{persona.tool_count} tools</span>
-        {detail?.hints && Object.keys(detail.hints).length > 0 && (
-          <span>{Object.keys(detail.hints).length} hints</span>
-        )}
       </div>
     </button>
   );
@@ -374,69 +371,52 @@ function DetailDrawer({
           </div>
         )}
 
-        {/* Prompts */}
-        {detail.prompts && hasPromptContent(detail.prompts) && (
+        {/* Context Overrides */}
+        {detail.context && hasContextContent(detail.context) && (
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Prompts
+              Context Overrides
             </p>
-            {detail.prompts.system_prefix && (
+            {detail.context.description_prefix && (
               <div className="mb-2">
                 <p className="mb-1 text-[11px] text-muted-foreground">
-                  System Prefix
+                  Description Prefix
                 </p>
                 <pre className="overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
-                  {detail.prompts.system_prefix}
+                  {detail.context.description_prefix}
                 </pre>
               </div>
             )}
-            {detail.prompts.system_suffix && (
+            {detail.context.description_override && (
               <div className="mb-2">
                 <p className="mb-1 text-[11px] text-muted-foreground">
-                  System Suffix
+                  Description Override
                 </p>
                 <pre className="overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
-                  {detail.prompts.system_suffix}
+                  {detail.context.description_override}
                 </pre>
               </div>
             )}
-            {detail.prompts.instructions && (
+            {detail.context.agent_instructions_suffix && (
+              <div className="mb-2">
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  Agent Instructions Suffix
+                </p>
+                <pre className="overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
+                  {detail.context.agent_instructions_suffix}
+                </pre>
+              </div>
+            )}
+            {detail.context.agent_instructions_override && (
               <div>
                 <p className="mb-1 text-[11px] text-muted-foreground">
-                  Instructions
+                  Agent Instructions Override
                 </p>
                 <pre className="overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
-                  {detail.prompts.instructions}
+                  {detail.context.agent_instructions_override}
                 </pre>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Hints */}
-        {detail.hints && Object.keys(detail.hints).length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Hints
-            </p>
-            <div className="overflow-auto rounded border">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-2 py-1 text-left font-medium">Tool</th>
-                    <th className="px-2 py-1 text-left font-medium">Hint</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(detail.hints).map(([tool, hint]) => (
-                    <tr key={tool} className="border-b">
-                      <td className="px-2 py-1 font-mono">{tool}</td>
-                      <td className="px-2 py-1">{hint}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
         )}
 
@@ -476,14 +456,15 @@ function DetailDrawer({
   );
 }
 
-function hasPromptContent(
-  prompts: PersonaDetail["prompts"],
-): prompts is NonNullable<PersonaDetail["prompts"]> {
-  if (!prompts) return false;
+function hasContextContent(
+  context: PersonaDetail["context"],
+): context is NonNullable<PersonaDetail["context"]> {
+  if (!context) return false;
   return !!(
-    prompts.system_prefix ||
-    prompts.system_suffix ||
-    prompts.instructions
+    context.description_prefix ||
+    context.description_override ||
+    context.agent_instructions_suffix ||
+    context.agent_instructions_override
   );
 }
 

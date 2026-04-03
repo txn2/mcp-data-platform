@@ -40,8 +40,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     allow_tools: ["*"],
     deny_tools: [],
     tools: resolveTools(["*"], []),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are the ACME data platform administrator with full access.",
     },
   },
@@ -53,13 +53,11 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     allow_tools: ["trino_*", "datahub_*", "s3_*"],
     deny_tools: ["s3_delete_*"],
     tools: resolveTools(["trino_*", "datahub_*", "s3_*"], ["s3_delete_*"]),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are helping an ACME data engineer build and maintain data pipelines.",
-    },
-    hints: {
-      trino_query: "Use iceberg catalog for production tables",
-      datahub_search: "Search the catalog before writing new queries",
+      agent_instructions_suffix:
+        "Use iceberg catalog for production tables. Search the catalog before writing new queries.",
     },
   },
   "inventory-analyst": {
@@ -89,13 +87,11 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       ],
       [],
     ),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are helping an ACME inventory analyst track stock levels across 1,000 stores. Focus on the inventory and retail schemas.",
-    },
-    hints: {
-      trino_query: "Start with inventory.inventory_levels for current stock",
-      datahub_search: "Check metadata before joining tables",
+      agent_instructions_suffix:
+        "Start with inventory.inventory_levels for current stock. Check metadata before joining tables.",
     },
   },
   "regional-director": {
@@ -123,8 +119,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       ],
       [],
     ),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are providing regional performance data to an ACME regional director. Focus on the analytics schema and regional reports.",
     },
   },
@@ -151,8 +147,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       ],
       [],
     ),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are providing financial insights to an ACME executive. Focus on revenue, margins, and high-level KPIs. Avoid technical details.",
     },
   },
@@ -177,8 +173,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       ],
       [],
     ),
-    prompts: {
-      system_prefix:
+    context: {
+      description_prefix:
         "You are helping an ACME store manager access store-level data. Focus on daily sales, inventory, and employee scheduling.",
     },
   },

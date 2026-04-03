@@ -41,64 +41,119 @@ func TestAdminPersona(t *testing.T) {
 	}
 }
 
-func TestGetFullSystemPrompt(t *testing.T) {
+func TestApplyDescription(t *testing.T) {
 	tests := []struct {
 		name     string
-		prompts  PromptConfig
+		context  ContextOverrides
+		base     string
 		expected string
 	}{
 		{
-			name:     "empty prompts",
-			prompts:  PromptConfig{},
-			expected: "",
+			name:     "no overrides returns base",
+			context:  ContextOverrides{},
+			base:     "Base description",
+			expected: "Base description",
 		},
 		{
-			name: "only prefix",
-			prompts: PromptConfig{
-				SystemPrefix: "You are a helpful assistant.",
+			name: "prefix prepends to base",
+			context: ContextOverrides{
+				DescriptionPrefix: "You are a data analyst.",
 			},
-			expected: "You are a helpful assistant.",
+			base:     "Base description",
+			expected: "You are a data analyst.\n\nBase description",
 		},
 		{
-			name: "prefix and suffix",
-			prompts: PromptConfig{
-				SystemPrefix: "You are a helpful assistant.",
-				SystemSuffix: "Be concise.",
+			name: "override replaces base",
+			context: ContextOverrides{
+				DescriptionOverride: "Completely custom description",
 			},
-			expected: "You are a helpful assistant.\n\nBe concise.",
+			base:     "Base description",
+			expected: "Completely custom description",
 		},
 		{
-			name: "all three parts",
-			prompts: PromptConfig{
-				SystemPrefix: "You are a data analyst.",
-				Instructions: "Always check DataHub first.",
-				SystemSuffix: "Format output as JSON.",
+			name: "override wins over prefix",
+			context: ContextOverrides{
+				DescriptionPrefix:   "This prefix is ignored",
+				DescriptionOverride: "Override wins",
 			},
-			expected: "You are a data analyst.\n\nAlways check DataHub first.\n\nFormat output as JSON.",
+			base:     "Base description",
+			expected: "Override wins",
 		},
 		{
-			name: "only instructions",
-			prompts: PromptConfig{
-				Instructions: "Check metadata before queries.",
+			name: "empty base with prefix returns prefix only",
+			context: ContextOverrides{
+				DescriptionPrefix: "Just the prefix",
 			},
-			expected: "Check metadata before queries.",
-		},
-		{
-			name: "instructions and suffix",
-			prompts: PromptConfig{
-				Instructions: "Check metadata before queries.",
-				SystemSuffix: "Return structured data.",
-			},
-			expected: "Check metadata before queries.\n\nReturn structured data.",
+			base:     "",
+			expected: "Just the prefix",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Persona{Prompts: tt.prompts}
-			result := p.GetFullSystemPrompt()
+			p := &Persona{Context: tt.context}
+			result := p.ApplyDescription(tt.base)
 			if result != tt.expected {
-				t.Errorf("GetFullSystemPrompt() = %q, want %q", result, tt.expected)
+				t.Errorf("ApplyDescription(%q) = %q, want %q", tt.base, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestApplyAgentInstructions(t *testing.T) {
+	tests := []struct {
+		name     string
+		context  ContextOverrides
+		base     string
+		expected string
+	}{
+		{
+			name:     "no overrides returns base",
+			context:  ContextOverrides{},
+			base:     "Base instructions",
+			expected: "Base instructions",
+		},
+		{
+			name: "suffix appends to base",
+			context: ContextOverrides{
+				AgentInstructionsSuffix: "Always check DataHub first.",
+			},
+			base:     "Base instructions",
+			expected: "Base instructions\n\nAlways check DataHub first.",
+		},
+		{
+			name: "override replaces base",
+			context: ContextOverrides{
+				AgentInstructionsOverride: "Completely custom instructions",
+			},
+			base:     "Base instructions",
+			expected: "Completely custom instructions",
+		},
+		{
+			name: "override wins over suffix",
+			context: ContextOverrides{
+				AgentInstructionsSuffix:   "This suffix is ignored",
+				AgentInstructionsOverride: "Override wins",
+			},
+			base:     "Base instructions",
+			expected: "Override wins",
+		},
+		{
+			name: "empty base with suffix returns suffix only",
+			context: ContextOverrides{
+				AgentInstructionsSuffix: "Just the suffix",
+			},
+			base:     "",
+			expected: "Just the suffix",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Persona{Context: tt.context}
+			result := p.ApplyAgentInstructions(tt.base)
+			if result != tt.expected {
+				t.Errorf("ApplyAgentInstructions(%q) = %q, want %q", tt.base, result, tt.expected)
 			}
 		})
 	}

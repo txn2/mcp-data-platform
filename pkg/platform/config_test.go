@@ -470,10 +470,9 @@ func TestConfigTypes_PersonaDef(t *testing.T) {
 			Allow: []string{"*"},
 			Deny:  []string{"dangerous_*"},
 		},
-		Prompts: PromptsDef{
-			SystemPrefix: "You are an admin.",
+		Context: ContextDef{
+			DescriptionPrefix: "You are an admin.",
 		},
-		Hints: map[string]string{"key": "value"},
 	}
 	if def.DisplayName != "Administrator" {
 		t.Errorf("DisplayName = %q", def.DisplayName)

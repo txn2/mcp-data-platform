@@ -204,36 +204,35 @@ func TestRuleEngine_Integration(t *testing.T) {
 	assert.True(t, hasDeprecatedViolation, "expected deprecated data violation")
 }
 
-// TestPersonaPrompts_Integration tests that persona prompts are properly combined.
-func TestPersonaPrompts_Integration(t *testing.T) {
+// TestPersonaContext_Integration tests that persona context overrides work correctly.
+func TestPersonaContext_Integration(t *testing.T) {
 	registry := persona.NewRegistry()
 
-	// Register persona with full prompt config
+	// Register persona with context overrides
 	err := registry.Register(&persona.Persona{
 		Name:        "analyst",
 		DisplayName: "Data Analyst",
 		Description: "Analyze data and run queries",
 		Roles:       []string{"analyst"},
-		Prompts: persona.PromptConfig{
-			SystemPrefix: "You are a data analyst assistant.",
-			Instructions: "Always check DataHub before running queries.",
-			SystemSuffix: "Return results in JSON format.",
+		Context: persona.ContextOverrides{
+			DescriptionPrefix:       "You are a data analyst assistant.",
+			AgentInstructionsSuffix: "Always check DataHub before running queries.",
 		},
 		Priority: 10,
 	})
 	require.NoError(t, err)
 
-	// Get persona and verify prompt
+	// Get persona and verify context overrides
 	p, ok := registry.Get("analyst")
 	require.True(t, ok)
 
-	prompt := p.GetFullSystemPrompt()
-	assert.Contains(t, prompt, "You are a data analyst assistant.")
-	assert.Contains(t, prompt, "Always check DataHub before running queries.")
-	assert.Contains(t, prompt, "Return results in JSON format.")
+	desc := p.ApplyDescription("Base platform description")
+	assert.Contains(t, desc, "You are a data analyst assistant.")
+	assert.Contains(t, desc, "Base platform description")
 
-	// Verify parts are separated by double newlines
-	assert.Contains(t, prompt, "\n\n")
+	instructions := p.ApplyAgentInstructions("Base instructions")
+	assert.Contains(t, instructions, "Always check DataHub before running queries.")
+	assert.Contains(t, instructions, "Base instructions")
 }
 
 // TestPlatform_WithDatabase tests platform initialization with a real database.
@@ -294,7 +293,6 @@ func TestPlatform_WithDatabase(t *testing.T) {
 	assert.NotNil(t, p.MCPServer())
 	assert.NotNil(t, p.Config())
 	assert.NotNil(t, p.RuleEngine())
-	assert.NotNil(t, p.HintManager())
 }
 
 // runMigrations executes all SQL migrations in the migrations directory.

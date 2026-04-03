@@ -291,8 +291,8 @@ personas:
       tools:
         allow: ["trino_*", "datahub_*"]
         deny: ["*_delete_*"]
-      prompts:
-        system_prefix: "You are helping a data analyst."
+      context:
+        description_prefix: "You are helping a data analyst."
     admin:
       display_name: "Administrator"
       roles: ["admin"]

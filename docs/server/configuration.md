@@ -589,6 +589,10 @@ personas:
 | `definitions.<name>.roles` | array | - | Roles that map to this persona |
 | `definitions.<name>.tools.allow` | array | `[]` | Allowed tool patterns |
 | `definitions.<name>.tools.deny` | array | `[]` | Denied tool patterns |
+| `definitions.<name>.context.description_prefix` | string | - | Prepended to platform description |
+| `definitions.<name>.context.description_override` | string | - | Replaces platform description entirely |
+| `definitions.<name>.context.agent_instructions_suffix` | string | - | Appended to platform agent instructions |
+| `definitions.<name>.context.agent_instructions_override` | string | - | Replaces platform agent instructions entirely |
 | `default_persona` | string | - | Persona for users without role match |
 
 !!! warning "Default-Deny Security"

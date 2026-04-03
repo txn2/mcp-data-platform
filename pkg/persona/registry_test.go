@@ -206,13 +206,9 @@ func TestRegistry_LoadFromConfig(t *testing.T) {
 				Allow: []string{"trino_*", "datahub_*"},
 				Deny:  []string{"*_admin_*"},
 			},
-			Prompts: PromptConfigYAML{
-				SystemPrefix: "You are a data analyst.",
-				SystemSuffix: "Be helpful.",
-				Instructions: "Focus on data quality",
-			},
-			Hints: map[string]string{
-				"default_catalog": "hive",
+			Context: ContextOverridesYAML{
+				DescriptionPrefix:       "You are a data analyst.",
+				AgentInstructionsSuffix: "Focus on data quality",
 			},
 			Priority: personaTestPriority50,
 		},
@@ -252,8 +248,8 @@ func verifyLoadedAnalystPersona(t *testing.T, reg *Registry) {
 	if len(analyst.Tools.Allow) != 2 {
 		t.Errorf("analyst has %d allow rules, want 2", len(analyst.Tools.Allow))
 	}
-	if analyst.Prompts.SystemPrefix != "You are a data analyst." {
-		t.Errorf("analyst SystemPrefix = %q", analyst.Prompts.SystemPrefix)
+	if analyst.Context.DescriptionPrefix != "You are a data analyst." {
+		t.Errorf("analyst DescriptionPrefix = %q", analyst.Context.DescriptionPrefix)
 	}
 	if analyst.Priority != personaTestPriority50 {
 		t.Errorf("analyst Priority = %d, want 50", analyst.Priority)

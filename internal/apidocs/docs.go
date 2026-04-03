@@ -1962,6 +1962,12 @@ const docTemplate = `{
         "admin.personaCreateRequest": {
             "type": "object",
             "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
                 "allow_tools": {
                     "type": "array",
                     "items": {
@@ -1975,6 +1981,12 @@ const docTemplate = `{
                     }
                 },
                 "description": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
                     "type": "string"
                 },
                 "display_name": {
@@ -1997,6 +2009,12 @@ const docTemplate = `{
         "admin.personaDetail": {
             "type": "object",
             "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
                 "allow_tools": {
                     "type": "array",
                     "items": {
@@ -2010,6 +2028,12 @@ const docTemplate = `{
                     }
                 },
                 "description": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
                     "type": "string"
                 },
                 "display_name": {

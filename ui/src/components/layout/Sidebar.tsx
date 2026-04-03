@@ -52,7 +52,6 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { path: "/admin/knowledge", label: "Knowledge", icon: Lightbulb },
-  { path: "/admin/personas", label: "Personas", icon: Users },
   {
     path: "/admin/settings",
     label: "Settings",
@@ -60,6 +59,7 @@ const adminNavItems: NavItem[] = [
     children: [
       { path: "/admin/settings#description", label: "Description", icon: FileText },
       { path: "/admin/settings#agent-instructions", label: "Agent Instructions", icon: Bot },
+      { path: "/admin/settings#personas", label: "Personas", icon: Users },
       { path: "/admin/settings#changelog", label: "Change Log", icon: Clock },
     ],
   },

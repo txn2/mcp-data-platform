@@ -138,6 +138,10 @@ definitions:
     type: object
   admin.personaCreateRequest:
     properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
       allow_tools:
         items:
           type: string
@@ -147,6 +151,10 @@ definitions:
           type: string
         type: array
       description:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
         type: string
       display_name:
         type: string
@@ -161,6 +169,10 @@ definitions:
     type: object
   admin.personaDetail:
     properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
       allow_tools:
         items:
           type: string
@@ -170,6 +182,10 @@ definitions:
           type: string
         type: array
       description:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
         type: string
       display_name:
         type: string

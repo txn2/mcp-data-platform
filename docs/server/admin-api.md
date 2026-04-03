@@ -410,7 +410,9 @@ Returns a single persona with resolved tool list.
   "priority": 0,
   "allow_tools": ["trino_*", "datahub_*"],
   "deny_tools": ["*_delete_*"],
-  "tools": ["trino_query", "trino_describe_table", "datahub_search"]
+  "tools": ["trino_query", "trino_describe_table", "datahub_search"],
+  "description_prefix": "You are helping a data analyst.",
+  "agent_instructions_suffix": "Prefer aggregations for large tables."
 }
 ```
 

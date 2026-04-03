@@ -117,7 +117,6 @@ type Platform struct {
 	// Tuning
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
-	hintManager   *tuning.HintManager
 
 	// Knowledge stores (exposed for admin API)
 	knowledgeInsightStore   knowledgekit.InsightStore
@@ -653,17 +652,6 @@ func (p *Platform) initTuning(opts *Options) {
 	p.promptManager = tuning.NewPromptManager(tuning.PromptConfig{
 		PromptsDir: p.config.Tuning.PromptsDir,
 	})
-
-	// Initialize hint manager with defaults
-	p.hintManager = tuning.NewHintManager()
-	p.hintManager.SetHints(tuning.DefaultHints())
-
-	// Load persona-specific hints
-	for _, pers := range p.personaRegistry.All() {
-		if pers.Hints != nil {
-			p.hintManager.SetHints(pers.Hints)
-		}
-	}
 }
 
 // initWorkflow initializes the session workflow tracker if configured.
@@ -1462,12 +1450,12 @@ func (p *Platform) loadPersonas() error {
 				Allow: def.Tools.Allow,
 				Deny:  def.Tools.Deny,
 			},
-			Prompts: persona.PromptConfig{
-				SystemPrefix: def.Prompts.SystemPrefix,
-				SystemSuffix: def.Prompts.SystemSuffix,
-				Instructions: def.Prompts.Instructions,
+			Context: persona.ContextOverrides{
+				DescriptionPrefix:         def.Context.DescriptionPrefix,
+				DescriptionOverride:       def.Context.DescriptionOverride,
+				AgentInstructionsSuffix:   def.Context.AgentInstructionsSuffix,
+				AgentInstructionsOverride: def.Context.AgentInstructionsOverride,
 			},
-			Hints:    def.Hints,
 			Priority: def.Priority,
 		}
 		if err := p.personaRegistry.Register(personaDef); err != nil {
@@ -1576,9 +1564,6 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register platform-level prompts from config
 	p.registerPlatformPrompts()
 
-	// Register hints resource
-	p.registerHintsResource()
-
 	// Register user-defined custom resources from config
 	p.registerCustomResources()
 
@@ -1638,11 +1623,6 @@ func (p *Platform) PersonaRegistry() *persona.Registry {
 // RuleEngine returns the rule engine.
 func (p *Platform) RuleEngine() *tuning.RuleEngine {
 	return p.ruleEngine
-}
-
-// HintManager returns the hint manager.
-func (p *Platform) HintManager() *tuning.HintManager {
-	return p.hintManager
 }
 
 // SessionStore returns the session store.

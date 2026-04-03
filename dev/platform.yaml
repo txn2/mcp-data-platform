@@ -84,8 +84,8 @@ personas:
       allow:
         - "*"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are the ACME data platform administrator with full access.
 
   data-engineer:
@@ -99,12 +99,12 @@ personas:
         - "s3_*"
       deny:
         - "s3_delete_*"
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME data engineer build and maintain data pipelines.
-    hints:
-      trino_query: "Use iceberg catalog for production tables"
-      datahub_search: "Search the catalog before writing new queries"
+      agent_instructions_suffix: |
+        Use iceberg catalog for production tables.
+        Search the catalog before writing new queries.
 
   inventory-analyst:
     display_name: "Inventory Analyst"
@@ -120,13 +120,13 @@ personas:
         - "datahub_get_schema"
         - "s3_list_*"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME inventory analyst track stock levels across 1,000 stores.
         Focus on the inventory and retail schemas.
-    hints:
-      trino_query: "Start with inventory.inventory_levels for current stock"
-      datahub_search: "Check metadata before joining tables"
+      agent_instructions_suffix: |
+        Start with inventory.inventory_levels for current stock.
+        Check metadata before joining tables.
 
   regional-director:
     display_name: "Regional Director"
@@ -141,8 +141,8 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are providing regional performance data to an ACME regional director.
         Focus on the analytics schema and regional reports.
 
@@ -158,8 +158,8 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are providing financial insights to an ACME executive.
         Focus on revenue, margins, and high-level KPIs. Avoid technical details.
 
@@ -174,8 +174,8 @@ personas:
         - "datahub_search"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME store manager access store-level data.
         Focus on daily sales, inventory, and employee scheduling.
 
