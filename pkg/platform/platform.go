@@ -1289,14 +1289,26 @@ func (p *Platform) addMCPAppsMiddleware() {
 	p.mcpAppsRegistry.RegisterResources(p.mcpServer)
 }
 
-// addToolVisibilityMiddleware registers tool visibility filtering middleware
-// when allow/deny patterns are configured.
+// addToolVisibilityMiddleware registers tool visibility filtering middleware.
+// Applies both global allow/deny patterns and persona-based tool filtering
+// so agents only see tools they're authorized to use.
 func (p *Platform) addToolVisibilityMiddleware() {
-	if len(p.config.Tools.Allow) == 0 && len(p.config.Tools.Deny) == 0 {
-		return
+	cfg := middleware.ToolVisibilityConfig{
+		GlobalAllow:   p.config.Tools.Allow,
+		GlobalDeny:    p.config.Tools.Deny,
+		Authenticator: p.authenticator,
 	}
+
+	// Wire persona-based filtering via the authorizer.
+	if p.authorizer != nil {
+		cfg.IsToolAllowedForPersona = func(ctx context.Context, roles []string, toolName string) bool {
+			allowed, _, _ := p.authorizer.IsAuthorized(ctx, "", roles, toolName, "")
+			return allowed
+		}
+	}
+
 	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolVisibilityMiddleware(p.config.Tools.Allow, p.config.Tools.Deny),
+		middleware.MCPToolVisibilityMiddleware(cfg),
 	)
 }
 
