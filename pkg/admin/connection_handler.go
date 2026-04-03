@@ -258,10 +258,12 @@ func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Reques
 type liveConnectionInfo struct {
 	kind, name, connection string
 	tools                  []string
+	config                 map[string]any
 }
 
-// collectLiveConnections returns info for running data toolkit instances (trino, datahub, s3).
+// collectLiveConnections returns info for running data toolkit instances (trino, s3).
 // Built-in toolkits like knowledge and portal are excluded.
+// Config is populated from the raw toolkits YAML when available.
 func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 	if h.deps.ToolkitRegistry == nil {
 		return nil
@@ -271,11 +273,46 @@ func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 		if !knownConnectionKinds[tk.Kind()] {
 			continue
 		}
-		live = append(live, liveConnectionInfo{
+		info := liveConnectionInfo{
 			kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
-		})
+		}
+		// Look up the raw config from the toolkits YAML map.
+		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), tk.Name())
+		live = append(live, info)
 	}
 	return live
+}
+
+// lookupToolkitInstanceConfig extracts an instance's config from the raw toolkits map.
+func (h *Handler) lookupToolkitInstanceConfig(kind, name string) map[string]any {
+	if h.deps.ToolkitsConfig == nil {
+		return nil
+	}
+	kindVal, ok := h.deps.ToolkitsConfig[kind]
+	if !ok {
+		return nil
+	}
+	kindMap, ok := kindVal.(map[string]any)
+	if !ok {
+		return nil
+	}
+	instancesVal, ok := kindMap["instances"]
+	if !ok {
+		return nil
+	}
+	instances, ok := instancesVal.(map[string]any)
+	if !ok {
+		return nil
+	}
+	instVal, ok := instances[name]
+	if !ok {
+		return nil
+	}
+	instMap, ok := instVal.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return instMap
 }
 
 // mergeConnections combines live connections with DB instances, marking each with its source.
@@ -292,6 +329,7 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		seen[key] = true
 		ec := effectiveConnection{
 			Kind: l.kind, Name: l.name, Connection: l.connection, Source: "file", Tools: l.tools,
+			Config: l.config,
 		}
 		if inst, ok := dbMap[key]; ok {
 			ec.Source = "both"

@@ -194,7 +194,7 @@ function ConfigEditorPanel({ section, configKey, entry, readOnly }: ConfigEditor
   const reverting = deleteEntry.isPending;
 
   return (
-    <>
+    <div className="flex h-full flex-col">
       {/* Header bar */}
       <div className="flex items-center justify-between border-b px-5 py-3">
         <div className="flex items-center gap-3">
@@ -283,7 +283,7 @@ function ConfigEditorPanel({ section, configKey, entry, readOnly }: ConfigEditor
           minHeight="100%"
         />
       </div>
-    </>
+    </div>
   );
 }
 

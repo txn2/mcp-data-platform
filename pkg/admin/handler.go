@@ -95,6 +95,7 @@ type Deps struct {
 	S3Bucket            string
 	ConnectionStore     ConnectionStore
 	ConnectionSources   *platform.ConnectionSourceMap
+	ToolkitsConfig      map[string]any
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.

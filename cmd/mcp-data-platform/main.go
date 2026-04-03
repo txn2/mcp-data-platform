@@ -624,6 +624,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		S3Bucket:          p.Config().Portal.S3Bucket,
 		ConnectionStore:   p.ConnectionStore(),
 		ConnectionSources: p.ConnectionSources(),
+		ToolkitsConfig:    p.Config().Toolkits,
 	}
 
 	if p.AuditStore() != nil {
