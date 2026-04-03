@@ -284,6 +284,7 @@ func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 }
 
 // lookupToolkitInstanceConfig extracts an instance's config from the raw toolkits map.
+// Returns a shallow copy to avoid mutating the live platform config.
 func (h *Handler) lookupToolkitInstanceConfig(kind, name string) map[string]any {
 	if h.deps.ToolkitsConfig == nil {
 		return nil
@@ -312,7 +313,9 @@ func (h *Handler) lookupToolkitInstanceConfig(kind, name string) map[string]any 
 	if !ok {
 		return nil
 	}
-	return instMap
+	result := make(map[string]any, len(instMap))
+	maps.Copy(result, instMap)
+	return result
 }
 
 // mergeConnections combines live connections with DB instances, marking each with its source.
