@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsToolVisible(t *testing.T) {
@@ -158,7 +160,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("non tools/list passthrough", func(t *testing.T) {
 		result := &mcp.CallToolResult{}
-		got, err := filterToolVisibility([]string{"trino_*"}, nil, "tools/call", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/call", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -168,7 +170,7 @@ func TestFilterToolVisibility(t *testing.T) {
 	})
 
 	t.Run("nil result passthrough", func(t *testing.T) {
-		got, err := filterToolVisibility([]string{"trino_*"}, nil, "tools/list", nil)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -179,7 +181,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("non ListToolsResult type passthrough", func(t *testing.T) {
 		result := &mcp.CallToolResult{}
-		got, err := filterToolVisibility([]string{"trino_*"}, nil, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -190,7 +192,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("empty tools list", func(t *testing.T) {
 		result := &mcp.ListToolsResult{Tools: []*mcp.Tool{}}
-		got, err := filterToolVisibility([]string{"trino_*"}, nil, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -204,7 +206,7 @@ func TestFilterToolVisibility(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: makeTools(testAuditToolName, "trino_describe_table", "datahub_search", "s3_list_objects"),
 		}
-		got, err := filterToolVisibility([]string{"trino_*"}, nil, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -222,7 +224,7 @@ func TestFilterToolVisibility(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: makeTools(testAuditToolName, "s3_delete_object", "datahub_search"),
 		}
-		got, err := filterToolVisibility(nil, []string{"s3_delete_*"}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalDeny: []string{"s3_delete_*"}}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -240,7 +242,7 @@ func TestFilterToolVisibility(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: makeTools(testAuditToolName, "trino_delete_table", "datahub_search", "s3_list_objects"),
 		}
-		got, err := filterToolVisibility([]string{"trino_*"}, []string{"*_delete_*"}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}, GlobalDeny: []string{"*_delete_*"}}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -270,7 +272,7 @@ func TestMCPToolVisibilityMiddleware(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	mw := MCPToolVisibilityMiddleware([]string{"trino_*"}, nil)
+	mw := MCPToolVisibilityMiddleware(ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}})
 	handler := mw(baseHandler)
 
 	t.Run("filters tools/list", func(t *testing.T) {
@@ -298,11 +300,110 @@ func TestMCPToolVisibilityMiddleware(t *testing.T) {
 		errHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			return nil, context.Canceled
 		}
-		errMW := MCPToolVisibilityMiddleware([]string{"trino_*"}, nil)
+		errMW := MCPToolVisibilityMiddleware(ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}})
 		h := errMW(errHandler)
 		_, err := h(context.Background(), "tools/list", nil)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
+	})
+}
+
+func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
+	t.Run("persona denies tools not in allow list", func(t *testing.T) {
+		result := &mcp.ListToolsResult{
+			Tools: []*mcp.Tool{
+				{Name: "trino_query"},
+				{Name: "datahub_search"},
+				{Name: "s3_list_objects"},
+			},
+		}
+
+		cfg := ToolVisibilityConfig{
+			Authenticator: &NoopAuthenticator{},
+			IsToolAllowedForPersona: func(_ context.Context, _ []string, toolName string) bool {
+				return toolName == "trino_query"
+			},
+		}
+
+		ctx := WithPreAuthenticatedUser(context.Background(), &UserInfo{
+			UserID: "test-user",
+			Roles:  []string{"analyst"},
+		})
+
+		got, err := filterToolVisibility(ctx, cfg, "tools/list", result)
+		require.NoError(t, err)
+		listResult, ok := got.(*mcp.ListToolsResult)
+		require.True(t, ok)
+		assert.Len(t, listResult.Tools, 1)
+		assert.Equal(t, "trino_query", listResult.Tools[0].Name)
+	})
+
+	t.Run("no persona filter passes all tools", func(t *testing.T) {
+		result := &mcp.ListToolsResult{
+			Tools: []*mcp.Tool{
+				{Name: "trino_query"},
+				{Name: "s3_list_objects"},
+			},
+		}
+
+		cfg := ToolVisibilityConfig{}
+
+		got, err := filterToolVisibility(context.Background(), cfg, "tools/list", result)
+		require.NoError(t, err)
+		listResult, ok := got.(*mcp.ListToolsResult)
+		require.True(t, ok)
+		assert.Len(t, listResult.Tools, 2)
+	})
+
+	t.Run("global and persona filters stack", func(t *testing.T) {
+		result := &mcp.ListToolsResult{
+			Tools: []*mcp.Tool{
+				{Name: "trino_query"},
+				{Name: "trino_delete"},
+				{Name: "s3_list_objects"},
+			},
+		}
+
+		cfg := ToolVisibilityConfig{
+			GlobalDeny:    []string{"*_delete*"},
+			Authenticator: &NoopAuthenticator{},
+			IsToolAllowedForPersona: func(_ context.Context, _ []string, toolName string) bool {
+				return toolName != "s3_list_objects"
+			},
+		}
+
+		ctx := WithPreAuthenticatedUser(context.Background(), &UserInfo{
+			UserID: "test", Roles: []string{"analyst"},
+		})
+
+		got, err := filterToolVisibility(ctx, cfg, "tools/list", result)
+		require.NoError(t, err)
+		listResult, ok := got.(*mcp.ListToolsResult)
+		require.True(t, ok)
+		assert.Len(t, listResult.Tools, 1)
+		assert.Equal(t, "trino_query", listResult.Tools[0].Name)
+	})
+
+	t.Run("unauthenticated user skips persona filter", func(t *testing.T) {
+		result := &mcp.ListToolsResult{
+			Tools: []*mcp.Tool{
+				{Name: "trino_query"},
+				{Name: "s3_list_objects"},
+			},
+		}
+
+		cfg := ToolVisibilityConfig{
+			IsToolAllowedForPersona: func(_ context.Context, _ []string, _ string) bool {
+				return false
+			},
+		}
+
+		// No pre-authenticated user, no authenticator — persona filter should be skipped
+		got, err := filterToolVisibility(context.Background(), cfg, "tools/list", result)
+		require.NoError(t, err)
+		listResult, ok := got.(*mcp.ListToolsResult)
+		require.True(t, ok)
+		assert.Len(t, listResult.Tools, 2)
 	})
 }

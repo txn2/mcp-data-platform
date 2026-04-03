@@ -1799,7 +1799,7 @@ func TestMiddlewareChain_ToolVisibility(t *testing.T) {
 	}
 
 	// Add visibility middleware: allow only trino_* tools
-	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware([]string{"trino_*"}, nil))
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -1850,7 +1850,7 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 	}
 
 	// Deny s3_delete_* only
-	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(nil, []string{"s3_delete_*"}))
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{GlobalDeny: []string{"s3_delete_*"}}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -1901,7 +1901,7 @@ func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
 	}
 
 	// No patterns — middleware still registered but should be no-op
-	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(nil, nil))
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)

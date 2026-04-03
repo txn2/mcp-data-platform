@@ -163,10 +163,9 @@ export function ConnectionsPanel() {
                         <span className={cn(
                           "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
                           c.source === "file" ? "bg-muted text-muted-foreground" :
-                          c.source === "database" ? "bg-primary/10 text-primary" :
-                          "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                          "bg-primary/10 text-primary",
                         )}>
-                          {c.source === "both" ? "file+db" : c.source}
+                          {c.source === "file" ? "file" : "database"}
                         </span>
                       </div>
                       {c.description && (
@@ -295,6 +294,11 @@ function ConnectionViewer({
           {connection.description && (
             <p className="mt-1 text-sm text-muted-foreground">{connection.description}</p>
           )}
+          {connection.source === "both" && (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              This connection is managed in the database. A fallback version also exists in the config file and can be removed once database management is confirmed.
+            </p>
+          )}
         </div>
         {!isReadOnly && (
           <div className="flex gap-2">
@@ -346,7 +350,11 @@ function ConnectionViewer({
           <div className="rounded-md border divide-y">
             {configEntries.map(([key, value]) => {
               const sensitive = isSensitive(key);
-              const displayValue = sensitive && !showSensitive ? "********" : String(value);
+              const displayValue = sensitive && !showSensitive
+                ? "********"
+                : typeof value === "object" && value !== null
+                  ? JSON.stringify(value)
+                  : String(value);
               return (
                 <div key={key} className="flex items-center gap-4 px-4 py-2">
                   <span className="text-xs font-mono text-muted-foreground w-48 shrink-0 truncate">
