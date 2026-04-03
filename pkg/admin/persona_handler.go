@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
 
@@ -20,25 +19,37 @@ type personaSummary struct {
 
 // personaDetail includes resolved tool lists.
 type personaDetail struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description,omitempty"`
-	Roles       []string `json:"roles"`
-	Priority    int      `json:"priority"`
-	AllowTools  []string `json:"allow_tools"`
-	DenyTools   []string `json:"deny_tools"`
-	Tools       []string `json:"tools"`
+	Name                      string   `json:"name"`
+	DisplayName               string   `json:"display_name"`
+	Description               string   `json:"description,omitempty"`
+	Roles                     []string `json:"roles"`
+	Priority                  int      `json:"priority"`
+	AllowTools                []string `json:"allow_tools"`
+	DenyTools                 []string `json:"deny_tools"`
+	AllowConnections          []string `json:"allow_connections,omitempty"`
+	DenyConnections           []string `json:"deny_connections,omitempty"`
+	Tools                     []string `json:"tools"`
+	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
+	DescriptionOverride       string   `json:"description_override,omitempty"`
+	AgentInstructionsSuffix   string   `json:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string   `json:"agent_instructions_override,omitempty"`
 }
 
 // personaCreateRequest is the request body for creating/updating a persona.
 type personaCreateRequest struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description,omitempty"`
-	Roles       []string `json:"roles"`
-	AllowTools  []string `json:"allow_tools"`
-	DenyTools   []string `json:"deny_tools,omitempty"`
-	Priority    int      `json:"priority,omitempty"`
+	Name                      string   `json:"name"`
+	DisplayName               string   `json:"display_name"`
+	Description               string   `json:"description,omitempty"`
+	Roles                     []string `json:"roles"`
+	AllowTools                []string `json:"allow_tools"`
+	DenyTools                 []string `json:"deny_tools,omitempty"`
+	AllowConnections          []string `json:"allow_connections,omitempty"`
+	DenyConnections           []string `json:"deny_connections,omitempty"`
+	Priority                  int      `json:"priority,omitempty"`
+	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
+	DescriptionOverride       string   `json:"description_override,omitempty"`
+	AgentInstructionsSuffix   string   `json:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string   `json:"agent_instructions_override,omitempty"`
 }
 
 // personaListResponse wraps a list of personas.
@@ -120,14 +131,20 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(tools)
 
 	writeJSON(w, http.StatusOK, personaDetail{
-		Name:        p.Name,
-		DisplayName: p.DisplayName,
-		Description: p.Description,
-		Roles:       p.Roles,
-		Priority:    p.Priority,
-		AllowTools:  p.Tools.Allow,
-		DenyTools:   p.Tools.Deny,
-		Tools:       tools,
+		Name:                      p.Name,
+		DisplayName:               p.DisplayName,
+		Description:               p.Description,
+		Roles:                     p.Roles,
+		Priority:                  p.Priority,
+		AllowTools:                p.Tools.Allow,
+		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
+		Tools:                     tools,
+		DescriptionPrefix:         p.Context.DescriptionPrefix,
+		DescriptionOverride:       p.Context.DescriptionOverride,
+		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
+		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
 	})
 }
 
@@ -174,17 +191,21 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("create persona %s", p.Name))
-
 	writeJSON(w, http.StatusCreated, personaDetail{
-		Name:        p.Name,
-		DisplayName: p.DisplayName,
-		Description: p.Description,
-		Roles:       p.Roles,
-		Priority:    p.Priority,
-		AllowTools:  p.Tools.Allow,
-		DenyTools:   p.Tools.Deny,
-		Tools:       []string{},
+		Name:                      p.Name,
+		DisplayName:               p.DisplayName,
+		Description:               p.Description,
+		Roles:                     p.Roles,
+		Priority:                  p.Priority,
+		AllowTools:                p.Tools.Allow,
+		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
+		Tools:                     []string{},
+		DescriptionPrefix:         p.Context.DescriptionPrefix,
+		DescriptionOverride:       p.Context.DescriptionOverride,
+		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
+		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
 	})
 }
 
@@ -225,17 +246,21 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("update persona %s", p.Name))
-
 	writeJSON(w, http.StatusOK, personaDetail{
-		Name:        p.Name,
-		DisplayName: p.DisplayName,
-		Description: p.Description,
-		Roles:       p.Roles,
-		Priority:    p.Priority,
-		AllowTools:  p.Tools.Allow,
-		DenyTools:   p.Tools.Deny,
-		Tools:       []string{},
+		Name:                      p.Name,
+		DisplayName:               p.DisplayName,
+		Description:               p.Description,
+		Roles:                     p.Roles,
+		Priority:                  p.Priority,
+		AllowTools:                p.Tools.Allow,
+		DenyTools:                 p.Tools.Deny,
+		AllowConnections:          p.Connections.Allow,
+		DenyConnections:           p.Connections.Deny,
+		Tools:                     []string{},
+		DescriptionPrefix:         p.Context.DescriptionPrefix,
+		DescriptionOverride:       p.Context.DescriptionOverride,
+		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
+		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
 	})
 }
 
@@ -266,8 +291,6 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncConfig(r, fmt.Sprintf("delete persona %s", name))
-
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 }
 
@@ -282,6 +305,15 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		deny = []string{}
 	}
 
+	allowConn := req.AllowConnections
+	if allowConn == nil {
+		allowConn = []string{}
+	}
+	denyConn := req.DenyConnections
+	if denyConn == nil {
+		denyConn = []string{}
+	}
+
 	return &persona.Persona{
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
@@ -290,6 +322,16 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		Tools: persona.ToolRules{
 			Allow: allow,
 			Deny:  deny,
+		},
+		Connections: persona.ConnectionRules{
+			Allow: allowConn,
+			Deny:  denyConn,
+		},
+		Context: persona.ContextOverrides{
+			DescriptionPrefix:         req.DescriptionPrefix,
+			DescriptionOverride:       req.DescriptionOverride,
+			AgentInstructionsSuffix:   req.AgentInstructionsSuffix,
+			AgentInstructionsOverride: req.AgentInstructionsOverride,
 		},
 		Priority: req.Priority,
 	}

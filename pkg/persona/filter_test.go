@@ -198,7 +198,7 @@ func TestAuthorizer_IsAuthorized_MapperError(t *testing.T) {
 	}
 	auth := NewAuthorizer(reg, mapper)
 
-	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1")
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{"role1"}, "tool1", "")
 	if authorized {
 		t.Error("expected not authorized on mapper error")
 	}
@@ -220,7 +220,7 @@ func TestAuthorizer_IsAuthorized_ToolNotAllowed(t *testing.T) {
 	}
 	auth := NewAuthorizer(reg, mapper)
 
-	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets")
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets", "")
 	if authorized {
 		t.Error("expected not authorized for disallowed tool")
 	}
@@ -242,7 +242,7 @@ func TestAuthorizer_IsAuthorized_ToolAllowed(t *testing.T) {
 	}
 	auth := NewAuthorizer(reg, mapper)
 
-	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAdmin}, "any_tool")
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAdmin}, "any_tool", "")
 	if !authorized {
 		t.Error("expected authorized for admin persona")
 	}
@@ -251,6 +251,91 @@ func TestAuthorizer_IsAuthorized_ToolAllowed(t *testing.T) {
 	}
 	if reason != "" {
 		t.Errorf("unexpected reason: %s", reason)
+	}
+}
+
+func TestToolFilter_IsConnectionAllowed(t *testing.T) {
+	reg := NewRegistry()
+	filter := NewToolFilter(reg)
+
+	tests := []struct {
+		name           string
+		persona        *Persona
+		connectionName string
+		want           bool
+	}{
+		{
+			name:           "nil persona returns false",
+			persona:        nil,
+			connectionName: "any",
+			want:           false,
+		},
+		{
+			name: "empty connection name returns true",
+			persona: &Persona{
+				Name:        "analyst",
+				Connections: ConnectionRules{Deny: []string{"*"}},
+			},
+			connectionName: "",
+			want:           true,
+		},
+		{
+			name: "empty allow list permits all",
+			persona: &Persona{
+				Name:        "analyst",
+				Connections: ConnectionRules{},
+			},
+			connectionName: "prod-trino",
+			want:           true,
+		},
+		{
+			name: "deny pattern blocks",
+			persona: &Persona{
+				Name:        "analyst",
+				Connections: ConnectionRules{Deny: []string{"prod-*"}},
+			},
+			connectionName: "prod-trino",
+			want:           false,
+		},
+		{
+			name: "allow pattern permits",
+			persona: &Persona{
+				Name:        "analyst",
+				Connections: ConnectionRules{Allow: []string{"dev-*"}},
+			},
+			connectionName: "dev-trino",
+			want:           true,
+		},
+		{
+			name: "deny overrides allow",
+			persona: &Persona{
+				Name: "analyst",
+				Connections: ConnectionRules{
+					Allow: []string{"*"},
+					Deny:  []string{"prod-*"},
+				},
+			},
+			connectionName: "prod-trino",
+			want:           false,
+		},
+		{
+			name: "no matching allow denies",
+			persona: &Persona{
+				Name:        "analyst",
+				Connections: ConnectionRules{Allow: []string{"dev-*"}},
+			},
+			connectionName: "staging-trino",
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filter.IsConnectionAllowed(tt.persona, tt.connectionName)
+			if got != tt.want {
+				t.Errorf("IsConnectionAllowed(%q) = %v, want %v", tt.connectionName, got, tt.want)
+			}
+		})
 	}
 }
 

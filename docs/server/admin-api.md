@@ -95,17 +95,18 @@ All errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9
 
 Some endpoints are only available in certain [operating modes](operating-modes.md). When a feature is enabled in config but unavailable at runtime (e.g., no database), endpoints return `409 Conflict` with an explanation. When a feature is disabled in config, endpoints return `404 Not Found`.
 
-| Endpoint Group | Standalone (no DB) | File + DB | Bootstrap + DB Config |
-|---------------|-------------------|-----------|----------------------|
-| System | available | available | available |
-| Config (read) | available | available | available |
-| Config (write) | 409 | 409 | available |
-| Personas (read) | available | available | available |
-| Personas (write) | 409 | 409 | available |
-| Auth keys (read) | available | available | available |
-| Auth keys (write) | 409 | 409 | available |
-| Audit | 409 (if enabled) | available | available |
-| Knowledge | 409 (if enabled) | available | available |
+| Endpoint Group | Standalone (no DB) | File + DB |
+|---------------|-------------------|-----------|
+| System | available | available |
+| Config (read) | available | available |
+| Config entries (CRUD) | 409 | available (whitelisted keys only) |
+| Config changelog | 409 | available |
+| Personas (read) | available | available |
+| Personas (write) | 409 | available |
+| Auth keys (read) | available | available |
+| Auth keys (write) | 409 | available |
+| Audit | 409 (if enabled) | available |
+| Knowledge | 409 (if enabled) | available |
 
 ## System Endpoints
 
@@ -233,53 +234,134 @@ Returns the current configuration as downloadable YAML. Sensitive values are red
 |-----------|------|-------------|
 | `secrets` | string | Set to `true` to include sensitive values |
 
-### Import Config
+### Effective Config
 
 ```
-POST /api/v1/admin/config/import
+GET /api/v1/admin/config/effective
 ```
 
-Imports a YAML configuration into the config store. Only available in `database` config mode. Returns `409 Conflict` in `file` mode.
+Returns the merged view of all whitelisted config keys: database overrides where present, file defaults otherwise. Each entry includes a `source` field indicating whether the value comes from the file or a database override.
 
-**Query Parameters:**
+**Response:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `comment` | string | Optional revision comment |
+```json
+[
+  {
+    "key": "server.agent_instructions",
+    "value": "You are an AI assistant...",
+    "source": "file"
+  },
+  {
+    "key": "server.description",
+    "value": "ACME Corp analytics platform",
+    "source": "database",
+    "updated_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
+```
 
-**Request Body:** YAML configuration (Content-Type: application/x-yaml or text/plain). Max 1MB.
+### List Config Entries
+
+```
+GET /api/v1/admin/config/entries
+```
+
+Returns all config entries stored in the database. Each entry represents a per-key override of the file default.
+
+**Response:**
+
+```json
+[
+  {
+    "key": "server.description",
+    "value": "ACME Corp analytics platform",
+    "updated_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
+```
+
+### Get Config Entry
+
+```
+GET /api/v1/admin/config/entries/{key}
+```
+
+Returns a single config entry by key. Returns `404 Not Found` if the key has no database override.
 
 **Response:**
 
 ```json
 {
-  "status": "saved",
-  "note": "changes take effect on next restart"
+  "key": "server.description",
+  "value": "ACME Corp analytics platform",
+  "updated_by": "admin@example.com",
+  "updated_at": "2025-01-15T14:30:00Z"
 }
 ```
 
-### Config History
+### Set Config Entry
 
 ```
-GET /api/v1/admin/config/history
+PUT /api/v1/admin/config/entries/{key}
 ```
 
-Returns config revision history. Only available in `database` config mode.
+Sets a config entry for a whitelisted key. The change takes effect immediately (hot-reload) without restart. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
+
+**Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
+
+**Request Body:**
+
+```json
+{
+  "value": "ACME Corp analytics platform"
+}
+```
 
 **Response:**
 
 ```json
 {
-  "revisions": [
-    {
-      "version": 3,
-      "author": "admin@example.com",
-      "comment": "update persona definitions",
-      "created_at": "2025-01-15T14:30:00Z"
-    }
-  ],
-  "total": 3
+  "key": "server.description",
+  "value": "ACME Corp analytics platform",
+  "updated_by": "admin@example.com",
+  "updated_at": "2025-01-15T14:30:00Z"
 }
+```
+
+**Status Codes:** `200 OK`, `400 Bad Request` (non-whitelisted key), `409 Conflict` (no database)
+
+### Delete Config Entry
+
+```
+DELETE /api/v1/admin/config/entries/{key}
+```
+
+Removes a database override for a key, restoring the file default. Returns `404 Not Found` if no override exists.
+
+**Status Codes:** `204 No Content`, `404 Not Found`
+
+### Config Changelog
+
+```
+GET /api/v1/admin/config/changelog
+```
+
+Returns an audit log of config entry changes (creates, updates, deletes).
+
+**Response:**
+
+```json
+[
+  {
+    "key": "server.description",
+    "action": "set",
+    "value": "ACME Corp analytics platform",
+    "changed_by": "admin@example.com",
+    "changed_at": "2025-01-15T14:30:00Z"
+  }
+]
 ```
 
 ## Persona Endpoints
@@ -328,7 +410,9 @@ Returns a single persona with resolved tool list.
   "priority": 0,
   "allow_tools": ["trino_*", "datahub_*"],
   "deny_tools": ["*_delete_*"],
-  "tools": ["trino_query", "trino_describe_table", "datahub_search"]
+  "tools": ["trino_query", "trino_describe_table", "datahub_search"],
+  "description_prefix": "You are helping a data analyst.",
+  "agent_instructions_suffix": "Prefer aggregations for large tables."
 }
 ```
 
@@ -610,6 +694,79 @@ Returns session-level discovery patterns: how often users explore the catalog (D
 | `discovery_rate` | float | Fraction of sessions that used discovery (0.0–1.0) |
 | `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
 | `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
+
+## Connection Instance Endpoints
+
+Connection instance endpoints manage database-backed toolkit connections. These endpoints require a database connection. Read endpoints are always available; write endpoints require database config mode.
+
+### List Connection Instances
+
+```
+GET /api/v1/admin/connection-instances
+```
+
+Returns all database-managed connection instances ordered by kind and name.
+
+**Response:**
+
+```json
+[
+  {
+    "kind": "trino",
+    "name": "prod",
+    "config": {"host": "trino.example.com", "port": 8080},
+    "description": "Production Trino cluster",
+    "created_by": "admin@example.com",
+    "updated_at": "2025-01-15T14:30:00Z"
+  }
+]
+```
+
+### Get Connection Instance
+
+```
+GET /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Returns a single connection instance by toolkit kind and instance name.
+
+**Status Codes:** `200 OK`, `404 Not Found`
+
+### Create or Update Connection Instance
+
+```
+PUT /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Creates or updates a database-managed connection instance. Only available in database config mode.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `kind` | Toolkit kind: `trino`, `datahub`, or `s3` |
+| `name` | Instance name |
+
+**Request Body:**
+
+```json
+{
+  "config": {"host": "trino.example.com", "port": 8080},
+  "description": "Production Trino cluster"
+}
+```
+
+**Status Codes:** `200 OK`, `400 Bad Request` (unknown kind or invalid body)
+
+### Delete Connection Instance
+
+```
+DELETE /api/v1/admin/connection-instances/{kind}/{name}
+```
+
+Deletes a database-managed connection instance. Only available in database config mode.
+
+**Status Codes:** `204 No Content`, `404 Not Found`
 
 ## Knowledge Endpoints
 

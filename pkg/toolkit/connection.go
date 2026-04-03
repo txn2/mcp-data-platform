@@ -17,3 +17,12 @@ type ConnectionDetail struct {
 type ConnectionLister interface {
 	ListConnections() []ConnectionDetail
 }
+
+// ConnectionManager is an optional interface for toolkits that support adding
+// and removing backend connections at runtime without restart. Used by the admin
+// API to make DB-managed connections live immediately.
+type ConnectionManager interface {
+	AddConnection(name string, config map[string]any) error
+	RemoveConnection(name string) error
+	HasConnection(name string) bool
+}

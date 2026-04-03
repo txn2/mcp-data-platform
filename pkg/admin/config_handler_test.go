@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,10 +16,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
-
-var errTestSave = errors.New("save failed")
-
-const testValidConfigYAML = "apiVersion: v1\nserver:\n  name: imported\n  transport: stdio\n"
 
 func TestGetConfig(t *testing.T) {
 	t.Run("returns redacted config", func(t *testing.T) {
@@ -184,201 +180,180 @@ func TestExportConfig(t *testing.T) {
 	})
 }
 
-func TestImportConfig(t *testing.T) {
-	t.Run("imports valid config in database mode", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		yamlBody := testValidConfigYAML
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import?comment=test+import", strings.NewReader(yamlBody))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		var body map[string]string
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, "saved", body["status"])
-		assert.Contains(t, body["note"], "next restart")
-		assert.Equal(t, 1, cs.saveCalls)
-	})
-
-	t.Run("rejects invalid YAML", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("{{invalid yaml"))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Equal(t, 0, cs.saveCalls)
-	})
-
-	t.Run("rejects config that fails validation", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		// OIDC enabled without issuer fails validation
-		yamlBody := "apiVersion: v1\nauth:\n  oidc:\n    enabled: true\n"
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		pd := decodeProblem(w.Body.Bytes())
-		assert.Contains(t, pd.Detail, "validation failed")
-		assert.Equal(t, 0, cs.saveCalls)
-	})
-
-	t.Run("imports with authenticated user", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		yamlBody := testValidConfigYAML
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import?comment=user+import", strings.NewReader(yamlBody))
-		ctx := context.WithValue(req.Context(), adminUserKey, &User{UserID: "admin-user"})
-		req = req.WithContext(ctx)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, 1, cs.saveCalls)
-	})
-
-	t.Run("returns error on save failure", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database", saveErr: errTestSave}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		yamlBody := testValidConfigYAML
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader(yamlBody))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-	})
-
-	t.Run("blocks import in file mode", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "file"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/config/import", strings.NewReader("apiVersion: v1\n"))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusConflict, w.Code)
-		pd := decodeProblem(w.Body.Bytes())
-		assert.Equal(t, "config is read-only in file mode", pd.Detail)
-	})
-}
-
-func TestConfigHistory(t *testing.T) {
-	t.Run("returns revisions in database mode", func(t *testing.T) {
+func TestListConfigEntries(t *testing.T) {
+	t.Run("returns entries", func(t *testing.T) {
 		cs := &mockConfigStore{
 			mode: "database",
-			history: []configstore.Revision{
-				{
-					ID:        1,
-					Version:   1,
-					Author:    "admin",
-					Comment:   "initial",
-					CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			entries: map[string]*configstore.Entry{
+				"server.description": {
+					Key:       "server.description",
+					Value:     "Test platform",
+					UpdatedBy: "admin",
+					UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
 			},
 		}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/entries", http.NoBody)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var body map[string]any
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, float64(1), body["total"])
-		revisions, ok := body["revisions"].([]any)
-		require.True(t, ok, "revisions should be a slice")
-		assert.Len(t, revisions, 1)
-	})
-
-	t.Run("returns empty revisions", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		var body map[string]any
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-		assert.Equal(t, float64(0), body["total"])
-	})
-
-	t.Run("returns error on history failure", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database"}
-		cs.historyErr = errTestSave
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-	})
-
-	t.Run("blocks history in file mode", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "file"}
-		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/history", http.NoBody)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusConflict, w.Code)
+		var entries []configstore.Entry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&entries))
+		assert.Len(t, entries, 1)
+		assert.Equal(t, "server.description", entries[0].Key)
 	})
 }
 
-func TestSyncConfig(t *testing.T) {
-	t.Run("no-op when config store is nil", func(_ *testing.T) {
-		h := NewHandler(Deps{Config: testConfig()}, nil)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		// Should not panic
-		h.syncConfig(req, "test")
+func TestGetConfigEntry(t *testing.T) {
+	t.Run("returns entry", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode: "database",
+			entries: map[string]*configstore.Entry{
+				"server.description": {
+					Key:   "server.description",
+					Value: "Hello",
+				},
+			},
+		}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/entries/server.description", http.NoBody)
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var entry configstore.Entry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&entry))
+		assert.Equal(t, "server.description", entry.Key)
+		assert.Equal(t, "Hello", entry.Value)
 	})
 
-	t.Run("no-op in file mode", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "file"}
-		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		h.syncConfig(req, "test")
-		assert.Equal(t, 0, cs.saveCalls)
-	})
-
-	t.Run("saves in database mode", func(t *testing.T) {
+	t.Run("returns 404 for missing entry", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		h.syncConfig(req, "test mutation")
-		assert.Equal(t, 1, cs.saveCalls)
-	})
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
-	t.Run("saves with user context", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/entries/server.description", http.NoBody)
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+}
+
+func TestSetConfigEntry(t *testing.T) {
+	t.Run("sets whitelisted key", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
-		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		ctx := context.WithValue(req.Context(), adminUserKey, &User{UserID: "admin-user"})
-		req = req.WithContext(ctx)
-		h.syncConfig(req, "with user")
-		assert.Equal(t, 1, cs.saveCalls)
+		cfg := testConfig()
+		h := NewHandler(Deps{ConfigStore: cs, Config: cfg}, nil)
+
+		body := `{"value":"My Platform"}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/config/entries/server.description", strings.NewReader(body))
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, 1, cs.setCalls)
+		// Verify hot-reload applied
+		assert.Equal(t, "My Platform", cfg.Server.Description)
 	})
 
-	t.Run("logs error on save failure", func(t *testing.T) {
-		cs := &mockConfigStore{mode: "database", saveErr: errTestSave}
-		h := NewHandler(Deps{Config: testConfig(), ConfigStore: cs}, nil)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		// Should not panic, error is logged
-		h.syncConfig(req, "fail save")
-		assert.Equal(t, 1, cs.saveCalls)
+	t.Run("rejects non-whitelisted key", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		body := `{"value":"bad"}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/config/entries/database.dsn", strings.NewReader(body))
+		req.SetPathValue("key", "database.dsn")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, 0, cs.setCalls)
+	})
+
+	t.Run("rejects invalid body", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/config/entries/server.description", strings.NewReader("{bad"))
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestDeleteConfigEntry(t *testing.T) {
+	t.Run("deletes existing entry", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode: "database",
+			entries: map[string]*configstore.Entry{
+				"server.description": {Key: "server.description", Value: "old"},
+			},
+		}
+		cfg := testConfig()
+		cfg.Server.Description = "overridden"
+		h := NewHandler(Deps{
+			ConfigStore:  cs,
+			Config:       cfg,
+			FileDefaults: map[string]string{"server.description": "file-default"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/config/entries/server.description", http.NoBody)
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNoContent, w.Code)
+		// Should revert to file default
+		assert.Equal(t, "file-default", cfg.Server.Description)
+	})
+
+	t.Run("returns 404 for missing entry", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/config/entries/server.description", http.NoBody)
+		req.SetPathValue("key", "server.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+}
+
+func TestGetConfigChangelog(t *testing.T) {
+	t.Run("returns changelog entries", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode: "database",
+			changelog: []configstore.ChangelogEntry{
+				{
+					ID:        1,
+					Key:       "server.description",
+					Action:    "set",
+					ChangedBy: "admin",
+					ChangedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/changelog", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var entries []configstore.ChangelogEntry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&entries))
+		assert.Len(t, entries, 1)
+		assert.Equal(t, "server.description", entries[0].Key)
 	})
 }
 
@@ -603,5 +578,94 @@ func TestFileMode_AuthKeyMutationsBlocked(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestListEffectiveConfig(t *testing.T) {
+	t.Run("returns file defaults when no DB overrides", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description":        "file desc",
+				"server.agent_instructions": "file instructions",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var result []effectiveConfigEntry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		assert.Len(t, result, 2)
+		// Should be sorted by key
+		assert.Equal(t, "server.agent_instructions", result[0].Key)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "file instructions", result[0].Value)
+		assert.Equal(t, "server.description", result[1].Key)
+		assert.Equal(t, "file", result[1].Source)
+		assert.Equal(t, "file desc", result[1].Value)
+	})
+
+	t.Run("DB override replaces file default", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode: "database",
+			entries: map[string]*configstore.Entry{
+				"server.description": {
+					Key:       "server.description",
+					Value:     "db desc",
+					UpdatedBy: "admin@test.com",
+					UpdatedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description":        "file desc",
+				"server.agent_instructions": "file instructions",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var result []effectiveConfigEntry
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		assert.Len(t, result, 2)
+		// agent_instructions from file, description from DB
+		assert.Equal(t, "server.agent_instructions", result[0].Key)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "server.description", result[1].Key)
+		assert.Equal(t, "database", result[1].Source)
+		assert.Equal(t, "db desc", result[1].Value)
+		assert.NotNil(t, result[1].UpdatedBy)
+		assert.Equal(t, "admin@test.com", *result[1].UpdatedBy)
+	})
+
+	t.Run("returns 500 on DB error", func(t *testing.T) {
+		cs := &mockConfigStore{
+			mode:    "database",
+			listErr: fmt.Errorf("connection refused"),
+		}
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      testConfig(),
+			FileDefaults: map[string]string{
+				"server.description": "file desc",
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }

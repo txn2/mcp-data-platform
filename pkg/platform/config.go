@@ -30,12 +30,6 @@ const (
 	SessionStoreDatabase = "database"
 )
 
-// Config store mode names.
-const (
-	ConfigStoreModeFile     = "file"
-	ConfigStoreModeDatabase = "database"
-)
-
 // Default durations for configuration.
 var (
 	defaultCacheTTL         = 5 * time.Minute
@@ -282,13 +276,19 @@ type PersonasConfig struct {
 
 // PersonaDef defines a persona.
 type PersonaDef struct {
-	DisplayName string            `yaml:"display_name"`
-	Description string            `yaml:"description,omitempty"`
-	Roles       []string          `yaml:"roles"`
-	Tools       ToolRulesDef      `yaml:"tools"`
-	Prompts     PromptsDef        `yaml:"prompts"`
-	Hints       map[string]string `yaml:"hints,omitempty"`
-	Priority    int               `yaml:"priority,omitempty"`
+	DisplayName string             `yaml:"display_name"`
+	Description string             `yaml:"description,omitempty"`
+	Roles       []string           `yaml:"roles"`
+	Tools       ToolRulesDef       `yaml:"tools"`
+	Connections ConnectionRulesDef `yaml:"connections"`
+	Context     ContextDef         `yaml:"context"`
+	Priority    int                `yaml:"priority,omitempty"`
+}
+
+// ConnectionRulesDef defines connection access rules in config.
+type ConnectionRulesDef struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // ToolsConfig configures global tool visibility filtering for tools/list responses.
@@ -306,11 +306,12 @@ type ToolRulesDef struct {
 	Deny  []string `yaml:"deny"`
 }
 
-// PromptsDef defines prompt customizations.
-type PromptsDef struct {
-	SystemPrefix string `yaml:"system_prefix,omitempty"`
-	SystemSuffix string `yaml:"system_suffix,omitempty"`
-	Instructions string `yaml:"instructions,omitempty"`
+// ContextDef defines per-persona context overrides.
+type ContextDef struct {
+	DescriptionPrefix         string `yaml:"description_prefix,omitempty"`
+	DescriptionOverride       string `yaml:"description_override,omitempty"`
+	AgentInstructionsSuffix   string `yaml:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string `yaml:"agent_instructions_override,omitempty"`
 }
 
 // RoleMappingConfig configures role mapping.
@@ -740,7 +741,6 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
-	applyConfigStoreDefaults(cfg)
 	applyServerDefaults(cfg)
 	applyServiceDefaults(cfg)
 	applySessionDedupDefaults(cfg)
@@ -787,12 +787,6 @@ func applyWorkflowDefaults(cfg *Config) {
 }
 
 // applyConfigStoreDefaults sets defaults for config store settings.
-func applyConfigStoreDefaults(cfg *Config) {
-	if cfg.ConfigStore.Mode == "" {
-		cfg.ConfigStore.Mode = ConfigStoreModeFile
-	}
-}
-
 // applyAdminDefaults sets defaults for admin API config.
 func applyAdminDefaults(cfg *Config) {
 	if cfg.Admin.Persona == "" {
@@ -861,6 +855,16 @@ func applySessionDefaults(cfg *Config) {
 	}
 }
 
+// ApplyConfigEntry updates a live config field for a whitelisted config entry key.
+func (c *Config) ApplyConfigEntry(key, value string) {
+	switch key {
+	case "server.description":
+		c.Server.Description = value
+	case "server.agent_instructions":
+		c.Server.AgentInstructions = value
+	}
+}
+
 // Validate validates the configuration.
 func (c *Config) Validate() error {
 	var errs []string
@@ -869,7 +873,6 @@ func (c *Config) Validate() error {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
 
-	errs = c.validateConfigStore(errs)
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
 	errs = c.validateBrowserSession(errs)
@@ -879,14 +882,6 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
-}
-
-// validateConfigStore checks config store configuration validity and appends any errors.
-func (c *Config) validateConfigStore(errs []string) []string {
-	if c.ConfigStore.Mode == ConfigStoreModeDatabase && c.Database.DSN == "" {
-		errs = append(errs, "database.dsn is required when config_store.mode is \"database\"")
-	}
-	return errs
 }
 
 // validateOAuth checks OAuth configuration validity and appends any errors.

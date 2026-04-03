@@ -185,7 +185,7 @@ type testAuthorizer struct {
 	persona string
 }
 
-func (a *testAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (allowed bool, persona, reason string) {
+func (a *testAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, _ string) (allowed bool, persona, reason string) {
 	return true, a.persona, ""
 }
 
@@ -436,7 +436,7 @@ func (*mockQueryProvider) Close() error { return nil }
 // denyAuthorizer always denies access.
 type denyAuthorizer struct{}
 
-func (*denyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (allowed bool, persona, reason string) {
+func (*denyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, _ string) (allowed bool, persona, reason string) {
 	return false, "", "access denied by test policy"
 }
 

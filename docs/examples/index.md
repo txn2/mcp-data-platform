@@ -306,11 +306,12 @@ personas:
           - "*_delete_*"
           - "*_drop_*"
 
-      # User-friendly system prompt
-      prompts:
-        system_prefix: |
+      # User-friendly context override
+      context:
+        description_prefix: |
           You are helping a business analyst explore and understand data.
           Always explain what tables contain in business terms.
+        agent_instructions_suffix: |
           When showing query results, explain what the data means.
           If data quality is below 80%, mention this to the user.
           If a table is deprecated, always suggest the replacement.
@@ -430,10 +431,10 @@ personas:
           - "trino_execute"
           - "*_delete_*"
 
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are onboarding a new team member to our data platform.
-
+        agent_instructions_suffix: |
           When they ask about data:
           1. Start with the domain (Sales, Marketing, Finance, etc.)
           2. Explain what the domain contains
@@ -444,7 +445,6 @@ personas:
           Always recommend they review the glossary terms for unfamiliar concepts.
           If they want to query data, explain they need to complete onboarding first.
 
-        onboarding_resources: |
           Useful resources for new team members:
           - Data Glossary: /glossary
           - Domain Owners: /domains
@@ -522,11 +522,11 @@ personas:
         requests_per_minute: 60
         requests_per_hour: 1000
 
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are an ML data exploration agent. Your goal is to discover
           and evaluate datasets for machine learning use cases.
-
+        agent_instructions_suffix: |
           When exploring:
           1. Check data quality scores (reject < 70%)
           2. Verify data freshness (check last_updated)
@@ -591,10 +591,10 @@ personas:
         deny:
           - "*_delete_*"
 
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are helping an ML engineer select features from the feature store.
-
+        agent_instructions_suffix: |
           For each feature, report:
           - Quality score and null percentage
           - Last update time
@@ -649,10 +649,10 @@ personas:
         deny:
           - "*_delete_*"
 
-      prompts:
-        system_prefix: |
+      context:
+        description_prefix: |
           You are helping a data engineer understand data lineage.
-
+        agent_instructions_suffix: |
           When showing lineage:
           1. Start with the requested entity
           2. Show immediate upstream sources

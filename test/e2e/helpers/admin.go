@@ -21,7 +21,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -151,16 +150,22 @@ type AdminAuditStats struct {
 	Failures int `json:"failures"`
 }
 
-// AdminConfigImport mirrors the admin configImportResponse.
-type AdminConfigImport struct {
-	Status string `json:"status"`
-	Note   string `json:"note"`
+// AdminConfigEntry mirrors configstore.Entry.
+type AdminConfigEntry struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	UpdatedBy string `json:"updated_by"`
+	UpdatedAt string `json:"updated_at"`
 }
 
-// AdminConfigHistory mirrors the admin configHistoryResponse.
-type AdminConfigHistory struct {
-	Revisions []configstore.Revision `json:"revisions"`
-	Total     int                    `json:"total"`
+// AdminConfigChangelogEntry mirrors configstore.ChangelogEntry.
+type AdminConfigChangelogEntry struct {
+	ID        int     `json:"id"`
+	Key       string  `json:"key"`
+	Action    string  `json:"action"`
+	Value     *string `json:"value,omitempty"`
+	ChangedBy string  `json:"changed_by"`
+	ChangedAt string  `json:"changed_at"`
 }
 
 // AdminProblem mirrors the admin problemDetail (RFC 9457).
@@ -330,13 +335,9 @@ func (c *AdminClient) ExportConfig(secrets bool) (string, int, error) {
 	return string(body), resp.StatusCode, nil
 }
 
-// ImportConfig calls POST /api/v1/admin/config/import.
-func (c *AdminClient) ImportConfig(yamlBody, comment string) (*AdminConfigImport, int, error) {
-	path := "/api/v1/admin/config/import"
-	if comment != "" {
-		path += "?comment=" + comment
-	}
-	resp, err := c.postYAML(path, yamlBody)
+// ListConfigEntries calls GET /api/v1/admin/config/entries.
+func (c *AdminClient) ListConfigEntries() ([]AdminConfigEntry, int, error) {
+	resp, err := c.get("/api/v1/admin/config/entries")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -344,16 +345,33 @@ func (c *AdminClient) ImportConfig(yamlBody, comment string) (*AdminConfigImport
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, nil
 	}
-	var result AdminConfigImport
+	var result []AdminConfigEntry
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return result, resp.StatusCode, nil
+}
+
+// GetConfigEntry calls GET /api/v1/admin/config/entries/{key}.
+func (c *AdminClient) GetConfigEntry(key string) (*AdminConfigEntry, int, error) {
+	resp, err := c.get("/api/v1/admin/config/entries/" + key)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, resp.StatusCode, nil
+	}
+	var result AdminConfigEntry
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, resp.StatusCode, err
 	}
 	return &result, resp.StatusCode, nil
 }
 
-// ConfigHistory calls GET /api/v1/admin/config/history.
-func (c *AdminClient) ConfigHistory() (*AdminConfigHistory, int, error) {
-	resp, err := c.get("/api/v1/admin/config/history")
+// SetConfigEntry calls PUT /api/v1/admin/config/entries/{key}.
+func (c *AdminClient) SetConfigEntry(key, value string) (*AdminConfigEntry, int, error) {
+	resp, err := c.putJSON("/api/v1/admin/config/entries/"+key, map[string]string{"value": value})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -361,11 +379,38 @@ func (c *AdminClient) ConfigHistory() (*AdminConfigHistory, int, error) {
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, nil
 	}
-	var result AdminConfigHistory
+	var result AdminConfigEntry
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, resp.StatusCode, err
 	}
 	return &result, resp.StatusCode, nil
+}
+
+// DeleteConfigEntry calls DELETE /api/v1/admin/config/entries/{key}.
+func (c *AdminClient) DeleteConfigEntry(key string) (int, error) {
+	resp, err := c.delete("/api/v1/admin/config/entries/" + key)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
+}
+
+// ConfigChangelog calls GET /api/v1/admin/config/changelog.
+func (c *AdminClient) ConfigChangelog() ([]AdminConfigChangelogEntry, int, error) {
+	resp, err := c.get("/api/v1/admin/config/changelog")
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, resp.StatusCode, nil
+	}
+	var result []AdminConfigChangelogEntry
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return result, resp.StatusCode, nil
 }
 
 // --- Persona endpoints ---
@@ -790,7 +835,7 @@ func NewAdminTestDB(t *testing.T, dsn string) *AdminTestDB {
 func (a *AdminTestDB) TruncateAdminTables(t *testing.T) {
 	t.Helper()
 
-	tables := "audit_logs, config_versions"
+	tables := "audit_logs, config_entries, config_changelog, connection_instances"
 	_, err := a.DB.Exec("TRUNCATE " + tables)
 	if err != nil {
 		t.Fatalf("truncating admin tables: %v", err)

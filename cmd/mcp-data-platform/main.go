@@ -610,6 +610,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	deps := admin.Deps{
 		Config:            p.Config(),
 		ConfigStore:       p.ConfigStore(),
+		FileDefaults:      p.FileDefaults(),
 		PersonaRegistry:   p.PersonaRegistry(),
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		MCPServer:         p.MCPServer(),
@@ -621,6 +622,8 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		VersionStore:      p.PortalVersionStore(),
 		S3Client:          p.PortalS3Client(),
 		S3Bucket:          p.Config().Portal.S3Bucket,
+		ConnectionStore:   p.ConnectionStore(),
+		ConnectionSources: p.ConnectionSources(),
 	}
 
 	if p.AuditStore() != nil {

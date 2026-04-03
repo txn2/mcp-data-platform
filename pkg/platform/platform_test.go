@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -306,10 +307,9 @@ func TestLoadPersonas(t *testing.T) {
 						Allow: []string{"trino_*"},
 						Deny:  []string{"*_delete"},
 					},
-					Prompts: PromptsDef{
-						SystemPrefix: testSystemPrefix,
+					Context: ContextDef{
+						DescriptionPrefix: testSystemPrefix,
 					},
-					Hints: map[string]string{"key": "value"},
 				},
 				testRoleAdmin: {
 					DisplayName: "Administrator",
@@ -2045,72 +2045,6 @@ func TestInitMCPApps_BuiltinPlatformInfoWithInvalidAssetsPath(t *testing.T) {
 	}
 }
 
-func TestHintManager(t *testing.T) {
-	cfg := &Config{
-		Server:   ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{Provider: testProviderNoop},
-		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	hm := p.HintManager()
-	if hm == nil {
-		t.Fatal("HintManager() returned nil")
-	}
-
-	// Check that default hints were loaded
-	hint, ok := hm.GetHint("datahub_search")
-	if !ok {
-		t.Error("Expected datahub_search hint to be loaded")
-	}
-	if hint == "" {
-		t.Error("datahub_search hint should not be empty")
-	}
-}
-
-func TestPersonaHintsLoadedToHintManager(t *testing.T) {
-	cfg := &Config{
-		Server:   ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{Provider: testProviderNoop},
-		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
-		Personas: PersonasConfig{
-			Definitions: map[string]PersonaDef{
-				testRoleAnalyst: {
-					DisplayName: testDisplayAnalyst,
-					Roles:       []string{testRoleAnalyst},
-					Hints: map[string]string{
-						"custom_tool": "This is a custom hint from persona",
-					},
-				},
-			},
-		},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	hm := p.HintManager()
-
-	// Check persona hint was loaded
-	hint, ok := hm.GetHint("custom_tool")
-	if !ok {
-		t.Error("Expected custom_tool hint from persona to be loaded")
-	}
-	if hint != "This is a custom hint from persona" {
-		t.Errorf("Unexpected hint value: %q", hint)
-	}
-}
-
 func TestInitAuditNoopWhenDisabled(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
@@ -2175,10 +2109,10 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 					Tools: ToolRulesDef{
 						Allow: []string{"trino_*"},
 					},
-					Prompts: PromptsDef{
-						SystemPrefix: testSystemPrefix,
-						SystemSuffix: "Be concise.",
-						Instructions: "Check DataHub first.",
+					Context: ContextDef{
+						DescriptionPrefix:         testSystemPrefix,
+						AgentInstructionsSuffix:   "Check DataHub first.",
+						AgentInstructionsOverride: "",
 					},
 					Priority: testPriority,
 				},
@@ -2204,30 +2138,29 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	if analyst.Priority != testPriority {
 		t.Errorf("Priority = %d, want %d", analyst.Priority, testPriority)
 	}
-	if analyst.Prompts.SystemPrefix != testSystemPrefix {
-		t.Errorf("SystemPrefix = %q", analyst.Prompts.SystemPrefix)
+	if analyst.Context.DescriptionPrefix != testSystemPrefix {
+		t.Errorf("DescriptionPrefix = %q", analyst.Context.DescriptionPrefix)
 	}
-	if analyst.Prompts.SystemSuffix != "Be concise." {
-		t.Errorf("SystemSuffix = %q", analyst.Prompts.SystemSuffix)
-	}
-	if analyst.Prompts.Instructions != "Check DataHub first." {
-		t.Errorf("Instructions = %q", analyst.Prompts.Instructions)
+	if analyst.Context.AgentInstructionsSuffix != "Check DataHub first." {
+		t.Errorf("AgentInstructionsSuffix = %q", analyst.Context.AgentInstructionsSuffix)
 	}
 
-	// Test GetFullSystemPrompt
-	fullPrompt := analyst.GetFullSystemPrompt()
-	if fullPrompt == "" {
-		t.Error("GetFullSystemPrompt() returned empty string")
+	// Test ApplyDescription
+	desc := analyst.ApplyDescription("Base description")
+	if !containsSubstr(desc, testSystemPrefix) {
+		t.Error("ApplyDescription missing DescriptionPrefix")
 	}
-	// Should contain all three parts
-	if !containsSubstr(fullPrompt, testSystemPrefix) {
-		t.Error("fullPrompt missing SystemPrefix")
+	if !containsSubstr(desc, "Base description") {
+		t.Error("ApplyDescription missing base description")
 	}
-	if !containsSubstr(fullPrompt, "Check DataHub first.") {
-		t.Error("fullPrompt missing Instructions")
+
+	// Test ApplyAgentInstructions
+	instructions := analyst.ApplyAgentInstructions("Base instructions")
+	if !containsSubstr(instructions, "Check DataHub first.") {
+		t.Error("ApplyAgentInstructions missing AgentInstructionsSuffix")
 	}
-	if !containsSubstr(fullPrompt, "Be concise.") {
-		t.Error("fullPrompt missing SystemSuffix")
+	if !containsSubstr(instructions, "Base instructions") {
+		t.Error("ApplyAgentInstructions missing base instructions")
 	}
 }
 
@@ -3136,63 +3069,6 @@ func containsSubstr(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
-func TestMergeBootstrap(t *testing.T) {
-	dbCfg := &Config{
-		APIVersion:  "v0",
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Server:      ServerConfig{Name: "db-name", Transport: "http"},
-		Database:    DatabaseConfig{DSN: "db-dsn"},
-		Auth:        AuthConfig{AllowAnonymous: true},
-		Admin:       AdminConfig{Enabled: true, Persona: "db-admin"},
-		Personas:    PersonasConfig{DefaultPersona: testRoleAnalyst},
-		Audit:       AuditConfig{Enabled: true, RetentionDays: testRetentionDays},
-		Semantic:    SemanticConfig{Provider: testToolkitKeyDatahub},
-	}
-
-	bootstrap := &Config{
-		APIVersion:  "v1",
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Server:      ServerConfig{Name: "bootstrap-name", Transport: "stdio"},
-		Database:    DatabaseConfig{DSN: "bootstrap-dsn"},
-		Auth:        AuthConfig{AllowAnonymous: false},
-		Admin:       AdminConfig{Enabled: true, Persona: "superadmin"},
-		Personas:    PersonasConfig{DefaultPersona: "executive"},
-		Audit:       AuditConfig{Enabled: false, RetentionDays: testDefaultRetention},
-	}
-
-	merged := mergeBootstrap(dbCfg, bootstrap)
-
-	// Bootstrap fields should come from bootstrap
-	if merged.APIVersion != "v1" {
-		t.Errorf("APIVersion = %q, want %q", merged.APIVersion, "v1")
-	}
-	if merged.Server.Name != "bootstrap-name" {
-		t.Errorf("Server.Name = %q, want %q", merged.Server.Name, "bootstrap-name")
-	}
-	if merged.Database.DSN != "bootstrap-dsn" {
-		t.Errorf("Database.DSN = %q, want %q", merged.Database.DSN, "bootstrap-dsn")
-	}
-	if merged.Admin.Persona != "superadmin" {
-		t.Errorf("Admin.Persona = %q, want %q", merged.Admin.Persona, "superadmin")
-	}
-
-	// Non-bootstrap fields should come from DB config
-	if merged.Personas.DefaultPersona != testRoleAnalyst {
-		t.Errorf("Personas.DefaultPersona = %q, want %q", merged.Personas.DefaultPersona, testRoleAnalyst)
-	}
-	if !merged.Audit.Enabled {
-		t.Error("Audit.Enabled = false, want true (from DB)")
-	}
-	if merged.Semantic.Provider != testToolkitKeyDatahub {
-		t.Errorf("Semantic.Provider = %q, want %q", merged.Semantic.Provider, testToolkitKeyDatahub)
-	}
-
-	// Original should not be modified
-	if dbCfg.APIVersion != "v0" {
-		t.Error("mergeBootstrap modified original dbCfg")
-	}
-}
-
 func TestPlatform_ConfigStore_FileMode(t *testing.T) {
 	cfg := &Config{
 		ConfigStore: ConfigStoreConfig{Mode: "file"},
@@ -3983,4 +3859,191 @@ func TestNew_WorkflowGatingDisabled(t *testing.T) {
 	if p.workflowTracker != nil {
 		t.Error("workflowTracker should be nil when workflow gating is disabled")
 	}
+}
+
+func TestBuildConfigEntryMap(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Server: ServerConfig{
+				Description:       "test desc",
+				AgentInstructions: "test instructions",
+			},
+		},
+	}
+	m := p.buildConfigEntryMap()
+	if m["server.description"] != "test desc" {
+		t.Errorf("description = %q, want %q", m["server.description"], "test desc")
+	}
+	if m["server.agent_instructions"] != "test instructions" {
+		t.Errorf("agent_instructions = %q, want %q", m["server.agent_instructions"], "test instructions")
+	}
+}
+
+func TestApplyConfigEntryPlatform(t *testing.T) {
+	p := &Platform{config: &Config{}}
+	p.applyConfigEntry("server.description", "new desc")
+	if p.config.Server.Description != "new desc" {
+		t.Errorf("Description = %q, want %q", p.config.Server.Description, "new desc")
+	}
+	p.applyConfigEntry("server.agent_instructions", "new instr")
+	if p.config.Server.AgentInstructions != "new instr" {
+		t.Errorf("AgentInstructions = %q, want %q", p.config.Server.AgentInstructions, "new instr")
+	}
+}
+
+func TestFileDefaults(t *testing.T) {
+	p := &Platform{
+		fileDefaults: map[string]string{
+			"server.description": "file desc",
+		},
+	}
+	fd := p.FileDefaults()
+	if fd["server.description"] != "file desc" {
+		t.Errorf("FileDefaults[server.description] = %q, want %q", fd["server.description"], "file desc")
+	}
+}
+
+func TestInitConfigStoreNoDatabase(t *testing.T) {
+	p := &Platform{
+		config: &Config{
+			Server: ServerConfig{
+				Description:       "file desc",
+				AgentInstructions: "file instr",
+			},
+		},
+	}
+	if err := p.initConfigStore(); err != nil {
+		t.Fatalf("initConfigStore() error = %v", err)
+	}
+	if p.configStore == nil {
+		t.Fatal("configStore should not be nil")
+	}
+	if p.configStore.Mode() != "file" {
+		t.Errorf("Mode() = %q, want %q", p.configStore.Mode(), "file")
+	}
+	if p.fileDefaults["server.description"] != "file desc" {
+		t.Errorf("fileDefaults[server.description] = %q, want %q", p.fileDefaults["server.description"], "file desc")
+	}
+}
+
+func TestDecodeEncryptionKey(t *testing.T) {
+	t.Run("hex encoded", func(t *testing.T) {
+		// 32 bytes as hex = 64 hex chars
+		hexKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		key := decodeEncryptionKey(hexKey)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+
+	t.Run("base64 encoded", func(t *testing.T) {
+		// 32 random bytes as base64
+		raw := make([]byte, 32)
+		for i := range raw {
+			raw[i] = byte(i)
+		}
+		b64 := base64.StdEncoding.EncodeToString(raw)
+		key := decodeEncryptionKey(b64)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+
+	t.Run("raw 32 bytes", func(t *testing.T) {
+		rawKey := "01234567890123456789012345678901" // exactly 32 chars
+		key := decodeEncryptionKey(rawKey)
+		if len(key) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(key))
+		}
+	})
+}
+
+func TestMergeDBConnectionsIntoConfig(t *testing.T) {
+	t.Run("merges DB connections into empty toolkits", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if p.config.Toolkits == nil {
+			t.Fatal("Toolkits should not be nil")
+		}
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind map should exist")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should exist")
+		}
+		if _, ok := instances["prod"]; !ok {
+			t.Error("prod instance should exist")
+		}
+	})
+
+	t.Run("file config takes precedence", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{
+						cfgKeyEnabled: true,
+						cfgKeyInstances: map[string]any{
+							"prod": map[string]any{"host": "file-host"},
+						},
+					},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "db-host"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind map should exist")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should exist")
+		}
+		prodCfg, ok := instances["prod"].(map[string]any)
+		if !ok {
+			t.Fatal("prod config should exist")
+		}
+		if prodCfg["host"] != "file-host" {
+			t.Errorf("expected file-host, got %v", prodCfg["host"])
+		}
+	})
+
+	t.Run("nil store is safe", func(_ *testing.T) {
+		p := &Platform{config: &Config{}}
+		p.mergeDBConnectionsIntoConfig() // should not panic
+	})
+}
+
+// mockConnectionStoreForTest is a simple mock for testing merge logic.
+type mockConnectionStoreForTest struct {
+	instances []ConnectionInstance
+}
+
+func (m *mockConnectionStoreForTest) List(_ context.Context) ([]ConnectionInstance, error) {
+	return m.instances, nil
+}
+
+func (*mockConnectionStoreForTest) Get(_ context.Context, _, _ string) (*ConnectionInstance, error) {
+	return nil, ErrConnectionNotFound
+}
+
+func (*mockConnectionStoreForTest) Set(_ context.Context, _ ConnectionInstance) error { return nil }
+
+func (*mockConnectionStoreForTest) Delete(_ context.Context, _, _ string) error {
+	return ErrConnectionNotFound
 }

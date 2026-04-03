@@ -216,7 +216,7 @@ func authenticateAndAuthorize(
 		params.pc.Roles = userInfo.Roles
 	}
 
-	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName)
+	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
 	params.pc.Authorized = authorized
 	params.pc.PersonaName = personaName
 	if !authorized {

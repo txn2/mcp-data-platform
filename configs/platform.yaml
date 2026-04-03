@@ -76,13 +76,13 @@ personas:
         - "s3_list_*"
       deny:
         - "s3_delete_*"
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping a data analyst explore and query data.
         Always check DataHub for context before writing SQL.
-    hints:
-      datahub_search: "Start here to discover datasets"
-      trino_describe_table: "Get schema with business context"
+      agent_instructions_suffix: |
+        Start with datahub_search to discover datasets.
+        Use trino_describe_table to get schema with business context.
 
   executive:
     display_name: "Executive"
@@ -95,8 +95,8 @@ personas:
         - "datahub_get_entity"
         - "datahub_browse"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are providing business insights to an executive.
         Focus on what data means, not technical details.
 

@@ -470,10 +470,9 @@ func TestConfigTypes_PersonaDef(t *testing.T) {
 			Allow: []string{"*"},
 			Deny:  []string{"dangerous_*"},
 		},
-		Prompts: PromptsDef{
-			SystemPrefix: "You are an admin.",
+		Context: ContextDef{
+			DescriptionPrefix: "You are an admin.",
 		},
-		Hints: map[string]string{"key": "value"},
 	}
 	if def.DisplayName != "Administrator" {
 		t.Errorf("DisplayName = %q", def.DisplayName)
@@ -1101,45 +1100,23 @@ func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
 }
 
 func TestApplyDefaults_ConfigStore(t *testing.T) {
-	t.Run("defaults to file mode", func(t *testing.T) {
+	t.Run("defaults to empty mode", func(t *testing.T) {
 		cfg := &Config{}
 		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != ConfigStoreModeFile {
-			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeFile)
+		if cfg.ConfigStore.Mode != "" {
+			t.Errorf("ConfigStore.Mode = %q, want empty", cfg.ConfigStore.Mode)
 		}
 	})
 
 	t.Run("preserves explicit mode", func(t *testing.T) {
 		cfg := &Config{
-			ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
+			ConfigStore: ConfigStoreConfig{Mode: "database"},
 		}
 		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
-			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
+		if cfg.ConfigStore.Mode != "database" {
+			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
 		}
 	})
-}
-
-func TestConfigValidate_ConfigStoreDatabaseWithoutDSN(t *testing.T) {
-	cfg := &Config{
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Database:    DatabaseConfig{DSN: ""},
-	}
-	err := cfg.Validate()
-	if err == nil {
-		t.Error("Validate() expected error for config_store.mode=database without DSN")
-	}
-}
-
-func TestConfigValidate_ConfigStoreDatabaseWithDSN(t *testing.T) {
-	cfg := &Config{
-		ConfigStore: ConfigStoreConfig{Mode: ConfigStoreModeDatabase},
-		Database:    DatabaseConfig{DSN: "postgres://localhost/test"},
-	}
-	err := cfg.Validate()
-	if err != nil {
-		t.Errorf("Validate() unexpected error: %v", err)
-	}
 }
 
 func TestLoadConfig_ConfigStoreFromYAML(t *testing.T) {
@@ -1151,8 +1128,8 @@ config_store:
 database:
   dsn: "postgres://localhost/test"
 `)
-	if cfg.ConfigStore.Mode != ConfigStoreModeDatabase {
-		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, ConfigStoreModeDatabase)
+	if cfg.ConfigStore.Mode != "database" {
+		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
 	}
 }
 
@@ -1380,5 +1357,25 @@ session_gate:
 	}
 	if cfg.SessionGate.ExemptTools[0] != cfgTestToolListConns {
 		t.Errorf("ExemptTools[0] = %q, want %q", cfg.SessionGate.ExemptTools[0], cfgTestToolListConns)
+	}
+}
+
+func TestApplyConfigEntry(t *testing.T) {
+	cfg := &Config{}
+
+	cfg.ApplyConfigEntry("server.description", "test description")
+	if cfg.Server.Description != "test description" {
+		t.Errorf("Description = %q, want %q", cfg.Server.Description, "test description")
+	}
+
+	cfg.ApplyConfigEntry("server.agent_instructions", "test instructions")
+	if cfg.Server.AgentInstructions != "test instructions" {
+		t.Errorf("AgentInstructions = %q, want %q", cfg.Server.AgentInstructions, "test instructions")
+	}
+
+	// Unknown key should be a no-op.
+	cfg.ApplyConfigEntry("unknown.key", "value")
+	if cfg.Server.Description != "test description" {
+		t.Error("unknown key should not modify config")
 	}
 }

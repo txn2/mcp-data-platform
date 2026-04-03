@@ -7,9 +7,6 @@ import (
 )
 
 const (
-	testInstructions = "Instructions"
-	testPrefix       = "Prefix"
-	testSuffix       = "Suffix"
 	testFileMode     = 0o644
 	testDirMode      = 0o750
 	testWriteFileErr = "failed to write file: %v"
@@ -222,34 +219,5 @@ func TestPromptManagerAll(t *testing.T) {
 	_, ok := pm.Get("prompt3")
 	if ok {
 		t.Error("modifying returned map affected internal state")
-	}
-}
-
-func TestBuildSystemPrompt(t *testing.T) {
-	tests := []struct {
-		name         string
-		prefix       string
-		instructions string
-		suffix       string
-		expected     string
-	}{
-		{"all parts", testPrefix, testInstructions, testSuffix, "Prefix\n\nInstructions\n\nSuffix"},
-		{"no prefix", "", testInstructions, testSuffix, "Instructions\n\nSuffix"},
-		{"no suffix", testPrefix, testInstructions, "", "Prefix\n\nInstructions"},
-		{"only instructions", "", testInstructions, "", testInstructions},
-		{"only prefix", testPrefix, "", "", testPrefix},
-		{"only suffix", "", "", testSuffix, testSuffix},
-		{"empty", "", "", "", ""},
-		{"prefix and suffix", testPrefix, "", testSuffix, "Prefix\n\nSuffix"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := BuildSystemPrompt(tt.prefix, tt.instructions, tt.suffix)
-			if result != tt.expected {
-				t.Errorf("BuildSystemPrompt(%q, %q, %q) = %q, want %q",
-					tt.prefix, tt.instructions, tt.suffix, result, tt.expected)
-			}
-		})
 	}
 }

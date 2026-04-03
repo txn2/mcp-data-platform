@@ -1,9 +1,10 @@
 import { useThemeStore } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
-import { Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon, Monitor, Menu } from "lucide-react";
 
 interface Props {
   title: string;
+  onMenuClick?: () => void;
 }
 
 const themeOptions = [
@@ -12,14 +13,25 @@ const themeOptions = [
   { value: "system" as const, icon: Monitor, label: "System" },
 ];
 
-export function Header({ title }: Props) {
+export function Header({ title, onMenuClick }: Props) {
   const { theme, setTheme } = useThemeStore();
   const { data: branding } = useBranding();
   const version = branding?.version;
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card px-6">
-      <h1 className="text-lg font-semibold">{title}</h1>
+    <header className="flex h-14 items-center justify-between border-b bg-card px-4 sm:px-6">
+      <div className="flex items-center gap-3">
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
+        <h1 className="text-lg font-semibold truncate">{title}</h1>
+      </div>
       <div className="flex items-center gap-3">
         {version && (
           <span className="text-xs text-muted-foreground">

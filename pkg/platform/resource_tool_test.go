@@ -118,9 +118,9 @@ func TestRegisterResourceTool_NonEmpty(t *testing.T) {
 					Contents: []*mcp.ResourceContents{{URI: "brand://theme", Text: "{}"}},
 				}, nil
 			},
-			"hints://operational": func(_ context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			"config://platform": func(_ context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 				return &mcp.ReadResourceResult{
-					Contents: []*mcp.ResourceContents{{URI: "hints://operational", Text: "[]"}},
+					Contents: []*mcp.ResourceContents{{URI: "config://platform", Text: "{}"}},
 				}, nil
 			},
 		},
@@ -158,7 +158,7 @@ func TestRegisterResourceTool_NonEmpty(t *testing.T) {
 		}
 	}
 	assert.Contains(t, desc, "brand://theme")
-	assert.Contains(t, desc, "hints://operational")
+	assert.Contains(t, desc, "config://platform")
 }
 
 func TestResourceRegistryPopulatedFromCustomResources(t *testing.T) {

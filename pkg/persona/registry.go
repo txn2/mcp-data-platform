@@ -148,12 +148,16 @@ func (r *Registry) LoadFromConfig(config map[string]*Config) error {
 				Allow: cfg.Tools.Allow,
 				Deny:  cfg.Tools.Deny,
 			},
-			Prompts: PromptConfig{
-				SystemPrefix: cfg.Prompts.SystemPrefix,
-				SystemSuffix: cfg.Prompts.SystemSuffix,
-				Instructions: cfg.Prompts.Instructions,
+			Connections: ConnectionRules{
+				Allow: cfg.Connections.Allow,
+				Deny:  cfg.Connections.Deny,
 			},
-			Hints:    cfg.Hints,
+			Context: ContextOverrides{
+				DescriptionPrefix:         cfg.Context.DescriptionPrefix,
+				DescriptionOverride:       cfg.Context.DescriptionOverride,
+				AgentInstructionsSuffix:   cfg.Context.AgentInstructionsSuffix,
+				AgentInstructionsOverride: cfg.Context.AgentInstructionsOverride,
+			},
 			Priority: cfg.Priority,
 		}
 
@@ -166,13 +170,19 @@ func (r *Registry) LoadFromConfig(config map[string]*Config) error {
 
 // Config is the configuration format for personas.
 type Config struct {
-	DisplayName string            `yaml:"display_name"`
-	Description string            `yaml:"description,omitempty"`
-	Roles       []string          `yaml:"roles"`
-	Tools       ToolRulesConfig   `yaml:"tools"`
-	Prompts     PromptConfigYAML  `yaml:"prompts"`
-	Hints       map[string]string `yaml:"hints,omitempty"`
-	Priority    int               `yaml:"priority,omitempty"`
+	DisplayName string                `yaml:"display_name"`
+	Description string                `yaml:"description,omitempty"`
+	Roles       []string              `yaml:"roles"`
+	Tools       ToolRulesConfig       `yaml:"tools"`
+	Connections ConnectionRulesConfig `yaml:"connections"`
+	Context     ContextOverridesYAML  `yaml:"context"`
+	Priority    int                   `yaml:"priority,omitempty"`
+}
+
+// ConnectionRulesConfig is the YAML configuration for connection rules.
+type ConnectionRulesConfig struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // ToolRulesConfig is the YAML configuration for tool rules.
@@ -181,9 +191,10 @@ type ToolRulesConfig struct {
 	Deny  []string `yaml:"deny"`
 }
 
-// PromptConfigYAML is the YAML configuration for prompts.
-type PromptConfigYAML struct {
-	SystemPrefix string `yaml:"system_prefix,omitempty"`
-	SystemSuffix string `yaml:"system_suffix,omitempty"`
-	Instructions string `yaml:"instructions,omitempty"`
+// ContextOverridesYAML is the YAML configuration for context overrides.
+type ContextOverridesYAML struct {
+	DescriptionPrefix         string `yaml:"description_prefix,omitempty"`
+	DescriptionOverride       string `yaml:"description_override,omitempty"`
+	AgentInstructionsSuffix   string `yaml:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string `yaml:"agent_instructions_override,omitempty"`
 }

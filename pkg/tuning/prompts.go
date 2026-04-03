@@ -95,22 +95,3 @@ func (m *PromptManager) All() map[string]string {
 	maps.Copy(result, m.prompts)
 	return result
 }
-
-// BuildSystemPrompt builds a system prompt for a persona.
-func BuildSystemPrompt(prefix, instructions, suffix string) string {
-	var parts []string
-
-	if prefix != "" {
-		parts = append(parts, prefix)
-	}
-
-	if instructions != "" {
-		parts = append(parts, instructions)
-	}
-
-	if suffix != "" {
-		parts = append(parts, suffix)
-	}
-
-	return strings.Join(parts, "\n\n")
-}

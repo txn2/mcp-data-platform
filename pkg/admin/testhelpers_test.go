@@ -209,24 +209,70 @@ var _ APIKeyManager = (*mockAPIKeyManager)(nil)
 // --- Mock ConfigStore ---
 
 type mockConfigStore struct {
-	mode       string
-	saveErr    error
-	saveCalls  int
-	history    []configstore.Revision
-	historyErr error
+	mode         string
+	entries      map[string]*configstore.Entry
+	changelog    []configstore.ChangelogEntry
+	setErr       error
+	setCalls     int
+	deleteErr    error
+	listErr      error
+	getErr       error
+	changelogErr error
 }
 
-func (*mockConfigStore) Load(_ context.Context) ([]byte, error) {
-	return nil, nil
+func (m *mockConfigStore) Get(_ context.Context, key string) (*configstore.Entry, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	if m.entries != nil {
+		if e, ok := m.entries[key]; ok {
+			return e, nil
+		}
+	}
+	return nil, configstore.ErrNotFound
 }
 
-func (m *mockConfigStore) Save(_ context.Context, _ []byte, _ configstore.SaveMeta) error {
-	m.saveCalls++
-	return m.saveErr
+func (m *mockConfigStore) Set(_ context.Context, key, value, _ string) error {
+	m.setCalls++
+	if m.setErr != nil {
+		return m.setErr
+	}
+	if m.entries == nil {
+		m.entries = make(map[string]*configstore.Entry)
+	}
+	m.entries[key] = &configstore.Entry{Key: key, Value: value}
+	return nil
 }
 
-func (m *mockConfigStore) History(_ context.Context, _ int) ([]configstore.Revision, error) {
-	return m.history, m.historyErr
+func (m *mockConfigStore) Delete(_ context.Context, key, _ string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	if m.entries != nil {
+		if _, ok := m.entries[key]; ok {
+			delete(m.entries, key)
+			return nil
+		}
+	}
+	return configstore.ErrNotFound
+}
+
+func (m *mockConfigStore) List(_ context.Context) ([]configstore.Entry, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	var result []configstore.Entry
+	for _, e := range m.entries {
+		result = append(result, *e)
+	}
+	return result, nil
+}
+
+func (m *mockConfigStore) Changelog(_ context.Context, _ int) ([]configstore.ChangelogEntry, error) {
+	if m.changelogErr != nil {
+		return nil, m.changelogErr
+	}
+	return m.changelog, nil
 }
 
 func (m *mockConfigStore) Mode() string {

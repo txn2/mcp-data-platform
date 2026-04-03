@@ -10,6 +10,7 @@ import type {
   SystemInfo,
   ToolListResponse,
   ConnectionListResponse,
+  ConnectionInstance,
   AuditEventResponse,
   AuditFiltersResponse,
   AuditSortColumn,
@@ -530,5 +531,123 @@ export function useAdminRevertVersion() {
       queryClient.invalidateQueries({ queryKey: ["admin", "asset-versions", assetId] });
       queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Connection Instances (DB-managed)
+// ---------------------------------------------------------------------------
+
+export function useConnectionInstances() {
+  return useQuery({
+    queryKey: ["connection-instances"],
+    queryFn: () => apiFetch<ConnectionInstance[]>("/connection-instances"),
+  });
+}
+
+export function useConnectionInstance(kind: string, name: string) {
+  return useQuery({
+    queryKey: ["connection-instances", kind, name],
+    queryFn: () => apiFetch<ConnectionInstance>(`/connection-instances/${kind}/${name}`),
+    enabled: !!kind && !!name,
+  });
+}
+
+export function useSetConnectionInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, any>; description?: string }) =>
+      apiFetch<ConnectionInstance>(`/connection-instances/${kind}/${name}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["connection-instances"] });
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}
+
+export function useDeleteConnectionInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, name }: { kind: string; name: string }) =>
+      apiFetchRaw(`/connection-instances/${kind}/${name}`, { method: "DELETE" }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete");
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["connection-instances"] });
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}
+
+// --- Config entries ---
+
+export function useConfigEntries() {
+  return useQuery({
+    queryKey: ["config", "entries"],
+    queryFn: () => apiFetch<import("./types").ConfigEntry[]>("/config/entries"),
+  });
+}
+
+export function useConfigEntry(key: string) {
+  return useQuery({
+    queryKey: ["config", "entries", key],
+    queryFn: () => apiFetch<import("./types").ConfigEntry>(`/config/entries/${key}`),
+    enabled: !!key,
+    retry: false,
+  });
+}
+
+export function useSetConfigEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      apiFetch<import("./types").ConfigEntry>(`/config/entries/${key}`, {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["config", "entries"] });
+      void qc.invalidateQueries({ queryKey: ["config", "effective"] });
+      void qc.invalidateQueries({ queryKey: ["system", "info"] });
+    },
+  });
+}
+
+export function useDeleteConfigEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiFetchRaw(`/config/entries/${key}`, { method: "DELETE" }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete");
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["config", "entries"] });
+      void qc.invalidateQueries({ queryKey: ["config", "effective"] });
+      void qc.invalidateQueries({ queryKey: ["system", "info"] });
+    },
+  });
+}
+
+export function useConfigChangelog() {
+  return useQuery({
+    queryKey: ["config", "changelog"],
+    queryFn: () => apiFetch<import("./types").ConfigChangelogEntry[]>("/config/changelog"),
+  });
+}
+
+export function useEffectiveConfig() {
+  return useQuery({
+    queryKey: ["config", "effective"],
+    queryFn: () => apiFetch<import("./types").EffectiveConfigEntry[]>("/config/effective"),
+  });
+}
+
+export function useEffectiveConnections() {
+  return useQuery({
+    queryKey: ["connection-instances", "effective"],
+    queryFn: () => apiFetch<import("./types").EffectiveConnection[]>("/connection-instances/effective"),
   });
 }

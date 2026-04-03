@@ -186,13 +186,23 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	// fall back to the configured default.
 	persona := p.resolveCallerPersona(ctx)
 
+	// Apply persona-specific context overrides to description and instructions.
+	description := p.config.Server.Description
+	agentInstructions := p.config.Server.AgentInstructions
+	if persona != nil {
+		if full, ok := p.personaRegistry.Get(persona.Name); ok {
+			description = full.ApplyDescription(description)
+			agentInstructions = full.ApplyAgentInstructions(agentInstructions)
+		}
+	}
+
 	reg := DefaultRegistry()
 	info := Info{
 		Name:                p.config.Server.Name,
 		Version:             p.config.Server.Version,
-		Description:         p.config.Server.Description,
+		Description:         description,
 		Tags:                p.config.Server.Tags,
-		AgentInstructions:   p.config.Server.AgentInstructions,
+		AgentInstructions:   agentInstructions,
 		Toolkits:            toolkits,
 		ToolkitDescriptions: toolkitDescriptions,
 		PortalURL:           p.config.Portal.PublicBaseURL,

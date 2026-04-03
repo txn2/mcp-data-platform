@@ -241,12 +241,9 @@ personas:
       tools:
         allow: ["trino_*", "datahub_*"]
         deny: ["*_delete_*"]
-      prompts:
-        system_prefix: "You are helping a data analyst."
-        system_suffix: ""
-        instructions: ""
-      hints:
-        trino_query: "Prefer aggregations for large tables"
+      context:
+        description_prefix: "You are helping a data analyst."
+        agent_instructions_suffix: "Prefer aggregations for large tables."
       priority: 10
 
   default_persona: analyst
@@ -266,10 +263,10 @@ personas:
 | `personas.definitions.<name>.roles` | array | `[]` | Roles that map to this persona |
 | `personas.definitions.<name>.tools.allow` | array | `["*"]` | Tool allow patterns |
 | `personas.definitions.<name>.tools.deny` | array | `[]` | Tool deny patterns |
-| `personas.definitions.<name>.prompts.system_prefix` | string | - | System prompt prefix |
-| `personas.definitions.<name>.prompts.system_suffix` | string | - | System prompt suffix |
-| `personas.definitions.<name>.prompts.instructions` | string | - | Additional instructions |
-| `personas.definitions.<name>.hints` | map | `{}` | Tool-specific hints |
+| `personas.definitions.<name>.context.description_prefix` | string | - | Prepended to platform description in `platform_info` |
+| `personas.definitions.<name>.context.description_override` | string | - | Replaces platform description entirely (takes precedence over prefix) |
+| `personas.definitions.<name>.context.agent_instructions_suffix` | string | - | Appended to platform agent instructions in `platform_info` |
+| `personas.definitions.<name>.context.agent_instructions_override` | string | - | Replaces platform agent instructions entirely (takes precedence over suffix) |
 | `personas.definitions.<name>.priority` | int | `0` | Selection priority |
 | `personas.default_persona` | string | `default` | Default persona name |
 | `personas.role_mapping.oidc_to_persona` | map | `{}` | OIDC role to persona mapping |

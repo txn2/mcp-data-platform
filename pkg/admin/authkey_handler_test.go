@@ -71,7 +71,6 @@ func TestCreateAuthKey(t *testing.T) {
 		assert.Equal(t, "new-key", resp.Name)
 		assert.Equal(t, "generated-key-value", resp.Key)
 		assert.NotEmpty(t, resp.Warning)
-		assert.Equal(t, 1, cs.saveCalls, "syncConfig should be called")
 	})
 
 	t.Run("rejects missing name", func(t *testing.T) {
@@ -147,7 +146,6 @@ func TestDeleteAuthKey(t *testing.T) {
 		var resp map[string]string
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, "deleted", resp["status"])
-		assert.Equal(t, 1, cs.saveCalls, "syncConfig should be called")
 	})
 
 	t.Run("returns 404 for non-existent key", func(t *testing.T) {

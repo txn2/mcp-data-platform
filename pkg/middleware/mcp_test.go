@@ -47,7 +47,7 @@ type mcpTestAuthorizer struct {
 	reason      string
 }
 
-func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _ string) (authorized bool, persona, reason string) {
+func (m *mcpTestAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, _ string) (authorized bool, persona, reason string) {
 	return m.authorized, m.personaName, m.reason
 }
 

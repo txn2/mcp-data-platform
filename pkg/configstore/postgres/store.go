@@ -1,107 +1,164 @@
-// Package postgres provides a PostgreSQL-backed config store with versioning.
+// Package postgres provides a PostgreSQL-backed granular config entry store.
 package postgres
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 )
 
-// Store persists configuration versions in PostgreSQL.
+// Store persists config entries in PostgreSQL with change auditing.
 type Store struct {
 	db *sql.DB
 }
 
-// New creates a new PostgresStore.
+// New creates a new PostgreSQL config entry store.
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Load returns the active configuration as YAML bytes, or nil if no config exists yet (first boot).
-func (s *Store) Load(ctx context.Context) ([]byte, error) {
-	var yamlText string
+// Get returns a single config entry by key.
+func (s *Store) Get(ctx context.Context, key string) (*configstore.Entry, error) {
+	var e configstore.Entry
 	err := s.db.QueryRowContext(ctx,
-		`SELECT config_yaml FROM config_versions WHERE is_active = TRUE`,
-	).Scan(&yamlText)
+		`SELECT key, value_text, updated_by, updated_at FROM config_entries WHERE key = $1`,
+		key,
+	).Scan(&e.Key, &e.Value, &e.UpdatedBy, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, nil //nolint:nilnil // nil data means first boot
+		return nil, configstore.ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("loading active config: %w", err)
+		return nil, fmt.Errorf("querying config entry: %w", err)
 	}
-
-	return []byte(yamlText), nil
+	return &e, nil
 }
 
-// Save persists a new configuration version, deactivating the previous one.
-func (s *Store) Save(ctx context.Context, data []byte, meta configstore.SaveMeta) error {
+// Set creates or updates a config entry and logs the change atomically.
+func (s *Store) Set(ctx context.Context, key, value, author string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	// Get next version number
-	var nextVersion int
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(version), 0) + 1 FROM config_versions`,
-	).Scan(&nextVersion)
-	if err != nil {
-		return fmt.Errorf("getting next version: %w", err)
+	now := time.Now()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO config_entries (key, value_text, updated_by, updated_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_by = $3, updated_at = $4`,
+		key, value, author, now,
+	); err != nil {
+		return fmt.Errorf("upserting config entry: %w", err)
 	}
 
-	// Deactivate current active config
-	_, err = tx.ExecContext(ctx,
-		`UPDATE config_versions SET is_active = FALSE WHERE is_active = TRUE`,
-	)
-	if err != nil {
-		return fmt.Errorf("deactivating current config: %w", err)
-	}
-
-	// Insert new active config
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO config_versions (version, config_yaml, author, comment, is_active)
-		 VALUES ($1, $2, $3, $4, TRUE)`,
-		nextVersion, string(data), meta.Author, meta.Comment,
-	)
-	if err != nil {
-		return fmt.Errorf("inserting config version: %w", err)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO config_changelog (key, action, value_text, changed_by, changed_at)
+		 VALUES ($1, 'set', $2, $3, $4)`,
+		key, value, author, now,
+	); err != nil {
+		return fmt.Errorf("logging config change: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing config version: %w", err)
+		return fmt.Errorf("committing config set: %w", err)
 	}
 	return nil
 }
 
-// History returns recent configuration revisions, newest first.
-func (s *Store) History(ctx context.Context, limit int) ([]configstore.Revision, error) {
+// Delete removes a config entry and logs the change atomically.
+func (s *Store) Delete(ctx context.Context, key, author string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	result, err := tx.ExecContext(ctx,
+		`DELETE FROM config_entries WHERE key = $1`,
+		key,
+	)
+	if err != nil {
+		return fmt.Errorf("deleting config entry: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking delete result: %w", err)
+	}
+	if affected == 0 {
+		return configstore.ErrNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO config_changelog (key, action, changed_by, changed_at)
+		 VALUES ($1, 'delete', $2, $3)`,
+		key, author, time.Now(),
+	); err != nil {
+		return fmt.Errorf("logging config delete: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing config delete: %w", err)
+	}
+	return nil
+}
+
+// List returns all config entries, ordered by key.
+func (s *Store) List(ctx context.Context) ([]configstore.Entry, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, version, author, comment, created_at
-		 FROM config_versions
-		 ORDER BY created_at DESC
+		`SELECT key, value_text, updated_by, updated_at FROM config_entries ORDER BY key`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying config entries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	var entries []configstore.Entry
+	for rows.Next() {
+		var e configstore.Entry
+		if err := rows.Scan(&e.Key, &e.Value, &e.UpdatedBy, &e.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning config entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating config entries: %w", err)
+	}
+	return entries, nil
+}
+
+// Changelog returns recent config changes, newest first.
+func (s *Store) Changelog(ctx context.Context, limit int) ([]configstore.ChangelogEntry, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, key, action, value_text, changed_by, changed_at
+		 FROM config_changelog
+		 ORDER BY changed_at DESC
 		 LIMIT $1`,
 		limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying config history: %w", err)
+		return nil, fmt.Errorf("querying config changelog: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
-	var revisions []configstore.Revision
+	var entries []configstore.ChangelogEntry
 	for rows.Next() {
-		var r configstore.Revision
-		if err := rows.Scan(&r.ID, &r.Version, &r.Author, &r.Comment, &r.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scanning revision: %w", err)
+		var e configstore.ChangelogEntry
+		var value sql.NullString
+		if err := rows.Scan(&e.ID, &e.Key, &e.Action, &value, &e.ChangedBy, &e.ChangedAt); err != nil {
+			return nil, fmt.Errorf("scanning changelog entry: %w", err)
 		}
-		revisions = append(revisions, r)
+		if value.Valid {
+			e.Value = &value.String
+		}
+		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating revisions: %w", err)
+		return nil, fmt.Errorf("iterating changelog entries: %w", err)
 	}
-	return revisions, nil
+	return entries, nil
 }
 
 // Mode returns "database".

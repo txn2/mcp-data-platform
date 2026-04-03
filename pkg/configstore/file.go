@@ -2,36 +2,61 @@ package configstore
 
 import (
 	"context"
-
-	"gopkg.in/yaml.v3"
+	"sort"
+	"time"
 )
 
-// FileStore wraps an in-memory config loaded from a YAML file.
-// It is read-only: Save always returns ErrReadOnly.
+// FileStore provides read-only config entries from a static map.
+// Write operations return ErrReadOnly.
 type FileStore struct {
-	data []byte
+	entries map[string]string
 }
 
-// NewFileStore creates a FileStore by marshaling the given config to YAML.
-// The config parameter is typed as any to avoid import cycles with the platform package.
-func NewFileStore(cfg any) *FileStore {
-	data, _ := yaml.Marshal(cfg)
-	return &FileStore{data: data}
+// NewFileStore creates a FileStore from a map of key/value pairs.
+func NewFileStore(entries map[string]string) *FileStore {
+	if entries == nil {
+		entries = map[string]string{}
+	}
+	return &FileStore{entries: entries}
 }
 
-// Load returns the config as YAML bytes.
-func (s *FileStore) Load(_ context.Context) ([]byte, error) {
-	return s.data, nil
+// Get returns the entry for the given key, or ErrNotFound if absent.
+func (s *FileStore) Get(_ context.Context, key string) (*Entry, error) {
+	val, ok := s.entries[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return &Entry{Key: key, Value: val}, nil
 }
 
-// Save returns ErrReadOnly because file-based config is immutable.
-func (*FileStore) Save(_ context.Context, _ []byte, _ SaveMeta) error {
+// Set returns ErrReadOnly because file-based config is immutable.
+func (*FileStore) Set(_ context.Context, _, _, _ string) error {
 	return ErrReadOnly
 }
 
-// History returns nil because file-based config has no version history.
-func (*FileStore) History(_ context.Context, _ int) ([]Revision, error) {
-	return nil, nil
+// Delete returns ErrReadOnly because file-based config is immutable.
+func (*FileStore) Delete(_ context.Context, _, _ string) error {
+	return ErrReadOnly
+}
+
+// List returns all entries from the static map, sorted by key.
+func (s *FileStore) List(_ context.Context) ([]Entry, error) {
+	keys := make([]string, 0, len(s.entries))
+	for k := range s.entries {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	entries := make([]Entry, 0, len(keys))
+	for _, k := range keys {
+		entries = append(entries, Entry{Key: k, Value: s.entries[k], UpdatedAt: time.Time{}})
+	}
+	return entries, nil
+}
+
+// Changelog returns an empty slice because file-based config has no change history.
+func (*FileStore) Changelog(_ context.Context, _ int) ([]ChangelogEntry, error) {
+	return []ChangelogEntry{}, nil
 }
 
 // Mode returns "file".

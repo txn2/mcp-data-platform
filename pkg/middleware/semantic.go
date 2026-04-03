@@ -89,6 +89,15 @@ type EnrichmentConfig struct {
 	// results when the session has not yet called any discovery tool.
 	// If nil, no discovery note is appended.
 	WorkflowTracker *SessionWorkflowTracker
+
+	// ForConnection returns the DataHub source name and catalog mapping for
+	// a named connection. Returns ("", nil) if the connection has no mapping.
+	// This avoids an import cycle between middleware and platform packages.
+	ForConnection func(connectionName string) (datahubSourceName string, catalogMapping map[string]string)
+
+	// ConnectionsForURN returns connection names that can access the dataset
+	// identified by a DataHub URN, based on the URN's platform component.
+	ConnectionsForURN func(urn string) []string
 }
 
 // schemaPreviewColumn is a minimal column entry for search result schema previews.
@@ -99,13 +108,14 @@ type schemaPreviewColumn struct {
 
 // queryContextEntry extends TableAvailability with an optional schema preview.
 type queryContextEntry struct {
-	Available     bool                  `json:"available"`
-	QueryTable    string                `json:"query_table,omitempty"`
-	Connection    string                `json:"connection,omitempty"`
-	EstimatedRows *int64                `json:"estimated_rows,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	SchemaPreview []schemaPreviewColumn `json:"schema_preview,omitempty"`
-	TotalColumns  int                   `json:"total_columns,omitempty"`
+	Available            bool                  `json:"available"`
+	QueryTable           string                `json:"query_table,omitempty"`
+	Connection           string                `json:"connection,omitempty"`
+	AvailableConnections []string              `json:"available_connections,omitempty"`
+	EstimatedRows        *int64                `json:"estimated_rows,omitempty"`
+	Error                string                `json:"error,omitempty"`
+	SchemaPreview        []schemaPreviewColumn `json:"schema_preview,omitempty"`
+	TotalColumns         int                   `json:"total_columns,omitempty"`
 }
 
 // semanticEnricher holds the enrichment dependencies.
@@ -131,7 +141,11 @@ func (e *semanticEnricher) enrich(
 		return e.enrichDataHubResultWithAll(ctx, result, request)
 	case "s3":
 		if e.cfg.EnrichS3Results && e.semanticProvider != nil {
-			return enrichS3Result(ctx, result, request, e.semanticProvider)
+			var catalogMapping map[string]string
+			if e.cfg.ForConnection != nil && pc.Connection != "" {
+				_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+			}
+			return enrichS3Result(ctx, result, request, e.semanticProvider, catalogMapping)
 		}
 	}
 	return result, nil
@@ -146,11 +160,17 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	request mcp.CallToolRequest,
 	pc *PlatformContext,
 ) (*mcp.CallToolResult, error) {
+	// Resolve catalog mapping for the current connection.
+	var catalogMapping map[string]string
+	if e.cfg.ForConnection != nil && pc.Connection != "" {
+		_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+	}
+
 	cache := e.cfg.SessionCache
 	if cache == nil {
 		slog.Debug("dedup: cache is nil, full enrichment")
 		pc.EnrichmentMode = EnrichmentModeFull
-		return enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
+		return e.enrichTrinoResult(ctx, result, request, catalogMapping)
 	}
 
 	// Identify tables from the request
@@ -161,7 +181,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 			keySessionID, pc.SessionID,
 			"has_params", request.Params != nil,
 		)
-		return enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
+		return e.enrichTrinoResult(ctx, result, request, catalogMapping)
 	}
 
 	slog.Debug("dedup: checking cache",
@@ -199,7 +219,13 @@ func (e *semanticEnricher) handleFullEnrichment(
 	cache := e.cfg.SessionCache
 	beforeChars := contentChars(result)
 
-	enrichedResult, err := enrichTrinoResult(ctx, result, request, e.semanticProvider, e.cfg.ColumnContextFiltering)
+	// Resolve catalog mapping for the current connection.
+	var catalogMapping map[string]string
+	if e.cfg.ForConnection != nil && pc.Connection != "" {
+		_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+	}
+
+	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, catalogMapping)
 	if err != nil {
 		return enrichedResult, err
 	}
@@ -406,13 +432,25 @@ func (e *semanticEnricher) enrichDataHubQueryAndStorage(
 	return enrichedResult, nil
 }
 
+// applyCatalogMapping replaces the table's catalog using the given mapping.
+// If mapping is nil or the catalog has no entry, the table is returned unchanged.
+func applyCatalogMapping(table semantic.TableIdentifier, mapping map[string]string) semantic.TableIdentifier {
+	if mapping == nil {
+		return table
+	}
+	if mapped, ok := mapping[table.Catalog]; ok {
+		table.Catalog = mapped
+	}
+	return table
+}
+
 // enrichTrinoResult adds semantic context to Trino tool results.
-func enrichTrinoResult(
+// catalogMapping optionally remaps connection catalog names to DataHub catalog names.
+func (e *semanticEnricher) enrichTrinoResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
-	provider semantic.Provider,
-	columnFiltering bool,
+	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
@@ -424,10 +462,10 @@ func enrichTrinoResult(
 				"tables", formatTableRefs(tables),
 			)
 			filterSQL := ""
-			if columnFiltering {
+			if e.cfg.ColumnContextFiltering {
 				filterSQL = sql
 			}
-			return enrichTrinoQueryResult(ctx, result, tables, provider, filterSQL)
+			return e.enrichTrinoQueryResult(ctx, result, tables, filterSQL, catalogMapping)
 		}
 	}
 
@@ -437,11 +475,11 @@ func enrichTrinoResult(
 		return result, nil
 	}
 
-	// Parse table identifier
-	table := parseTableIdentifier(tableName)
+	// Parse table identifier and apply catalog mapping
+	table := applyCatalogMapping(parseTableIdentifier(tableName), catalogMapping)
 
 	// Get semantic context for the table
-	semanticCtx, err := provider.GetTableContext(ctx, table)
+	semanticCtx, err := e.semanticProvider.GetTableContext(ctx, table)
 	if err != nil {
 		slog.Debug("semantic enrichment failed for Trino result",
 			keyTable, tableName,
@@ -454,7 +492,7 @@ func enrichTrinoResult(
 	}
 
 	// Get column-level semantic context
-	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, table)
+	columnsCtx, columnsErr := e.semanticProvider.GetColumnsContext(ctx, table)
 	if columnsErr != nil {
 		slog.Debug("column semantic enrichment failed for Trino result",
 			keyTable, tableName,
@@ -492,12 +530,12 @@ func formatTableRefs(refs []TableRef) []string {
 // enrichTrinoQueryResult enriches results for SQL queries with multiple tables.
 // When filterSQL is non-empty, column context is filtered to only columns
 // whose names appear as identifiers in the SQL query (plus PII/sensitive columns).
-func enrichTrinoQueryResult(
+func (e *semanticEnricher) enrichTrinoQueryResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	tables []TableRef,
-	provider semantic.Provider,
 	filterSQL string,
+	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
 	if len(tables) == 0 {
 		return result, nil
@@ -505,9 +543,9 @@ func enrichTrinoQueryResult(
 
 	// Primary table gets full context
 	primary := tables[0]
-	tableID := refToTableIdentifier(primary)
+	tableID := applyCatalogMapping(refToTableIdentifier(primary), catalogMapping)
 
-	tableCtx, err := provider.GetTableContext(ctx, tableID)
+	tableCtx, err := e.semanticProvider.GetTableContext(ctx, tableID)
 	if err != nil {
 		slog.Debug("semantic enrichment failed for primary table",
 			keyTable, primary.FullPath,
@@ -516,7 +554,7 @@ func enrichTrinoQueryResult(
 		return result, nil
 	}
 
-	columnsCtx, columnsErr := provider.GetColumnsContext(ctx, tableID)
+	columnsCtx, columnsErr := e.semanticProvider.GetColumnsContext(ctx, tableID)
 	if columnsErr != nil {
 		slog.Debug("column enrichment failed for primary table",
 			keyTable, primary.FullPath,
@@ -532,8 +570,8 @@ func enrichTrinoQueryResult(
 	// Additional tables get summary context
 	additionalTables := make([]map[string]any, 0, len(tables)-1)
 	for _, t := range tables[1:] {
-		tID := refToTableIdentifier(t)
-		tCtx, tErr := provider.GetTableContext(ctx, tID)
+		tID := applyCatalogMapping(refToTableIdentifier(t), catalogMapping)
+		tCtx, tErr := e.semanticProvider.GetTableContext(ctx, tID)
 		if tErr != nil {
 			slog.Debug("semantic enrichment failed for additional table",
 				keyTable, t.FullPath,
@@ -690,30 +728,47 @@ func (e *semanticEnricher) enrichDataHubResult(
 	// Get query context for each URN
 	queryContexts := make(map[string]*queryContextEntry, len(urns))
 	for _, urn := range urns {
-		availability, err := provider.GetTableAvailability(ctx, urn)
-		if err != nil {
-			continue
+		entry := e.buildQueryContextEntry(ctx, provider, urn)
+		if entry != nil {
+			queryContexts[urn] = entry
 		}
-		entry := &queryContextEntry{
-			Available:     availability.Available,
-			QueryTable:    availability.QueryTable,
-			Connection:    availability.Connection,
-			EstimatedRows: availability.EstimatedRows,
-			Error:         availability.Error,
-		}
-		// Best-effort schema preview for available tables
-		if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
-			preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
-			if len(preview) > 0 {
-				entry.SchemaPreview = preview
-				entry.TotalColumns = total
-			}
-		}
-		queryContexts[urn] = entry
 	}
 
 	// Append query context to result
 	return appendQueryContext(result, queryContexts)
+}
+
+// buildQueryContextEntry builds a single query context entry for a URN,
+// including availability, connections, and optional schema preview.
+func (e *semanticEnricher) buildQueryContextEntry(
+	ctx context.Context,
+	provider query.Provider,
+	urn string,
+) *queryContextEntry {
+	availability, err := provider.GetTableAvailability(ctx, urn)
+	if err != nil {
+		return nil
+	}
+	entry := &queryContextEntry{
+		Available:     availability.Available,
+		QueryTable:    availability.QueryTable,
+		Connection:    availability.Connection,
+		EstimatedRows: availability.EstimatedRows,
+		Error:         availability.Error,
+	}
+	// Add all connections that can access this URN via source map lookup.
+	if e.cfg.ConnectionsForURN != nil {
+		entry.AvailableConnections = e.cfg.ConnectionsForURN(urn)
+	}
+	// Best-effort schema preview for available tables.
+	if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
+		preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
+		if len(preview) > 0 {
+			entry.SchemaPreview = preview
+			entry.TotalColumns = total
+		}
+	}
+	return entry
 }
 
 // fetchSchemaPreview resolves a URN to a table and returns a bounded column
@@ -1210,18 +1265,26 @@ func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*queryCo
 }
 
 // enrichS3Result adds semantic context to S3 tool results.
+// catalogMapping optionally remaps connection catalog names to DataHub catalog names.
 func enrichS3Result(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
 	provider semantic.Provider,
+	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
 	bucket, prefix := extractS3PathFromRequest(request)
 	if bucket == "" {
 		return result, nil
 	}
 
-	searchResults := searchS3Datasets(ctx, provider, bucket, prefix)
+	// Apply catalog mapping to the S3 search platform if applicable.
+	platform := "s3"
+	if mapped, ok := catalogMapping["s3"]; ok {
+		platform = mapped
+	}
+
+	searchResults := searchS3Datasets(ctx, provider, bucket, prefix, platform)
 	if len(searchResults) == 0 {
 		return result, nil
 	}
@@ -1238,7 +1301,7 @@ func enrichS3Result(
 func searchS3Datasets(
 	ctx context.Context,
 	provider semantic.Provider,
-	bucket, prefix string,
+	bucket, prefix, platform string,
 ) []semantic.TableSearchResult {
 	searchQuery := bucket
 	if prefix != "" {
@@ -1247,7 +1310,7 @@ func searchS3Datasets(
 
 	searchResults, err := provider.SearchTables(ctx, semantic.SearchFilter{
 		Query:    searchQuery,
-		Platform: "s3",
+		Platform: platform,
 		Limit:    5,
 	})
 	if err != nil {

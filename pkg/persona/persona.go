@@ -1,8 +1,6 @@
 // Package persona provides persona-based access control and customization.
 package persona
 
-import "strings"
-
 // defaultPersonaPriority is the default priority for built-in personas.
 const defaultPersonaPriority = 100
 
@@ -17,20 +15,27 @@ type Persona struct {
 	// Description describes this persona.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
-	// Roles are the roles that map to this persona.
+	// Roles are the roles that map to this persona. When a user authenticates
+	// via OIDC, their token claims are mapped to roles. When using API keys,
+	// roles are assigned directly. A user gets this persona when any of their
+	// roles match.
 	Roles []string `json:"roles" yaml:"roles"`
 
-	// Tools defines tool access rules.
+	// Tools defines tool access rules (allow/deny glob patterns).
 	Tools ToolRules `json:"tools" yaml:"tools"`
 
-	// Prompts defines prompt customizations.
-	Prompts PromptConfig `json:"prompts" yaml:"prompts"`
+	// Connections defines connection-level access rules. A tool call must pass
+	// both the tool check and the connection check. If Connections.Allow is
+	// empty, all connections are permitted (backward-compatible default).
+	Connections ConnectionRules `json:"connections" yaml:"connections"`
 
-	// Hints provides tool-specific hints for the AI.
-	Hints map[string]string `json:"hints,omitempty" yaml:"hints,omitempty"`
+	// Context defines per-persona overrides for the platform description and
+	// agent instructions returned by the platform_info tool.
+	Context ContextOverrides `json:"context" yaml:"context"`
 
-	// Priority determines which persona takes precedence.
-	// Higher values have higher priority.
+	// Priority determines which persona takes precedence when a user's roles
+	// match multiple personas. Higher values win. Default is 0; the built-in
+	// admin persona uses 100.
 	Priority int `json:"priority,omitempty" yaml:"priority,omitempty"`
 }
 
@@ -43,16 +48,76 @@ type ToolRules struct {
 	Deny []string `json:"deny" yaml:"deny"`
 }
 
-// PromptConfig defines prompt customizations for a persona.
-type PromptConfig struct {
-	// SystemPrefix is prepended to system prompts.
-	SystemPrefix string `json:"system_prefix,omitempty" yaml:"system_prefix,omitempty"`
+// ConnectionRules defines connection-level access rules for a persona.
+// These work alongside ToolRules — a tool call must pass both the tool
+// check AND the connection check. If the Allow list is empty, all
+// connections are permitted (backward-compatible default).
+type ConnectionRules struct {
+	// Allow patterns for allowed connections (supports wildcards like "prod-*").
+	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
 
-	// SystemSuffix is appended to system prompts.
-	SystemSuffix string `json:"system_suffix,omitempty" yaml:"system_suffix,omitempty"`
+	// Deny patterns for denied connections (takes precedence over Allow).
+	Deny []string `json:"deny,omitempty" yaml:"deny,omitempty"`
+}
 
-	// Instructions are additional instructions for this persona.
-	Instructions string `json:"instructions,omitempty" yaml:"instructions,omitempty"`
+// ContextOverrides defines per-persona overrides for the description and
+// agent instructions that the platform_info tool returns. These let you
+// tailor what an AI agent sees based on who is using the platform.
+//
+// For each field pair (prefix/override), the override takes precedence.
+// If an override is set, the prefix/suffix is ignored.
+type ContextOverrides struct {
+	// DescriptionPrefix is prepended to the server description (separated by
+	// a blank line). Use this to add persona-specific context before the
+	// base platform description. Ignored if DescriptionOverride is set.
+	DescriptionPrefix string `json:"description_prefix,omitempty" yaml:"description_prefix,omitempty"`
+
+	// DescriptionOverride replaces the server description entirely.
+	// Use this when a persona needs a completely different description.
+	DescriptionOverride string `json:"description_override,omitempty" yaml:"description_override,omitempty"`
+
+	// AgentInstructionsSuffix is appended to the server agent instructions
+	// (separated by a blank line). Use this to add persona-specific guidance
+	// after the base instructions. Ignored if AgentInstructionsOverride is set.
+	AgentInstructionsSuffix string `json:"agent_instructions_suffix,omitempty" yaml:"agent_instructions_suffix,omitempty"`
+
+	// AgentInstructionsOverride replaces the server agent instructions entirely.
+	// Use this when a persona needs completely different instructions.
+	AgentInstructionsOverride string `json:"agent_instructions_override,omitempty" yaml:"agent_instructions_override,omitempty"`
+}
+
+// ApplyDescription returns the effective description for this persona.
+// If DescriptionOverride is set, it replaces the base entirely.
+// If DescriptionPrefix is set, it is prepended to the base.
+// Otherwise the base is returned unchanged.
+func (p *Persona) ApplyDescription(base string) string {
+	if p.Context.DescriptionOverride != "" {
+		return p.Context.DescriptionOverride
+	}
+	if p.Context.DescriptionPrefix != "" {
+		if base == "" {
+			return p.Context.DescriptionPrefix
+		}
+		return p.Context.DescriptionPrefix + "\n\n" + base
+	}
+	return base
+}
+
+// ApplyAgentInstructions returns the effective agent instructions for this persona.
+// If AgentInstructionsOverride is set, it replaces the base entirely.
+// If AgentInstructionsSuffix is set, it is appended to the base.
+// Otherwise the base is returned unchanged.
+func (p *Persona) ApplyAgentInstructions(base string) string {
+	if p.Context.AgentInstructionsOverride != "" {
+		return p.Context.AgentInstructionsOverride
+	}
+	if p.Context.AgentInstructionsSuffix != "" {
+		if base == "" {
+			return p.Context.AgentInstructionsSuffix
+		}
+		return base + "\n\n" + p.Context.AgentInstructionsSuffix
+	}
+	return base
 }
 
 // DefaultPersona creates a default persona that denies all access.
@@ -67,8 +132,8 @@ func DefaultPersona() *Persona {
 			Allow: []string{},    // DENY BY DEFAULT
 			Deny:  []string{"*"}, // EXPLICIT DENY ALL
 		},
-		Prompts: PromptConfig{},
-		Hints:   make(map[string]string),
+		Connections: ConnectionRules{},
+		Context:     ContextOverrides{},
 	}
 }
 
@@ -83,35 +148,8 @@ func AdminPersona() *Persona {
 			Allow: []string{"*"},
 			Deny:  []string{},
 		},
-		Prompts:  PromptConfig{},
-		Hints:    make(map[string]string),
-		Priority: defaultPersonaPriority,
+		Connections: ConnectionRules{},
+		Context:     ContextOverrides{},
+		Priority:    defaultPersonaPriority,
 	}
-}
-
-// GetFullSystemPrompt returns the complete system prompt by combining
-// SystemPrefix, Instructions, and SystemSuffix.
-func (p *Persona) GetFullSystemPrompt() string {
-	var parts []string
-
-	if p.Prompts.SystemPrefix != "" {
-		parts = append(parts, p.Prompts.SystemPrefix)
-	}
-	if p.Prompts.Instructions != "" {
-		parts = append(parts, p.Prompts.Instructions)
-	}
-	if p.Prompts.SystemSuffix != "" {
-		parts = append(parts, p.Prompts.SystemSuffix)
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	var result strings.Builder
-	_, _ = result.WriteString(parts[0])
-	for i := 1; i < len(parts); i++ {
-		_, _ = result.WriteString("\n\n" + parts[i])
-	}
-	return result.String()
 }

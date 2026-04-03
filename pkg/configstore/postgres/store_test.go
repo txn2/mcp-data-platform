@@ -13,10 +13,8 @@ import (
 )
 
 const (
-	testDBError      = "db error"
-	testHistoryLimit = 10
-	testData         = "data"
-	fmtUnmetExpect   = "unmet expectations: %v"
+	testDBError    = "db error"
+	fmtUnmetExpect = "unmet expectations: %v"
 )
 
 func newTestStore(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -36,251 +34,330 @@ func TestPostgresStore_Mode(t *testing.T) {
 	}
 }
 
-func TestPostgresStore_Load_NoRows(t *testing.T) {
-	store, mock := newTestStore(t)
+// --- Get ---
 
-	mock.ExpectQuery("SELECT config_yaml FROM config_versions").
-		WillReturnError(sql.ErrNoRows)
-
-	data, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if data != nil {
-		t.Error("Load() expected nil data for first boot")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf(fmtUnmetExpect, err)
-	}
-}
-
-func TestPostgresStore_Load_WithConfig(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	configYAML := "server:\n  name: test-server\n"
-	rows := sqlmock.NewRows([]string{"config_yaml"}).AddRow(configYAML)
-	mock.ExpectQuery("SELECT config_yaml FROM config_versions").
-		WillReturnRows(rows)
-
-	data, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if data == nil {
-		t.Fatal("Load() returned nil data")
-	}
-	if string(data) != configYAML {
-		t.Errorf("Load() = %q, want %q", string(data), configYAML)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf(fmtUnmetExpect, err)
-	}
-}
-
-func TestPostgresStore_Load_DBError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectQuery("SELECT config_yaml FROM config_versions").
-		WillReturnError(errors.New(testDBError))
-
-	_, err := store.Load(context.Background())
-	if err == nil {
-		t.Error("Load() expected error")
-	}
-}
-
-func TestPostgresStore_Save_FirstVersion(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	data := []byte("server:\n  name: test\n")
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(1))
-	mock.ExpectExec("UPDATE config_versions SET is_active").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO config_versions").
-		WithArgs(1, string(data), "admin", "initial").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	err := store.Save(context.Background(), data, configstore.SaveMeta{
-		Author:  "admin",
-		Comment: "initial",
-	})
-	if err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf(fmtUnmetExpect, err)
-	}
-}
-
-func TestPostgresStore_Save_SecondVersion(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	data := []byte("server:\n  name: updated\n")
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(2))
-	mock.ExpectExec("UPDATE config_versions SET is_active").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO config_versions").
-		WithArgs(2, string(data), "user1", "update").
-		WillReturnResult(sqlmock.NewResult(2, 1))
-	mock.ExpectCommit()
-
-	err := store.Save(context.Background(), data, configstore.SaveMeta{
-		Author:  "user1",
-		Comment: "update",
-	})
-	if err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf(fmtUnmetExpect, err)
-	}
-}
-
-func TestPostgresStore_Save_BeginError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectBegin().WillReturnError(errors.New(testDBError))
-
-	err := store.Save(context.Background(), []byte(testData), configstore.SaveMeta{})
-	if err == nil {
-		t.Error("Save() expected error on begin failure")
-	}
-}
-
-func TestPostgresStore_Save_VersionQueryError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnError(errors.New(testDBError))
-	mock.ExpectRollback()
-
-	err := store.Save(context.Background(), []byte(testData), configstore.SaveMeta{})
-	if err == nil {
-		t.Error("Save() expected error on version query failure")
-	}
-}
-
-func TestPostgresStore_Save_DeactivateError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(1))
-	mock.ExpectExec("UPDATE config_versions SET is_active").
-		WillReturnError(errors.New(testDBError))
-	mock.ExpectRollback()
-
-	err := store.Save(context.Background(), []byte(testData), configstore.SaveMeta{})
-	if err == nil {
-		t.Error("Save() expected error on deactivate failure")
-	}
-}
-
-func TestPostgresStore_Save_InsertError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(1))
-	mock.ExpectExec("UPDATE config_versions SET is_active").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO config_versions").
-		WithArgs(1, testData, "", "").
-		WillReturnError(errors.New(testDBError))
-	mock.ExpectRollback()
-
-	err := store.Save(context.Background(), []byte(testData), configstore.SaveMeta{})
-	if err == nil {
-		t.Error("Save() expected error on insert failure")
-	}
-}
-
-func TestPostgresStore_Save_CommitError(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE").
-		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(1))
-	mock.ExpectExec("UPDATE config_versions SET is_active").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO config_versions").
-		WithArgs(1, testData, "", "").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit().WillReturnError(errors.New(testDBError))
-
-	err := store.Save(context.Background(), []byte(testData), configstore.SaveMeta{})
-	if err == nil {
-		t.Error("Save() expected error on commit failure")
-	}
-}
-
-func TestPostgresStore_History(t *testing.T) {
+func TestPostgresStore_Get_Success(t *testing.T) {
 	store, mock := newTestStore(t)
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "version", "author", "comment", "created_at"}).
-		AddRow(2, 2, "user1", "second save", now).
-		AddRow(1, 1, "admin", "initial", now.Add(-time.Hour))
+	rows := sqlmock.NewRows([]string{"key", "value_text", "updated_by", "updated_at"}).
+		AddRow("server.name", "test-server", "admin", now)
 
-	mock.ExpectQuery("SELECT id, version, author, comment, created_at FROM config_versions").
-		WithArgs(testHistoryLimit).
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries WHERE key").
+		WithArgs("server.name").
 		WillReturnRows(rows)
 
-	revisions, err := store.History(context.Background(), testHistoryLimit)
+	entry, err := store.Get(context.Background(), "server.name")
 	if err != nil {
-		t.Fatalf("History() error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
-	if len(revisions) != 2 {
-		t.Fatalf("History() returned %d revisions, want 2", len(revisions))
+	if entry.Key != "server.name" {
+		t.Errorf("Key = %q, want %q", entry.Key, "server.name")
 	}
-	if revisions[0].Version != 2 {
-		t.Errorf("revisions[0].Version = %d, want 2", revisions[0].Version)
+	if entry.Value != "test-server" {
+		t.Errorf("Value = %q, want %q", entry.Value, "test-server")
 	}
-	if revisions[0].Author != "user1" {
-		t.Errorf("revisions[0].Author = %q, want %q", revisions[0].Author, "user1")
-	}
-	if revisions[1].Version != 1 {
-		t.Errorf("revisions[1].Version = %d, want 1", revisions[1].Version)
+	if entry.UpdatedBy != "admin" {
+		t.Errorf("UpdatedBy = %q, want %q", entry.UpdatedBy, "admin")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(fmtUnmetExpect, err)
 	}
 }
 
-func TestPostgresStore_History_Empty(t *testing.T) {
+func TestPostgresStore_Get_NotFound(t *testing.T) {
 	store, mock := newTestStore(t)
 
-	rows := sqlmock.NewRows([]string{"id", "version", "author", "comment", "created_at"})
-	mock.ExpectQuery("SELECT id, version, author, comment, created_at FROM config_versions").
-		WithArgs(testHistoryLimit).
-		WillReturnRows(rows)
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries WHERE key").
+		WithArgs("missing").
+		WillReturnError(sql.ErrNoRows)
 
-	revisions, err := store.History(context.Background(), testHistoryLimit)
-	if err != nil {
-		t.Fatalf("History() error = %v", err)
+	_, err := store.Get(context.Background(), "missing")
+	if !errors.Is(err, configstore.ErrNotFound) {
+		t.Errorf("Get() error = %v, want ErrNotFound", err)
 	}
-	if len(revisions) != 0 {
-		t.Errorf("History() returned %d revisions, want 0", len(revisions))
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
 	}
 }
 
-func TestPostgresStore_History_DBError(t *testing.T) {
+func TestPostgresStore_Get_DBError(t *testing.T) {
 	store, mock := newTestStore(t)
 
-	mock.ExpectQuery("SELECT id, version, author, comment, created_at FROM config_versions").
-		WithArgs(testHistoryLimit).
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries WHERE key").
+		WithArgs("key").
 		WillReturnError(errors.New(testDBError))
 
-	_, err := store.History(context.Background(), testHistoryLimit)
+	_, err := store.Get(context.Background(), "key")
 	if err == nil {
-		t.Error("History() expected error")
+		t.Error("Get() expected error")
+	}
+}
+
+// --- Set ---
+
+func TestPostgresStore_Set_Success(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO config_entries").
+		WithArgs("server.name", "new-val", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO config_changelog").
+		WithArgs("server.name", "new-val", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := store.Set(context.Background(), "server.name", "new-val", "admin")
+	if err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_Set_UpsertError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO config_entries").
+		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
+		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
+
+	err := store.Set(context.Background(), "key", "val", "admin")
+	if err == nil {
+		t.Error("Set() expected error on upsert failure")
+	}
+}
+
+func TestPostgresStore_Set_ChangelogError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO config_entries").
+		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO config_changelog").
+		WithArgs("key", "val", "admin", sqlmock.AnyArg()).
+		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
+
+	err := store.Set(context.Background(), "key", "val", "admin")
+	if err == nil {
+		t.Error("Set() expected error on changelog failure")
+	}
+}
+
+// --- Delete ---
+
+func TestPostgresStore_Delete_Success(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM config_entries WHERE key").
+		WithArgs("server.name").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO config_changelog").
+		WithArgs("server.name", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := store.Delete(context.Background(), "server.name", "admin")
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_Delete_NotFound(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM config_entries WHERE key").
+		WithArgs("missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	err := store.Delete(context.Background(), "missing", "admin")
+	if !errors.Is(err, configstore.ErrNotFound) {
+		t.Errorf("Delete() error = %v, want ErrNotFound", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_Delete_DBError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM config_entries WHERE key").
+		WithArgs("key").
+		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
+
+	err := store.Delete(context.Background(), "key", "admin")
+	if err == nil {
+		t.Error("Delete() expected error")
+	}
+}
+
+func TestPostgresStore_Delete_ChangelogError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM config_entries WHERE key").
+		WithArgs("key").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO config_changelog").
+		WithArgs("key", "admin", sqlmock.AnyArg()).
+		WillReturnError(errors.New(testDBError))
+	mock.ExpectRollback()
+
+	err := store.Delete(context.Background(), "key", "admin")
+	if err == nil {
+		t.Error("Delete() expected error on changelog failure")
+	}
+}
+
+// --- List ---
+
+func TestPostgresStore_List_Success(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"key", "value_text", "updated_by", "updated_at"}).
+		AddRow("a.key", "alpha", "admin", now).
+		AddRow("b.key", "bravo", "user1", now)
+
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries ORDER BY key").
+		WillReturnRows(rows)
+
+	entries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("List() returned %d entries, want 2", len(entries))
+	}
+	if entries[0].Key != "a.key" || entries[0].Value != "alpha" {
+		t.Errorf("entries[0] = {%q, %q}, want {%q, %q}", entries[0].Key, entries[0].Value, "a.key", "alpha")
+	}
+	if entries[1].Key != "b.key" || entries[1].Value != "bravo" {
+		t.Errorf("entries[1] = {%q, %q}, want {%q, %q}", entries[1].Key, entries[1].Value, "b.key", "bravo")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_List_Empty(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	rows := sqlmock.NewRows([]string{"key", "value_text", "updated_by", "updated_at"})
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries ORDER BY key").
+		WillReturnRows(rows)
+
+	entries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("List() returned %d entries, want 0", len(entries))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_List_DBError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectQuery("SELECT key, value_text, updated_by, updated_at FROM config_entries ORDER BY key").
+		WillReturnError(errors.New(testDBError))
+
+	_, err := store.List(context.Background())
+	if err == nil {
+		t.Error("List() expected error")
+	}
+}
+
+// --- Changelog ---
+
+func TestPostgresStore_Changelog_Success(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	now := time.Now()
+	val := "new-value"
+	rows := sqlmock.NewRows([]string{"id", "key", "action", "value_text", "changed_by", "changed_at"}).
+		AddRow(2, "server.name", "set", val, "admin", now).
+		AddRow(1, "old.key", "delete", nil, "user1", now.Add(-time.Hour))
+
+	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
+		WithArgs(10).
+		WillReturnRows(rows)
+
+	entries, err := store.Changelog(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("Changelog() error = %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("Changelog() returned %d entries, want 2", len(entries))
+	}
+
+	// First entry: "set" with a value.
+	if entries[0].ID != 2 {
+		t.Errorf("entries[0].ID = %d, want 2", entries[0].ID)
+	}
+	if entries[0].Action != "set" {
+		t.Errorf("entries[0].Action = %q, want %q", entries[0].Action, "set")
+	}
+	if entries[0].Value == nil || *entries[0].Value != val {
+		t.Errorf("entries[0].Value = %v, want %q", entries[0].Value, val)
+	}
+
+	// Second entry: "delete" with NULL value.
+	if entries[1].Action != "delete" {
+		t.Errorf("entries[1].Action = %q, want %q", entries[1].Action, "delete")
+	}
+	if entries[1].Value != nil {
+		t.Errorf("entries[1].Value = %v, want nil", entries[1].Value)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(fmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresStore_Changelog_Empty(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	rows := sqlmock.NewRows([]string{"id", "key", "action", "value_text", "changed_by", "changed_at"})
+	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
+		WithArgs(10).
+		WillReturnRows(rows)
+
+	entries, err := store.Changelog(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("Changelog() error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("Changelog() returned %d entries, want 0", len(entries))
+	}
+}
+
+func TestPostgresStore_Changelog_DBError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
+		WithArgs(10).
+		WillReturnError(errors.New(testDBError))
+
+	_, err := store.Changelog(context.Background(), 10)
+	if err == nil {
+		t.Error("Changelog() expected error")
 	}
 }

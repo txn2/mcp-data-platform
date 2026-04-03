@@ -306,10 +306,11 @@ export interface ToolCallResponse {
 // Personas
 // ---------------------------------------------------------------------------
 
-export interface PersonaPrompts {
-  system_prefix?: string;
-  system_suffix?: string;
-  instructions?: string;
+export interface PersonaContextOverrides {
+  description_prefix?: string;
+  description_override?: string;
+  agent_instructions_suffix?: string;
+  agent_instructions_override?: string;
 }
 
 export interface PersonaSummary {
@@ -328,9 +329,10 @@ export interface PersonaDetail {
   priority: number;
   allow_tools: string[];
   deny_tools: string[];
+  allow_connections?: string[];
+  deny_connections?: string[];
   tools: string[];
-  prompts?: PersonaPrompts;
-  hints?: Record<string, string>;
+  context?: PersonaContextOverrides;
 }
 
 export interface PersonaListResponse {
@@ -345,7 +347,13 @@ export interface PersonaCreateRequest {
   roles: string[];
   allow_tools: string[];
   deny_tools?: string[];
+  allow_connections?: string[];
+  deny_connections?: string[];
   priority?: number;
+  description_prefix?: string;
+  description_override?: string;
+  agent_instructions_suffix?: string;
+  agent_instructions_override?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,3 +370,54 @@ export interface AdminAssetListResponse {
   share_summaries?: Record<string, import("@/api/portal/types").ShareSummary>;
 }
 
+
+// --- Config entries ---
+
+export interface ConfigEntry {
+  key: string;
+  value: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface ConfigChangelogEntry {
+  id: number;
+  key: string;
+  action: string;
+  value?: string;
+  changed_by: string;
+  changed_at: string;
+}
+
+export interface EffectiveConfigEntry {
+  key: string;
+  value: string;
+  source: "file" | "database";
+  updated_by?: string;
+  updated_at?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Connection Instances (DB-managed)
+// ---------------------------------------------------------------------------
+
+export interface ConnectionInstance {
+  kind: string;
+  name: string;
+  config: Record<string, any>;
+  description: string;
+  created_by: string;
+  updated_at: string;
+}
+
+export interface EffectiveConnection {
+  kind: string;
+  name: string;
+  connection: string;
+  description?: string;
+  source: "file" | "database" | "both";
+  tools: string[];
+  config?: Record<string, any>;
+  created_by?: string;
+  updated_at?: string;
+}

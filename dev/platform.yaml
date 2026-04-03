@@ -17,6 +17,45 @@ server:
   name: acme-data-platform
   transport: http
   address: ":8080"
+  description: |
+    ACME Corp's unified data platform providing governed access to the enterprise
+    data warehouse (Trino/Iceberg), data catalog (DataHub), and object storage (S3).
+
+    ## Available Data Domains
+
+    - **Retail Analytics** — daily sales, store performance, regional trends
+    - **Inventory Management** — stock levels, reorder alerts, warehouse utilization
+    - **Financial Reporting** — revenue, margins, year-over-year comparisons
+    - **Customer Insights** — segmentation, lifetime value, churn indicators
+
+    ## Data Governance
+
+    All data access is governed by the semantic layer. Business definitions,
+    ownership, quality scores, and lineage are automatically surfaced alongside
+    query results. Deprecated datasets include warnings and migration guidance.
+  agent_instructions: |
+    You are an AI assistant with access to ACME Corp's enterprise data platform.
+    Follow these guidelines when helping users:
+
+    ## Discovery First
+
+    Always start by searching the data catalog (DataHub) before writing queries.
+    Use `datahub_search` to find relevant datasets, then `datahub_get_entity` to
+    understand schema, ownership, and quality scores before querying.
+
+    ## Query Best Practices
+
+    - Prefer aggregations over full table scans
+    - Always include date filters to avoid unbounded queries
+    - Use `LIMIT` when exploring unfamiliar tables
+    - Reference the `iceberg` catalog for production data
+
+    ## Communication Style
+
+    - Present results with business context, not just raw numbers
+    - Flag data quality warnings proactively
+    - Suggest related analyses the user might find valuable
+    - Use markdown tables for structured results
 
 auth:
   oidc:
@@ -45,8 +84,8 @@ personas:
       allow:
         - "*"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are the ACME data platform administrator with full access.
 
   data-engineer:
@@ -60,12 +99,12 @@ personas:
         - "s3_*"
       deny:
         - "s3_delete_*"
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME data engineer build and maintain data pipelines.
-    hints:
-      trino_query: "Use iceberg catalog for production tables"
-      datahub_search: "Search the catalog before writing new queries"
+      agent_instructions_suffix: |
+        Use iceberg catalog for production tables.
+        Search the catalog before writing new queries.
 
   inventory-analyst:
     display_name: "Inventory Analyst"
@@ -81,13 +120,13 @@ personas:
         - "datahub_get_schema"
         - "s3_list_*"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME inventory analyst track stock levels across 1,000 stores.
         Focus on the inventory and retail schemas.
-    hints:
-      trino_query: "Start with inventory.inventory_levels for current stock"
-      datahub_search: "Check metadata before joining tables"
+      agent_instructions_suffix: |
+        Start with inventory.inventory_levels for current stock.
+        Check metadata before joining tables.
 
   regional-director:
     display_name: "Regional Director"
@@ -102,8 +141,8 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are providing regional performance data to an ACME regional director.
         Focus on the analytics schema and regional reports.
 
@@ -119,8 +158,8 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are providing financial insights to an ACME executive.
         Focus on revenue, margins, and high-level KPIs. Avoid technical details.
 
@@ -135,8 +174,8 @@ personas:
         - "datahub_search"
         - "s3_get_object"
       deny: []
-    prompts:
-      system_prefix: |
+    context:
+      description_prefix: |
         You are helping an ACME store manager access store-level data.
         Focus on daily sales, inventory, and employee scheduling.
 

@@ -95,6 +95,14 @@ func requireEnrich(t *testing.T, enricher *semanticEnricher, result *mcp.CallToo
 	return enriched
 }
 
+// testEnricher builds a semanticEnricher with the given provider and column filtering setting.
+func testEnricher(provider semantic.Provider, columnFiltering bool) *semanticEnricher {
+	return &semanticEnricher{
+		semanticProvider: provider,
+		cfg:              EnrichmentConfig{ColumnContextFiltering: columnFiltering},
+	}
+}
+
 // requireNoErr fails the test if err is non-nil.
 func requireNoErr(t *testing.T, err error) {
 	t.Helper()
@@ -813,7 +821,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -833,7 +841,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -850,7 +858,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		// Should return original result without error
 		requireContentLen(t, enriched, 1)
@@ -873,7 +881,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		// Should have original + semantic context
 		requireContentLen(t, enriched, 2)
@@ -889,7 +897,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		// No tables found, no enrichment
 		requireContentLen(t, enriched, 1)
@@ -910,7 +918,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		// Should still have enrichment even if columns fail
 		requireContentLen(t, enriched, 2)
@@ -1493,7 +1501,7 @@ func TestEnrichS3Result(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{},
 		}
 
-		enriched, err := enrichS3Result(context.Background(), result, request, provider)
+		enriched, err := enrichS3Result(context.Background(), result, request, provider, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1512,7 +1520,7 @@ func TestEnrichS3Result(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichS3Result(context.Background(), result, request, provider)
+		enriched, err := enrichS3Result(context.Background(), result, request, provider, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1538,7 +1546,7 @@ func TestEnrichS3Result(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := enrichS3Result(context.Background(), result, request, provider)
+		enriched, err := enrichS3Result(context.Background(), result, request, provider, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1707,7 +1715,7 @@ func TestSearchS3Datasets(t *testing.T) {
 			},
 		}
 
-		results := searchS3Datasets(context.Background(), provider, "bucket", "prefix")
+		results := searchS3Datasets(context.Background(), provider, "bucket", "prefix", "s3")
 		if results != nil {
 			t.Errorf("expected nil, got %v", results)
 		}
@@ -1725,7 +1733,7 @@ func TestSearchS3Datasets(t *testing.T) {
 			},
 		}
 
-		results := searchS3Datasets(context.Background(), provider, "bucket", "prefix")
+		results := searchS3Datasets(context.Background(), provider, "bucket", "prefix", "s3")
 		if len(results) != 1 {
 			t.Errorf("expected 1 result, got %d", len(results))
 		}
@@ -2530,7 +2538,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		result := &mcp.CallToolResult{Content: []mcp.Content{}}
 		provider := &mockSemanticProvider{}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, []TableRef{}, provider, "")
+		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, []TableRef{}, "", nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 0)
 	})
@@ -2553,7 +2561,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
+		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, tables, "", nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 
@@ -2575,7 +2583,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
+		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, tables, "", nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -2605,7 +2613,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
 
-		enriched, err := enrichTrinoQueryResult(context.Background(), result, tables, provider, "")
+		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, tables, "", nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -3582,7 +3590,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("query result")
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, true)
+		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 
@@ -3617,7 +3625,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("query result")
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, false)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 
@@ -3642,7 +3650,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("describe result")
 
-		enriched, err := enrichTrinoResult(context.Background(), result, request, provider, true)
+		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 

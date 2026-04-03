@@ -81,22 +81,6 @@ definitions:
       total:
         type: integer
     type: object
-  admin.configHistoryResponse:
-    properties:
-      revisions:
-        items:
-          $ref: '#/definitions/configstore.Revision'
-        type: array
-      total:
-        type: integer
-    type: object
-  admin.configImportResponse:
-    properties:
-      note:
-        type: string
-      status:
-        type: string
-    type: object
   admin.configModeResponse:
     properties:
       mode:
@@ -154,7 +138,19 @@ definitions:
     type: object
   admin.personaCreateRequest:
     properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
+      allow_connections:
+        items:
+          type: string
+        type: array
       allow_tools:
+        items:
+          type: string
+        type: array
+      deny_connections:
         items:
           type: string
         type: array
@@ -163,6 +159,10 @@ definitions:
           type: string
         type: array
       description:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
         type: string
       display_name:
         type: string
@@ -177,7 +177,19 @@ definitions:
     type: object
   admin.personaDetail:
     properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
+      allow_connections:
+        items:
+          type: string
+        type: array
       allow_tools:
+        items:
+          type: string
+        type: array
+      deny_connections:
         items:
           type: string
         type: array
@@ -186,6 +198,10 @@ definitions:
           type: string
         type: array
       description:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
         type: string
       display_name:
         type: string
@@ -235,6 +251,14 @@ definitions:
       title:
         type: string
       type:
+        type: string
+    type: object
+  admin.setConnectionInstanceRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      description:
         type: string
     type: object
   admin.statusResponse:
@@ -531,19 +555,6 @@ definitions:
           type: string
         type: array
     type: object
-  configstore.Revision:
-    properties:
-      author:
-        type: string
-      comment:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: integer
-      version:
-        type: integer
-    type: object
   knowledge.Changeset:
     properties:
       applied_by:
@@ -677,6 +688,22 @@ definitions:
       query_sql:
         type: string
       target:
+        type: string
+    type: object
+  platform.ConnectionInstance:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      created_by:
+        type: string
+      description:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      updated_at:
         type: string
     type: object
 host: localhost:8080
@@ -1171,73 +1198,6 @@ paths:
       summary: Export config
       tags:
       - Config
-  /config/history:
-    get:
-      description: Returns config revision history. Only available in database config
-        mode.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/admin.configHistoryResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Config history
-      tags:
-      - Config
-  /config/import:
-    post:
-      consumes:
-      - application/x-yaml
-      description: Imports a YAML configuration into the config store. Only available
-        in database config mode.
-      parameters:
-      - description: Revision comment
-        in: query
-        name: comment
-        type: string
-      - description: YAML configuration
-        in: body
-        name: body
-        required: true
-        schema:
-          type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/admin.configImportResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/admin.problemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Import config
-      tags:
-      - Config
   /config/mode:
     get:
       description: Returns the current config store mode (file or database).
@@ -1254,6 +1214,136 @@ paths:
       summary: Get config mode
       tags:
       - Config
+  /connection-instances:
+    get:
+      description: Returns all database-managed connection instances.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/platform.ConnectionInstance'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List connection instances
+      tags:
+      - Connections
+  /connection-instances/{kind}/{name}:
+    delete:
+      description: Deletes a database-managed connection instance.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete connection instance
+      tags:
+      - Connections
+    get:
+      description: Returns a single database-managed connection instance by kind and
+        name.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.ConnectionInstance'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get connection instance
+      tags:
+      - Connections
+    put:
+      consumes:
+      - application/json
+      description: Creates or updates a database-managed connection instance.
+      parameters:
+      - description: Toolkit kind (trino, datahub, s3)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Connection instance data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.setConnectionInstanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.ConnectionInstance'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create or update connection instance
+      tags:
+      - Connections
   /connections:
     get:
       description: Returns all toolkit connections with their tools.

@@ -793,112 +793,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/config/history": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns config revision history. Only available in database config mode.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Config"
-                ],
-                "summary": "Config history",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.configHistoryResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/config/import": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Imports a YAML configuration into the config store. Only available in database config mode.",
-                "consumes": [
-                    "application/x-yaml"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Config"
-                ],
-                "summary": "Import config",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Revision comment",
-                        "name": "comment",
-                        "in": "query"
-                    },
-                    {
-                        "description": "YAML configuration",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.configImportResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/config/mode": {
             "get": {
                 "security": [
@@ -922,6 +816,213 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/admin.configModeResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/connection-instances": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all database-managed connection instances.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List connection instances",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/platform.ConnectionInstance"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/connection-instances/{kind}/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single database-managed connection instance by kind and name.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get connection instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Toolkit kind (trino, datahub, s3)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platform.ConnectionInstance"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates or updates a database-managed connection instance.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Create or update connection instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Toolkit kind (trino, datahub, s3)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection instance data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.setConnectionInstanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platform.ConnectionInstance"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes a database-managed connection instance.",
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Delete connection instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Toolkit kind (trino, datahub, s3)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
                         }
                     }
                 }
@@ -1980,31 +2081,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.configHistoryResponse": {
-            "type": "object",
-            "properties": {
-                "revisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/configstore.Revision"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "admin.configImportResponse": {
-            "type": "object",
-            "properties": {
-                "note": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.configModeResponse": {
             "type": "object",
             "properties": {
@@ -2093,7 +2169,25 @@ const docTemplate = `{
         "admin.personaCreateRequest": {
             "type": "object",
             "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
+                "allow_connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "allow_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deny_connections": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -2106,6 +2200,12 @@ const docTemplate = `{
                     }
                 },
                 "description": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
                     "type": "string"
                 },
                 "display_name": {
@@ -2128,7 +2228,25 @@ const docTemplate = `{
         "admin.personaDetail": {
             "type": "object",
             "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
+                "allow_connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "allow_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deny_connections": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -2141,6 +2259,12 @@ const docTemplate = `{
                     }
                 },
                 "description": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
                     "type": "string"
                 },
                 "display_name": {
@@ -2216,6 +2340,18 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.setConnectionInstanceRequest": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "description": {
                     "type": "string"
                 }
             }
@@ -2669,26 +2805,6 @@ const docTemplate = `{
                 }
             }
         },
-        "configstore.Revision": {
-            "type": "object",
-            "properties": {
-                "author": {
-                    "type": "string"
-                },
-                "comment": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "version": {
-                    "type": "integer"
-                }
-            }
-        },
         "knowledge.Changeset": {
             "type": "object",
             "properties": {
@@ -2889,6 +3005,30 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "target": {
+                    "type": "string"
+                }
+            }
+        },
+        "platform.ConnectionInstance": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }

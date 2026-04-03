@@ -65,9 +65,11 @@ type ToolkitRegistry interface {
 
 // ConfigStore abstracts configstore.Store for testability.
 type ConfigStore interface {
-	Load(ctx context.Context) ([]byte, error)
-	Save(ctx context.Context, data []byte, meta configstore.SaveMeta) error
-	History(ctx context.Context, limit int) ([]configstore.Revision, error)
+	Get(ctx context.Context, key string) (*configstore.Entry, error)
+	Set(ctx context.Context, key, value, author string) error
+	Delete(ctx context.Context, key, author string) error
+	List(ctx context.Context) ([]configstore.Entry, error)
+	Changelog(ctx context.Context, limit int) ([]configstore.ChangelogEntry, error)
 	Mode() string
 }
 
@@ -75,6 +77,7 @@ type ConfigStore interface {
 type Deps struct {
 	Config              *platform.Config
 	ConfigStore         ConfigStore
+	FileDefaults        map[string]string
 	PersonaRegistry     PersonaRegistry
 	ToolkitRegistry     ToolkitRegistry
 	MCPServer           *mcp.Server
@@ -90,6 +93,8 @@ type Deps struct {
 	VersionStore        portal.VersionStore
 	S3Client            portal.S3Client
 	S3Bucket            string
+	ConnectionStore     ConnectionStore
+	ConnectionSources   *platform.ConnectionSourceMap
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -162,6 +167,7 @@ func (h *Handler) registerRoutes() {
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
+	h.registerConnectionRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a
@@ -215,8 +221,14 @@ func (h *Handler) registerConfigRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/config/mode", h.configMode)
 	h.mux.HandleFunc("GET /api/v1/admin/config/export", h.exportConfig)
 	if h.deps.ConfigStore != nil {
-		h.mux.HandleFunc("POST /api/v1/admin/config/import", h.importConfig)
-		h.mux.HandleFunc("GET /api/v1/admin/config/history", h.configHistory)
+		h.mux.HandleFunc("GET /api/v1/admin/config/effective", h.listEffectiveConfig)
+		h.mux.HandleFunc("GET /api/v1/admin/config/entries", h.listConfigEntries)
+		h.mux.HandleFunc("GET /api/v1/admin/config/entries/{key}", h.getConfigEntry)
+	}
+	if h.isMutable() {
+		h.mux.HandleFunc("PUT /api/v1/admin/config/entries/{key}", h.setConfigEntry)
+		h.mux.HandleFunc("DELETE /api/v1/admin/config/entries/{key}", h.deleteConfigEntry)
+		h.mux.HandleFunc("GET /api/v1/admin/config/changelog", h.getConfigChangelog)
 	}
 }
 

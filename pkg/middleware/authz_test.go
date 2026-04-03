@@ -7,19 +7,19 @@ import (
 
 // mockAuthorizer implements Authorizer for testing.
 type mockAuthorizer struct {
-	isAuthorizedFunc func(ctx context.Context, userID string, roles []string, toolName string) (bool, string, string)
+	isAuthorizedFunc func(ctx context.Context, userID string, roles []string, toolName, connectionName string) (bool, string, string)
 }
 
-func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName string) (authorized bool, persona, reason string) {
+func (m *mockAuthorizer) IsAuthorized(ctx context.Context, userID string, roles []string, toolName, connectionName string) (authorized bool, persona, reason string) {
 	if m.isAuthorizedFunc != nil {
-		return m.isAuthorizedFunc(ctx, userID, roles, toolName)
+		return m.isAuthorizedFunc(ctx, userID, roles, toolName, connectionName)
 	}
 	return true, "", ""
 }
 
 func TestNoopAuthorizer(t *testing.T) {
 	authz := &NoopAuthorizer{}
-	authorized, personaName, reason := authz.IsAuthorized(context.Background(), "user", []string{"role"}, "tool")
+	authorized, personaName, reason := authz.IsAuthorized(context.Background(), "user", []string{"role"}, "tool", "")
 	if !authorized {
 		t.Error("expected authorized to be true")
 	}
@@ -33,7 +33,7 @@ func TestNoopAuthorizer(t *testing.T) {
 
 func TestAllowAllAuthorizer(t *testing.T) {
 	authz := AllowAllAuthorizer()
-	authorized, personaName, reason := authz.IsAuthorized(context.Background(), "anyuser", []string{"anyrole"}, "anytool")
+	authorized, personaName, reason := authz.IsAuthorized(context.Background(), "anyuser", []string{"anyrole"}, "anytool", "")
 	if !authorized {
 		t.Error("expected authorized to be true")
 	}
