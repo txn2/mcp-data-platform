@@ -20,7 +20,11 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
-import { SettingsPage } from "@/pages/settings/SettingsPage";
+import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
+import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
+import { PersonasPanel } from "@/pages/settings/PersonasPanel";
+import { KeysPage } from "@/pages/settings/KeysPage";
+import { ChangelogPage } from "@/pages/settings/ChangelogPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
@@ -34,7 +38,12 @@ const pageTitles: Record<string, string> = {
   "/admin/tools": "Tools",
   "/admin/audit": "Audit Log",
   "/admin/knowledge": "Knowledge",
-  "/admin/settings": "Settings",
+  "/admin/description": "Description",
+  "/admin/agent-instructions": "Agent Instructions",
+  "/admin/connections": "Connections",
+  "/admin/personas": "Personas",
+  "/admin/keys": "Keys",
+  "/admin/changelog": "Change Log",
 };
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
@@ -73,23 +82,6 @@ function AccessDenied() {
   );
 }
 
-/** Redirect bare /admin/settings to /admin/settings#description so the sidebar sub-item highlights. */
-function SettingsRedirect({
-  initialTab,
-  navigate,
-  children,
-}: {
-  initialTab?: string;
-  navigate: (path: string) => void;
-  children: React.ReactNode;
-}) {
-  useEffect(() => {
-    if (!initialTab) {
-      navigate("/admin/settings#description");
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- one-time redirect
-  return <>{children}</>;
-}
 
 const MOBILE_BREAKPOINT = 768;
 
@@ -297,11 +289,16 @@ export function AppShell() {
               {route === "/admin/knowledge" && (
                 <KnowledgePage key={currentPath} initialTab={initialTab} />
               )}
-              {route === "/admin/settings" && (
-                <SettingsRedirect initialTab={initialTab} navigate={navigate}>
-                  <SettingsPage key={currentPath} initialTab={initialTab} />
-                </SettingsRedirect>
+              {route === "/admin/description" && (
+                <ConfigEditorPage configKey="server.description" label="Description" description="Platform identity visible to MCP clients" />
               )}
+              {route === "/admin/agent-instructions" && (
+                <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" />
+              )}
+              {route === "/admin/connections" && <ConnectionsPanel />}
+              {route === "/admin/personas" && <PersonasPanel />}
+              {route === "/admin/keys" && <KeysPage />}
+              {route === "/admin/changelog" && <ChangelogPage />}
             </>
           )}
         </main>

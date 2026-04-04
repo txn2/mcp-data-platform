@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -323,6 +324,153 @@ func TestDeletePersona(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, w.Code)
 		pd := decodeProblem(w.Body.Bytes())
 		assert.Equal(t, "cannot delete the admin persona", pd.Detail)
+	})
+}
+
+func TestCreatePersonaWithStore(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["trino_*"]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.Len(t, ps.setCalls, 1, "PersonaStore.Set should be called once")
+	assert.Equal(t, "analyst", ps.setCalls[0].Name)
+	assert.Equal(t, "Data Analyst", ps.setCalls[0].DisplayName)
+	assert.Equal(t, []string{"analyst"}, ps.setCalls[0].Roles)
+}
+
+func TestUpdatePersonaWithStore(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("analyst")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	body := `{"display_name":"Updated Analyst","roles":["analyst","viewer"]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, ps.setCalls, 1, "PersonaStore.Set should be called once")
+	assert.Equal(t, "analyst", ps.setCalls[0].Name)
+	assert.Equal(t, "Updated Analyst", ps.setCalls[0].DisplayName)
+}
+
+func TestDeletePersonaWithStore(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, ps.deleteCalls, 1, "PersonaStore.Delete should be called once")
+	assert.Equal(t, "analyst", ps.deleteCalls[0])
+}
+
+func TestCreatePersonaWithStoreError(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{setErr: fmt.Errorf("database connection lost")}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["trino_*"]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Store error should fail the request — DB-first two-phase commit
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	pd := decodeProblem(w.Body.Bytes())
+	assert.Equal(t, "failed to persist persona", pd.Detail)
+	// Store was called (and failed)
+	require.Len(t, ps.setCalls, 1)
+	// Registry should NOT have been updated
+	assert.Equal(t, 0, pReg.registerCalled)
+}
+
+func TestDeletePersonaWithStoreError(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{deleteErr: fmt.Errorf("database connection lost")}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Store error should fail the request — DB-first two-phase commit
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	pd := decodeProblem(w.Body.Bytes())
+	assert.Equal(t, "failed to delete persona from database", pd.Detail)
+	// Store was called (and failed)
+	require.Len(t, ps.deleteCalls, 1)
+	// Registry should NOT have been updated — analyst should still exist
+	_, exists := pReg.Get("analyst")
+	assert.True(t, exists, "analyst persona should still exist in registry")
+}
+
+func TestExtractAuthor(t *testing.T) {
+	t.Run("returns email when user has email", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), adminUserKey, &User{
+			UserID: "user-123",
+			Email:  "alice@example.com",
+			Roles:  []string{"admin"},
+		})
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/", http.NoBody)
+		assert.Equal(t, "alice@example.com", extractAuthor(req))
+	})
+
+	t.Run("returns user ID when email is empty", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), adminUserKey, &User{
+			UserID: "user-456",
+			Email:  "",
+			Roles:  []string{"admin"},
+		})
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/", http.NoBody)
+		assert.Equal(t, "user-456", extractAuthor(req))
+	})
+
+	t.Run("returns unknown when no user in context", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", http.NoBody)
+		assert.Equal(t, "unknown", extractAuthor(req))
 	})
 }
 

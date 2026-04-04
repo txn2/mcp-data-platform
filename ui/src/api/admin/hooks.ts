@@ -582,6 +582,44 @@ export function useDeleteConnectionInstance() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+
+export function useAPIKeys() {
+  return useQuery({
+    queryKey: ["auth", "keys"],
+    queryFn: () => apiFetch<import("./types").APIKeyListResponse>("/auth/keys"),
+  });
+}
+
+export function useCreateAPIKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; email?: string; description?: string; roles: string[]; expires_in?: string }) =>
+      apiFetch<import("./types").APIKeyCreateResponse>("/auth/keys", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["auth", "keys"] });
+    },
+  });
+}
+
+export function useDeleteAPIKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetchRaw(`/auth/keys/${name}`, { method: "DELETE" }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete");
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["auth", "keys"] });
+    },
+  });
+}
+
 // --- Config entries ---
 
 export function useConfigEntries() {

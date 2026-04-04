@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -179,12 +182,12 @@ func TestNew_WithInjectedRegistries(t *testing.T) {
 }
 
 func TestNew_WithInjectedAuthComponents(t *testing.T) {
-	auth := &middleware.NoopAuthenticator{}
+	noopAuth := &middleware.NoopAuthenticator{}
 	authz := &middleware.NoopAuthorizer{}
 	logger := &middleware.NoopAuditLogger{}
 
 	p := newTestPlatform(t,
-		WithAuthenticator(auth),
+		WithAuthenticator(noopAuth),
 		WithAuthorizer(authz),
 		WithAuditLogger(logger),
 	)
@@ -3959,9 +3962,13 @@ func TestDecodeEncryptionKey(t *testing.T) {
 }
 
 func TestMergeDBConnectionsIntoConfig(t *testing.T) {
-	t.Run("merges DB connections into empty toolkits", func(t *testing.T) {
+	t.Run("merges DB connections into enabled toolkit", func(t *testing.T) {
 		p := &Platform{
-			config: &Config{},
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{cfgKeyEnabled: true},
+				},
+			},
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
 					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
@@ -3970,9 +3977,6 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 		p.mergeDBConnectionsIntoConfig()
 
-		if p.config.Toolkits == nil {
-			t.Fatal("Toolkits should not be nil")
-		}
 		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
 		if !ok {
 			t.Fatal("trino kind map should exist")
@@ -3983,6 +3987,48 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 		if _, ok := instances["prod"]; !ok {
 			t.Error("prod instance should exist")
+		}
+	})
+
+	t.Run("skips disabled toolkit kind", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"datahub": map[string]any{cfgKeyEnabled: false},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "datahub", Name: "catalog", Config: map[string]any{"endpoint": "http://localhost"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		kindMap, ok := p.config.Toolkits["datahub"].(map[string]any)
+		if !ok {
+			t.Fatal("datahub kind map should exist")
+		}
+		if _, ok := kindMap[cfgKeyInstances]; ok {
+			t.Error("instances should not be created for disabled kind")
+		}
+	})
+
+	t.Run("skips kind not in config", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if _, ok := p.config.Toolkits["trino"]; ok {
+			t.Error("trino kind should not be created when not in config")
 		}
 	})
 
@@ -4046,4 +4092,256 @@ func (*mockConnectionStoreForTest) Set(_ context.Context, _ ConnectionInstance) 
 
 func (*mockConnectionStoreForTest) Delete(_ context.Context, _, _ string) error {
 	return ErrConnectionNotFound
+}
+
+// --- Persona store tests ---
+
+// mockPersonaStoreForTest is a simple mock for testing loadDBPersonas.
+type mockPersonaStoreForTest struct {
+	defs    []PersonaDefinition
+	listErr error
+}
+
+func (m *mockPersonaStoreForTest) List(_ context.Context) ([]PersonaDefinition, error) {
+	return m.defs, m.listErr
+}
+
+func (*mockPersonaStoreForTest) Get(_ context.Context, _ string) (*PersonaDefinition, error) {
+	return nil, ErrPersonaNotFound
+}
+
+func (*mockPersonaStoreForTest) Set(_ context.Context, _ PersonaDefinition) error { return nil }
+
+func (*mockPersonaStoreForTest) Delete(_ context.Context, _ string) error {
+	return ErrPersonaNotFound
+}
+
+func TestLoadDBPersonas(t *testing.T) {
+	t.Run("loads personas from store", func(t *testing.T) {
+		reg := persona.NewRegistry()
+		_ = reg.Register(&persona.Persona{Name: "admin", DisplayName: "Admin", Roles: []string{"admin"}})
+
+		p := &Platform{
+			personaRegistry: reg,
+			personaStore: &mockPersonaStoreForTest{
+				defs: []PersonaDefinition{
+					{
+						Name:        "analyst",
+						DisplayName: "Data Analyst",
+						Roles:       []string{"analyst"},
+						ToolsAllow:  []string{"trino_*"},
+						ToolsDeny:   []string{},
+						ConnsAllow:  []string{},
+						ConnsDeny:   []string{},
+					},
+				},
+			},
+		}
+		p.loadDBPersonas()
+
+		got, ok := reg.Get("analyst")
+		if !ok {
+			t.Fatal("analyst persona should exist after loadDBPersonas")
+		}
+		if got.DisplayName != "Data Analyst" {
+			t.Errorf("expected Data Analyst, got %s", got.DisplayName)
+		}
+	})
+
+	t.Run("DB overrides file persona", func(t *testing.T) {
+		reg := persona.NewRegistry()
+		_ = reg.Register(&persona.Persona{Name: "analyst", DisplayName: "Old Name", Roles: []string{"analyst"}})
+
+		p := &Platform{
+			personaRegistry: reg,
+			personaStore: &mockPersonaStoreForTest{
+				defs: []PersonaDefinition{
+					{
+						Name:        "analyst",
+						DisplayName: "New Name",
+						Roles:       []string{"analyst", "viewer"},
+						ToolsAllow:  []string{},
+						ToolsDeny:   []string{},
+						ConnsAllow:  []string{},
+						ConnsDeny:   []string{},
+					},
+				},
+			},
+		}
+		p.loadDBPersonas()
+
+		got, _ := reg.Get("analyst")
+		if got.DisplayName != "New Name" {
+			t.Errorf("expected New Name, got %s", got.DisplayName)
+		}
+		if len(got.Roles) != 2 {
+			t.Errorf("expected 2 roles, got %d", len(got.Roles))
+		}
+	})
+
+	t.Run("handles list error gracefully", func(_ *testing.T) {
+		reg := persona.NewRegistry()
+		p := &Platform{
+			personaRegistry: reg,
+			personaStore: &mockPersonaStoreForTest{
+				listErr: errors.New("db error"),
+			},
+		}
+		p.loadDBPersonas() // should not panic
+	})
+
+	t.Run("nil store is safe", func(_ *testing.T) {
+		p := &Platform{personaStore: nil}
+		p.loadDBPersonas() // should not panic
+	})
+}
+
+func TestInitPersonaStore(t *testing.T) {
+	t.Run("creates noop store when no database", func(t *testing.T) {
+		p := &Platform{}
+		p.initPersonaStore()
+
+		if p.personaStore == nil {
+			t.Fatal("personaStore should not be nil")
+		}
+		if _, ok := p.personaStore.(*NoopPersonaStore); !ok {
+			t.Error("expected NoopPersonaStore when db is nil")
+		}
+	})
+
+	t.Run("creates postgres store when database available", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("creating sqlmock: %v", err)
+		}
+		defer func() { _ = db.Close() }()
+
+		p := &Platform{db: db}
+		p.initPersonaStore()
+
+		if p.personaStore == nil {
+			t.Fatal("personaStore should not be nil")
+		}
+		if _, ok := p.personaStore.(*PostgresPersonaStore); !ok {
+			t.Error("expected PostgresPersonaStore when db is set")
+		}
+	})
+}
+
+func TestPersonaStoreAccessor(t *testing.T) {
+	noop := &NoopPersonaStore{}
+	p := &Platform{personaStore: noop}
+	if p.PersonaStore() != noop {
+		t.Error("PersonaStore() should return the assigned store")
+	}
+}
+
+// mockAPIKeyStoreForTest is a simple mock for testing loadDBAPIKeys.
+type mockAPIKeyStoreForTest struct {
+	defs    []APIKeyDefinition
+	listErr error
+}
+
+func (m *mockAPIKeyStoreForTest) List(_ context.Context) ([]APIKeyDefinition, error) {
+	return m.defs, m.listErr
+}
+
+func (*mockAPIKeyStoreForTest) Set(_ context.Context, _ APIKeyDefinition) error { return nil }
+
+func (*mockAPIKeyStoreForTest) Delete(_ context.Context, _ string) error {
+	return ErrAPIKeyNotFound
+}
+
+func TestLoadDBAPIKeys(t *testing.T) {
+	t.Run("loads keys from store", func(t *testing.T) {
+		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{})
+
+		p := &Platform{
+			apiKeyAuth: apiKeyAuth,
+			apiKeyStore: &mockAPIKeyStoreForTest{
+				defs: []APIKeyDefinition{
+					{
+						Name:    "db-key",
+						KeyHash: "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012",
+						Email:   "db@example.com",
+						Roles:   []string{"analyst"},
+					},
+				},
+			},
+		}
+		p.loadDBAPIKeys()
+
+		keys := apiKeyAuth.ListKeys()
+		found := false
+		for _, k := range keys {
+			if k.Name == "db-key" {
+				found = true
+				if k.Email != "db@example.com" {
+					t.Errorf("email = %q, want %q", k.Email, "db@example.com")
+				}
+				if len(k.Roles) != 1 || k.Roles[0] != "analyst" {
+					t.Errorf("roles = %v, want [analyst]", k.Roles)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("db-key should appear in ListKeys after loadDBAPIKeys")
+		}
+	})
+
+	t.Run("handles list error gracefully", func(_ *testing.T) {
+		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{})
+		p := &Platform{
+			apiKeyAuth: apiKeyAuth,
+			apiKeyStore: &mockAPIKeyStoreForTest{
+				listErr: errors.New("db error"),
+			},
+		}
+		p.loadDBAPIKeys() // should not panic
+	})
+
+	t.Run("nil store is safe", func(_ *testing.T) {
+		p := &Platform{apiKeyStore: nil}
+		p.loadDBAPIKeys() // should not panic
+	})
+}
+
+func TestInitAPIKeyStore(t *testing.T) {
+	t.Run("creates noop store when no database", func(t *testing.T) {
+		p := &Platform{}
+		p.initAPIKeyStore()
+
+		if p.apiKeyStore == nil {
+			t.Fatal("apiKeyStore should not be nil")
+		}
+		if _, ok := p.apiKeyStore.(*NoopAPIKeyStore); !ok {
+			t.Error("expected NoopAPIKeyStore when db is nil")
+		}
+	})
+
+	t.Run("creates postgres store when database available", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("creating sqlmock: %v", err)
+		}
+		defer func() { _ = db.Close() }()
+
+		p := &Platform{db: db}
+		p.initAPIKeyStore()
+
+		if p.apiKeyStore == nil {
+			t.Fatal("apiKeyStore should not be nil")
+		}
+		if _, ok := p.apiKeyStore.(*PostgresAPIKeyStore); !ok {
+			t.Error("expected PostgresAPIKeyStore when db is set")
+		}
+	})
+}
+
+func TestAPIKeyStoreAccessor(t *testing.T) {
+	noop := &NoopAPIKeyStore{}
+	p := &Platform{apiKeyStore: noop}
+	if p.APIKeyStore() != noop {
+		t.Error("APIKeyStore() should return the assigned store")
+	}
 }

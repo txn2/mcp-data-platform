@@ -52,7 +52,7 @@ type PersonaRegistry interface {
 // APIKeyManager manages API keys at runtime.
 type APIKeyManager interface {
 	ListKeys() []auth.APIKeySummary
-	GenerateKey(name string, roles []string) (string, error)
+	GenerateKey(def auth.APIKey) (string, error)
 	RemoveByName(name string) bool
 }
 
@@ -96,6 +96,8 @@ type Deps struct {
 	ConnectionStore     ConnectionStore
 	ConnectionSources   *platform.ConnectionSourceMap
 	ToolkitsConfig      map[string]any
+	PersonaStore        platform.PersonaStore
+	APIKeyStore         platform.APIKeyStore
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -306,6 +308,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// sanitizeLogValue strips all ASCII control characters from user-supplied
+// values to prevent log injection attacks.
+func sanitizeLogValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 { // ASCII control chars + DEL
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // writeError writes a JSON error response using RFC 9457 Problem Details.

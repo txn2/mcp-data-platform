@@ -371,6 +371,34 @@ export interface AdminAssetListResponse {
 }
 
 
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+
+export interface APIKeySummary {
+  name: string;
+  email?: string;
+  description?: string;
+  roles: string[];
+  expires_at?: string;
+  expired?: boolean;
+}
+
+export interface APIKeyListResponse {
+  keys: APIKeySummary[];
+  total: number;
+}
+
+export interface APIKeyCreateResponse {
+  name: string;
+  email?: string;
+  description?: string;
+  key: string;
+  roles: string[];
+  expires_at?: string;
+  warning: string;
+}
+
 // --- Config entries ---
 
 export interface ConfigEntry {
