@@ -48,7 +48,6 @@ type Config struct {
 // Client defines the interface for DataHub operations.
 // This allows for mocking in tests.
 type Client interface {
-	Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	GetEntity(ctx context.Context, urn string) (*types.Entity, error)

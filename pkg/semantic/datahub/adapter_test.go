@@ -29,7 +29,6 @@ const (
 
 // mockDataHubClient implements the Client interface for testing.
 type mockDataHubClient struct {
-	searchFunc               func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	searchAcrossEntitiesFunc func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	semanticSearchFunc       func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	getEntityFunc            func(ctx context.Context, urn string) (*types.Entity, error)
@@ -43,20 +42,9 @@ type mockDataHubClient struct {
 	closeFunc                func() error
 }
 
-func (m *mockDataHubClient) Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
-	if m.searchFunc != nil {
-		return m.searchFunc(ctx, query, opts...)
-	}
-	return &types.SearchResult{}, nil
-}
-
 func (m *mockDataHubClient) SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
 	if m.searchAcrossEntitiesFunc != nil {
 		return m.searchAcrossEntitiesFunc(ctx, query, opts...)
-	}
-	// Fall back to searchFunc for backward compat with existing tests.
-	if m.searchFunc != nil {
-		return m.searchFunc(ctx, query, opts...)
 	}
 	return &types.SearchResult{}, nil
 }
@@ -427,7 +415,7 @@ func TestSearchTables(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockDataHubClient{
-		searchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+		searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
 			return &types.SearchResult{
 				Entities: []types.SearchEntity{
 					{
@@ -828,7 +816,7 @@ func TestGetGlossaryTermError(t *testing.T) {
 func TestSearchTablesError(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockDataHubClient{
-		searchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+		searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
 			return nil, errors.New("search failed")
 		},
 	}
@@ -843,7 +831,7 @@ func TestSearchTablesError(t *testing.T) {
 func TestSearchTablesWithFilters(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockDataHubClient{
-		searchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+		searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
 			return &types.SearchResult{
 				Entities: []types.SearchEntity{
 					{URN: "urn:1", Name: "table1"},
@@ -928,6 +916,36 @@ func TestSearchTablesAdvancedFilters(t *testing.T) {
 		}
 		if !semanticCalled {
 			t.Error("expected SemanticSearch to be called")
+		}
+	})
+
+	t.Run("semantic mode with filters", func(t *testing.T) {
+		semanticCalled := false
+		mock := &mockDataHubClient{
+			semanticSearchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				semanticCalled = true
+				return &types.SearchResult{
+					Entities: []types.SearchEntity{{URN: "urn:1", Name: "revenue"}},
+				}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		results, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+			Query: "revenue",
+			Mode:  "semantic",
+			Filters: []semantic.FieldFilter{
+				{Field: "fieldPaths", Values: []string{"amount"}, Condition: "CONTAIN"},
+			},
+		})
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if !semanticCalled {
+			t.Error("expected SemanticSearch to be called")
+		}
+		if len(results) != 1 {
+			t.Errorf("expected 1 result, got %d", len(results))
 		}
 	})
 
