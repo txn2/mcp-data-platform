@@ -64,7 +64,6 @@ func PersonaDefinitionFromPersona(p *persona.Persona, author string) PersonaDefi
 		Context:     p.Context,
 		Priority:    p.Priority,
 		CreatedBy:   author,
-		UpdatedAt:   time.Now(),
 	}
 }
 
@@ -152,14 +151,14 @@ func (s *PostgresPersonaStore) Set(ctx context.Context, def PersonaDefinition) e
 		`INSERT INTO persona_definitions
 		 (name, display_name, description, roles, tools_allow, tools_deny,
 		  connections_allow, connections_deny, context, priority, created_by, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 		 ON CONFLICT (name) DO UPDATE SET
 		  display_name = $2, description = $3, roles = $4, tools_allow = $5, tools_deny = $6,
 		  connections_allow = $7, connections_deny = $8, context = $9, priority = $10,
-		  created_by = $11, updated_at = $12`,
+		  created_by = $11, updated_at = NOW()`,
 		def.Name, def.DisplayName, def.Description,
 		roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON,
-		def.Priority, def.CreatedBy, def.UpdatedAt,
+		def.Priority, def.CreatedBy,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting persona definition: %w", err)

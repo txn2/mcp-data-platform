@@ -111,9 +111,7 @@ func TestPersonaDefinitionFromPersona(t *testing.T) {
 		Priority: 5,
 	}
 
-	before := time.Now()
 	def := PersonaDefinitionFromPersona(p, "creator@example.com")
-	after := time.Now()
 
 	assert.Equal(t, "engineer", def.Name)
 	assert.Equal(t, "Data Engineer", def.DisplayName)
@@ -129,8 +127,7 @@ func TestPersonaDefinitionFromPersona(t *testing.T) {
 	assert.Equal(t, "eng-instr-override", def.Context.AgentInstructionsOverride)
 	assert.Equal(t, 5, def.Priority)
 	assert.Equal(t, "creator@example.com", def.CreatedBy)
-	assert.False(t, def.UpdatedAt.Before(before), "UpdatedAt should be at or after test start")
-	assert.False(t, def.UpdatedAt.After(after), "UpdatedAt should be at or before test end")
+	assert.True(t, def.UpdatedAt.IsZero(), "UpdatedAt should be zero (DB sets via NOW())")
 }
 
 func TestUnmarshalPersonaJSON(t *testing.T) {
@@ -479,7 +476,7 @@ func TestPostgresPersonaStoreSet(t *testing.T) {
 			def.Name, def.DisplayName, def.Description,
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // roles, tools_allow, tools_deny
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // conns_allow, conns_deny, context
-			def.Priority, def.CreatedBy, def.UpdatedAt,
+			def.Priority, def.CreatedBy,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

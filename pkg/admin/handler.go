@@ -310,10 +310,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// sanitizeLogValue strips newlines and carriage returns from user-supplied
+// sanitizeLogValue strips all ASCII control characters from user-supplied
 // values to prevent log injection attacks.
 func sanitizeLogValue(s string) string {
-	return strings.NewReplacer("\n", "", "\r", "").Replace(s)
+	return strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 { // ASCII control chars + DEL
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // writeError writes a JSON error response using RFC 9457 Problem Details.

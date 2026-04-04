@@ -50,22 +50,31 @@ type APIKeySummary struct {
 }
 
 // APIKeyAuthenticator authenticates using API keys.
+// File-loaded keys (plaintext) are stored in fileKeys for O(1) lookup.
+// DB-loaded keys (bcrypt hashed) are stored in hashedKeys as a slice,
+// checked via bcrypt only when no file key matches — limiting DoS surface.
 type APIKeyAuthenticator struct {
-	mu   sync.RWMutex
-	keys map[string]*APIKey
+	mu         sync.RWMutex
+	fileKeys   map[string]*APIKey // indexed by raw key value
+	hashedKeys []*APIKey          // DB-loaded keys, checked via bcrypt
 }
 
 // NewAPIKeyAuthenticator creates a new API key authenticator.
 func NewAPIKeyAuthenticator(cfg APIKeyConfig) *APIKeyAuthenticator {
-	keys := make(map[string]*APIKey)
+	fileKeys := make(map[string]*APIKey)
 	for i := range cfg.Keys {
 		key := &cfg.Keys[i]
-		keys[key.Key] = key
+		fileKeys[key.Key] = key
 	}
-	return &APIKeyAuthenticator{keys: keys}
+	return &APIKeyAuthenticator{
+		fileKeys:   fileKeys,
+		hashedKeys: nil,
+	}
 }
 
 // Authenticate validates the API key and returns user info.
+// It first checks file keys via constant-time compare (fast O(1) path),
+// then falls back to bcrypt comparison against hashed keys (slow path).
 func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	token := GetToken(ctx)
 	if token == "" {
@@ -75,18 +84,19 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	// Look up the key: use constant-time compare for plaintext keys,
-	// bcrypt compare for hashed keys (DB-loaded).
 	var matchedKey *APIKey
-	for k, v := range a.keys {
-		if v.Key != "" {
-			// File-loaded key: constant-time comparison on raw value.
-			if subtle.ConstantTimeCompare([]byte(k), []byte(token)) == 1 {
-				matchedKey = v
-				break
-			}
-		} else if v.KeyHash != "" {
-			// DB-loaded key: bcrypt comparison on hash.
+
+	// Fast path: O(1) map lookup for file-loaded keys.
+	if candidate, ok := a.fileKeys[token]; ok {
+		if subtle.ConstantTimeCompare([]byte(candidate.Key), []byte(token)) == 1 {
+			matchedKey = candidate
+		}
+	}
+
+	// Slow path: bcrypt comparison for DB-loaded hashed keys.
+	// Only attempted when no file key matched, limiting DoS surface.
+	if matchedKey == nil {
+		for _, v := range a.hashedKeys {
 			if bcrypt.CompareHashAndPassword([]byte(v.KeyHash), []byte(token)) == nil {
 				matchedKey = v
 				break
@@ -111,29 +121,31 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	}, nil
 }
 
-// AddKey adds an API key at runtime.
+// AddKey adds a plaintext API key at runtime.
+// The KeyHash field is ignored to prevent accidental misuse;
+// use AddHashedKey for bcrypt-hashed keys.
 func (a *APIKeyAuthenticator) AddKey(key APIKey) {
+	key.KeyHash = "" // guard: plaintext keys must not carry a hash
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.keys[key.Key] = &key
+	a.fileKeys[key.Key] = &key
 }
 
 // AddHashedKey adds a bcrypt-hashed API key at runtime.
-// The key is indexed by name (prefixed with "hash:") since we don't have
-// the raw value. Authentication uses bcrypt comparison for these keys.
+// The Key (plaintext) field is cleared to prevent accidental exposure.
+// These keys are stored in a separate slice and authenticated via bcrypt.
 func (a *APIKeyAuthenticator) AddHashedKey(key APIKey) {
+	key.Key = "" // guard: hashed keys must not carry plaintext
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	// Use a synthetic map key since we don't have the raw key value.
-	mapKey := "hash:" + key.Name
-	a.keys[mapKey] = &key
+	a.hashedKeys = append(a.hashedKeys, &key)
 }
 
-// RemoveKey removes an API key by its value.
+// RemoveKey removes a plaintext API key by its value.
 func (a *APIKeyAuthenticator) RemoveKey(keyValue string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	delete(a.keys, keyValue)
+	delete(a.fileKeys, keyValue)
 }
 
 // ListKeys returns summaries of all registered keys (never exposes key values).
@@ -141,8 +153,18 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	summaries := make([]APIKeySummary, 0, len(a.keys))
-	for _, k := range a.keys {
+	summaries := make([]APIKeySummary, 0, len(a.fileKeys)+len(a.hashedKeys))
+	for _, k := range a.fileKeys {
+		summaries = append(summaries, APIKeySummary{
+			Name:        k.Name,
+			Email:       apiKeyEmail(*k),
+			Description: k.Description,
+			Roles:       k.Roles,
+			ExpiresAt:   k.ExpiresAt,
+			Expired:     k.IsExpired(),
+		})
+	}
+	for _, k := range a.hashedKeys {
 		summaries = append(summaries, APIKeySummary{
 			Name:        k.Name,
 			Email:       apiKeyEmail(*k),
@@ -159,17 +181,31 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 }
 
 // RemoveByName removes an API key by its display name.
-// Returns true if a key was found and removed.
+// Searches both file keys and hashed keys. Returns true if a key was found
+// and removed.
 func (a *APIKeyAuthenticator) RemoveByName(name string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	for k, v := range a.keys {
+	// Check file keys first.
+	for k, v := range a.fileKeys {
 		if v.Name == name {
-			delete(a.keys, k)
+			delete(a.fileKeys, k)
 			return true
 		}
 	}
+
+	// Check hashed keys.
+	for i, v := range a.hashedKeys {
+		if v.Name == name {
+			// Remove by swapping with last element (order doesn't matter).
+			a.hashedKeys[i] = a.hashedKeys[len(a.hashedKeys)-1]
+			a.hashedKeys[len(a.hashedKeys)-1] = nil // avoid memory leak
+			a.hashedKeys = a.hashedKeys[:len(a.hashedKeys)-1]
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -179,8 +215,13 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Check for duplicate name
-	for _, v := range a.keys {
+	// Check for duplicate name across both collections.
+	for _, v := range a.fileKeys {
+		if v.Name == def.Name {
+			return "", fmt.Errorf("key with name %q already exists", def.Name)
+		}
+	}
+	for _, v := range a.hashedKeys {
 		if v.Name == def.Name {
 			return "", fmt.Errorf("key with name %q already exists", def.Name)
 		}
@@ -194,7 +235,8 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 	keyValue := hex.EncodeToString(b)
 
 	def.Key = keyValue
-	a.keys[keyValue] = &def
+	def.KeyHash = "" // generated keys are plaintext (value is known)
+	a.fileKeys[keyValue] = &def
 
 	return keyValue, nil
 }

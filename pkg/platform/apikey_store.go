@@ -72,12 +72,12 @@ func (s *PostgresAPIKeyStore) Set(ctx context.Context, def APIKeyDefinition) err
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_keys
 		 (name, key_hash, email, description, roles, expires_at, created_by, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		 ON CONFLICT (name) DO UPDATE SET
 		  key_hash = $2, email = $3, description = $4, roles = $5,
-		  expires_at = $6, created_by = $7, created_at = $8`,
+		  expires_at = $6, created_by = $7`,
 		def.Name, def.KeyHash, def.Email, def.Description,
-		roles, def.ExpiresAt, def.CreatedBy, def.CreatedAt,
+		roles, def.ExpiresAt, def.CreatedBy,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting api key: %w", err)

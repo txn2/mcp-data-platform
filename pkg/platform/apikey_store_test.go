@@ -126,7 +126,7 @@ func TestPostgresAPIKeyStoreSet(t *testing.T) {
 		WithArgs(
 			def.Name, def.KeyHash, def.Email, def.Description,
 			sqlmock.AnyArg(), // roles JSON
-			def.ExpiresAt, def.CreatedBy, def.CreatedAt,
+			def.ExpiresAt, def.CreatedBy,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -144,7 +144,7 @@ func TestPostgresAPIKeyStoreSet_ExecError(t *testing.T) {
 	mock.ExpectExec("INSERT INTO api_keys").
 		WithArgs(
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnError(errors.New("exec error"))
 

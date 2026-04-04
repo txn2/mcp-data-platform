@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -97,6 +98,10 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid expires_in duration: "+err.Error())
 			return
 		}
+		if dur <= 0 {
+			writeError(w, http.StatusBadRequest, "expires_in must be a positive duration")
+			return
+		}
 		exp := time.Now().Add(dur)
 		def.ExpiresAt = &exp
 	}
@@ -107,8 +112,12 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist to database (best-effort).
-	h.persistAPIKey(r, keyValue, def)
+	// Persist to database FIRST — if it fails, return error.
+	if err := h.persistAPIKey(r, keyValue, def); err != nil {
+		slog.Warn("failed to persist api key", logKeyName, def.Name, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist api key")
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, authKeyCreateResponse{
 		Name:        req.Name,
@@ -136,32 +145,33 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
+	// Delete from database FIRST — if it fails, don't remove from in-memory manager.
+	if h.deps.APIKeyStore != nil {
+		if err := h.deps.APIKeyStore.Delete(r.Context(), name); err != nil {
+			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized
+			writeError(w, http.StatusInternalServerError, "failed to delete api key from database")
+			return
+		}
+	}
+
 	if !h.deps.APIKeyManager.RemoveByName(name) {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
-	}
-
-	// Remove from database (best-effort).
-	if h.deps.APIKeyStore != nil {
-		if err := h.deps.APIKeyStore.Delete(r.Context(), name); err != nil {
-			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized via sanitizeLogValue
-		}
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 }
 
 // persistAPIKey hashes the raw key value and persists it to the database.
-// This is best-effort: failures are logged but do not block the response.
-func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKey) {
+// Returns an error if persistence fails.
+func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKey) error {
 	if h.deps.APIKeyStore == nil {
-		return
+		return nil
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(keyValue), bcrypt.DefaultCost)
 	if err != nil {
-		slog.Warn("failed to hash api key for persistence", logKeyName, def.Name, "error", err)
-		return
+		return fmt.Errorf("hashing api key: %w", err)
 	}
 
 	dbDef := platform.APIKeyDefinition{
@@ -171,13 +181,13 @@ func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKe
 		Description: def.Description,
 		Roles:       def.Roles,
 		ExpiresAt:   def.ExpiresAt,
-		CreatedBy:   "", // could be extracted from request context
-		CreatedAt:   time.Now(),
+		CreatedBy:   extractAuthor(r),
 	}
 
 	if err := h.deps.APIKeyStore.Set(r.Context(), dbDef); err != nil {
-		slog.Warn("failed to persist api key to database", logKeyName, def.Name, "error", err)
+		return fmt.Errorf("persisting api key: %w", err)
 	}
+	return nil
 }
 
 // apiKeyEmailFallback returns the email or a default based on name.

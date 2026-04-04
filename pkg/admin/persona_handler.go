@@ -188,17 +188,21 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := buildPersonaFromRequest(req)
-	if err := h.deps.PersonaRegistry.Register(p); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to register persona")
-		return
-	}
 
+	// Persist to database FIRST — if it fails, don't register in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
 		def := platform.PersonaDefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
 			slog.Warn("failed to persist persona", logKeyName, p.Name, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to persist persona")
+			return
 		}
+	}
+
+	if err := h.deps.PersonaRegistry.Register(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to register persona")
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, personaDetail{
@@ -251,17 +255,21 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	// Override name from path
 	req.Name = name
 	p := buildPersonaFromRequest(req)
-	if err := h.deps.PersonaRegistry.Register(p); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update persona")
-		return
-	}
 
+	// Persist to database FIRST — if it fails, don't update in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
 		def := platform.PersonaDefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
 			slog.Warn("failed to persist persona update", logKeyName, p.Name, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to persist persona")
+			return
 		}
+	}
+
+	if err := h.deps.PersonaRegistry.Register(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update persona")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, personaDetail{
@@ -304,13 +312,18 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Delete from database FIRST — if it fails, don't remove from in-memory registry.
+	if h.deps.PersonaStore != nil {
+		if err := h.deps.PersonaStore.Delete(r.Context(), name); err != nil {
+			slog.Warn("failed to delete persona from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized
+			writeError(w, http.StatusInternalServerError, "failed to delete persona from database")
+			return
+		}
+	}
+
 	if err := h.deps.PersonaRegistry.Unregister(name); err != nil {
 		writeError(w, http.StatusNotFound, "persona not found")
 		return
-	}
-
-	if h.deps.PersonaStore != nil {
-		_ = h.deps.PersonaStore.Delete(r.Context(), name)
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
@@ -360,6 +373,7 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 }
 
 // extractAuthor returns the author identifier from the request context.
+// Returns "unknown" and logs a warning if no user is present.
 func extractAuthor(r *http.Request) string {
 	if user := GetUser(r.Context()); user != nil {
 		if user.Email != "" {
@@ -367,5 +381,6 @@ func extractAuthor(r *http.Request) string {
 		}
 		return user.UserID
 	}
-	return ""
+	slog.Warn("no user in request context for author extraction")
+	return "unknown"
 }

@@ -410,13 +410,41 @@ func TestCreatePersonaWithStoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	// Store error is best-effort — create should still succeed
-	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp personaDetail
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	assert.Equal(t, "analyst", resp.Name)
-	// Store was still called (and failed)
+	// Store error should fail the request — DB-first two-phase commit
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	pd := decodeProblem(w.Body.Bytes())
+	assert.Equal(t, "failed to persist persona", pd.Detail)
+	// Store was called (and failed)
 	require.Len(t, ps.setCalls, 1)
+	// Registry should NOT have been updated
+	assert.Equal(t, 0, pReg.registerCalled)
+}
+
+func TestDeletePersonaWithStoreError(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{deleteErr: fmt.Errorf("database connection lost")}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Store error should fail the request — DB-first two-phase commit
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	pd := decodeProblem(w.Body.Bytes())
+	assert.Equal(t, "failed to delete persona from database", pd.Detail)
+	// Store was called (and failed)
+	require.Len(t, ps.deleteCalls, 1)
+	// Registry should NOT have been updated — analyst should still exist
+	_, exists := pReg.Get("analyst")
+	assert.True(t, exists, "analyst persona should still exist in registry")
 }
 
 func TestExtractAuthor(t *testing.T) {
@@ -440,9 +468,9 @@ func TestExtractAuthor(t *testing.T) {
 		assert.Equal(t, "user-456", extractAuthor(req))
 	})
 
-	t.Run("returns empty string when no user in context", func(t *testing.T) {
+	t.Run("returns unknown when no user in context", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", http.NoBody)
-		assert.Equal(t, "", extractAuthor(req))
+		assert.Equal(t, "unknown", extractAuthor(req))
 	})
 }
 

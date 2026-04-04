@@ -155,7 +155,7 @@ func TestCreateAuthKeyWithStore(t *testing.T) {
 }
 
 func TestCreateAuthKeyWithStoreError(t *testing.T) {
-	t.Run("create succeeds even when store fails", func(t *testing.T) {
+	t.Run("create fails when store fails", func(t *testing.T) {
 		mgr := &mockAPIKeyManager{}
 		store := &mockAPIKeyStore{setErr: fmt.Errorf("db connection lost")}
 		cs := &mockConfigStore{mode: "database"}
@@ -171,8 +171,11 @@ func TestCreateAuthKeyWithStoreError(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusCreated, w.Code, "create should succeed despite store error")
-		require.Len(t, store.setCalls, 1, "store.Set should still have been called")
+		// Store error should fail the request — DB-first two-phase commit
+		assert.Equal(t, http.StatusInternalServerError, w.Code, "create should fail when store errors")
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "failed to persist api key", pd.Detail)
+		require.Len(t, store.setCalls, 1, "store.Set should have been called")
 	})
 }
 
@@ -198,6 +201,33 @@ func TestDeleteAuthKeyWithStore(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		require.Len(t, store.deleteCalls, 1, "store.Delete should have been called once")
 		assert.Equal(t, "test-key", store.deleteCalls[0])
+	})
+}
+
+func TestDeleteAuthKeyWithStoreError(t *testing.T) {
+	t.Run("delete fails when store fails", func(t *testing.T) {
+		mgr := &mockAPIKeyManager{
+			removeFn: func(_ string) bool { return true },
+		}
+		store := &mockAPIKeyStore{deleteErr: fmt.Errorf("db connection lost")}
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{
+			APIKeyManager:   mgr,
+			APIKeyStore:     store,
+			PersonaRegistry: &mockPersonaRegistry{},
+			ConfigStore:     cs,
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/auth/keys/test-key", http.NoBody)
+		req.SetPathValue("name", "test-key")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		// Store error should fail the request — DB-first two-phase commit
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "failed to delete api key from database", pd.Detail)
+		require.Len(t, store.deleteCalls, 1, "store.Delete should have been called")
 	})
 }
 
