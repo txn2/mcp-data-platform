@@ -371,8 +371,15 @@ var connectionSensitiveKeys = []string{
 	"token", "access_token", "refresh_token", "api_key",
 }
 
+// platformInternalKeys lists config keys injected by the platform at runtime
+// (e.g., elicitation, progress) that should not be exposed in admin API responses.
+var platformInternalKeys = []string{
+	"elicitation", "progress_enabled",
+}
+
 // redactConnectionConfig returns a copy of config with sensitive fields replaced
-// by "[REDACTED]". Non-sensitive fields are copied as-is.
+// by "[REDACTED]" and platform-internal keys removed. Non-sensitive fields are
+// copied as-is.
 func redactConnectionConfig(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
@@ -383,6 +390,9 @@ func redactConnectionConfig(config map[string]any) map[string]any {
 		if _, ok := result[key]; ok {
 			result[key] = redactedValue
 		}
+	}
+	for _, key := range platformInternalKeys {
+		delete(result, key)
 	}
 	return result
 }

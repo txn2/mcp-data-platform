@@ -508,6 +508,21 @@ func TestRedactConnectionConfig(t *testing.T) {
 		_ = redactConnectionConfig(config)
 		assert.Equal(t, "secret", config["password"])
 	})
+
+	t.Run("removes platform-internal keys", func(t *testing.T) {
+		config := map[string]any{
+			"host":             "trino.local",
+			"elicitation":      map[string]any{"enabled": true},
+			"progress_enabled": true,
+		}
+
+		redacted := redactConnectionConfig(config)
+		assert.Equal(t, "trino.local", redacted["host"])
+		_, hasElicitation := redacted["elicitation"]
+		assert.False(t, hasElicitation, "elicitation should be removed")
+		_, hasProgress := redacted["progress_enabled"]
+		assert.False(t, hasProgress, "progress_enabled should be removed")
+	})
 }
 
 func TestMergeRedactedFields(t *testing.T) {
