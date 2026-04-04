@@ -430,7 +430,9 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
   const setMutation = useSetConnectionInstance();
   const [kind, setKind] = useState(connection?.kind ?? "trino");
   const [name, setName] = useState(connection?.name ?? "");
-  const [description, setDescription] = useState(connection?.description ?? "");
+  const [description, setDescription] = useState(
+    connection?.description || (connection?.config?.description as string) || "",
+  );
   const [configObj, setConfigObj] = useState<Record<string, any>>(
     connection?.config ? { ...connection.config } : {},
   );
@@ -443,9 +445,10 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
     if (isCreate) {
       onDirtyChange(!!name.trim());
     } else {
+      const origDesc = connection?.description || (connection?.config?.description as string) || "";
       const origJson = JSON.stringify(connection?.config ?? {});
       onDirtyChange(
-        description !== (connection?.description ?? "") || configJson !== origJson,
+        description !== origDesc || configJson !== origJson,
       );
     }
   }, [kind, name, description, configJson, connection, isCreate, onDirtyChange]);
@@ -745,14 +748,24 @@ function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
           help="Leave blank to keep existing password"
         />
       </div>
-      <ConfigField
-        label="Default Catalog"
-        value={String(config.catalog ?? "")}
-        onChange={(v) => onChange(update(config, "catalog", v))}
-        placeholder="iceberg"
-        mono
-        help="Default Trino catalog for queries (e.g. iceberg, hive, memory)"
-      />
+      <div className="grid grid-cols-2 gap-4">
+        <ConfigField
+          label="Default Catalog"
+          value={String(config.catalog ?? "")}
+          onChange={(v) => onChange(update(config, "catalog", v))}
+          placeholder="iceberg"
+          mono
+          help="Default Trino catalog for queries (e.g. iceberg, hive, memory)"
+        />
+        <ConfigField
+          label="Default Schema"
+          value={String(config.schema ?? "")}
+          onChange={(v) => onChange(update(config, "schema", v))}
+          placeholder="public"
+          mono
+          help="Default Trino schema within the catalog"
+        />
+      </div>
       <ConfigToggle
         label="SSL / TLS"
         checked={!!config.ssl}
@@ -836,8 +849,8 @@ function S3ConfigForm({ config, onChange }: ConfigFormProps) {
       </div>
       <ConfigToggle
         label="Force Path Style"
-        checked={!!config.force_path_style}
-        onChange={(v) => onChange(update(config, "force_path_style", v))}
+        checked={!!config.use_path_style}
+        onChange={(v) => onChange(update(config, "use_path_style", v))}
         help="Use path-style URLs (bucket in path, not subdomain). Required for MinIO and most S3-compatible stores."
       />
       <div className="border-t pt-4 mt-2">
