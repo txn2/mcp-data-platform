@@ -202,6 +202,33 @@ type SearchFilter struct {
 	Owner    string   `json:"owner,omitempty"`
 	Limit    int      `json:"limit,omitempty"`
 	Offset   int      `json:"offset,omitempty"`
+
+	// EntityTypes restricts search to specific entity types (e.g., "DATASET", "DASHBOARD").
+	// Defaults to ["DATASET"] if empty.
+	EntityTypes []string `json:"entity_types,omitempty"`
+
+	// Mode selects the search strategy: "keyword" (default) or "semantic".
+	Mode string `json:"mode,omitempty"`
+
+	// Filters provides advanced field-level filtering (e.g., by column name, column tag).
+	// All filters are AND'd together. These map directly to DataHub's searchAcrossEntities
+	// orFilters and support fields like fieldPaths, fieldTags, fieldGlossaryTerms, etc.
+	Filters []FieldFilter `json:"filters,omitempty"`
+}
+
+// FieldFilter is a single search filter criterion.
+type FieldFilter struct {
+	// Field is the filter field (e.g., "fieldPaths", "fieldTags", "platform", "owners").
+	Field string `json:"field"`
+
+	// Values to match against.
+	Values []string `json:"values"`
+
+	// Condition is the match operator: CONTAIN, EQUAL (default), IN, EXISTS.
+	Condition string `json:"condition,omitempty"`
+
+	// Negated inverts the filter (exclude matching entities).
+	Negated bool `json:"negated,omitempty"`
 }
 
 // TableSearchResult represents a search result.

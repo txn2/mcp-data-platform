@@ -49,6 +49,8 @@ type Config struct {
 // This allows for mocking in tests.
 type Client interface {
 	Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	GetEntity(ctx context.Context, urn string) (*types.Entity, error)
 	GetSchema(ctx context.Context, urn string) (*types.SchemaMetadata, error)
 	GetSchemas(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
@@ -226,8 +228,34 @@ func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.Gl
 	}, nil
 }
 
-// SearchTables searches for tables in DataHub.
+// SearchTables searches for tables in DataHub using searchAcrossEntities.
+// Supports advanced field-level filtering (column names, tags, etc.) via SearchFilter.Filters.
 func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	opts := buildSearchOptions(filter)
+
+	var (
+		result *types.SearchResult
+		err    error
+	)
+	if filter.Mode == "semantic" {
+		result, err = a.client.SemanticSearch(ctx, filter.Query, opts...)
+	} else {
+		result, err = a.client.SearchAcrossEntities(ctx, filter.Query, opts...)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("searching datahub: %w", err)
+	}
+
+	results := make([]semantic.TableSearchResult, 0, len(result.Entities))
+	for _, entity := range result.Entities {
+		results = append(results, a.toSearchResult(entity))
+	}
+
+	return results, nil
+}
+
+// buildSearchOptions converts a semantic.SearchFilter to datahub client search options.
+func buildSearchOptions(filter semantic.SearchFilter) []dhclient.SearchOption {
 	var opts []dhclient.SearchOption
 	if filter.Limit > 0 {
 		opts = append(opts, dhclient.WithLimit(filter.Limit))
@@ -235,45 +263,93 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 	if filter.Offset > 0 {
 		opts = append(opts, dhclient.WithOffset(filter.Offset))
 	}
-	// DataHub doesn't have a direct platform filter, use entity type DATASET
-	opts = append(opts, dhclient.WithEntityType("DATASET"))
 
-	result, err := a.client.Search(ctx, filter.Query, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("searching datahub: %w", err)
+	// Entity types: explicit types, or default to DATASET.
+	if len(filter.EntityTypes) > 0 {
+		opts = append(opts, dhclient.WithTypes(filter.EntityTypes))
+	} else {
+		opts = append(opts, dhclient.WithEntityType(dhclient.DefaultEntityType))
 	}
 
-	results := make([]semantic.TableSearchResult, 0, len(result.Entities))
-	for _, entity := range result.Entities {
-		matchedField := ""
-		if len(entity.MatchedFields) > 0 {
-			matchedField = entity.MatchedFields[0].Name
-		}
+	// Build advanced filters from both legacy fields and new Filters slice.
+	dhFilters := buildDHFilters(filter)
+	if len(dhFilters) > 0 {
+		opts = append(opts, dhclient.WithSearchFilters(dhFilters))
+	}
 
-		domainName := ""
-		if entity.Domain != nil {
-			domainName = a.sanitizer.SanitizeString(entity.Domain.Name)
-		}
+	return opts
+}
 
-		// Collect and sanitize tags
-		rawTags := make([]string, len(entity.Tags))
-		for i, tag := range entity.Tags {
-			rawTags[i] = tag.Name
-		}
-		sanitizedTags := a.sanitizer.SanitizeTags(rawTags)
+// buildDHFilters converts semantic filter fields to datahub client SearchFilter entries.
+// Legacy fields (Platform, Tags, Domain, Owner) are mapped to their DataHub equivalents,
+// then any explicit Filters are appended.
+func buildDHFilters(filter semantic.SearchFilter) []dhclient.SearchFilter {
+	var out []dhclient.SearchFilter
 
-		results = append(results, semantic.TableSearchResult{
-			URN:          entity.URN,
-			Name:         entity.Name, // Keep name as-is (system identifier)
-			Platform:     entity.Platform,
-			Description:  a.sanitizer.SanitizeDescription(entity.Description),
-			Tags:         sanitizedTags,
-			Domain:       domainName,
-			MatchedField: matchedField,
+	if filter.Platform != "" {
+		out = append(out, dhclient.SearchFilter{
+			Field:  "platform",
+			Values: []string{filter.Platform},
+		})
+	}
+	if len(filter.Tags) > 0 {
+		out = append(out, dhclient.SearchFilter{
+			Field:  "tags",
+			Values: filter.Tags,
+		})
+	}
+	if filter.Domain != "" {
+		out = append(out, dhclient.SearchFilter{
+			Field:  "domains",
+			Values: []string{filter.Domain},
+		})
+	}
+	if filter.Owner != "" {
+		out = append(out, dhclient.SearchFilter{
+			Field:  "owners",
+			Values: []string{filter.Owner},
 		})
 	}
 
-	return results, nil
+	// Append explicit advanced filters (fieldPaths, fieldTags, etc.)
+	for _, f := range filter.Filters {
+		out = append(out, dhclient.SearchFilter{
+			Field:     f.Field,
+			Values:    f.Values,
+			Condition: f.Condition,
+			Negated:   f.Negated,
+		})
+	}
+
+	return out
+}
+
+// toSearchResult converts a datahub search entity to a semantic TableSearchResult.
+func (a *Adapter) toSearchResult(entity types.SearchEntity) semantic.TableSearchResult {
+	matchedField := ""
+	if len(entity.MatchedFields) > 0 {
+		matchedField = entity.MatchedFields[0].Name
+	}
+
+	domainName := ""
+	if entity.Domain != nil {
+		domainName = a.sanitizer.SanitizeString(entity.Domain.Name)
+	}
+
+	rawTags := make([]string, len(entity.Tags))
+	for i, tag := range entity.Tags {
+		rawTags[i] = tag.Name
+	}
+
+	return semantic.TableSearchResult{
+		URN:          entity.URN,
+		Name:         entity.Name,
+		Platform:     entity.Platform,
+		Description:  a.sanitizer.SanitizeDescription(entity.Description),
+		Tags:         a.sanitizer.SanitizeTags(rawTags),
+		Domain:       domainName,
+		MatchedField: matchedField,
+	}
 }
 
 // GetCuratedQueryCount returns the number of curated/saved queries for a dataset.

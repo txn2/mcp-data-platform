@@ -29,21 +29,41 @@ const (
 
 // mockDataHubClient implements the Client interface for testing.
 type mockDataHubClient struct {
-	searchFunc           func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
-	getEntityFunc        func(ctx context.Context, urn string) (*types.Entity, error)
-	getSchemaFunc        func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
-	getSchemasFunc       func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
-	getLineageFunc       func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
-	getColumnLineageFunc func(ctx context.Context, urn string) (*types.ColumnLineage, error)
-	getGlossaryTermFunc  func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
-	getQueriesFunc       func(ctx context.Context, urn string) (*types.QueryList, error)
-	pingFunc             func(ctx context.Context) error
-	closeFunc            func() error
+	searchFunc               func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	searchAcrossEntitiesFunc func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	semanticSearchFunc       func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	getEntityFunc            func(ctx context.Context, urn string) (*types.Entity, error)
+	getSchemaFunc            func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
+	getSchemasFunc           func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
+	getLineageFunc           func(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
+	getColumnLineageFunc     func(ctx context.Context, urn string) (*types.ColumnLineage, error)
+	getGlossaryTermFunc      func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
+	getQueriesFunc           func(ctx context.Context, urn string) (*types.QueryList, error)
+	pingFunc                 func(ctx context.Context) error
+	closeFunc                func() error
 }
 
 func (m *mockDataHubClient) Search(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
 	if m.searchFunc != nil {
 		return m.searchFunc(ctx, query, opts...)
+	}
+	return &types.SearchResult{}, nil
+}
+
+func (m *mockDataHubClient) SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
+	if m.searchAcrossEntitiesFunc != nil {
+		return m.searchAcrossEntitiesFunc(ctx, query, opts...)
+	}
+	// Fall back to searchFunc for backward compat with existing tests.
+	if m.searchFunc != nil {
+		return m.searchFunc(ctx, query, opts...)
+	}
+	return &types.SearchResult{}, nil
+}
+
+func (m *mockDataHubClient) SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
+	if m.semanticSearchFunc != nil {
+		return m.semanticSearchFunc(ctx, query, opts...)
 	}
 	return &types.SearchResult{}, nil
 }
@@ -847,6 +867,149 @@ func TestSearchTablesWithFilters(t *testing.T) {
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
+}
+
+func TestSearchTablesAdvancedFilters(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("passes field filters to SearchAcrossEntities", func(t *testing.T) {
+		var capturedQuery string
+		mock := &mockDataHubClient{
+			searchAcrossEntitiesFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				capturedQuery = query
+				return &types.SearchResult{
+					Entities: []types.SearchEntity{
+						{URN: "urn:1", Name: "orders"},
+					},
+				}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		results, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+			Query: "*",
+			Filters: []semantic.FieldFilter{
+				{Field: "fieldPaths", Values: []string{"email"}, Condition: "CONTAIN"},
+				{Field: "platform", Values: []string{"urn:li:dataPlatform:trino"}},
+			},
+			Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if capturedQuery != "*" {
+			t.Errorf("expected query '*', got %q", capturedQuery)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected 1 result, got %d", len(results))
+		}
+	})
+
+	t.Run("uses SemanticSearch for semantic mode", func(t *testing.T) {
+		semanticCalled := false
+		mock := &mockDataHubClient{
+			semanticSearchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				semanticCalled = true
+				return &types.SearchResult{}, nil
+			},
+			searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				t.Error("SearchAcrossEntities should not be called in semantic mode")
+				return &types.SearchResult{}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		_, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+			Query: "revenue metrics",
+			Mode:  "semantic",
+		})
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if !semanticCalled {
+			t.Error("expected SemanticSearch to be called")
+		}
+	})
+
+	t.Run("entity types override default DATASET", func(t *testing.T) {
+		mock := &mockDataHubClient{
+			searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				return &types.SearchResult{}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		_, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+			Query:       "test",
+			EntityTypes: []string{"DATASET", "DASHBOARD"},
+		})
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+	})
+}
+
+func TestBuildDHFilters(t *testing.T) {
+	t.Run("empty filter produces no output", func(t *testing.T) {
+		filters := buildDHFilters(semantic.SearchFilter{Query: "test"})
+		if len(filters) != 0 {
+			t.Errorf("expected 0 filters, got %d", len(filters))
+		}
+	})
+
+	t.Run("legacy fields mapped correctly", func(t *testing.T) {
+		filters := buildDHFilters(semantic.SearchFilter{
+			Platform: "urn:li:dataPlatform:trino",
+			Tags:     []string{"urn:li:tag:pii"},
+			Domain:   "urn:li:domain:finance",
+			Owner:    "urn:li:corpuser:alice",
+		})
+		if len(filters) != 4 {
+			t.Fatalf("expected 4 filters, got %d", len(filters))
+		}
+		if filters[0].Field != "platform" {
+			t.Errorf("expected platform filter, got %q", filters[0].Field)
+		}
+		if filters[1].Field != "tags" {
+			t.Errorf("expected tags filter, got %q", filters[1].Field)
+		}
+		if filters[2].Field != "domains" {
+			t.Errorf("expected domains filter, got %q", filters[2].Field)
+		}
+		if filters[3].Field != "owners" {
+			t.Errorf("expected owners filter, got %q", filters[3].Field)
+		}
+	})
+
+	t.Run("explicit filters with condition and negation", func(t *testing.T) {
+		filters := buildDHFilters(semantic.SearchFilter{
+			Filters: []semantic.FieldFilter{
+				{Field: "fieldPaths", Values: []string{"email"}, Condition: "CONTAIN"},
+				{Field: "tags", Values: []string{"urn:li:tag:deprecated"}, Negated: true},
+			},
+		})
+		if len(filters) != 2 {
+			t.Fatalf("expected 2 filters, got %d", len(filters))
+		}
+		if filters[0].Condition != "CONTAIN" {
+			t.Errorf("expected CONTAIN condition, got %q", filters[0].Condition)
+		}
+		if !filters[1].Negated {
+			t.Error("expected second filter to be negated")
+		}
+	})
+
+	t.Run("legacy and explicit filters combined", func(t *testing.T) {
+		filters := buildDHFilters(semantic.SearchFilter{
+			Platform: "urn:li:dataPlatform:trino",
+			Filters: []semantic.FieldFilter{
+				{Field: "fieldPaths", Values: []string{"customer_id"}},
+			},
+		})
+		if len(filters) != 2 {
+			t.Fatalf("expected 2 filters, got %d", len(filters))
+		}
+	})
 }
 
 func TestAdapterCloseError(t *testing.T) {
