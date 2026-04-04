@@ -236,7 +236,7 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 		result *types.SearchResult
 		err    error
 	)
-	if filter.Mode == "semantic" {
+	if strings.EqualFold(filter.Mode, "semantic") {
 		result, err = a.client.SemanticSearch(ctx, filter.Query, opts...)
 	} else {
 		result, err = a.client.SearchAcrossEntities(ctx, filter.Query, opts...)

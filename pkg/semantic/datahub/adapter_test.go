@@ -919,6 +919,28 @@ func TestSearchTablesAdvancedFilters(t *testing.T) {
 		}
 	})
 
+	t.Run("semantic mode is case-insensitive", func(t *testing.T) {
+		semanticCalled := false
+		mock := &mockDataHubClient{
+			semanticSearchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				semanticCalled = true
+				return &types.SearchResult{}, nil
+			},
+		}
+		adapter, _ := NewWithClient(Config{}, mock)
+
+		_, err := adapter.SearchTables(ctx, semantic.SearchFilter{
+			Query: "test",
+			Mode:  "Semantic",
+		})
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		if !semanticCalled {
+			t.Error("expected SemanticSearch to be called for capitalized Mode")
+		}
+	})
+
 	t.Run("semantic mode with filters", func(t *testing.T) {
 		semanticCalled := false
 		mock := &mockDataHubClient{

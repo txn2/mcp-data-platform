@@ -204,7 +204,7 @@ type SearchFilter struct {
 	Offset   int      `json:"offset,omitempty"`
 
 	// EntityTypes restricts search to specific entity types (e.g., "DATASET", "DASHBOARD").
-	// Defaults to ["DATASET"] if empty.
+	// If empty, defaults to the DataHub client's DefaultEntityType.
 	EntityTypes []string `json:"entity_types,omitempty"`
 
 	// Mode selects the search strategy: "keyword" (default) or "semantic".
