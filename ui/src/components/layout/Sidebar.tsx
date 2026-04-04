@@ -13,12 +13,12 @@ import {
   ChevronsRight,
   Activity,
   FolderOpen,
-  Settings,
   FileText,
   Bot,
   Clock,
   ChevronDown,
   Cable,
+  KeyRound,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -49,22 +49,16 @@ interface NavItem {
 
 const adminNavItems: NavItem[] = [
   { path: "/admin", label: "Dashboard", icon: Home },
+  { path: "/admin/agent-instructions", label: "Agent Instructions", icon: Bot },
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
-  { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
+  { path: "/admin/changelog", label: "Change Log", icon: Clock },
+  { path: "/admin/connections", label: "Connections", icon: Cable },
+  { path: "/admin/description", label: "Description", icon: FileText },
+  { path: "/admin/keys", label: "Keys", icon: KeyRound },
   { path: "/admin/knowledge", label: "Knowledge", icon: Lightbulb },
-  {
-    path: "/admin/settings",
-    label: "Settings",
-    icon: Settings,
-    children: [
-      { path: "/admin/settings#description", label: "Description", icon: FileText },
-      { path: "/admin/settings#agent-instructions", label: "Agent Instructions", icon: Bot },
-      { path: "/admin/settings#personas", label: "Personas", icon: Users },
-      { path: "/admin/settings#connections", label: "Connections", icon: Cable },
-      { path: "/admin/settings#changelog", label: "Change Log", icon: Clock },
-    ],
-  },
+  { path: "/admin/personas", label: "Personas", icon: Users },
+  { path: "/admin/tools", label: "Tools", icon: Wrench },
 ];
 
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, mobile, onClose }: Props) {

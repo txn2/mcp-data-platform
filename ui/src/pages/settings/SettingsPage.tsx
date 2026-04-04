@@ -10,6 +10,7 @@ import type { EffectiveConfigEntry, ConfigChangelogEntry } from "@/api/admin/typ
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PersonasPanel } from "./PersonasPanel";
 import { ConnectionsPanel } from "./ConnectionsPanel";
+import { KeysPanel } from "./KeysPanel";
 import { cn } from "@/lib/utils";
 import {
   Clock,
@@ -27,7 +28,7 @@ import {
 // Section definitions
 // ---------------------------------------------------------------------------
 
-type Section = "description" | "agent-instructions" | "personas" | "connections" | "changelog";
+type Section = "description" | "agent-instructions" | "personas" | "connections" | "keys" | "changelog";
 
 const SECTION_META: Record<string, { label: string; description: string }> = {
   description: {
@@ -78,6 +79,7 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
     initialTab === "agent-instructions" ? "agent-instructions"
     : initialTab === "personas" ? "personas"
     : initialTab === "connections" ? "connections"
+    : initialTab === "keys" ? "keys"
     : initialTab === "changelog" ? "changelog"
     : "description";
 
@@ -105,6 +107,8 @@ export function SettingsPage({ initialTab }: { initialTab?: string }) {
           <PersonasPanel />
         ) : section === "connections" ? (
           <ConnectionsPanel />
+        ) : section === "keys" ? (
+          <KeysPanel />
         ) : section === "changelog" ? (
           <ChangelogPanel />
         ) : (

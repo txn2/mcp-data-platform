@@ -65,7 +65,20 @@ auth:
     keys:
       - key: "acme-dev-key-2024"
         name: "admin"
+        email: "admin@example.com"
         roles: ["admin"]
+      - key: "acme-analyst-key"
+        name: "analyst"
+        email: "rachel.thompson@example.com"
+        roles: ["inventory_analyst"]
+      - key: "acme-engineer-key"
+        name: "engineer"
+        email: "marcus.johnson@example.com"
+        roles: ["data_engineer"]
+      - key: "acme-director-key"
+        name: "director"
+        email: "david.park@example.com"
+        roles: ["regional_director"]
 
 oauth:
   enabled: false
@@ -203,12 +216,37 @@ personas:
       "kevin.wilson@example.com": "store-manager"
       "mike.davis@example.com": "store-manager"
 
-# Toolkits disabled — no external services needed for admin UI dev
+# Toolkits: connect to remote ACME demo backends when env vars are set,
+# otherwise fall back to local-only (S3 via SeaweedFS, no Trino/DataHub).
 toolkits:
   trino:
-    enabled: false
+    enabled: ${TRINO_ENABLED:-false}
+    instances:
+      acme:
+        host: "${TRINO_HOST:-localhost}"
+        port: ${TRINO_PORT:-8080}
+        user: "${TRINO_USER:-}"
+        password: "${TRINO_PASSWORD:-}"
+        catalog: "warehouse"
+        schema: "public"
+        ssl: ${TRINO_SSL:-false}
+        description: "ACME demo Trino — warehouse and opensearch catalogs"
+        datahub_source_name: "trino"
+    config:
+      default_limit: 1000
+      max_limit: 10000
+      read_only: true
+      progress_enabled: true
+
   datahub:
-    enabled: false
+    enabled: ${DATAHUB_ENABLED:-false}
+    instances:
+      acme:
+        endpoint: "${DATAHUB_ENDPOINT:-http://localhost:8080}"
+        token: "${DATAHUB_TOKEN:-}"
+        read_only: true
+    default: acme
+
   s3:
     instances:
       dev-s3:
@@ -218,13 +256,16 @@ toolkits:
         access_key_id: "dev-access-key"
         secret_access_key: "dev-secret-key"
         force_path_style: true
+        description: "Local SeaweedFS for portal assets and dev content"
 
-# Providers: noop (no external services)
+# Providers: use datahub when available, noop otherwise
 semantic:
-  provider: noop
+  provider: "${SEMANTIC_PROVIDER:-noop}"
+  instance: acme
 
 query:
-  provider: noop
+  provider: "${QUERY_PROVIDER:-noop}"
+  instance: acme
 
 injection:
   trino_semantic_enrichment: true

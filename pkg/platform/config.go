@@ -225,9 +225,11 @@ type APIKeyAuthConfig struct {
 
 // APIKeyDef defines an API key.
 type APIKeyDef struct {
-	Key   string   `yaml:"key"`
-	Name  string   `yaml:"name"`
-	Roles []string `yaml:"roles"`
+	Key         string   `yaml:"key"`
+	Name        string   `yaml:"name"`
+	Email       string   `yaml:"email"`
+	Description string   `yaml:"description"`
+	Roles       []string `yaml:"roles"`
 }
 
 // OAuthConfig configures the OAuth server.
@@ -730,12 +732,19 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	return cfg, nil
 }
 
-// expandEnvVars expands ${VAR} patterns in the string.
+// expandEnvVars expands ${VAR} and ${VAR:-default} patterns in the string.
 func expandEnvVars(s string) string {
 	re := regexp.MustCompile(`\$\{([^}]+)\}`)
 	return re.ReplaceAllStringFunc(s, func(match string) string {
-		varName := match[2 : len(match)-1]
-		return os.Getenv(varName)
+		expr := match[2 : len(match)-1]
+		// Support ${VAR:-default} syntax.
+		if varName, defaultVal, ok := strings.Cut(expr, ":-"); ok {
+			if val := os.Getenv(varName); val != "" {
+				return val
+			}
+			return defaultVal
+		}
+		return os.Getenv(expr)
 	})
 }
 

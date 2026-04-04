@@ -629,7 +629,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Generates a new API key. Only available in database config mode. The key value is returned only once.",
+                "description": "Generates a new API key. The key value is returned only once.",
                 "consumes": [
                     "application/json"
                 ],
@@ -683,7 +683,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes an API key. Only available in database config mode.",
+                "description": "Deletes an API key.",
                 "produces": [
                     "application/json"
                 ],
@@ -2016,6 +2016,16 @@ const docTemplate = `{
         "admin.authKeyCreateRequest": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "description": "e.g. \"24h\", \"720h\", \"8760h\"",
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -2030,6 +2040,15 @@ const docTemplate = `{
         "admin.authKeyCreateResponse": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -2794,6 +2813,18 @@ const docTemplate = `{
         "auth.APIKeySummary": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expired": {
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },

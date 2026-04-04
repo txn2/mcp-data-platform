@@ -76,6 +76,9 @@ const defaultTrinoQueryLimit = 1000
 // defaultTrinoMaxLimit is the maximum query limit for Trino connections.
 const defaultTrinoMaxLimit = 10000
 
+// logKeyError is the slog key for error values in log messages.
+const logKeyError = "error"
+
 // Platform is the main platform facade.
 type Platform struct {
 	config *Config
@@ -93,6 +96,8 @@ type Platform struct {
 	fileDefaults      map[string]string
 	connectionStore   ConnectionStore
 	connectionSources *ConnectionSourceMap
+	personaStore      PersonaStore
+	apiKeyStore       APIKeyStore
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -205,6 +210,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	if err := p.initAuth(opts); err != nil {
 		return err
 	}
+	p.loadDBAPIKeys()
 	// Initialize audit logging after auth
 	if err := p.initAudit(opts); err != nil {
 		return err
@@ -233,6 +239,8 @@ func (p *Platform) initDataInfra() error {
 	if err := p.initConnectionStore(); err != nil {
 		return err
 	}
+	p.initPersonaStore()
+	p.initAPIKeyStore()
 	return p.initConfigStore()
 }
 
@@ -294,6 +302,28 @@ func (p *Platform) initConnectionStore() error {
 	}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	return nil
+}
+
+// initPersonaStore initializes the persona definition store.
+func (p *Platform) initPersonaStore() {
+	if p.db != nil {
+		p.personaStore = NewPostgresPersonaStore(p.db)
+		slog.Info("persona store: postgres")
+	} else {
+		p.personaStore = &NoopPersonaStore{}
+		slog.Info("persona store: noop (no database)")
+	}
+}
+
+// initAPIKeyStore initializes the API key definition store.
+func (p *Platform) initAPIKeyStore() {
+	if p.db != nil {
+		p.apiKeyStore = NewPostgresAPIKeyStore(p.db)
+		slog.Info("api key store: postgres")
+	} else {
+		p.apiKeyStore = &NoopAPIKeyStore{}
+		slog.Info("api key store: noop (no database)")
+	}
 }
 
 // buildFieldEncryptor creates a FieldEncryptor from the ENCRYPTION_KEY env var.
@@ -417,6 +447,7 @@ func (p *Platform) initRegistries(opts *Options) error {
 		if err := p.loadPersonas(); err != nil {
 			return fmt.Errorf("loading personas: %w", err)
 		}
+		p.loadDBPersonas()
 	}
 
 	if opts.ToolkitRegistry != nil {
@@ -1578,6 +1609,55 @@ func (p *Platform) loadPersonas() error {
 	return nil
 }
 
+// loadDBPersonas loads persona definitions from the database and registers
+// them in the persona registry. DB personas override file-based ones with
+// the same name because Register overwrites existing entries.
+func (p *Platform) loadDBPersonas() {
+	if p.personaStore == nil {
+		return
+	}
+	defs, err := p.personaStore.List(context.Background())
+	if err != nil {
+		slog.Warn("failed to load DB personas", logKeyError, err)
+		return
+	}
+	for _, def := range defs {
+		per := def.ToPersona()
+		if err := p.personaRegistry.Register(per); err != nil {
+			slog.Warn("failed to load DB persona", "name", def.Name, logKeyError, err)
+		}
+	}
+	if len(defs) > 0 {
+		slog.Info("loaded DB persona overrides", "count", len(defs))
+	}
+}
+
+// loadDBAPIKeys loads API key definitions from the database and registers
+// them in the API key authenticator using bcrypt hashes.
+func (p *Platform) loadDBAPIKeys() {
+	if p.apiKeyStore == nil || p.apiKeyAuth == nil {
+		return
+	}
+	defs, err := p.apiKeyStore.List(context.Background())
+	if err != nil {
+		slog.Warn("failed to load DB api keys", logKeyError, err)
+		return
+	}
+	for _, def := range defs {
+		p.apiKeyAuth.AddHashedKey(auth.APIKey{
+			KeyHash:     def.KeyHash,
+			Name:        def.Name,
+			Email:       def.Email,
+			Description: def.Description,
+			Roles:       def.Roles,
+			ExpiresAt:   def.ExpiresAt,
+		})
+	}
+	if len(defs) > 0 {
+		slog.Info("loaded DB api keys", "count", len(defs))
+	}
+}
+
 // createAuthenticator creates the authenticator based on config.
 func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
 	var authenticators []middleware.Authenticator
@@ -1617,9 +1697,11 @@ func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
 		var keys []auth.APIKey
 		for _, k := range p.config.Auth.APIKeys.Keys {
 			keys = append(keys, auth.APIKey{
-				Key:   k.Key,
-				Name:  k.Name,
-				Roles: k.Roles,
+				Key:         k.Key,
+				Name:        k.Name,
+				Email:       k.Email,
+				Description: k.Description,
+				Roles:       k.Roles,
 			})
 		}
 		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{Keys: keys})
@@ -1763,6 +1845,16 @@ func (p *Platform) ConfigStore() configstore.Store {
 	return p.configStore
 }
 
+// PersonaStore returns the persona definition store, or nil if not initialized.
+func (p *Platform) PersonaStore() PersonaStore {
+	return p.personaStore
+}
+
+// APIKeyStore returns the API key definition store, or nil if not initialized.
+func (p *Platform) APIKeyStore() APIKeyStore {
+	return p.apiKeyStore
+}
+
 // ConnectionStore returns the connection instance store, or nil if not initialized.
 func (p *Platform) ConnectionStore() ConnectionStore {
 	return p.connectionStore
@@ -1782,7 +1874,7 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 
 	instances, err := p.connectionStore.List(context.Background())
 	if err != nil {
-		slog.Warn("failed to load DB connections for toolkit merge", "error", err)
+		slog.Warn("failed to load DB connections for toolkit merge", logKeyError, err)
 		return
 	}
 	if len(instances) == 0 {
@@ -1793,27 +1885,52 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		p.config.Toolkits = make(map[string]any)
 	}
 
+	// Only merge connections for kinds that support DB management (trino, s3).
+	// Datahub is single-instance and managed via YAML only.
+	manageableKinds := map[string]bool{kindTrino: true, kindS3: true}
+
 	for _, inst := range instances {
-		kindMap, ok := p.config.Toolkits[inst.Kind].(map[string]any)
-		if !ok {
-			kindMap = map[string]any{cfgKeyEnabled: true}
-			p.config.Toolkits[inst.Kind] = kindMap
+		if manageableKinds[inst.Kind] {
+			mergeConnectionInstance(p.config.Toolkits, inst)
 		}
+	}
+}
 
-		// Ensure enabled
-		kindMap[cfgKeyEnabled] = true
+// mergeConnectionInstance merges a single DB connection instance into the
+// toolkit config map. File config takes precedence over DB connections.
+func mergeConnectionInstance(toolkits map[string]any, inst ConnectionInstance) {
+	kindMap, ok := toolkits[inst.Kind].(map[string]any)
+	if !ok || !isToolkitEnabled(kindMap) {
+		return
+	}
 
-		kindInstances, ok := kindMap[cfgKeyInstances].(map[string]any)
-		if !ok {
-			kindInstances = make(map[string]any)
-			kindMap[cfgKeyInstances] = kindInstances
-		}
+	kindInstances, ok := kindMap[cfgKeyInstances].(map[string]any)
+	if !ok {
+		kindInstances = make(map[string]any)
+		kindMap[cfgKeyInstances] = kindInstances
+	}
 
-		// Only add if not already present (file config takes precedence)
-		if _, exists := kindInstances[inst.Name]; !exists {
-			kindInstances[inst.Name] = inst.Config
-			slog.Info("merged DB connection into toolkit config", "kind", inst.Kind, "name", inst.Name)
-		}
+	// Only add if not already present (file config takes precedence)
+	if _, exists := kindInstances[inst.Name]; !exists {
+		kindInstances[inst.Name] = inst.Config
+		slog.Info("merged DB connection into toolkit config", "kind", inst.Kind, "name", inst.Name)
+	}
+}
+
+// isToolkitEnabled checks if a toolkit kind map has enabled=true.
+// Handles both bool and string values (env var expansion produces strings).
+func isToolkitEnabled(kindMap map[string]any) bool {
+	v, ok := kindMap[cfgKeyEnabled]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return val == "true"
+	default:
+		return false
 	}
 }
 
@@ -2286,7 +2403,7 @@ func (p *Platform) flushEnrichmentState() {
 		state := map[string]any{"enrichment_dedup": tables}
 		if err := p.sessionStore.UpdateState(ctx, sessionID, state); err != nil {
 			slog.Debug("shutdown: failed to flush enrichment state",
-				"session_id", sessionID, "error", err)
+				"session_id", sessionID, logKeyError, err)
 			continue
 		}
 		flushed++
@@ -2304,7 +2421,7 @@ func (p *Platform) loadPersistedEnrichmentState() {
 	ctx := context.Background()
 	sessions, err := p.sessionStore.List(ctx)
 	if err != nil {
-		slog.Warn("failed to load persisted enrichment state", "error", err)
+		slog.Warn("failed to load persisted enrichment state", logKeyError, err)
 		return
 	}
 

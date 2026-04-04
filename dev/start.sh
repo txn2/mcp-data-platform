@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load .env file if present (credentials for remote backends).
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'

@@ -835,7 +835,7 @@ func NewAdminTestDB(t *testing.T, dsn string) *AdminTestDB {
 func (a *AdminTestDB) TruncateAdminTables(t *testing.T) {
 	t.Helper()
 
-	tables := "audit_logs, config_entries, config_changelog, connection_instances"
+	tables := "audit_logs, config_entries, config_changelog, connection_instances, persona_definitions"
 	_, err := a.DB.Exec("TRUNCATE " + tables)
 	if err != nil {
 		t.Fatalf("truncating admin tables: %v", err)

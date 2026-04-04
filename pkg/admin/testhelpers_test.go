@@ -145,6 +145,32 @@ func (m *mockPersonaRegistry) DefaultName() string {
 // Verify interface compliance.
 var _ PersonaRegistry = (*mockPersonaRegistry)(nil)
 
+// --- Mock APIKeyStore ---
+
+type mockAPIKeyStore struct {
+	setErr      error
+	deleteErr   error
+	setCalls    []platform.APIKeyDefinition
+	deleteCalls []string
+}
+
+func (*mockAPIKeyStore) List(_ context.Context) ([]platform.APIKeyDefinition, error) {
+	return nil, nil
+}
+
+func (m *mockAPIKeyStore) Set(_ context.Context, def platform.APIKeyDefinition) error {
+	m.setCalls = append(m.setCalls, def)
+	return m.setErr
+}
+
+func (m *mockAPIKeyStore) Delete(_ context.Context, name string) error {
+	m.deleteCalls = append(m.deleteCalls, name)
+	return m.deleteErr
+}
+
+// Verify interface compliance.
+var _ platform.APIKeyStore = (*mockAPIKeyStore)(nil)
+
 // --- Mock AuditQuerier ---
 
 type mockAuditQuerier struct {
@@ -181,7 +207,7 @@ var _ AuditQuerier = (*mockAuditQuerier)(nil)
 
 type mockAPIKeyManager struct {
 	keys       []auth.APIKeySummary
-	generateFn func(name string, roles []string) (string, error)
+	generateFn func(def auth.APIKey) (string, error)
 	removeFn   func(name string) bool
 }
 
@@ -189,9 +215,9 @@ func (m *mockAPIKeyManager) ListKeys() []auth.APIKeySummary {
 	return m.keys
 }
 
-func (m *mockAPIKeyManager) GenerateKey(name string, roles []string) (string, error) {
+func (m *mockAPIKeyManager) GenerateKey(def auth.APIKey) (string, error) {
 	if m.generateFn != nil {
-		return m.generateFn(name, roles)
+		return m.generateFn(def)
 	}
 	return "generated-key-value", nil
 }
@@ -284,6 +310,36 @@ func (m *mockConfigStore) Mode() string {
 
 // Verify interface compliance.
 var _ ConfigStore = (*mockConfigStore)(nil)
+
+// --- Mock PersonaStore ---
+
+type mockPersonaStore struct {
+	setErr      error
+	deleteErr   error
+	setCalls    []platform.PersonaDefinition
+	deleteCalls []string
+}
+
+func (*mockPersonaStore) List(_ context.Context) ([]platform.PersonaDefinition, error) {
+	return nil, nil
+}
+
+func (*mockPersonaStore) Get(_ context.Context, _ string) (*platform.PersonaDefinition, error) {
+	return nil, platform.ErrPersonaNotFound
+}
+
+func (m *mockPersonaStore) Set(_ context.Context, def platform.PersonaDefinition) error {
+	m.setCalls = append(m.setCalls, def)
+	return m.setErr
+}
+
+func (m *mockPersonaStore) Delete(_ context.Context, name string) error {
+	m.deleteCalls = append(m.deleteCalls, name)
+	return m.deleteErr
+}
+
+// Verify interface compliance.
+var _ platform.PersonaStore = (*mockPersonaStore)(nil)
 
 // --- Test helpers ---
 

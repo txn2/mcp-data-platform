@@ -2,10 +2,12 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // personaSummary is a lightweight persona representation for list responses.
@@ -191,6 +193,14 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.deps.PersonaStore != nil {
+		author := extractAuthor(r)
+		def := platform.PersonaDefinitionFromPersona(p, author)
+		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
+			slog.Warn("failed to persist persona", logKeyName, p.Name, "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, personaDetail{
 		Name:                      p.Name,
 		DisplayName:               p.DisplayName,
@@ -246,6 +256,14 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.deps.PersonaStore != nil {
+		author := extractAuthor(r)
+		def := platform.PersonaDefinitionFromPersona(p, author)
+		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
+			slog.Warn("failed to persist persona update", logKeyName, p.Name, "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, personaDetail{
 		Name:                      p.Name,
 		DisplayName:               p.DisplayName,
@@ -289,6 +307,10 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.PersonaRegistry.Unregister(name); err != nil {
 		writeError(w, http.StatusNotFound, "persona not found")
 		return
+	}
+
+	if h.deps.PersonaStore != nil {
+		_ = h.deps.PersonaStore.Delete(r.Context(), name)
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
@@ -335,4 +357,15 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		},
 		Priority: req.Priority,
 	}
+}
+
+// extractAuthor returns the author identifier from the request context.
+func extractAuthor(r *http.Request) string {
+	if user := GetUser(r.Context()); user != nil {
+		if user.Email != "" {
+			return user.Email
+		}
+		return user.UserID
+	}
+	return ""
 }

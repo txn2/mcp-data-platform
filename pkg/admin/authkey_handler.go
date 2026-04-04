@@ -2,23 +2,34 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // authKeyCreateRequest is the request body for creating an API key.
 type authKeyCreateRequest struct {
-	Name  string   `json:"name"`
-	Roles []string `json:"roles"`
+	Name        string   `json:"name"`
+	Email       string   `json:"email,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Roles       []string `json:"roles"`
+	ExpiresIn   string   `json:"expires_in,omitempty"` // e.g. "24h", "720h", "8760h"
 }
 
 // authKeyCreateResponse is the response after creating an API key.
 type authKeyCreateResponse struct {
-	Name    string   `json:"name"`
-	Key     string   `json:"key"`
-	Roles   []string `json:"roles"`
-	Warning string   `json:"warning"`
+	Name        string     `json:"name"`
+	Email       string     `json:"email,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Key         string     `json:"key"`
+	Roles       []string   `json:"roles"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	Warning     string     `json:"warning"`
 }
 
 // authKeyListResponse wraps a list of API keys.
@@ -45,7 +56,7 @@ func (h *Handler) listAuthKeys(w http.ResponseWriter, _ *http.Request) {
 // createAuthKey handles POST /api/v1/admin/auth/keys.
 //
 // @Summary      Create auth key
-// @Description  Generates a new API key. Only available in database config mode. The key value is returned only once.
+// @Description  Generates a new API key. The key value is returned only once.
 // @Tags         Auth Keys
 // @Accept       json
 // @Produce      json
@@ -72,24 +83,48 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyValue, err := h.deps.APIKeyManager.GenerateKey(req.Name, req.Roles)
+	def := auth.APIKey{
+		Name:        req.Name,
+		Email:       req.Email,
+		Description: req.Description,
+		Roles:       req.Roles,
+	}
+
+	// Parse expiration if provided.
+	if req.ExpiresIn != "" {
+		dur, err := time.ParseDuration(req.ExpiresIn)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid expires_in duration: "+err.Error())
+			return
+		}
+		exp := time.Now().Add(dur)
+		def.ExpiresAt = &exp
+	}
+
+	keyValue, err := h.deps.APIKeyManager.GenerateKey(def)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 
+	// Persist to database (best-effort).
+	h.persistAPIKey(r, keyValue, def)
+
 	writeJSON(w, http.StatusCreated, authKeyCreateResponse{
-		Name:    req.Name,
-		Key:     keyValue,
-		Roles:   req.Roles,
-		Warning: "Store this key securely. It will not be shown again.",
+		Name:        req.Name,
+		Email:       apiKeyEmailFallback(req.Email, req.Name),
+		Description: req.Description,
+		Key:         keyValue,
+		Roles:       req.Roles,
+		ExpiresAt:   def.ExpiresAt,
+		Warning:     "Store this key securely. It will not be shown again.",
 	})
 }
 
 // deleteAuthKey handles DELETE /api/v1/admin/auth/keys/{name}.
 //
 // @Summary      Delete auth key
-// @Description  Deletes an API key. Only available in database config mode.
+// @Description  Deletes an API key.
 // @Tags         Auth Keys
 // @Produce      json
 // @Param        name  path  string  true  "Key name"
@@ -106,5 +141,49 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove from database (best-effort).
+	if h.deps.APIKeyStore != nil {
+		if err := h.deps.APIKeyStore.Delete(r.Context(), name); err != nil {
+			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized via sanitizeLogValue
+		}
+	}
+
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+}
+
+// persistAPIKey hashes the raw key value and persists it to the database.
+// This is best-effort: failures are logged but do not block the response.
+func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKey) {
+	if h.deps.APIKeyStore == nil {
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(keyValue), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Warn("failed to hash api key for persistence", logKeyName, def.Name, "error", err)
+		return
+	}
+
+	dbDef := platform.APIKeyDefinition{
+		Name:        def.Name,
+		KeyHash:     string(hash),
+		Email:       apiKeyEmailFallback(def.Email, def.Name),
+		Description: def.Description,
+		Roles:       def.Roles,
+		ExpiresAt:   def.ExpiresAt,
+		CreatedBy:   "", // could be extracted from request context
+		CreatedAt:   time.Now(),
+	}
+
+	if err := h.deps.APIKeyStore.Set(r.Context(), dbDef); err != nil {
+		slog.Warn("failed to persist api key to database", logKeyName, def.Name, "error", err)
+	}
+}
+
+// apiKeyEmailFallback returns the email or a default based on name.
+func apiKeyEmailFallback(email, name string) string {
+	if email != "" {
+		return email
+	}
+	return name + "@apikey.local"
 }

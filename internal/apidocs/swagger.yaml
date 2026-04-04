@@ -39,6 +39,13 @@ definitions:
     type: object
   admin.authKeyCreateRequest:
     properties:
+      description:
+        type: string
+      email:
+        type: string
+      expires_in:
+        description: e.g. "24h", "720h", "8760h"
+        type: string
       name:
         type: string
       roles:
@@ -48,6 +55,12 @@ definitions:
     type: object
   admin.authKeyCreateResponse:
     properties:
+      description:
+        type: string
+      email:
+        type: string
+      expires_at:
+        type: string
       key:
         type: string
       name:
@@ -548,6 +561,14 @@ definitions:
     type: object
   auth.APIKeySummary:
     properties:
+      description:
+        type: string
+      email:
+        type: string
+      expired:
+        type: boolean
+      expires_at:
+        type: string
       name:
         type: string
       roles:
@@ -1094,8 +1115,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Generates a new API key. Only available in database config mode.
-        The key value is returned only once.
+      description: Generates a new API key. The key value is returned only once.
       parameters:
       - description: Key definition
         in: body
@@ -1126,7 +1146,7 @@ paths:
       - Auth Keys
   /auth/keys/{name}:
     delete:
-      description: Deletes an API key. Only available in database config mode.
+      description: Deletes an API key.
       parameters:
       - description: Key name
         in: path

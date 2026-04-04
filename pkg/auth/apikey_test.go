@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestAPIKeyAuthenticator(t *testing.T) {
@@ -128,7 +130,7 @@ func TestGenerateKey(t *testing.T) {
 	auth := NewAPIKeyAuthenticator(APIKeyConfig{})
 
 	t.Run("generates valid key", func(t *testing.T) {
-		keyValue, err := auth.GenerateKey("test-gen", []string{testRoleAdmin})
+		keyValue, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAdmin}})
 		if err != nil {
 			t.Fatalf("GenerateKey() error = %v", err)
 		}
@@ -149,7 +151,7 @@ func TestGenerateKey(t *testing.T) {
 	})
 
 	t.Run("rejects duplicate name", func(t *testing.T) {
-		_, err := auth.GenerateKey("test-gen", []string{testRoleAnalyst})
+		_, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAnalyst}})
 		if err == nil {
 			t.Error("GenerateKey() expected error for duplicate name")
 		}
@@ -168,6 +170,64 @@ func TestGenerateKey(t *testing.T) {
 			t.Error("generated key not found in ListKeys()")
 		}
 	})
+}
+
+func TestAddHashedKey(t *testing.T) {
+	auth := NewAPIKeyAuthenticator(APIKeyConfig{})
+
+	rawKey := "test-key-for-hashing"
+	hash, err := bcrypt.GenerateFromPassword([]byte(rawKey), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generating bcrypt hash: %v", err)
+	}
+
+	auth.AddHashedKey(APIKey{
+		KeyHash: string(hash),
+		Name:    "hashed-key",
+		Email:   "hashed@example.com",
+		Roles:   []string{testRoleAdmin},
+	})
+
+	// Verify key appears in ListKeys.
+	summaries := auth.ListKeys()
+	found := false
+	for _, s := range summaries {
+		if s.Name == "hashed-key" {
+			found = true
+			if s.Email != "hashed@example.com" {
+				t.Errorf("email = %q, want %q", s.Email, "hashed@example.com")
+			}
+			if len(s.Roles) != 1 || s.Roles[0] != testRoleAdmin {
+				t.Errorf("roles = %v, want [%s]", s.Roles, testRoleAdmin)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("hashed key not found in ListKeys()")
+	}
+
+	// Verify authentication works with the raw key via bcrypt comparison.
+	ctx := WithToken(context.Background(), rawKey)
+	info, err := auth.Authenticate(ctx)
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if info.UserID != "apikey:hashed-key" {
+		t.Errorf("UserID = %q, want %q", info.UserID, "apikey:hashed-key")
+	}
+	if info.Email != "hashed@example.com" {
+		t.Errorf("Email = %q, want %q", info.Email, "hashed@example.com")
+	}
+	if info.AuthType != "apikey" {
+		t.Errorf("AuthType = %q, want %q", info.AuthType, "apikey")
+	}
+
+	// Wrong raw key should fail.
+	ctx = WithToken(context.Background(), "wrong-key")
+	_, err = auth.Authenticate(ctx)
+	if err == nil {
+		t.Error("Authenticate() should fail with wrong key for hashed entry")
+	}
 }
 
 func TestConcurrentAPIKeyAccess(t *testing.T) {
