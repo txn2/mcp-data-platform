@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -264,6 +265,8 @@ type liveConnectionInfo struct {
 // collectLiveConnections returns info for running data toolkit instances (trino, s3).
 // Built-in toolkits like knowledge and portal are excluded.
 // Config is populated from the raw toolkits YAML when available.
+// Multi-connection toolkits (those implementing toolkit.ConnectionLister) are
+// expanded into one entry per connection so the admin UI shows all of them.
 func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 	if h.deps.ToolkitRegistry == nil {
 		return nil
@@ -273,11 +276,28 @@ func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 		if !knownConnectionKinds[tk.Kind()] {
 			continue
 		}
-		info := liveConnectionInfo{
-			kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
+		if lister, ok := tk.(toolkit.ConnectionLister); ok {
+			live = h.expandMultiConnections(live, tk, lister)
+		} else {
+			info := liveConnectionInfo{
+				kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
+			}
+			info.config = h.lookupToolkitInstanceConfig(tk.Kind(), tk.Name())
+			live = append(live, info)
 		}
-		// Look up the raw config from the toolkits YAML map.
-		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), tk.Name())
+	}
+	return live
+}
+
+// expandMultiConnections appends one liveConnectionInfo per connection from a
+// multi-connection toolkit. Each entry gets its own config from the YAML map.
+func (h *Handler) expandMultiConnections(live []liveConnectionInfo, tk registry.Toolkit, lister toolkit.ConnectionLister) []liveConnectionInfo {
+	tools := tk.Tools()
+	for _, conn := range lister.ListConnections() {
+		info := liveConnectionInfo{
+			kind: tk.Kind(), name: conn.Name, connection: conn.Name, tools: tools,
+		}
+		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), conn.Name)
 		live = append(live, info)
 	}
 	return live

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // --- Mock ConnectionStore ---
@@ -441,6 +443,111 @@ func TestListEffectiveConnections(t *testing.T) {
 		var body []effectiveConnection
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Len(t, body, 0)
+	})
+
+	t.Run("multi-connection toolkit expands all connections", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			rawToolkits: []registry.Toolkit{
+				mockMultiConnectionToolkit{
+					mockToolkit: mockToolkit{
+						kind: "trino", name: "cassandra", connection: "cassandra",
+						tools: []string{"trino_query", "trino_describe"},
+					},
+					connections: []toolkit.ConnectionDetail{
+						{Name: "cassandra", Description: "Cassandra backend", IsDefault: true},
+						{Name: "elasticsearch", Description: "Elasticsearch backend"},
+						{Name: "warehouse", Description: "ERP data"},
+					},
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+			ToolkitsConfig: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"cassandra":     map[string]any{"host": "trino.example.com", "catalog": "cassandra"},
+						"elasticsearch": map[string]any{"host": "trino.example.com", "catalog": "elasticsearch"},
+						"warehouse":     map[string]any{"host": "trino.example.com", "catalog": "warehouse"},
+					},
+				},
+			},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 3, "all three connections should be expanded")
+
+		assert.Equal(t, "cassandra", body[0].Name)
+		assert.Equal(t, "trino.example.com", body[0].Config["host"])
+		assert.Equal(t, "file", body[0].Source)
+
+		assert.Equal(t, "elasticsearch", body[1].Name)
+		assert.Equal(t, "trino.example.com", body[1].Config["host"])
+
+		assert.Equal(t, "warehouse", body[2].Name)
+		assert.Equal(t, "trino.example.com", body[2].Config["host"])
+
+		// All should share the same tools
+		for _, ec := range body {
+			assert.Equal(t, []string{"trino_query", "trino_describe"}, ec.Tools)
+		}
+	})
+
+	t.Run("multi-connection with DB merge", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			rawToolkits: []registry.Toolkit{
+				mockMultiConnectionToolkit{
+					mockToolkit: mockToolkit{
+						kind: "trino", name: "cassandra", connection: "cassandra",
+						tools: []string{"trino_query"},
+					},
+					connections: []toolkit.ConnectionDetail{
+						{Name: "cassandra", IsDefault: true},
+						{Name: "elasticsearch"},
+					},
+				},
+			},
+		}
+		store := &mockConnectionStore{
+			instances: []platform.ConnectionInstance{
+				{
+					Kind: "trino", Name: "elasticsearch", Description: "DB override for ES",
+					Config: map[string]any{"host": "es-override.example.com"},
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConnectionStore: store,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 2)
+
+		assert.Equal(t, "cassandra", body[0].Name)
+		assert.Equal(t, "file", body[0].Source)
+
+		assert.Equal(t, "elasticsearch", body[1].Name)
+		assert.Equal(t, "both", body[1].Source)
+		assert.Equal(t, "DB override for ES", body[1].Description)
 	})
 }
 
