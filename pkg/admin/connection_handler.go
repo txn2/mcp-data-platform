@@ -258,6 +258,7 @@ func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Reques
 // liveConnectionInfo holds metadata from a running toolkit instance.
 type liveConnectionInfo struct {
 	kind, name, connection string
+	description            string
 	tools                  []string
 	config                 map[string]any
 }
@@ -295,7 +296,8 @@ func (h *Handler) expandMultiConnections(live []liveConnectionInfo, tk registry.
 	tools := tk.Tools()
 	for _, conn := range lister.ListConnections() {
 		info := liveConnectionInfo{
-			kind: tk.Kind(), name: conn.Name, connection: conn.Name, tools: tools,
+			kind: tk.Kind(), name: conn.Name, connection: conn.Name,
+			description: conn.Description, tools: tools,
 		}
 		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), conn.Name)
 		live = append(live, info)
@@ -352,7 +354,7 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		seen[key] = true
 		ec := effectiveConnection{
 			Kind: l.kind, Name: l.name, Connection: l.connection, Source: "file", Tools: l.tools,
-			Config: l.config,
+			Description: l.description, Config: l.config,
 		}
 		if inst, ok := dbMap[key]; ok {
 			ec.Source = "both"

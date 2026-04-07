@@ -487,13 +487,16 @@ func TestListEffectiveConnections(t *testing.T) {
 		require.Len(t, body, 3, "all three connections should be expanded")
 
 		assert.Equal(t, "cassandra", body[0].Name)
+		assert.Equal(t, "Cassandra backend", body[0].Description)
 		assert.Equal(t, "trino.example.com", body[0].Config["host"])
 		assert.Equal(t, "file", body[0].Source)
 
 		assert.Equal(t, "elasticsearch", body[1].Name)
+		assert.Equal(t, "Elasticsearch backend", body[1].Description)
 		assert.Equal(t, "trino.example.com", body[1].Config["host"])
 
 		assert.Equal(t, "warehouse", body[2].Name)
+		assert.Equal(t, "ERP data", body[2].Description)
 		assert.Equal(t, "trino.example.com", body[2].Config["host"])
 
 		// All should share the same tools
@@ -511,8 +514,8 @@ func TestListEffectiveConnections(t *testing.T) {
 						tools: []string{"trino_query"},
 					},
 					connections: []toolkit.ConnectionDetail{
-						{Name: "cassandra", IsDefault: true},
-						{Name: "elasticsearch"},
+						{Name: "cassandra", Description: "File Cassandra", IsDefault: true},
+						{Name: "elasticsearch", Description: "File ES"},
 					},
 				},
 			},
@@ -544,10 +547,11 @@ func TestListEffectiveConnections(t *testing.T) {
 
 		assert.Equal(t, "cassandra", body[0].Name)
 		assert.Equal(t, "file", body[0].Source)
+		assert.Equal(t, "File Cassandra", body[0].Description, "file-only keeps toolkit description")
 
 		assert.Equal(t, "elasticsearch", body[1].Name)
 		assert.Equal(t, "both", body[1].Source)
-		assert.Equal(t, "DB override for ES", body[1].Description)
+		assert.Equal(t, "DB override for ES", body[1].Description, "DB description overrides file")
 	})
 }
 
