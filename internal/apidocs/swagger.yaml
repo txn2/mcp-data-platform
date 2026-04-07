@@ -231,6 +231,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
       tools:
         items:
           type: string
@@ -257,6 +260,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
       tool_count:
         type: integer
     type: object
@@ -580,6 +586,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
     type: object
   knowledge.Changeset:
     properties:

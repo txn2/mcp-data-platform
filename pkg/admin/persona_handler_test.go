@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 const testPriority = 10
@@ -506,6 +507,104 @@ func TestDeletePersonaWithStoreError(t *testing.T) {
 	// Registry should NOT have been updated — analyst should still exist
 	_, exists := pReg.Get("analyst")
 	assert.True(t, exists, "analyst persona should still exist in registry")
+}
+
+func TestPersonaSourceTracking(t *testing.T) {
+	t.Run("create sets source to database", func(t *testing.T) {
+		pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: cs}, nil)
+
+		body := `{"name":"new-persona","display_name":"New","roles":["viewer"],"allow_tools":["*"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+		var detail personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&detail))
+		assert.Equal(t, "database", detail.Source)
+	})
+
+	t.Run("update file persona sets source to both", func(t *testing.T) {
+		pReg := &mockPersonaRegistry{allResult: testPersonas("analyst")}
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{
+			PersonaRegistry:  pReg,
+			Config:           testConfig(),
+			ConfigStore:      cs,
+			FilePersonaNames: map[string]bool{"analyst": true},
+		}, nil)
+
+		body := `{"display_name":"Updated Analyst","roles":["analyst"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var detail personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&detail))
+		assert.Equal(t, "both", detail.Source)
+	})
+
+	t.Run("delete file-only persona blocked", func(t *testing.T) {
+		p := testPersonas("analyst")[0]
+		p.Source = "file"
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{
+			PersonaRegistry:  pReg,
+			Config:           testConfig(),
+			ConfigStore:      cs,
+			FilePersonaNames: map[string]bool{"analyst": true},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "config file")
+	})
+
+	t.Run("delete both persona reverts to file", func(t *testing.T) {
+		p := testPersonas("analyst")[0]
+		p.Source = "both"
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		cs := &mockConfigStore{mode: "database"}
+		ps := &mockPersonaStore{}
+		cfg := testConfig()
+		cfg.Personas.Definitions = map[string]platform.PersonaDef{
+			"analyst": {
+				DisplayName: "File Analyst",
+				Roles:       []string{"analyst"},
+				Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+			},
+		}
+		h := NewHandler(Deps{
+			PersonaRegistry:  pReg,
+			Config:           cfg,
+			ConfigStore:      cs,
+			PersonaStore:     ps,
+			FilePersonaNames: map[string]bool{"analyst": true},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// After delete, the file version should be re-registered
+		reverted, ok := pReg.Get("analyst")
+		assert.True(t, ok, "analyst should exist after revert")
+		assert.Equal(t, "File Analyst", reverted.DisplayName)
+		assert.Equal(t, "file", reverted.Source)
+	})
 }
 
 func TestExtractAuthor(t *testing.T) {

@@ -47,6 +47,7 @@ type APIKeySummary struct {
 	Roles       []string   `json:"roles"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	Expired     bool       `json:"expired,omitempty"`
+	Source      string     `json:"source,omitempty"` // "file", "database", or "both"
 }
 
 // APIKeyAuthenticator authenticates using API keys.
@@ -149,30 +150,44 @@ func (a *APIKeyAuthenticator) RemoveKey(keyValue string) {
 }
 
 // ListKeys returns summaries of all registered keys (never exposes key values).
+// Keys that exist in both file config and the database are deduplicated and
+// reported with Source "both".
 func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	summaries := make([]APIKeySummary, 0, len(a.fileKeys)+len(a.hashedKeys))
+	byName := make(map[string]APIKeySummary, len(a.fileKeys)+len(a.hashedKeys))
 	for _, k := range a.fileKeys {
-		summaries = append(summaries, APIKeySummary{
+		byName[k.Name] = APIKeySummary{
 			Name:        k.Name,
 			Email:       apiKeyEmail(*k),
 			Description: k.Description,
 			Roles:       k.Roles,
 			ExpiresAt:   k.ExpiresAt,
 			Expired:     k.IsExpired(),
-		})
+			Source:      "file",
+		}
 	}
 	for _, k := range a.hashedKeys {
-		summaries = append(summaries, APIKeySummary{
-			Name:        k.Name,
-			Email:       apiKeyEmail(*k),
-			Description: k.Description,
-			Roles:       k.Roles,
-			ExpiresAt:   k.ExpiresAt,
-			Expired:     k.IsExpired(),
-		})
+		if existing, ok := byName[k.Name]; ok {
+			existing.Source = "both"
+			byName[k.Name] = existing
+		} else {
+			byName[k.Name] = APIKeySummary{
+				Name:        k.Name,
+				Email:       apiKeyEmail(*k),
+				Description: k.Description,
+				Roles:       k.Roles,
+				ExpiresAt:   k.ExpiresAt,
+				Expired:     k.IsExpired(),
+				Source:      "database",
+			}
+		}
+	}
+
+	summaries := make([]APIKeySummary, 0, len(byName))
+	for _, s := range byName {
+		summaries = append(summaries, s)
 	}
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Name < summaries[j].Name

@@ -627,6 +627,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ToolkitsConfig:    p.Config().Toolkits,
 		PersonaStore:      p.PersonaStore(),
 		APIKeyStore:       p.APIKeyStore(),
+		FilePersonaNames:  p.FilePersonaNames(),
 	}
 
 	if p.AuditStore() != nil {

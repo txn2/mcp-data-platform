@@ -278,7 +278,11 @@ function ConnectionViewer({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
-  const configEntries = Object.entries(connection.config ?? {});
+  const datahubSourceName = connection.config?.datahub_source_name as string | undefined;
+  const catalogMapping = connection.config?.catalog_mapping as Record<string, string> | undefined;
+  const hasDataHub = Boolean(datahubSourceName) || (catalogMapping != null && Object.keys(catalogMapping).length > 0);
+  const datahubFilterKeys = new Set(["datahub_source_name", "catalog_mapping"]);
+  const configEntries = Object.entries(connection.config ?? {}).filter(([key]) => !datahubFilterKeys.has(key));
 
   return (
     <div className="p-6 space-y-6">
@@ -371,6 +375,46 @@ function ConnectionViewer({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* DataHub Integration */}
+      {hasDataHub && (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <Database className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              DataHub Integration
+            </h3>
+          </div>
+          <div className="rounded-md border divide-y">
+            {datahubSourceName && (
+              <div className="flex items-center gap-4 px-4 py-2">
+                <span className="text-xs font-mono text-muted-foreground w-48 shrink-0">
+                  DataHub Source Name
+                </span>
+                <span className="text-xs font-mono flex-1">
+                  {datahubSourceName}
+                </span>
+              </div>
+            )}
+            {catalogMapping && Object.keys(catalogMapping).length > 0 && (
+              <div className="px-4 py-2">
+                <span className="text-xs font-mono text-muted-foreground block mb-1">
+                  Catalog Mapping
+                </span>
+                <div className="ml-4 space-y-0.5">
+                  {Object.entries(catalogMapping).map(([local, datahub]) => (
+                    <div key={local} className="flex items-center gap-2 text-xs font-mono">
+                      <span>{local}</span>
+                      <span className="text-muted-foreground">&rarr;</span>
+                      <span>{datahub}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
