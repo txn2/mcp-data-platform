@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -257,6 +258,7 @@ func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Reques
 // liveConnectionInfo holds metadata from a running toolkit instance.
 type liveConnectionInfo struct {
 	kind, name, connection string
+	description            string
 	tools                  []string
 	config                 map[string]any
 }
@@ -264,6 +266,8 @@ type liveConnectionInfo struct {
 // collectLiveConnections returns info for running data toolkit instances (trino, s3).
 // Built-in toolkits like knowledge and portal are excluded.
 // Config is populated from the raw toolkits YAML when available.
+// Multi-connection toolkits (those implementing toolkit.ConnectionLister) are
+// expanded into one entry per connection so the admin UI shows all of them.
 func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 	if h.deps.ToolkitRegistry == nil {
 		return nil
@@ -273,11 +277,29 @@ func (h *Handler) collectLiveConnections() []liveConnectionInfo {
 		if !knownConnectionKinds[tk.Kind()] {
 			continue
 		}
-		info := liveConnectionInfo{
-			kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
+		if lister, ok := tk.(toolkit.ConnectionLister); ok {
+			live = h.expandMultiConnections(live, tk, lister)
+		} else {
+			info := liveConnectionInfo{
+				kind: tk.Kind(), name: tk.Name(), connection: tk.Connection(), tools: tk.Tools(),
+			}
+			info.config = h.lookupToolkitInstanceConfig(tk.Kind(), tk.Name())
+			live = append(live, info)
 		}
-		// Look up the raw config from the toolkits YAML map.
-		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), tk.Name())
+	}
+	return live
+}
+
+// expandMultiConnections appends one liveConnectionInfo per connection from a
+// multi-connection toolkit. Each entry gets its own config from the YAML map.
+func (h *Handler) expandMultiConnections(live []liveConnectionInfo, tk registry.Toolkit, lister toolkit.ConnectionLister) []liveConnectionInfo {
+	tools := tk.Tools()
+	for _, conn := range lister.ListConnections() {
+		info := liveConnectionInfo{
+			kind: tk.Kind(), name: conn.Name, connection: conn.Name,
+			description: conn.Description, tools: tools,
+		}
+		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), conn.Name)
 		live = append(live, info)
 	}
 	return live
@@ -332,7 +354,7 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		seen[key] = true
 		ec := effectiveConnection{
 			Kind: l.kind, Name: l.name, Connection: l.connection, Source: "file", Tools: l.tools,
-			Config: l.config,
+			Description: l.description, Config: l.config,
 		}
 		if inst, ok := dbMap[key]; ok {
 			ec.Source = "both"

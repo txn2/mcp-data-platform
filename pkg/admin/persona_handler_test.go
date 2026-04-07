@@ -164,6 +164,67 @@ func TestGetPersona(t *testing.T) {
 		assert.NotNil(t, body.Tools)
 		assert.Len(t, body.Tools, 0)
 	})
+
+	t.Run("returns context overrides nested under context key", func(t *testing.T) {
+		p := &persona.Persona{
+			Name:        "analyst",
+			DisplayName: "Data Analyst",
+			Roles:       []string{"analyst"},
+			Tools:       persona.ToolRules{Allow: []string{"*"}},
+			Context: persona.ContextOverrides{
+				DescriptionPrefix:       "You are helping a data analyst.",
+				AgentInstructionsSuffix: "Always explain SQL queries.",
+			},
+		}
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// Verify the JSON structure has context as a nested object
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+		ctxObj, ok := raw["context"].(map[string]any)
+		require.True(t, ok, "context must be a nested JSON object")
+		assert.Equal(t, "You are helping a data analyst.", ctxObj["description_prefix"])
+		assert.Equal(t, "Always explain SQL queries.", ctxObj["agent_instructions_suffix"])
+
+		// Also verify typed decode
+		var body personaDetail
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotNil(t, body.Context)
+		assert.Equal(t, "You are helping a data analyst.", body.Context.DescriptionPrefix)
+		assert.Equal(t, "Always explain SQL queries.", body.Context.AgentInstructionsSuffix)
+		assert.Empty(t, body.Context.DescriptionOverride)
+		assert.Empty(t, body.Context.AgentInstructionsOverride)
+	})
+
+	t.Run("omits context key when no overrides set", func(t *testing.T) {
+		p := &persona.Persona{
+			Name:  "admin",
+			Roles: []string{"admin"},
+			Tools: persona.ToolRules{Allow: []string{"*"}},
+		}
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/admin", http.NoBody)
+		req.SetPathValue("name", "admin")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+		_, hasContext := raw["context"]
+		assert.False(t, hasContext, "context key should be omitted when empty")
+	})
 }
 
 func TestCreatePersona(t *testing.T) {
