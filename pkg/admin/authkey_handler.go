@@ -114,7 +114,7 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 
 	// Persist to database FIRST — if it fails, return error.
 	if err := h.persistAPIKey(r, keyValue, def); err != nil {
-		slog.Warn("failed to persist api key", logKeyName, def.Name, "error", err)
+		slog.Warn("failed to persist api key", logKeyName, def.Name, logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to persist api key")
 		return
 	}
@@ -145,10 +145,17 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
+	// Block deletion of file-only keys — they would reappear on restart.
+	if source := h.keySourceByName(name); source == platform.SourceFile {
+		writeError(w, http.StatusConflict,
+			"this key is defined in the config file and cannot be deleted via the admin API")
+		return
+	}
+
 	// Delete from database FIRST — if it fails, don't remove from in-memory manager.
 	if h.deps.APIKeyStore != nil {
 		if err := h.deps.APIKeyStore.Delete(r.Context(), name); err != nil {
-			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized
+			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
 			writeError(w, http.StatusInternalServerError, "failed to delete api key from database")
 			return
 		}
@@ -160,6 +167,19 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+}
+
+// keySourceByName returns the source of an API key by name, or "" if not found.
+func (h *Handler) keySourceByName(name string) string {
+	if h.deps.APIKeyManager == nil {
+		return ""
+	}
+	for _, k := range h.deps.APIKeyManager.ListKeys() {
+		if k.Name == name {
+			return k.Source
+		}
+	}
+	return ""
 }
 
 // persistAPIKey hashes the raw key value and persists it to the database.

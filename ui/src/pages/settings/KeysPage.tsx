@@ -187,6 +187,15 @@ export function KeysPage() {
                   <td className="px-5 py-3 font-medium">
                     <div className="flex items-center gap-2">
                       <span className={cn(k.expired && "line-through")}>{k.name}</span>
+                      {k.source && (
+                        <span className={cn(
+                          "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
+                          k.source === "file" ? "bg-muted text-muted-foreground" :
+                          "bg-primary/10 text-primary",
+                        )}>
+                          {k.source === "file" ? "file" : "database"}
+                        </span>
+                      )}
                       {k.expired && (
                         <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
                           Expired
@@ -220,7 +229,9 @@ export function KeysPage() {
                   </td>
                   {!isReadOnly && (
                     <td className="px-5 py-3">
-                      {deleteConfirm === k.name ? (
+                      {k.source === "file" ? (
+                        <span className="text-[10px] text-muted-foreground italic">config file</span>
+                      ) : deleteConfirm === k.name ? (
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"

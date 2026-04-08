@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -79,6 +80,13 @@ const defaultTrinoMaxLimit = 10000
 // logKeyError is the slog key for error values in log messages.
 const logKeyError = "error"
 
+// Source constants for personas and other config resources.
+const (
+	SourceFile     = "file"
+	SourceDatabase = "database" //nolint:goconst // same value as SessionStoreDatabase but different semantic domain
+	SourceBoth     = "both"
+)
+
 // Platform is the main platform facade.
 type Platform struct {
 	config *Config
@@ -105,8 +113,9 @@ type Platform struct {
 	storageProvider  storage.Provider
 
 	// Registries
-	toolkitRegistry *registry.Registry
-	personaRegistry *persona.Registry
+	toolkitRegistry  *registry.Registry
+	personaRegistry  *persona.Registry
+	filePersonaNames map[string]bool // names of personas loaded from config file
 
 	// Auth
 	authenticator middleware.Authenticator
@@ -542,8 +551,8 @@ func (p *Platform) initBrowserSession() error {
 		RoleClaim:          oidcCfg.RoleClaimPath,
 		RolePrefix:         oidcCfg.RolePrefix,
 		Cookie:             cookieCfg,
-		PostLoginRedirect:  "/portal/",
-		PostLogoutRedirect: p.config.Portal.PublicBaseURL + "/portal/",
+		PostLoginRedirect:  browsersession.DefaultPortalPath,
+		PostLogoutRedirect: p.config.Portal.PublicBaseURL + browsersession.DefaultPortalPath,
 	}
 
 	flow, err := browsersession.NewFlow(context.Background(), flowCfg)
@@ -1575,6 +1584,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 
 // loadPersonas loads personas from config.
 func (p *Platform) loadPersonas() error {
+	p.filePersonaNames = make(map[string]bool, len(p.config.Personas.Definitions))
 	for name, def := range p.config.Personas.Definitions {
 		personaDef := &persona.Persona{
 			Name:        name,
@@ -1596,7 +1606,9 @@ func (p *Platform) loadPersonas() error {
 				AgentInstructionsOverride: def.Context.AgentInstructionsOverride,
 			},
 			Priority: def.Priority,
+			Source:   SourceFile,
 		}
+		p.filePersonaNames[name] = true
 		if err := p.personaRegistry.Register(personaDef); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)
 		}
@@ -1607,6 +1619,16 @@ func (p *Platform) loadPersonas() error {
 	}
 
 	return nil
+}
+
+// FilePersonaNames returns a copy of the persona names loaded from the config file.
+func (p *Platform) FilePersonaNames() map[string]bool {
+	if p.filePersonaNames == nil {
+		return nil
+	}
+	cp := make(map[string]bool, len(p.filePersonaNames))
+	maps.Copy(cp, p.filePersonaNames)
+	return cp
 }
 
 // loadDBPersonas loads persona definitions from the database and registers
@@ -1623,6 +1645,11 @@ func (p *Platform) loadDBPersonas() {
 	}
 	for _, def := range defs {
 		per := def.ToPersona()
+		if p.filePersonaNames[def.Name] {
+			per.Source = SourceBoth
+		} else {
+			per.Source = SourceDatabase
+		}
 		if err := p.personaRegistry.Register(per); err != nil {
 			slog.Warn("failed to load DB persona", "name", def.Name, logKeyError, err)
 		}

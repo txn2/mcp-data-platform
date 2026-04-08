@@ -2309,6 +2309,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -2348,6 +2352,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tool_count": {
                     "type": "integer"
@@ -2841,6 +2849,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 }
             }
         },

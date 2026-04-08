@@ -224,3 +224,59 @@ cd ui && npm run dev                               # Start React dev server
 ```
 
 See [`dev/README.md`](https://github.com/txn2/mcp-data-platform/blob/main/dev/README.md) for complete local development instructions.
+
+## Settings
+
+The admin sidebar includes settings pages for managing Connections, Personas, API Keys, and Configuration entries. Each resource can originate from the **config file** (YAML) or the **database**, indicated by a source badge in the UI.
+
+### Source Tracking
+
+Every connection, persona, and API key displays a source badge:
+
+| Badge | Meaning |
+|-------|---------|
+| **file** | Defined in the YAML config file. Read-only in the admin UI. |
+| **database** | Created or managed via the admin UI. Fully editable. |
+| **both** | Defined in the config file with a database override. The database version is active; the file version is a fallback. |
+
+### Connections
+
+Connections represent toolkit backend instances (Trino, S3). Multi-connection toolkits (e.g., a Trino instance with cassandra, elasticsearch, and warehouse catalogs) are expanded into individual entries.
+
+- **File connections** are read-only. Edit to create a database override (source changes to "both").
+- **Deleting a "both" connection** removes the database override and reverts to the file version.
+- **Database-only connections** can be created, edited, and deleted freely.
+- The detail view shows a **DataHub Integration** section for connections with `datahub_source_name` or `catalog_mapping` configured.
+
+### Personas
+
+Personas define role-based tool access rules and context overrides for AI agents.
+
+- **File personas** cannot be deleted via the admin UI (they would reappear on restart).
+- **Editing a file persona** creates a database override (source becomes "both"). The file version is preserved as a fallback.
+- **Deleting a "both" persona** removes the database override and immediately reverts to the file version.
+- **Context overrides** (description prefix, agent instructions suffix, etc.) are nested under the "Context Overrides" section and persist correctly across reloads.
+
+### API Keys
+
+API keys provide programmatic authentication. File-based keys use plaintext comparison (fast path); database keys use bcrypt verification.
+
+- **File keys** are defined in the YAML config and cannot be deleted via the admin UI.
+- **Database keys** are created via the admin UI. The plaintext key value is shown only once at creation.
+- Keys with the same name in both file and database are deduplicated with source "both".
+
+### Configuration Entries
+
+A small set of whitelisted configuration keys (`server.description`, `server.agent_instructions`) can be overridden at runtime via the admin UI without a restart.
+
+- **File defaults** are shown when no database override exists.
+- **Database overrides** take precedence and can be reverted to restore the file default.
+
+### Migrating from File to Database Config
+
+To move a resource from file-based management to database management:
+
+1. **Edit** the resource in the admin UI — this creates a database override (source becomes "both").
+2. **Verify** the database version works correctly.
+3. **Remove** the resource definition from the YAML config file.
+4. **Restart** the server — the resource now shows source "database" only.

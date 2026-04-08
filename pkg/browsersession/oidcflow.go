@@ -17,6 +17,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// DefaultPortalPath is the default redirect path for the portal UI.
+const DefaultPortalPath = "/portal/"
+
 // OIDC/PKCE constants.
 const (
 	randomStringBytes   = 32 // size for random state/verifier strings
@@ -56,7 +59,7 @@ type FlowConfig struct {
 	// Cookie configures the session cookie.
 	Cookie CookieConfig
 
-	// PostLoginRedirect is where to redirect after successful login (default: "/portal/").
+	// PostLoginRedirect is where to redirect after successful login (default: DefaultPortalPath).
 	PostLoginRedirect string
 
 	// PostLogoutRedirect is the absolute URL sent as post_logout_redirect_uri
@@ -102,7 +105,7 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 		cfg.Scopes = []string{"openid", "profile", "email"}
 	}
 	if cfg.PostLoginRedirect == "" {
-		cfg.PostLoginRedirect = "/portal/"
+		cfg.PostLoginRedirect = DefaultPortalPath
 	}
 	if cfg.PostLogoutRedirect == "" {
 		cfg.PostLogoutRedirect = cfg.PostLoginRedirect
