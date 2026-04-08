@@ -8,6 +8,7 @@ import { ActivityPage } from "@/pages/activity/ActivityPage";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { SharedWithMePage } from "@/pages/shared/SharedWithMePage";
 import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
+import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
@@ -23,16 +24,18 @@ import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
 import { PersonasPanel } from "@/pages/settings/PersonasPanel";
+import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
 import { KeysPage } from "@/pages/settings/KeysPage";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
-  "/": "My Assets",
+  "/": "Assets",
   "/collections": "Collections",
   "/shared": "Shared With Me",
-  "/my-knowledge": "My Knowledge",
+  "/my-knowledge": "Knowledge",
+  "/prompts": "Prompts",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/tools": "Tools",
@@ -42,6 +45,7 @@ const pageTitles: Record<string, string> = {
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/connections": "Connections",
   "/admin/personas": "Personas",
+  "/admin/prompts": "Prompts",
   "/admin/keys": "Keys",
   "/admin/changelog": "Change Log",
 };
@@ -55,7 +59,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/+$/, "");
 function readPath(): string {
   const { pathname, hash } = window.location;
   let route = pathname.startsWith(BASE)
-    ? pathname.slice(BASE.length) || "/"
+    ? pathname.slice(BASE.length) || "/activity"
     : pathname;
   if (hash) route += hash;
   return route;
@@ -177,7 +181,7 @@ export function AppShell() {
         ? "Edit Collection"
         : collectionViewMatch
           ? "Collection"
-          : (pageTitles[route] ?? "My Assets");
+          : (pageTitles[route] ?? "Assets");
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -246,6 +250,7 @@ export function AppShell() {
             <SharedWithMePage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
+          {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {collectionAssetMatch && (
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}
@@ -297,6 +302,9 @@ export function AppShell() {
               )}
               {route === "/admin/connections" && <ConnectionsPanel />}
               {route === "/admin/personas" && <PersonasPanel />}
+              {route === "/admin/prompts" && (
+                <AdminPromptsPage onNavigate={navigate} />
+              )}
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/changelog" && <ChangelogPage />}
             </>

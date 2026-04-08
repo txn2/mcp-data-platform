@@ -39,6 +39,9 @@ settings.local.json
 # MkDocs generated site
 site/
 
+# Temporary files
+tmp/
+
 # Build artifacts
 /dist/
 build/

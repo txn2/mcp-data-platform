@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
@@ -54,6 +55,19 @@ type APIKeyManager interface {
 	ListKeys() []auth.APIKeySummary
 	GenerateKey(def auth.APIKey) (string, error)
 	RemoveByName(name string) bool
+}
+
+// PromptRegistrar registers/unregisters prompts with the live MCP server.
+type PromptRegistrar interface {
+	RegisterRuntimePrompt(p *prompt.Prompt)
+	UnregisterRuntimePrompt(name string)
+}
+
+// PromptInfoProvider returns metadata about platform-registered prompts
+// (auto, workflow, toolkit, custom config). These are system prompts not
+// stored in the database.
+type PromptInfoProvider interface {
+	AllPromptInfos() []registry.PromptInfo
 }
 
 // ToolkitRegistry abstracts registry.Registry for testability.
@@ -98,6 +112,9 @@ type Deps struct {
 	ToolkitsConfig      map[string]any
 	PersonaStore        platform.PersonaStore
 	APIKeyStore         platform.APIKeyStore
+	PromptStore         prompt.Store
+	PromptRegistrar     PromptRegistrar
+	PromptInfoProvider  PromptInfoProvider
 	FilePersonaNames    map[string]bool
 }
 
@@ -172,6 +189,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
+	h.registerPromptRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

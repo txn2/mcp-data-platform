@@ -441,6 +441,38 @@ export interface ConnectionInstance {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+export interface PromptArgument {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
+export interface Prompt {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  content: string;
+  arguments: PromptArgument[];
+  category: string;
+  scope: "global" | "persona" | "personal" | "system";
+  personas: string[];
+  owner_email: string;
+  source: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromptListResponse {
+  data: Prompt[];
+  total: number;
+}
+
 export interface EffectiveConnection {
   kind: string;
   name: string;

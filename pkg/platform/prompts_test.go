@@ -530,7 +530,7 @@ func TestPromptMetadataCollection(t *testing.T) {
 
 	p.registerPlatformPrompts()
 
-	infos := p.allPromptInfos()
+	infos := p.AllPromptInfos()
 	assert.True(t, len(infos) > 0, "should have collected prompt infos")
 
 	// Find custom-prompt
@@ -591,7 +591,7 @@ func TestPromptContentInJSON(t *testing.T) {
 
 	p.registerPlatformPrompts()
 
-	infos := p.allPromptInfos()
+	infos := p.AllPromptInfos()
 
 	data, err := json.Marshal(infos)
 	require.NoError(t, err)

@@ -207,7 +207,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		ToolkitDescriptions: toolkitDescriptions,
 		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
-		Prompts:             p.allPromptInfos(),
+		Prompts:             p.AllPromptInfos(),
 		Features:            p.buildFeatures(),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,

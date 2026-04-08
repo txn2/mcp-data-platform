@@ -162,12 +162,16 @@ const (
 	actionAddContextDocument    actionType = "add_context_document"
 	actionUpdateContextDocument actionType = "update_context_document"
 	actionRemoveContextDocument actionType = "remove_context_document"
+
+	// Platform prompt action.
+	actionAddPrompt actionType = "add_prompt"
 )
 
 // actionTypeList is a human-readable list of valid action types for error messages.
 const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, " +
 	"add_documentation, add_curated_query, set_structured_property, remove_structured_property, " +
-	"raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document"
+	"raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, " +
+	"add_prompt"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
@@ -185,6 +189,7 @@ var validActionTypes = map[actionType]bool{
 	actionAddContextDocument:       true,
 	actionUpdateContextDocument:    true,
 	actionRemoveContextDocument:    true,
+	actionAddPrompt:                true,
 }
 
 // SuggestedAction represents a proposed catalog change.
@@ -424,21 +429,42 @@ func validateApplyChange(c ApplyChange) error {
 func validateChangeRequiredFields(c ApplyChange) error {
 	switch c.ChangeType {
 	case string(actionAddCuratedQuery):
-		if c.QuerySQL == "" {
-			return fmt.Errorf("query_sql is required for add_curated_query")
-		}
+		return requireField(c.QuerySQL, "query_sql is required for add_curated_query")
 	case string(actionAddContextDocument):
 		if c.Target == "" || c.Detail == "" {
 			return fmt.Errorf("target (title) and detail (content) are required for add_context_document")
 		}
 	case string(actionUpdateContextDocument):
-		if c.Target == "" {
-			return fmt.Errorf("target (document ID) is required for update_context_document")
-		}
+		return requireField(c.Target, "target (document ID) is required for update_context_document")
 	case string(actionRemoveContextDocument):
-		if c.Target == "" {
-			return fmt.Errorf("target (document ID) is required for remove_context_document")
-		}
+		return requireField(c.Target, "target (document ID) is required for remove_context_document")
+	case string(actionAddPrompt):
+		return validateAddPromptFields(c)
+	}
+	return nil
+}
+
+// RequiredFieldError is a sentinel-like error for missing required fields.
+type RequiredFieldError string
+
+// Error implements the error interface.
+func (e RequiredFieldError) Error() string { return string(e) }
+
+// requireField returns an error with the given message if value is empty.
+func requireField(value, msg string) error {
+	if value == "" {
+		return RequiredFieldError(msg)
+	}
+	return nil
+}
+
+// validateAddPromptFields validates required fields for the add_prompt change type.
+func validateAddPromptFields(c ApplyChange) error {
+	if c.Target == "" {
+		return fmt.Errorf("target (prompt name) is required for add_prompt")
+	}
+	if c.Detail == "" {
+		return fmt.Errorf("detail (prompt content) is required for add_prompt")
 	}
 	return nil
 }

@@ -534,3 +534,65 @@ export function useSharedCollections(params?: { limit?: number; offset?: number 
       ),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+interface PortalPromptListResponse {
+  personal: import("@/api/admin/types").Prompt[];
+  available: import("@/api/admin/types").Prompt[];
+}
+
+export function useMyPrompts() {
+  return useQuery({
+    queryKey: ["portal", "prompts"],
+    queryFn: () => apiFetch<PortalPromptListResponse>("/prompts"),
+  });
+}
+
+export function useCreateMyPrompt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      display_name?: string;
+      description?: string;
+      content: string;
+      arguments?: { name: string; description: string; required: boolean }[];
+      category?: string;
+    }) =>
+      apiFetch<import("@/api/admin/types").Prompt>("/prompts", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portal", "prompts"] });
+    },
+  });
+}
+
+export function useUpdateMyPrompt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; name?: string; display_name?: string; description?: string; content?: string; category?: string }) =>
+      apiFetch<import("@/api/admin/types").Prompt>(`/prompts/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portal", "prompts"] });
+    },
+  });
+}
+
+export function useDeleteMyPrompt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/prompts/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portal", "prompts"] });
+    },
+  });
+}
