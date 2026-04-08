@@ -278,3 +278,64 @@ func TestPortalDeletePrompt_CannotDeleteGlobalScope(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+func TestPortalUpdatePrompt_RenameConflict(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["prompt-a"] = &prompt.Prompt{
+		ID: "uuid-a", Name: "prompt-a", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com", Enabled: true,
+	}
+	store.prompts["prompt-b"] = &prompt.Prompt{
+		ID: "uuid-b", Name: "prompt-b", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com",
+	}
+
+	body := portalPromptCreateRequest{Name: "prompt-b"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-a", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestPortalUpdatePrompt_InvalidName(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["my-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "my-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com",
+	}
+
+	body := portalPromptCreateRequest{Name: "INVALID NAME!"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPortalUpdatePrompt_AllFields(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["my-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "my-prompt", Content: "old", Scope: prompt.ScopePersonal,
+		OwnerEmail: "alice@example.com", Enabled: true,
+	}
+
+	body := portalPromptCreateRequest{
+		DisplayName: "Updated",
+		Description: "Updated desc",
+		Content:     "new content",
+		Category:    "analytics",
+		Arguments:   []prompt.Argument{{Name: "topic", Required: true}},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	p := store.prompts["my-prompt"]
+	assert.Equal(t, "Updated", p.DisplayName)
+	assert.Equal(t, "Updated desc", p.Description)
+	assert.Equal(t, "new content", p.Content)
+	assert.Equal(t, "analytics", p.Category)
+	assert.Len(t, p.Arguments, 1)
+}
