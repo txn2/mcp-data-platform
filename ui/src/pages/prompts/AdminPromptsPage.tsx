@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Search,
   Plus,
@@ -230,10 +230,11 @@ export function AdminPromptsPage({ onNavigate }: Props) {
     });
   }
 
-  function SortHeader({ col }: { col: typeof columns[number] }) {
+  function renderSortHeader(col: typeof columns[number]) {
     const active = sortBy === col.key;
     return (
       <th
+        key={col.key}
         onClick={() => handleSort(col.key)}
         className={cn(
           "px-4 py-2 text-left font-medium text-muted-foreground cursor-pointer select-none hover:bg-muted/80",
@@ -370,7 +371,7 @@ export function AdminPromptsPage({ onNavigate }: Props) {
             <thead className="border-b bg-muted/50">
               <tr>
                 <th className="w-8 px-2" />
-                {columns.map((col) => <SortHeader key={col.key} col={col} />)}
+                {columns.map(renderSortHeader)}
                 <th className="px-4 py-2 text-right font-medium text-muted-foreground w-[80px]">Actions</th>
               </tr>
             </thead>
@@ -378,8 +379,8 @@ export function AdminPromptsPage({ onNavigate }: Props) {
               {sorted.map((p) => {
                 const isExpanded = expandedId === p.id;
                 return (
-                  <>
-                    <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => toggleExpand(p.id)}>
+                  <React.Fragment key={p.id}>
+                    <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => toggleExpand(p.id)}>
                       <td className="px-2 py-2 text-muted-foreground">
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
@@ -411,7 +412,7 @@ export function AdminPromptsPage({ onNavigate }: Props) {
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr key={`${p.id}-detail`} className="bg-muted/20">
+                      <tr className="bg-muted/20">
                         <td colSpan={7} className="px-6 py-3">
                           <div className="space-y-2">
                             <div className="grid grid-cols-3 gap-4 text-xs">
@@ -436,7 +437,7 @@ export function AdminPromptsPage({ onNavigate }: Props) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>

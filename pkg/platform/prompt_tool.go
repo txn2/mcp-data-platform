@@ -234,22 +234,27 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 	}
 
 	isAdmin := p.isAdminPersona(ctx)
-	if !isAdmin {
-		// Non-admin: only see their own personal + global + matching persona prompts
-		email := resolveEmail(ctx)
-		filter.OwnerEmail = email
-	}
-
 	enabled := true
 	filter.Enabled = &enabled
+
+	if !isAdmin {
+		// Non-admin with explicit scope: serve that scope directly (no owner filter for global/persona).
+		// Non-admin with no scope: fetch personal + global + persona separately.
+		if filter.Scope == prompt.ScopePersonal || filter.Scope == "" {
+			filter.OwnerEmail = resolveEmail(ctx)
+			if filter.Scope == "" {
+				filter.Scope = prompt.ScopePersonal
+			}
+		}
+	}
 
 	prompts, err := p.promptStore.List(ctx, filter)
 	if err != nil {
 		return promptErrorResult(fmt.Sprintf("failed to list prompts: %v", err)), nil, nil
 	}
 
-	// For non-admins, also include global and persona-scoped prompts
-	if !isAdmin && filter.Scope == "" {
+	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
+	if !isAdmin && input.Scope == "" {
 		globalPrompts, globalErr := p.promptStore.List(ctx, prompt.ListFilter{
 			Scope:   prompt.ScopeGlobal,
 			Enabled: &enabled,

@@ -203,7 +203,11 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldName := existing.Name
-	if req.Name != "" {
+	if req.Name != "" && req.Name != oldName {
+		if err := prompt.ValidateName(req.Name); err != nil {
+			writePortalError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		existing.Name = req.Name
 	}
 	if req.DisplayName != "" {
@@ -225,6 +229,10 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
 		writePortalError(w, http.StatusInternalServerError, "failed to update prompt")
 		return
+	}
+
+	if refreshed, err := h.deps.PromptStore.GetByID(r.Context(), existing.ID); err == nil && refreshed != nil {
+		existing = refreshed
 	}
 
 	if h.deps.PromptRegistrar != nil {

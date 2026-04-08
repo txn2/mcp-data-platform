@@ -584,10 +584,14 @@ func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string,
 	if t.promptCreator == nil {
 		return "", fmt.Errorf("prompt creation not available: feature not initialized")
 	}
+	desc := c.QueryDescription
+	if desc == "" {
+		desc = "Agent-captured prompt"
+	}
 	p := &prompt.Prompt{
 		Name:        c.Target,
 		DisplayName: c.Target,
-		Description: c.Detail,
+		Description: desc,
 		Content:     c.Detail,
 		Scope:       prompt.ScopeGlobal,
 		Personas:    []string{},

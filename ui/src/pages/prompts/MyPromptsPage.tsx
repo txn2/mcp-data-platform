@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Search,
   Plus,
@@ -190,10 +190,11 @@ export function MyPromptsPage({ onNavigate }: Props) {
     { key: "category", label: "Category", width: "w-[100px]" },
   ];
 
-  function SortHeader({ col }: { col: typeof colDefs[number] }) {
+  function renderSortHeader(col: typeof colDefs[number]) {
     const active = sortBy === col.key;
     return (
       <th
+        key={col.key}
         onClick={() => handleSort(col.key)}
         className={cn(
           "px-4 py-2 text-left font-medium text-muted-foreground cursor-pointer select-none hover:bg-muted/80",
@@ -300,7 +301,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
             <thead className="border-b bg-muted/50">
               <tr>
                 <th className="w-8 px-2" />
-                {colDefs.map((col) => <SortHeader key={col.key} col={col} />)}
+                {colDefs.map(renderSortHeader)}
                 {isPersonalTab && <th className="px-4 py-2 text-right font-medium text-muted-foreground w-[80px]">Actions</th>}
               </tr>
             </thead>
@@ -309,8 +310,8 @@ export function MyPromptsPage({ onNavigate }: Props) {
                 const isExpanded = expandedId === p.id;
                 const totalCols = isPersonalTab ? colDefs.length + 2 : colDefs.length + 1;
                 return (
-                  <>
-                    <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => toggleExpand(p.id)}>
+                  <React.Fragment key={p.id}>
+                    <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => toggleExpand(p.id)}>
                       <td className="px-2 py-2 text-muted-foreground">
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
@@ -335,7 +336,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
                       )}
                     </tr>
                     {isExpanded && (
-                      <tr key={`${p.id}-detail`} className="bg-muted/20">
+                      <tr className="bg-muted/20">
                         <td colSpan={totalCols} className="px-6 py-3">
                           <div className="space-y-2">
                             <div className="grid grid-cols-3 gap-4 text-xs">
@@ -357,7 +358,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>

@@ -444,6 +444,13 @@ func validateChangeRequiredFields(c ApplyChange) error {
 		if c.Target == "" {
 			return fmt.Errorf("target (document ID) is required for remove_context_document")
 		}
+	case string(actionAddPrompt):
+		if c.Target == "" {
+			return fmt.Errorf("target (prompt name) is required for add_prompt")
+		}
+		if c.Detail == "" {
+			return fmt.Errorf("detail (prompt content) is required for add_prompt")
+		}
 	}
 	return nil
 }

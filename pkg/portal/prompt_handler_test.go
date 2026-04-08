@@ -209,12 +209,73 @@ func TestPortalDeletePrompt_OtherUserDenied(t *testing.T) {
 
 func TestPortalDeletePrompt_AdminCanDeleteOthers(t *testing.T) {
 	h, store, _ := newTestPortalPromptHandler()
-	store.prompts["other-prompt"] = &prompt.Prompt{ID: "uuid-1", Name: "other-prompt", OwnerEmail: "bob@example.com"}
+	store.prompts["other-prompt"] = &prompt.Prompt{ID: "uuid-1", Name: "other-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com"}
 
 	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "admin@example.com", "admin")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestPortalUpdatePrompt_OwnPrompt(t *testing.T) {
+	h, store, registrar := newTestPortalPromptHandler()
+	store.prompts["my-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "my-prompt", Content: "old", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com", Enabled: true,
+	}
+
+	body := portalPromptCreateRequest{Content: "new content"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "new content", store.prompts["my-prompt"].Content)
+	assert.Contains(t, registrar.unregistered, "my-prompt")
+	assert.Contains(t, registrar.registered, "my-prompt")
+}
+
+func TestPortalUpdatePrompt_OtherUserDenied(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["other-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "other-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com",
+	}
+
+	body := portalPromptCreateRequest{Content: "hacked"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestPortalUpdatePrompt_CannotUpdateGlobalScope(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["global-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "global-prompt", Scope: prompt.ScopeGlobal,
+	}
+
+	body := portalPromptCreateRequest{Content: "modified"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestPortalDeletePrompt_CannotDeleteGlobalScope(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["global-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "global-prompt", Scope: prompt.ScopeGlobal,
+	}
+
+	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
