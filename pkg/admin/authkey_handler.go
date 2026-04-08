@@ -146,7 +146,7 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	// Block deletion of file-only keys — they would reappear on restart.
-	if source := h.keySourceByName(name); source == "file" {
+	if source := h.keySourceByName(name); source == platform.SourceFile {
 		writeError(w, http.StatusConflict,
 			"this key is defined in the config file and cannot be deleted via the admin API")
 		return

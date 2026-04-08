@@ -551,8 +551,8 @@ func (p *Platform) initBrowserSession() error {
 		RoleClaim:          oidcCfg.RoleClaimPath,
 		RolePrefix:         oidcCfg.RolePrefix,
 		Cookie:             cookieCfg,
-		PostLoginRedirect:  "/portal/",
-		PostLogoutRedirect: p.config.Portal.PublicBaseURL + "/portal/",
+		PostLoginRedirect:  browsersession.DefaultPortalPath,
+		PostLogoutRedirect: p.config.Portal.PublicBaseURL + browsersession.DefaultPortalPath,
 	}
 
 	flow, err := browsersession.NewFlow(context.Background(), flowCfg)
