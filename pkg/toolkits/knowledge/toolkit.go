@@ -543,6 +543,18 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 // dispatchChange executes a single change against DataHub.
 // Returns a non-empty ID/URN for changes that create resources (queries, documents, incidents).
 func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	switch c.ChangeType {
+	case string(actionAddCuratedQuery):
+		return t.dispatchCuratedQuery(ctx, urn, c)
+	case string(actionAddPrompt):
+		return t.dispatchAddPrompt(ctx, c)
+	default:
+		return t.dispatchCoreOrV14Change(ctx, urn, c)
+	}
+}
+
+// dispatchCoreOrV14Change handles core DataHub changes and delegates to V14 for newer types.
+func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
 	switch c.ChangeType {
 	case string(actionUpdateDescription):
@@ -557,10 +569,6 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
 	case string(actionFlagQualityIssue):
 		err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
-	case string(actionAddCuratedQuery):
-		return t.dispatchCuratedQuery(ctx, urn, c)
-	case string(actionAddPrompt):
-		return t.dispatchAddPrompt(ctx, c)
 	default:
 		return t.dispatchV14Change(ctx, urn, c)
 	}
@@ -595,7 +603,7 @@ func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string,
 		Content:     c.Detail,
 		Scope:       prompt.ScopeGlobal,
 		Personas:    []string{},
-		Source:       prompt.SourceAgent,
+		Source:      prompt.SourceAgent,
 		Enabled:     true,
 	}
 	if err := t.promptCreator.Create(ctx, p); err != nil {

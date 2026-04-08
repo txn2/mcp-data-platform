@@ -429,28 +429,42 @@ func validateApplyChange(c ApplyChange) error {
 func validateChangeRequiredFields(c ApplyChange) error {
 	switch c.ChangeType {
 	case string(actionAddCuratedQuery):
-		if c.QuerySQL == "" {
-			return fmt.Errorf("query_sql is required for add_curated_query")
-		}
+		return requireField(c.QuerySQL, "query_sql is required for add_curated_query")
 	case string(actionAddContextDocument):
 		if c.Target == "" || c.Detail == "" {
 			return fmt.Errorf("target (title) and detail (content) are required for add_context_document")
 		}
 	case string(actionUpdateContextDocument):
-		if c.Target == "" {
-			return fmt.Errorf("target (document ID) is required for update_context_document")
-		}
+		return requireField(c.Target, "target (document ID) is required for update_context_document")
 	case string(actionRemoveContextDocument):
-		if c.Target == "" {
-			return fmt.Errorf("target (document ID) is required for remove_context_document")
-		}
+		return requireField(c.Target, "target (document ID) is required for remove_context_document")
 	case string(actionAddPrompt):
-		if c.Target == "" {
-			return fmt.Errorf("target (prompt name) is required for add_prompt")
-		}
-		if c.Detail == "" {
-			return fmt.Errorf("detail (prompt content) is required for add_prompt")
-		}
+		return validateAddPromptFields(c)
+	}
+	return nil
+}
+
+// RequiredFieldError is a sentinel-like error for missing required fields.
+type RequiredFieldError string
+
+// Error implements the error interface.
+func (e RequiredFieldError) Error() string { return string(e) }
+
+// requireField returns an error with the given message if value is empty.
+func requireField(value, msg string) error {
+	if value == "" {
+		return RequiredFieldError(msg)
+	}
+	return nil
+}
+
+// validateAddPromptFields validates required fields for the add_prompt change type.
+func validateAddPromptFields(c ApplyChange) error {
+	if c.Target == "" {
+		return fmt.Errorf("target (prompt name) is required for add_prompt")
+	}
+	if c.Detail == "" {
+		return fmt.Errorf("detail (prompt content) is required for add_prompt")
 	}
 	return nil
 }

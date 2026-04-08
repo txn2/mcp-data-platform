@@ -336,8 +336,9 @@ func (p *Platform) collectToolkitPromptInfos() []registry.PromptInfo {
 	return infos
 }
 
-// allPromptInfos returns all prompt metadata: platform-registered + toolkit-registered.
-func (p *Platform) allPromptInfos() []registry.PromptInfo {
+// AllPromptInfos returns all prompt metadata (platform + toolkit).
+// Exported for the admin API to surface system prompts.
+func (p *Platform) AllPromptInfos() []registry.PromptInfo {
 	tkInfos := p.collectToolkitPromptInfos()
 	p.promptInfosMu.RLock()
 	all := make([]registry.PromptInfo, 0, len(p.promptInfos)+len(tkInfos))
@@ -345,12 +346,6 @@ func (p *Platform) allPromptInfos() []registry.PromptInfo {
 	p.promptInfosMu.RUnlock()
 	all = append(all, tkInfos...)
 	return all
-}
-
-// AllPromptInfos returns all prompt metadata (platform + toolkit).
-// Exported for the admin API to surface system prompts.
-func (p *Platform) AllPromptInfos() []registry.PromptInfo {
-	return p.allPromptInfos()
 }
 
 // registerDatabasePrompts loads enabled prompts from the database and registers

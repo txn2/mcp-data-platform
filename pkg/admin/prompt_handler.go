@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -79,39 +80,7 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 		prompts = []prompt.Prompt{}
 	}
 
-	// Build a set of known names to avoid duplicates when merging system prompts.
-	seen := make(map[string]bool, len(prompts))
-	for _, p := range prompts {
-		seen[p.Name] = true
-	}
-
-	// Merge system prompts (registered on the MCP server but not in DB).
-	if h.deps.PromptInfoProvider != nil && filter.OwnerEmail == "" {
-		search := strings.ToLower(filter.Search)
-		for _, info := range h.deps.PromptInfoProvider.AllPromptInfos() {
-			if seen[info.Name] {
-				continue
-			}
-			seen[info.Name] = true
-			if filter.Scope != "" && filter.Scope != "system" {
-				continue
-			}
-			if search != "" && !matchesSearch(info, search) {
-				continue
-			}
-			prompts = append(prompts, prompt.Prompt{
-				ID:          "system:" + info.Name,
-				Name:        info.Name,
-				DisplayName: info.Name,
-				Description: info.Description,
-				Content:     info.Content,
-				Category:    info.Category,
-				Scope:       "system",
-				Source:       "system",
-				Enabled:     true,
-			})
-		}
-	}
+	prompts = h.mergeSystemPrompts(prompts, filter)
 
 	total, countErr := h.deps.PromptStore.Count(r.Context(), filter)
 	if countErr != nil {
@@ -122,6 +91,45 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 		Data:  prompts,
 		Total: total,
 	})
+}
+
+// mergeSystemPrompts appends system-registered prompts (from MCP server, not DB)
+// to the provided list, filtering by scope and search as appropriate.
+func (h *Handler) mergeSystemPrompts(prompts []prompt.Prompt, filter prompt.ListFilter) []prompt.Prompt {
+	if h.deps.PromptInfoProvider == nil || filter.OwnerEmail != "" {
+		return prompts
+	}
+
+	seen := make(map[string]bool, len(prompts))
+	for _, p := range prompts {
+		seen[p.Name] = true
+	}
+
+	search := strings.ToLower(filter.Search)
+	for _, info := range h.deps.PromptInfoProvider.AllPromptInfos() {
+		if seen[info.Name] {
+			continue
+		}
+		seen[info.Name] = true
+		if filter.Scope != "" && filter.Scope != "system" {
+			continue
+		}
+		if search != "" && !matchesSearch(info, search) {
+			continue
+		}
+		prompts = append(prompts, prompt.Prompt{
+			ID:          "system:" + info.Name,
+			Name:        info.Name,
+			DisplayName: info.Name,
+			Description: info.Description,
+			Content:     info.Content,
+			Category:    info.Category,
+			Scope:       "system",
+			Source:      "system",
+			Enabled:     true,
+		})
+	}
+	return prompts
 }
 
 // matchesSearch checks if a PromptInfo matches a search query.
@@ -154,13 +162,33 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := prompt.ValidateName(req.Name); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	p, errMsg := buildPromptFromCreateRequest(req)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
-	if req.Content == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
+
+	if err := h.deps.PromptStore.Create(r.Context(), p); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create prompt")
 		return
+	}
+
+	// Register with live MCP server
+	if h.deps.PromptRegistrar != nil && p.Enabled {
+		h.deps.PromptRegistrar.RegisterRuntimePrompt(p)
+	}
+
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// buildPromptFromCreateRequest validates and builds a Prompt from the create request.
+// Returns a non-empty error message on validation failure.
+func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.Prompt, errMsg string) {
+	if err := prompt.ValidateName(req.Name); err != nil {
+		return nil, err.Error()
+	}
+	if req.Content == "" {
+		return nil, "content is required"
 	}
 
 	scope := req.Scope
@@ -168,8 +196,7 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 		scope = prompt.ScopePersonal
 	}
 	if err := prompt.ValidateScope(scope); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err.Error()
 	}
 	source := req.Source
 	if source == "" {
@@ -190,7 +217,7 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 		Scope:       scope,
 		Personas:    req.Personas,
 		OwnerEmail:  req.OwnerEmail,
-		Source:       source,
+		Source:      source,
 		Enabled:     enabled,
 	}
 	if p.Personas == nil {
@@ -199,18 +226,7 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 	if p.Arguments == nil {
 		p.Arguments = []prompt.Argument{}
 	}
-
-	if err := h.deps.PromptStore.Create(r.Context(), p); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create prompt")
-		return
-	}
-
-	// Register with live MCP server
-	if h.deps.PromptRegistrar != nil && p.Enabled {
-		h.deps.PromptRegistrar.RegisterRuntimePrompt(p)
-	}
-
-	writeJSON(w, http.StatusCreated, p)
+	return p, ""
 }
 
 // updatePrompt updates an existing prompt.
@@ -234,51 +250,10 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 
 	oldName := existing.Name
 
-	if req.Name != nil && *req.Name != oldName {
-		if err := prompt.ValidateName(*req.Name); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		dup, _ := h.deps.PromptStore.Get(r.Context(), *req.Name)
-		if dup != nil {
-			writeError(w, http.StatusConflict, "prompt name already exists")
-			return
-		}
-		existing.Name = *req.Name
-	}
-	if req.DisplayName != nil {
-		existing.DisplayName = *req.DisplayName
-	}
-	if req.Description != nil {
-		existing.Description = *req.Description
-	}
-	if req.Content != nil {
-		existing.Content = *req.Content
-	}
-	if req.Arguments != nil {
-		existing.Arguments = req.Arguments
-	}
-	if req.Category != nil {
-		existing.Category = *req.Category
-	}
-	if req.Scope != nil {
-		if err := prompt.ValidateScope(*req.Scope); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		existing.Scope = *req.Scope
-	}
-	if req.Personas != nil {
-		existing.Personas = req.Personas
-	}
-	if req.OwnerEmail != nil {
-		existing.OwnerEmail = *req.OwnerEmail
-	}
-	if req.Source != nil {
-		existing.Source = *req.Source
-	}
-	if req.Enabled != nil {
-		existing.Enabled = *req.Enabled
+	status, msg := h.applyAdminPromptUpdate(r.Context(), existing, req)
+	if status != 0 {
+		writeError(w, status, msg)
+		return
 	}
 
 	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
@@ -301,6 +276,75 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, existing)
+}
+
+// applyAdminPromptUpdate validates name rename and applies field updates.
+// Returns (0, "") on success, or (httpStatus, errorMessage) on failure.
+func (h *Handler) applyAdminPromptUpdate(ctx context.Context, existing *prompt.Prompt, req adminPromptUpdateRequest) (status int, errMsg string) {
+	if req.Name != nil && *req.Name != existing.Name {
+		if err := prompt.ValidateName(*req.Name); err != nil {
+			return http.StatusBadRequest, err.Error()
+		}
+		dup, _ := h.deps.PromptStore.Get(ctx, *req.Name)
+		if dup != nil {
+			return http.StatusConflict, "prompt name already exists"
+		}
+		existing.Name = *req.Name
+	}
+
+	if errMsg := applyAdminPromptUpdateFields(existing, req); errMsg != "" {
+		return http.StatusBadRequest, errMsg
+	}
+	return 0, ""
+}
+
+// applyAdminPromptUpdateFields applies non-nil fields from the update request to the prompt.
+// Returns a non-empty error message on validation failure.
+func applyAdminPromptUpdateFields(existing *prompt.Prompt, req adminPromptUpdateRequest) string {
+	applyAdminPromptContentFields(existing, req)
+	if req.Scope != nil {
+		if err := prompt.ValidateScope(*req.Scope); err != nil {
+			return err.Error()
+		}
+		existing.Scope = *req.Scope
+	}
+	applyAdminPromptMetaFields(existing, req)
+	return ""
+}
+
+// applyAdminPromptContentFields applies content-related fields from the update request.
+func applyAdminPromptContentFields(existing *prompt.Prompt, req adminPromptUpdateRequest) {
+	if req.DisplayName != nil {
+		existing.DisplayName = *req.DisplayName
+	}
+	if req.Description != nil {
+		existing.Description = *req.Description
+	}
+	if req.Content != nil {
+		existing.Content = *req.Content
+	}
+	if req.Arguments != nil {
+		existing.Arguments = req.Arguments
+	}
+	if req.Category != nil {
+		existing.Category = *req.Category
+	}
+}
+
+// applyAdminPromptMetaFields applies metadata fields from the update request.
+func applyAdminPromptMetaFields(existing *prompt.Prompt, req adminPromptUpdateRequest) {
+	if req.Personas != nil {
+		existing.Personas = req.Personas
+	}
+	if req.OwnerEmail != nil {
+		existing.OwnerEmail = *req.OwnerEmail
+	}
+	if req.Source != nil {
+		existing.Source = *req.Source
+	}
+	if req.Enabled != nil {
+		existing.Enabled = *req.Enabled
+	}
 }
 
 // deletePrompt deletes a prompt by ID.

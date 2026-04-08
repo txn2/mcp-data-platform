@@ -39,11 +39,15 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`
 
-	return s.db.QueryRowContext(ctx, query,
+	err = s.db.QueryRowContext(ctx, query,
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("create prompt: %w", err)
+	}
+	return nil
 }
 
 // Get retrieves a prompt by name. Returns nil, nil if not found.
@@ -77,7 +81,7 @@ func (s *Store) getBy(ctx context.Context, column, value string) (*prompt.Prompt
 		&p.Source, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get prompt by %s: %w", column, err)
@@ -144,6 +148,7 @@ func (s *Store) DeleteByID(ctx context.Context, id string) error {
 // List returns prompts matching the filter.
 func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Prompt, error) {
 	where, args := buildWhere(filter)
+	// #nosec G202 -- WHERE clause built from validated parameters only (scope enum, email, bool, array, ILIKE pattern)
 	query := `SELECT id, name, display_name, description, content, arguments,
 	                 category, scope, personas, owner_email, source, enabled,
 	                 created_at, updated_at
@@ -153,7 +158,7 @@ func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Pr
 	if err != nil {
 		return nil, fmt.Errorf("list prompts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []prompt.Prompt
 	for rows.Next() {
@@ -177,7 +182,10 @@ func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Pr
 		}
 		result = append(result, p)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate prompts: %w", err)
+	}
+	return result, nil
 }
 
 // Count returns the number of prompts matching the filter.
@@ -194,7 +202,7 @@ func (s *Store) Count(ctx context.Context, filter prompt.ListFilter) (int, error
 }
 
 // buildWhere constructs a WHERE clause and parameter list from a ListFilter.
-func buildWhere(f prompt.ListFilter) (string, []any) {
+func buildWhere(f prompt.ListFilter) (clause string, params []any) {
 	var conds []string
 	var args []any
 	idx := 1
@@ -224,7 +232,6 @@ func buildWhere(f prompt.ListFilter) (string, []any) {
 			"(name ILIKE $%d OR display_name ILIKE $%d OR description ILIKE $%d)",
 			idx, idx, idx))
 		args = append(args, "%"+f.Search+"%")
-		idx++
 	}
 
 	if len(conds) == 0 {

@@ -135,9 +135,9 @@ type ServerConfig struct {
 	Description       string           `yaml:"description"`
 	Tags              []string         `yaml:"tags"`               // Discovery keywords for routing
 	AgentInstructions string           `yaml:"agent_instructions"` // Inline operational guidance for AI agents
-	Prompts           []PromptConfig    `yaml:"prompts"`             // Platform-level MCP prompts
-	BuiltinPrompts    map[string]bool   `yaml:"builtin_prompts"`     // Enable/disable built-in workflow prompts
-	Transport         string            `yaml:"transport"`           // "stdio", "http" (or "sse" for backward compat)
+	Prompts           []PromptConfig   `yaml:"prompts"`            // Platform-level MCP prompts
+	BuiltinPrompts    map[string]bool  `yaml:"builtin_prompts"`    // Enable/disable built-in workflow prompts
+	Transport         string           `yaml:"transport"`          // "stdio", "http" (or "sse" for backward compat)
 	Address           string           `yaml:"address"`
 	TLS               TLSConfig        `yaml:"tls"`
 	Streamable        StreamableConfig `yaml:"streamable"`

@@ -46,7 +46,7 @@ func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt,
 			return p, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 }
 
 func (m *mockPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
@@ -132,7 +132,7 @@ func newTestPortalPromptHandler() (*Handler, *mockPromptStore, *mockPromptRegist
 
 func TestPortalListPrompts_Unauthenticated(t *testing.T) {
 	h, _, _ := newTestPortalPromptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/portal/prompts", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -147,7 +147,7 @@ func TestPortalListPrompts_Authenticated(t *testing.T) {
 		ID: "uuid-2", Name: "global-prompt", Scope: prompt.ScopeGlobal,
 	}
 
-	req := withUser(httptest.NewRequest(http.MethodGet, "/api/v1/portal/prompts", nil), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -162,7 +162,7 @@ func TestPortalCreatePrompt_Success(t *testing.T) {
 
 	body := portalPromptCreateRequest{Name: "my-prompt", Content: "test content"}
 	bodyBytes, _ := json.Marshal(body)
-	req := withUser(httptest.NewRequest(http.MethodPost, "/api/v1/portal/prompts", bytes.NewReader(bodyBytes)), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts", bytes.NewReader(bodyBytes)), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -177,7 +177,7 @@ func TestPortalCreatePrompt_MissingName(t *testing.T) {
 	h, _, _ := newTestPortalPromptHandler()
 	body := portalPromptCreateRequest{Content: "something"}
 	bodyBytes, _ := json.Marshal(body)
-	req := withUser(httptest.NewRequest(http.MethodPost, "/api/v1/portal/prompts", bytes.NewReader(bodyBytes)), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts", bytes.NewReader(bodyBytes)), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -187,7 +187,7 @@ func TestPortalDeletePrompt_OwnPrompt(t *testing.T) {
 	h, store, registrar := newTestPortalPromptHandler()
 	store.prompts["my-prompt"] = &prompt.Prompt{ID: "uuid-1", Name: "my-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
 
-	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/prompts/uuid-1", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -200,7 +200,7 @@ func TestPortalDeletePrompt_OtherUserDenied(t *testing.T) {
 	h, store, _ := newTestPortalPromptHandler()
 	store.prompts["other-prompt"] = &prompt.Prompt{ID: "uuid-1", Name: "other-prompt", OwnerEmail: "bob@example.com"}
 
-	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/prompts/uuid-1", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -211,7 +211,7 @@ func TestPortalDeletePrompt_AdminCanDeleteOthers(t *testing.T) {
 	h, store, _ := newTestPortalPromptHandler()
 	store.prompts["other-prompt"] = &prompt.Prompt{ID: "uuid-1", Name: "other-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com"}
 
-	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "admin@example.com", "admin")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/prompts/uuid-1", http.NoBody), "admin@example.com", "admin")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -226,7 +226,7 @@ func TestPortalUpdatePrompt_OwnPrompt(t *testing.T) {
 
 	body := portalPromptCreateRequest{Content: "new content"}
 	bodyBytes, _ := json.Marshal(body)
-	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -244,7 +244,7 @@ func TestPortalUpdatePrompt_OtherUserDenied(t *testing.T) {
 
 	body := portalPromptCreateRequest{Content: "hacked"}
 	bodyBytes, _ := json.Marshal(body)
-	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -259,7 +259,7 @@ func TestPortalUpdatePrompt_CannotUpdateGlobalScope(t *testing.T) {
 
 	body := portalPromptCreateRequest{Content: "modified"}
 	bodyBytes, _ := json.Marshal(body)
-	req := withUser(httptest.NewRequest(http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -272,10 +272,9 @@ func TestPortalDeletePrompt_CannotDeleteGlobalScope(t *testing.T) {
 		ID: "uuid-1", Name: "global-prompt", Scope: prompt.ScopeGlobal,
 	}
 
-	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/v1/portal/prompts/uuid-1", nil), "alice@example.com")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/prompts/uuid-1", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
-

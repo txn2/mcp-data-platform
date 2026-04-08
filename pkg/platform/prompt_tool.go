@@ -19,10 +19,15 @@ type platformPromptCreator struct {
 	platform *Platform
 }
 
+// Create delegates prompt creation to the backing store.
 func (c *platformPromptCreator) Create(ctx context.Context, p *prompt.Prompt) error {
-	return c.store.Create(ctx, p)
+	if err := c.store.Create(ctx, p); err != nil {
+		return fmt.Errorf("prompt store create: %w", err)
+	}
+	return nil
 }
 
+// RegisterRuntimePrompt delegates runtime registration to the platform.
 func (c *platformPromptCreator) RegisterRuntimePrompt(p *prompt.Prompt) {
 	c.platform.RegisterRuntimePrompt(p)
 }
@@ -54,7 +59,7 @@ func (p *Platform) registerPromptTool() {
 			"Non-admin users can manage their own personal prompts. " +
 			"Admins can manage prompts at all scope levels (global, persona, personal).",
 		InputSchema: managePromptSchema(),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return p.handleManagePrompt(ctx, input)
 	})
 }
@@ -150,7 +155,27 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		}
 	}
 
-	// Apply updates (only non-empty fields)
+	if errMsg := applyPromptUpdates(existing, input, p.isAdminPersona(ctx)); errMsg != "" {
+		return promptErrorResult(errMsg), nil, nil
+	}
+
+	if err := p.promptStore.Update(ctx, existing); err != nil {
+		return promptErrorResult(fmt.Sprintf("failed to update prompt: %v", err)), nil, nil
+	}
+
+	// Re-register with updated content
+	p.UnregisterRuntimePrompt(existing.Name)
+	p.RegisterRuntimePrompt(existing)
+
+	return promptJSONResult(map[string]any{
+		"status": "updated",
+		"name":   existing.Name,
+	})
+}
+
+// applyPromptUpdates applies non-empty fields from input to existing.
+// Returns a non-empty error message if a scope check fails.
+func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmin bool) string {
 	if input.DisplayName != "" {
 		existing.DisplayName = input.DisplayName
 	}
@@ -167,27 +192,15 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		existing.Category = input.Category
 	}
 	if input.Scope != "" {
-		if !p.isAdminPersona(ctx) && input.Scope != prompt.ScopePersonal {
-			return promptErrorResult("only admins can set global or persona scope"), nil, nil
+		if !isAdmin && input.Scope != prompt.ScopePersonal {
+			return "only admins can set global or persona scope"
 		}
 		existing.Scope = input.Scope
 	}
 	if input.Personas != nil {
 		existing.Personas = input.Personas
 	}
-
-	if err := p.promptStore.Update(ctx, existing); err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to update prompt: %v", err)), nil, nil
-	}
-
-	// Re-register with updated content
-	p.UnregisterRuntimePrompt(existing.Name)
-	p.RegisterRuntimePrompt(existing)
-
-	return promptJSONResult(map[string]any{
-		"status": "updated",
-		"name":   existing.Name,
-	})
+	return ""
 }
 
 // handlePromptDelete deletes a prompt.
@@ -255,35 +268,41 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 
 	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
 	if !isAdmin && input.Scope == "" {
-		globalPrompts, globalErr := p.promptStore.List(ctx, prompt.ListFilter{
-			Scope:   prompt.ScopeGlobal,
-			Enabled: &enabled,
-		})
-		if globalErr != nil {
-			slog.Warn("failed to load global prompts", logKeyError, globalErr)
-		} else {
-			prompts = append(prompts, globalPrompts...)
-		}
-
-		pc := middleware.GetPlatformContext(ctx)
-		if pc != nil && pc.PersonaName != "" {
-			personaPrompts, personaErr := p.promptStore.List(ctx, prompt.ListFilter{
-				Scope:    prompt.ScopePersona,
-				Personas: []string{pc.PersonaName},
-				Enabled:  &enabled,
-			})
-			if personaErr != nil {
-				slog.Warn("failed to load persona prompts", logKeyError, personaErr)
-			} else {
-				prompts = append(prompts, personaPrompts...)
-			}
-		}
+		prompts = p.mergeExtraScopes(ctx, prompts, &enabled)
 	}
 
 	return promptJSONResult(map[string]any{
 		"prompts": prompts,
 		"count":   len(prompts),
 	})
+}
+
+// mergeExtraScopes appends global and persona-scoped prompts for non-admin users.
+func (p *Platform) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, enabled *bool) []prompt.Prompt {
+	globalPrompts, globalErr := p.promptStore.List(ctx, prompt.ListFilter{
+		Scope:   prompt.ScopeGlobal,
+		Enabled: enabled,
+	})
+	if globalErr != nil {
+		slog.Warn("failed to load global prompts", logKeyError, globalErr)
+	} else {
+		prompts = append(prompts, globalPrompts...)
+	}
+
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil && pc.PersonaName != "" {
+		personaPrompts, personaErr := p.promptStore.List(ctx, prompt.ListFilter{
+			Scope:    prompt.ScopePersona,
+			Personas: []string{pc.PersonaName},
+			Enabled:  enabled,
+		})
+		if personaErr != nil {
+			slog.Warn("failed to load persona prompts", logKeyError, personaErr)
+		} else {
+			prompts = append(prompts, personaPrompts...)
+		}
+	}
+	return prompts
 }
 
 // handlePromptGet retrieves a single prompt by name.
@@ -352,61 +371,68 @@ func promptJSONResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
+// JSON schema key constants used in managePromptSchema.
+const (
+	schemaKeyType        = "type"        //nolint:revive // schema key constant
+	schemaKeyDescription = "description" //nolint:revive // schema key constant
+	schemaValString      = "string"      //nolint:revive // schema value constant
+)
+
 // managePromptSchema returns the JSON schema for the manage_prompt tool.
 func managePromptSchema() any {
 	schema := map[string]any{
-		"type": "object",
+		schemaKeyType: "object",
 		"properties": map[string]any{
 			"command": map[string]any{
-				"type":        "string",
-				"enum":        []string{"create", "update", "delete", "list", "get"},
-				"description": "The operation to perform",
+				schemaKeyType:        schemaValString,
+				"enum":               []string{"create", "update", "delete", "list", "get"},
+				schemaKeyDescription: "The operation to perform",
 			},
 			"name": map[string]any{
-				"type":        "string",
-				"description": "Prompt name (required for create, update, delete, get)",
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Prompt name (required for create, update, delete, get)",
 			},
 			"display_name": map[string]any{
-				"type":        "string",
-				"description": "Human-readable display name",
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Human-readable display name",
 			},
-			"description": map[string]any{
-				"type":        "string",
-				"description": "Prompt description",
+			schemaKeyDescription: map[string]any{
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Prompt description",
 			},
 			"content": map[string]any{
-				"type":        "string",
-				"description": "Prompt content template. Use {arg_name} for argument placeholders.",
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Prompt content template. Use {arg_name} for argument placeholders.",
 			},
 			"arguments": map[string]any{
-				"type": "array",
+				schemaKeyType: "array",
 				"items": map[string]any{
-					"type": "object",
+					schemaKeyType: "object",
 					"properties": map[string]any{
-						"name":        map[string]any{"type": "string"},
-						"description": map[string]any{"type": "string"},
-						"required":    map[string]any{"type": "boolean"},
+						"name":               map[string]any{schemaKeyType: schemaValString},
+						schemaKeyDescription: map[string]any{schemaKeyType: schemaValString},
+						"required":           map[string]any{schemaKeyType: "boolean"},
 					},
 				},
-				"description": "Prompt arguments with name, description, and required flag",
+				schemaKeyDescription: "Prompt arguments with name, description, and required flag",
 			},
 			"category": map[string]any{
-				"type":        "string",
-				"description": "Organization category for grouping",
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Organization category for grouping",
 			},
 			"scope": map[string]any{
-				"type":        "string",
-				"enum":        []string{"global", "persona", "personal"},
-				"description": "Visibility scope. Non-admins can only use 'personal'.",
+				schemaKeyType:        schemaValString,
+				"enum":               []string{"global", "persona", "personal"},
+				schemaKeyDescription: "Visibility scope. Non-admins can only use 'personal'.",
 			},
 			"personas": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": "Personas this prompt is assigned to (when scope is 'persona')",
+				schemaKeyType:        "array",
+				"items":              map[string]any{schemaKeyType: schemaValString},
+				schemaKeyDescription: "Personas this prompt is assigned to (when scope is 'persona')",
 			},
 			"search": map[string]any{
-				"type":        "string",
-				"description": "Free-text search filter (for list command)",
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Free-text search filter (for list command)",
 			},
 		},
 		"required": []string{"command"},

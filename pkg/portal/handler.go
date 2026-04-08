@@ -63,22 +63,22 @@ type PersonaResolver func(roles []string) *PersonaInfo
 
 // Deps holds dependencies for the portal handler.
 type Deps struct {
-	AssetStore      AssetStore
-	ShareStore      ShareStore
-	VersionStore    VersionStore
-	CollectionStore CollectionStore
-	S3Client        S3Client
-	S3Bucket        string
-	PublicBaseURL   string
-	RateLimit       RateLimitConfig
-	OIDCEnabled     bool
-	AdminRoles      []string // roles that grant admin access in the portal
+	AssetStore         AssetStore
+	ShareStore         ShareStore
+	VersionStore       VersionStore
+	CollectionStore    CollectionStore
+	S3Client           S3Client
+	S3Bucket           string
+	PublicBaseURL      string
+	RateLimit          RateLimitConfig
+	OIDCEnabled        bool
+	AdminRoles         []string // roles that grant admin access in the portal
 	PromptStore        PromptStore
 	PromptRegistrar    PromptRegistrar
 	PromptInfoProvider PromptInfoProvider
-	AuditMetrics    AuditMetrics
-	InsightStore    InsightReader
-	PersonaResolver PersonaResolver
+	AuditMetrics       AuditMetrics
+	InsightStore       InsightReader
+	PersonaResolver    PersonaResolver
 	// Platform brand (far right of public viewer header)
 	BrandName    string // display name (default: "MCP Data Platform")
 	BrandLogoSVG string // inline SVG for header logo (empty = default icon)

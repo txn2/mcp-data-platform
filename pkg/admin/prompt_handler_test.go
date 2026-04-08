@@ -42,7 +42,7 @@ func (m *mockPromptStore) Create(_ context.Context, p *prompt.Prompt) error {
 func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, error) {
 	p, ok := m.prompts[name]
 	if !ok {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 	}
 	return p, nil
 }
@@ -53,7 +53,7 @@ func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt,
 			return p, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 }
 
 func (m *mockPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
@@ -143,7 +143,7 @@ func TestPromptRoutes_NotRegisteredWithNilStore(t *testing.T) {
 
 func TestListPrompts_Empty(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/prompts", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/prompts", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -162,7 +162,7 @@ func TestCreatePrompt_Success(t *testing.T) {
 		Scope:   "global",
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -176,7 +176,7 @@ func TestCreatePrompt_MissingName(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
 	body := adminPromptCreateRequest{Content: "something"}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -186,7 +186,7 @@ func TestCreatePrompt_MissingContent(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
 	body := adminPromptCreateRequest{Name: "test"}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -196,7 +196,7 @@ func TestGetPrompt_Found(t *testing.T) {
 	h, store, _ := newTestPromptHandler()
 	store.prompts["test"] = &prompt.Prompt{ID: "uuid-1", Name: "test", Content: "content"}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/prompts/uuid-1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/prompts/uuid-1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -208,7 +208,7 @@ func TestGetPrompt_Found(t *testing.T) {
 
 func TestGetPrompt_NotFound(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/prompts/missing", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/prompts/missing", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -222,7 +222,7 @@ func TestUpdatePrompt_Success(t *testing.T) {
 	newContent := "new content"
 	update.Content = &newContent
 	bodyBytes, _ := json.Marshal(update)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -235,7 +235,7 @@ func TestUpdatePrompt_Success(t *testing.T) {
 func TestUpdatePrompt_NotFound(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
 	bodyBytes := []byte(`{}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/prompts/missing", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/missing", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -245,7 +245,7 @@ func TestDeletePrompt_Success(t *testing.T) {
 	h, store, registrar := newTestPromptHandler()
 	store.prompts["test"] = &prompt.Prompt{ID: "uuid-1", Name: "test"}
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/prompts/uuid-1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/prompts/uuid-1", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -256,7 +256,7 @@ func TestDeletePrompt_Success(t *testing.T) {
 
 func TestDeletePrompt_NotFound(t *testing.T) {
 	h, _, _ := newTestPromptHandler()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/prompts/missing", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/prompts/missing", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -268,7 +268,7 @@ func TestCreatePrompt_StoreError(t *testing.T) {
 
 	body := adminPromptCreateRequest{Name: "test", Content: "content"}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -284,7 +284,7 @@ func TestCreatePrompt_DisabledNotRegistered(t *testing.T) {
 		Enabled: &enabled,
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 

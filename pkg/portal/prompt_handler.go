@@ -32,6 +32,9 @@ type PromptRegistrar interface {
 	UnregisterRuntimePrompt(name string)
 }
 
+// errMsgAuthRequired is the standard error message for unauthenticated portal requests.
+const errMsgAuthRequired = "authentication required"
+
 // registerPromptRoutes registers user-facing prompt routes if the store is available.
 func (h *Handler) registerPromptRoutes() {
 	if h.deps.PromptStore == nil {
@@ -63,7 +66,7 @@ type portalPromptCreateRequest struct {
 func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writePortalError(w, http.StatusUnauthorized, "authentication required")
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
 		return
 	}
 
@@ -117,7 +120,7 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writePortalError(w, http.StatusUnauthorized, "authentication required")
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
 		return
 	}
 
@@ -169,7 +172,7 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writePortalError(w, http.StatusUnauthorized, "authentication required")
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
 		return
 	}
 
@@ -184,16 +187,9 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
-	if !isAdmin {
-		if existing.Scope != prompt.ScopePersonal {
-			writePortalError(w, http.StatusForbidden, "non-admins can only manage personal prompts")
-			return
-		}
-		if existing.OwnerEmail != user.Email {
-			writePortalError(w, http.StatusForbidden, "you can only update your own prompts")
-			return
-		}
+	if errMsg := checkPortalUpdatePermission(user, existing, h.deps.AdminRoles); errMsg != "" {
+		writePortalError(w, http.StatusForbidden, errMsg)
+		return
 	}
 
 	var req portalPromptCreateRequest
@@ -203,10 +199,56 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldName := existing.Name
-	if req.Name != "" && req.Name != oldName {
+	if errMsg := applyPortalPromptFields(existing, req); errMsg != "" {
+		writePortalError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to update prompt")
+		return
+	}
+
+	if refreshed, rErr := h.deps.PromptStore.GetByID(r.Context(), existing.ID); rErr == nil && refreshed != nil {
+		existing = refreshed
+	}
+
+	reregisterPrompt(h.deps.PromptRegistrar, oldName, existing)
+	writePortalJSON(w, http.StatusOK, existing)
+}
+
+// reregisterPrompt unregisters the old name and re-registers if the prompt is enabled.
+func reregisterPrompt(reg PromptRegistrar, oldName string, p *prompt.Prompt) {
+	if reg == nil {
+		return
+	}
+	reg.UnregisterRuntimePrompt(oldName)
+	if p.Enabled {
+		reg.RegisterRuntimePrompt(p)
+	}
+}
+
+// checkPortalUpdatePermission checks whether the user may update the given prompt.
+// Returns a non-empty error message if denied.
+func checkPortalUpdatePermission(user *User, existing *prompt.Prompt, adminRoles []string) string {
+	if hasAnyRole(user.Roles, adminRoles) {
+		return ""
+	}
+	if existing.Scope != prompt.ScopePersonal {
+		return "non-admins can only manage personal prompts"
+	}
+	if existing.OwnerEmail != user.Email {
+		return "you can only update your own prompts"
+	}
+	return ""
+}
+
+// applyPortalPromptFields applies non-empty fields from the portal update request to the prompt.
+// Returns a non-empty error message on validation failure.
+func applyPortalPromptFields(existing *prompt.Prompt, req portalPromptCreateRequest) string {
+	if req.Name != "" && req.Name != existing.Name {
 		if err := prompt.ValidateName(req.Name); err != nil {
-			writePortalError(w, http.StatusBadRequest, err.Error())
-			return
+			return err.Error()
 		}
 		existing.Name = req.Name
 	}
@@ -225,31 +267,14 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	if req.Category != "" {
 		existing.Category = req.Category
 	}
-
-	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
-		writePortalError(w, http.StatusInternalServerError, "failed to update prompt")
-		return
-	}
-
-	if refreshed, err := h.deps.PromptStore.GetByID(r.Context(), existing.ID); err == nil && refreshed != nil {
-		existing = refreshed
-	}
-
-	if h.deps.PromptRegistrar != nil {
-		h.deps.PromptRegistrar.UnregisterRuntimePrompt(oldName)
-		if existing.Enabled {
-			h.deps.PromptRegistrar.RegisterRuntimePrompt(existing)
-		}
-	}
-
-	writePortalJSON(w, http.StatusOK, existing)
+	return ""
 }
 
 // deleteMyPrompt deletes a personal prompt owned by the current user.
 func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writePortalError(w, http.StatusUnauthorized, "authentication required")
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
 		return
 	}
 
@@ -311,7 +336,7 @@ func (h *Handler) systemPrompts(existing []prompt.Prompt) []prompt.Prompt {
 			Content:     info.Content,
 			Category:    info.Category,
 			Scope:       "system",
-			Source:       "system",
+			Source:      "system",
 			Enabled:     true,
 		})
 	}
