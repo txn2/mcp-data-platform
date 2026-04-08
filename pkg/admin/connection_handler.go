@@ -24,8 +24,9 @@ type ConnectionStore interface {
 
 // Structured log field name constants.
 const (
-	logKeyKind = "kind"
-	logKeyName = "name"
+	logKeyKind  = "kind"
+	logKeyName  = "name"
+	logKeyError = "error"
 )
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
@@ -464,7 +465,7 @@ func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 	}
 	if err := cm.AddConnection(name, config); err != nil { // #nosec G706 -- structured slog call, not a format string
 		slog.Warn("failed to hot-add connection",
-			logKeyKind, kind, logKeyName, name, "error", err)
+			logKeyKind, kind, logKeyName, name, logKeyError, err)
 	}
 }
 
@@ -477,7 +478,7 @@ func (h *Handler) hotRemoveConnection(kind, name string) {
 	}
 	if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
 		slog.Warn("failed to hot-remove connection",
-			logKeyKind, kind, logKeyName, name, "error", err)
+			logKeyKind, kind, logKeyName, name, logKeyError, err)
 	}
 }
 

@@ -319,6 +319,7 @@ export interface PersonaSummary {
   description?: string;
   roles: string[];
   tool_count: number;
+  source?: "file" | "database" | "both";
 }
 
 export interface PersonaDetail {
@@ -333,6 +334,7 @@ export interface PersonaDetail {
   deny_connections?: string[];
   tools: string[];
   context?: PersonaContextOverrides;
+  source?: "file" | "database" | "both";
 }
 
 export interface PersonaListResponse {
@@ -382,6 +384,7 @@ export interface APIKeySummary {
   roles: string[];
   expires_at?: string;
   expired?: boolean;
+  source?: "file" | "database" | "both";
 }
 
 export interface APIKeyListResponse {

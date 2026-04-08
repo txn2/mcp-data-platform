@@ -37,6 +37,11 @@ type Persona struct {
 	// match multiple personas. Higher values win. Default is 0; the built-in
 	// admin persona uses 100.
 	Priority int `json:"priority,omitempty" yaml:"priority,omitempty"`
+
+	// Source indicates where this persona was loaded from at runtime.
+	// Values: "file" (YAML config), "database" (DB-managed), "both" (file
+	// with DB override). This is runtime metadata — not persisted.
+	Source string `json:"source,omitempty" yaml:"-"`
 }
 
 // ToolRules defines tool access rules for a persona.

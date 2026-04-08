@@ -2303,6 +2303,10 @@
                         "type": "string"
                     }
                 },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -2342,6 +2346,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tool_count": {
                     "type": "integer"
@@ -2835,6 +2843,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 }
             }
         },

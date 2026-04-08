@@ -263,4 +263,23 @@ func TestDeleteAuthKey(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
+
+	t.Run("blocks deletion of file-only key", func(t *testing.T) {
+		mgr := &mockAPIKeyManager{
+			keys: []auth.APIKeySummary{
+				{Name: "config-key", Source: "file", Roles: []string{"admin"}},
+			},
+		}
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{APIKeyManager: mgr, PersonaRegistry: &mockPersonaRegistry{}, ConfigStore: cs}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/auth/keys/config-key", http.NoBody)
+		req.SetPathValue("name", "config-key")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "config file")
+	})
 }

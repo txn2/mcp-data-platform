@@ -78,9 +78,6 @@ const (
 	testCfgKeyToken         = "token"
 )
 
-// boolPtr returns a pointer to the given bool value.
-func boolPtr(v bool) *bool { return &v }
-
 // newTestPlatform creates a Platform with noop providers for testing.
 func newTestPlatform(t *testing.T, opts ...Option) *Platform {
 	t.Helper()
@@ -1687,7 +1684,7 @@ func TestInitMCPApps_EnabledWithFilesystemApp(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"query_results": {
 					Enabled:    true,
@@ -1732,7 +1729,7 @@ func TestInitMCPApps_MissingAssets(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"missing_app": {
 					Enabled:    true,
@@ -1758,7 +1755,7 @@ func TestInitMCPApps_DisabledAppNotRegistered(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"query_results": {
 					Enabled:    false,
@@ -1796,7 +1793,7 @@ func TestInitMCPApps_CSPConfig(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"test_app": {
 					Enabled:    true,
@@ -1843,7 +1840,7 @@ func TestInitMCPApps_CustomResourceURI(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"custom_app": {
 					Enabled:     true,
@@ -1878,7 +1875,7 @@ func TestInitMCPApps_DefaultEntryPoint(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"default_entry": {
 					Enabled:    true,
@@ -1912,7 +1909,7 @@ func TestInitMCPApps_ValidationError(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
-			Enabled: boolPtr(true),
+			Enabled: new(true),
 			Apps: map[string]AppConfig{
 				"invalid_app": {
 					Enabled:    true,
@@ -1937,8 +1934,8 @@ func TestMCPAppsConfig_IsEnabled(t *testing.T) {
 		want    bool
 	}{
 		{"nil defaults to true", nil, true},
-		{"explicit true", boolPtr(true), true},
-		{"explicit false", boolPtr(false), false},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

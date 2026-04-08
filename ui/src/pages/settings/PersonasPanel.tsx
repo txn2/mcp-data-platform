@@ -201,7 +201,18 @@ export function PersonasPanel() {
                   : "border-l-2 border-l-transparent hover:bg-muted/50",
               )}
             >
-              <span className="text-sm font-medium truncate">{p.display_name}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-medium truncate">{p.display_name}</span>
+                {p.source && (
+                  <span className={cn(
+                    "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
+                    p.source === "file" ? "bg-muted text-muted-foreground" :
+                    "bg-primary/10 text-primary",
+                  )}>
+                    {p.source === "file" ? "file" : "database"}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-mono text-muted-foreground truncate">{p.name}</span>
               <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground">
                 <span>{p.roles.length} roles</span>
@@ -344,13 +355,23 @@ function PersonaViewer({
           {detail.description && (
             <p className="mt-1 text-sm text-muted-foreground">{detail.description}</p>
           )}
+          {detail.source === "both" && (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              This persona is managed in the database. A fallback version also exists in the config file and can be removed once database management is confirmed.
+            </p>
+          )}
+          {detail.source === "file" && !isReadOnly && (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              This persona is defined in the config file. Editing will create a database override.
+            </p>
+          )}
         </div>
         {!isReadOnly && (
           <div className="flex gap-2">
             <button type="button" onClick={onEdit} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">
               Edit
             </button>
-            {detail.name !== "admin" && (
+            {detail.name !== "admin" && detail.source !== "file" && (
               <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30">
                 <Trash2 className="h-3 w-3" />
               </button>
@@ -447,7 +468,9 @@ function PersonaViewer({
       {confirmDelete && (
         <ConfirmModal
           title="Delete Persona"
-          message={`Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`}
+          message={detail.source === "both"
+            ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
+            : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`}
           confirmLabel="Delete"
           onConfirm={() => {
             deleteMutation.mutate(detail.name, { onSuccess: onDeleted });

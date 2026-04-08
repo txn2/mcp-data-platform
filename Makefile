@@ -16,7 +16,7 @@ UI_EMBED_DIR := ./internal/ui/dist
 CV_EMBED_DIR := ./internal/contentviewer/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
-GOLANGCI_LINT_VERSION := v2.8.0
+GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.22.0
 
 # Go commands
