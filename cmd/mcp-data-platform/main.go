@@ -527,6 +527,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 		},
 		OIDCEnabled:        p.BrowserSessionFlow() != nil,
 		AdminRoles:         adminRoles,
+		PromptStore:        p.PromptStore(),
+		PromptRegistrar:    p,
+		PromptInfoProvider: p,
 		BrandName:          brandName,
 		BrandLogoSVG:       p.BrandLogoSVG(),
 		BrandURL:           p.BrandURL(),
@@ -627,7 +630,10 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ToolkitsConfig:    p.Config().Toolkits,
 		PersonaStore:      p.PersonaStore(),
 		APIKeyStore:       p.APIKeyStore(),
-		FilePersonaNames:  p.FilePersonaNames(),
+		PromptStore:        p.PromptStore(),
+		PromptRegistrar:    p,
+		PromptInfoProvider: p,
+		FilePersonaNames:   p.FilePersonaNames(),
 	}
 
 	if p.AuditStore() != nil {

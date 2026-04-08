@@ -14,10 +14,17 @@ import (
 	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
+
+// PromptCreator creates and registers prompts at runtime.
+type PromptCreator interface {
+	Create(ctx context.Context, p *prompt.Prompt) error
+	RegisterRuntimePrompt(p *prompt.Prompt)
+}
 
 const (
 	// toolName is the MCP tool name for capturing insights.
@@ -84,6 +91,8 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+
+	promptCreator PromptCreator
 }
 
 // New creates a new knowledge toolkit.
@@ -113,6 +122,11 @@ func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, writer
 	} else {
 		t.datahubWriter = &NoopDataHubWriter{}
 	}
+}
+
+// SetPromptCreator sets the prompt creator for add_prompt change type support.
+func (t *Toolkit) SetPromptCreator(pc PromptCreator) {
+	t.promptCreator = pc
 }
 
 // Kind returns the toolkit kind.
@@ -545,6 +559,8 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 		err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
 	case string(actionAddCuratedQuery):
 		return t.dispatchCuratedQuery(ctx, urn, c)
+	case string(actionAddPrompt):
+		return t.dispatchAddPrompt(ctx, c)
 	default:
 		return t.dispatchV14Change(ctx, urn, c)
 	}
@@ -561,6 +577,28 @@ func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyC
 		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
 	}
 	return queryURN, nil
+}
+
+// dispatchAddPrompt handles add_prompt changes by creating a platform prompt.
+func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string, error) {
+	if t.promptCreator == nil {
+		return "", fmt.Errorf("prompt creation not available: prompt store not configured")
+	}
+	p := &prompt.Prompt{
+		Name:        c.Target,
+		DisplayName: c.Target,
+		Description: c.Detail,
+		Content:     c.Detail,
+		Scope:       prompt.ScopeGlobal,
+		Personas:    []string{},
+		Source:       prompt.SourceAgent,
+		Enabled:     true,
+	}
+	if err := t.promptCreator.Create(ctx, p); err != nil {
+		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
+	}
+	t.promptCreator.RegisterRuntimePrompt(p)
+	return p.ID, nil
 }
 
 // dispatchV14Change handles DataHub 1.4.x change types.

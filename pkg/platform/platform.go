@@ -36,6 +36,8 @@ import (
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -164,7 +166,8 @@ type Platform struct {
 	// Session gate
 	sessionGate *middleware.SessionGate
 
-	// Prompt metadata collected during registration
+	// Prompt store + metadata collected during registration
+	promptStore prompt.Store
 	promptInfos []registry.PromptInfo
 
 	// MCP Apps
@@ -250,6 +253,7 @@ func (p *Platform) initDataInfra() error {
 	}
 	p.initPersonaStore()
 	p.initAPIKeyStore()
+	p.initPromptStore()
 	return p.initConfigStore()
 }
 
@@ -332,6 +336,14 @@ func (p *Platform) initAPIKeyStore() {
 	} else {
 		p.apiKeyStore = &NoopAPIKeyStore{}
 		slog.Info("api key store: noop (no database)")
+	}
+}
+
+// initPromptStore initializes the prompt definition store.
+func (p *Platform) initPromptStore() {
+	if p.db != nil {
+		p.promptStore = promptpostgres.New(p.db)
+		slog.Info("prompt store: postgres")
 	}
 }
 
@@ -860,6 +872,11 @@ func (p *Platform) initKnowledge() error {
 			"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
 			"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
 		)
+	}
+
+	// Wire prompt creator for add_prompt change type
+	if p.promptStore != nil {
+		tk.SetPromptCreator(&platformPromptCreator{store: p.promptStore, platform: p})
 	}
 
 	if err := p.toolkitRegistry.Register(tk); err != nil {
@@ -1777,6 +1794,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register platform-level tools
 	p.registerInfoTool()
 	p.registerConnectionsTool()
+	p.registerPromptTool()
 
 	// Register platform-level prompts from config
 	p.registerPlatformPrompts()
@@ -1880,6 +1898,11 @@ func (p *Platform) PersonaStore() PersonaStore {
 // APIKeyStore returns the API key definition store, or nil if not initialized.
 func (p *Platform) APIKeyStore() APIKeyStore {
 	return p.apiKeyStore
+}
+
+// PromptStore returns the prompt definition store, or nil if not initialized.
+func (p *Platform) PromptStore() prompt.Store {
+	return p.promptStore
 }
 
 // ConnectionStore returns the connection instance store, or nil if not initialized.
@@ -2057,11 +2080,15 @@ type ToolInfo struct {
 }
 
 // PlatformTools returns tools registered directly on the platform outside of any toolkit.
-func (*Platform) PlatformTools() []ToolInfo {
-	return []ToolInfo{
+func (p *Platform) PlatformTools() []ToolInfo {
+	tools := []ToolInfo{
 		{Name: "platform_info", Kind: "platform"},
 		{Name: "list_connections", Kind: "platform"},
 	}
+	if p.promptStore != nil {
+		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: "platform"})
+	}
+	return tools
 }
 
 // datahubConfig holds extracted DataHub configuration.

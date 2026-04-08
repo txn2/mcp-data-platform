@@ -722,3 +722,78 @@ INSERT INTO connection_instances (kind, name, config, description, created_by, u
 ON CONFLICT (kind, name) DO UPDATE SET
   config = EXCLUDED.config,
   description = EXCLUDED.description;
+
+-- ============================================================================
+-- Prompts — seed data covering all three scopes
+-- ============================================================================
+
+INSERT INTO prompts (name, display_name, description, content, arguments, category, scope, personas, owner_email, source, enabled)
+VALUES
+-- Global prompts
+(
+  'weekly-inventory-summary',
+  'Weekly Inventory Summary',
+  'Generate a weekly inventory status report across all warehouses',
+  E'Generate a comprehensive weekly inventory summary.\n\n1. Query current inventory levels across all warehouses\n2. Compare against last week''s levels to identify trends\n3. Highlight items below reorder thresholds\n4. Summarize by {region} if specified, otherwise show all regions\n5. Present findings in a clear table with week-over-week changes',
+  '[{"name": "region", "description": "Filter by region (optional)", "required": false}]'::jsonb,
+  'reporting', 'global', '{}', 'admin@acme.example.com', 'operator', true
+),
+(
+  'supplier-performance-review',
+  'Supplier Performance Review',
+  'Analyze supplier delivery and quality metrics',
+  E'Review supplier performance for {supplier}.\n\n1. Look up delivery history and on-time rates\n2. Check quality inspection results and defect rates\n3. Compare pricing against contract terms\n4. Summarize trends over the past quarter\n5. Flag any suppliers at risk of SLA violation',
+  '[{"name": "supplier", "description": "Supplier name or ID to review", "required": true}]'::jsonb,
+  'analysis', 'global', '{}', 'admin@acme.example.com', 'operator', true
+),
+(
+  'data-quality-check',
+  'Data Quality Check',
+  'Run standard data quality checks against a dataset',
+  E'Perform data quality checks on {dataset}.\n\n1. Check for null values in key columns\n2. Validate data types and format consistency\n3. Look for duplicate records\n4. Verify referential integrity with related tables\n5. Report anomalies and suggest remediation',
+  '[{"name": "dataset", "description": "Dataset name or URN to check", "required": true}]'::jsonb,
+  'data-quality', 'global', '{}', 'admin@acme.example.com', 'operator', true
+),
+-- Persona-scoped prompts
+(
+  'regional-sales-analysis',
+  'Regional Sales Analysis',
+  'Analyze sales performance by region with drill-down',
+  E'Analyze sales data for {region}.\n\n1. Pull current quarter sales by store and product category\n2. Compare against targets and prior year\n3. Identify top and bottom performing stores\n4. Highlight seasonal trends and anomalies\n5. Create a summary dashboard with key metrics',
+  '[{"name": "region", "description": "Which region to analyze", "required": true}]'::jsonb,
+  'analysis', 'persona', '{regional-director,inventory-analyst}', 'admin@acme.example.com', 'operator', true
+),
+(
+  'pipeline-health-check',
+  'Pipeline Health Check',
+  'Check the health of data pipelines and flag issues',
+  E'Check data pipeline health for {pipeline}.\n\n1. Verify last successful run and current schedule\n2. Check for failed or delayed jobs\n3. Validate row counts against expected thresholds\n4. Review data freshness and staleness indicators\n5. List any upstream dependencies with issues',
+  '[{"name": "pipeline", "description": "Pipeline name or pattern", "required": true}]'::jsonb,
+  'operations', 'persona', '{data-engineer,admin}', 'admin@acme.example.com', 'operator', true
+),
+(
+  'financial-reconciliation',
+  'Financial Reconciliation',
+  'Reconcile financial data across systems',
+  E'Reconcile {account_type} data between source systems.\n\n1. Pull totals from primary and secondary sources\n2. Identify discrepancies above threshold\n3. Trace mismatches to specific transactions\n4. Generate reconciliation report with variance analysis',
+  '[{"name": "account_type", "description": "Account type to reconcile (AR, AP, GL)", "required": true}]'::jsonb,
+  'finance', 'persona', '{finance-executive}', 'admin@acme.example.com', 'operator', true
+),
+-- Personal prompts
+(
+  'my-daily-standup',
+  'My Daily Standup',
+  'Quick morning data check for store operations',
+  E'Run my daily standup checks:\n\n1. Show yesterday''s sales totals vs target\n2. List any inventory alerts from overnight\n3. Check if scheduled reports completed successfully\n4. Highlight anything that needs immediate attention',
+  '[]'::jsonb,
+  'daily', 'personal', '{}', 'alice.chen@acme.example.com', 'operator', true
+),
+(
+  'my-ad-hoc-analysis',
+  'My Ad-Hoc Analysis Template',
+  'Preferred template for ad-hoc data investigations',
+  E'Investigate {question} using the following approach:\n\n1. Identify relevant datasets in the catalog\n2. Check data freshness and quality\n3. Write and run exploratory queries\n4. Summarize findings with supporting data\n5. Save results as a shareable asset if noteworthy',
+  '[{"name": "question", "description": "The question to investigate", "required": true}]'::jsonb,
+  'analysis', 'personal', '{}', 'bob.martinez@acme.example.com', 'operator', true
+)
+ON CONFLICT (name) DO NOTHING;

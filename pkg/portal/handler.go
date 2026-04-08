@@ -73,6 +73,9 @@ type Deps struct {
 	RateLimit       RateLimitConfig
 	OIDCEnabled     bool
 	AdminRoles      []string // roles that grant admin access in the portal
+	PromptStore        PromptStore
+	PromptRegistrar    PromptRegistrar
+	PromptInfoProvider PromptInfoProvider
 	AuditMetrics    AuditMetrics
 	InsightStore    InsightReader
 	PersonaResolver PersonaResolver
@@ -160,6 +163,9 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/shares", h.listCollectionShares)
 		h.mux.HandleFunc("GET /api/v1/portal/shared-collections", h.listSharedCollections)
 	}
+
+	// Prompt routes
+	h.registerPromptRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {
