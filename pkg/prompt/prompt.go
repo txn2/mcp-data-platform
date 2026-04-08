@@ -5,8 +5,45 @@ package prompt
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"time"
 )
+
+// maxNameLength is the maximum allowed length for a prompt name.
+const maxNameLength = 128
+
+// validNamePattern matches lowercase letters, digits, hyphens, and underscores.
+var validNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// validScopes is the set of allowed scope values for database-stored prompts.
+var validScopes = map[string]bool{
+	ScopeGlobal:   true,
+	ScopePersona:  true,
+	ScopePersonal: true,
+}
+
+// ValidateName checks that a prompt name is well-formed.
+func ValidateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if len(name) > maxNameLength {
+		return fmt.Errorf("name must be at most %d characters", maxNameLength)
+	}
+	if !validNamePattern.MatchString(name) {
+		return fmt.Errorf("name must contain only lowercase letters, digits, hyphens, and underscores")
+	}
+	return nil
+}
+
+// ValidateScope checks that a scope value is allowed for database-stored prompts.
+func ValidateScope(scope string) error {
+	if !validScopes[scope] {
+		return fmt.Errorf("invalid scope %q: must be global, persona, or personal", scope)
+	}
+	return nil
+}
 
 // Scope constants define prompt visibility levels.
 const (

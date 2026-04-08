@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	// PostgreSQL driver for database/sql.
@@ -167,8 +168,9 @@ type Platform struct {
 	sessionGate *middleware.SessionGate
 
 	// Prompt store + metadata collected during registration
-	promptStore prompt.Store
-	promptInfos []registry.PromptInfo
+	promptStore    prompt.Store
+	promptInfosMu  sync.RWMutex
+	promptInfos    []registry.PromptInfo
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry

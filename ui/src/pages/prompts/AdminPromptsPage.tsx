@@ -89,11 +89,12 @@ const columns: { key: SortKey; label: string; width?: string }[] = [
 
 function sortValue(p: Prompt, key: SortKey): string {
   switch (key) {
-    case "name": return (p.display_name || p.name).toLowerCase();
-    case "scope": return p.scope;
+    case "name": return (p.display_name || p.name || "").toLowerCase();
+    case "scope": return p.scope || "";
     case "description": return (p.description || "").toLowerCase();
     case "owner": return (p.owner_email || "").toLowerCase();
     case "status": return p.enabled ? "a" : "z";
+    default: return "";
   }
 }
 
@@ -105,6 +106,7 @@ export function AdminPromptsPage({ onNavigate }: Props) {
   const [form, setForm] = useState<FormData>(emptyForm);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -169,11 +171,17 @@ export function AdminPromptsPage({ onNavigate }: Props) {
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
+  const isMutating = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+
   function handleSubmit() {
+    setMutationError(null);
     const personas = form.personas
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    const onError = (err: unknown) => {
+      setMutationError(err instanceof Error ? err.message : "Operation failed");
+    };
 
     if (formMode === "create") {
       createMutation.mutate(
@@ -188,7 +196,7 @@ export function AdminPromptsPage({ onNavigate }: Props) {
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
-        { onSuccess: () => setFormMode("closed") },
+        { onSuccess: () => { setFormMode("closed"); setMutationError(null); }, onError },
       );
     } else if (formMode === "edit" && form.id) {
       updateMutation.mutate(
@@ -204,16 +212,20 @@ export function AdminPromptsPage({ onNavigate }: Props) {
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
-        { onSuccess: () => setFormMode("closed") },
+        { onSuccess: () => { setFormMode("closed"); setMutationError(null); }, onError },
       );
     }
   }
 
   function handleDelete(id: string) {
+    setMutationError(null);
     deleteMutation.mutate(id, {
       onSuccess: () => {
         setDeleteConfirm(null);
         if (expandedId === id) setExpandedId(null);
+      },
+      onError: (err) => {
+        setMutationError(err instanceof Error ? err.message : "Delete failed");
       },
     });
   }
@@ -331,11 +343,14 @@ export function AdminPromptsPage({ onNavigate }: Props) {
               <span className="text-xs text-muted-foreground">{form.enabled ? "Enabled" : "Disabled"}</span>
             </div>
           </div>
+          {mutationError && (
+            <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{mutationError}</div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setFormMode("closed")} className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">Cancel</button>
-            <button onClick={handleSubmit} disabled={!form.name || !form.content} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            <button onClick={handleSubmit} disabled={!form.name || !form.content || isMutating} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               <Save className="h-3.5 w-3.5" />
-              {formMode === "create" ? "Create" : "Save"}
+              {isMutating ? "Saving..." : formMode === "create" ? "Create" : "Save"}
             </button>
           </div>
         </div>

@@ -127,8 +127,8 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		writePortalError(w, http.StatusBadRequest, "name is required")
+	if err := prompt.ValidateName(req.Name); err != nil {
+		writePortalError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.Content == "" {
@@ -185,9 +185,15 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
-	if !isAdmin && existing.OwnerEmail != user.Email {
-		writePortalError(w, http.StatusForbidden, "you can only update your own prompts")
-		return
+	if !isAdmin {
+		if existing.Scope != prompt.ScopePersonal {
+			writePortalError(w, http.StatusForbidden, "non-admins can only manage personal prompts")
+			return
+		}
+		if existing.OwnerEmail != user.Email {
+			writePortalError(w, http.StatusForbidden, "you can only update your own prompts")
+			return
+		}
 	}
 
 	var req portalPromptCreateRequest
@@ -251,9 +257,15 @@ func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
-	if !isAdmin && existing.OwnerEmail != user.Email {
-		writePortalError(w, http.StatusForbidden, "you can only delete your own prompts")
-		return
+	if !isAdmin {
+		if existing.Scope != prompt.ScopePersonal {
+			writePortalError(w, http.StatusForbidden, "non-admins can only manage personal prompts")
+			return
+		}
+		if existing.OwnerEmail != user.Email {
+			writePortalError(w, http.StatusForbidden, "you can only delete your own prompts")
+			return
+		}
 	}
 
 	if err := h.deps.PromptStore.DeleteByID(r.Context(), id); err != nil {

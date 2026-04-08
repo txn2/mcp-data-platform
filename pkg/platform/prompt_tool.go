@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -78,8 +79,8 @@ func (p *Platform) handleManagePrompt(ctx context.Context, input managePromptInp
 
 // handlePromptCreate creates a new prompt.
 func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
-	if input.Name == "" {
-		return promptErrorResult("name is required"), nil, nil
+	if err := prompt.ValidateName(input.Name); err != nil {
+		return promptErrorResult(err.Error()), nil, nil
 	}
 	if input.Content == "" {
 		return promptErrorResult("content is required"), nil, nil
@@ -88,6 +89,9 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	scope := input.Scope
 	if scope == "" {
 		scope = prompt.ScopePersonal
+	}
+	if err := prompt.ValidateScope(scope); err != nil {
+		return promptErrorResult(err.Error()), nil, nil
 	}
 
 	email := resolveEmail(ctx)
@@ -137,8 +141,13 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	}
 
 	email := resolveEmail(ctx)
-	if !p.isAdminPersona(ctx) && existing.OwnerEmail != email {
-		return promptErrorResult("you can only update your own prompts"), nil, nil
+	if !p.isAdminPersona(ctx) {
+		if existing.Scope != prompt.ScopePersonal {
+			return promptErrorResult("non-admins can only manage personal prompts"), nil, nil
+		}
+		if existing.OwnerEmail != email {
+			return promptErrorResult("you can only update your own prompts"), nil, nil
+		}
 	}
 
 	// Apply updates (only non-empty fields)
@@ -196,8 +205,13 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	}
 
 	email := resolveEmail(ctx)
-	if !p.isAdminPersona(ctx) && existing.OwnerEmail != email {
-		return promptErrorResult("you can only delete your own prompts"), nil, nil
+	if !p.isAdminPersona(ctx) {
+		if existing.Scope != prompt.ScopePersonal {
+			return promptErrorResult("non-admins can only manage personal prompts"), nil, nil
+		}
+		if existing.OwnerEmail != email {
+			return promptErrorResult("you can only delete your own prompts"), nil, nil
+		}
 	}
 
 	if err := p.promptStore.Delete(ctx, input.Name); err != nil {
@@ -236,22 +250,26 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 
 	// For non-admins, also include global and persona-scoped prompts
 	if !isAdmin && filter.Scope == "" {
-		globalPrompts, err := p.promptStore.List(ctx, prompt.ListFilter{
+		globalPrompts, globalErr := p.promptStore.List(ctx, prompt.ListFilter{
 			Scope:   prompt.ScopeGlobal,
 			Enabled: &enabled,
 		})
-		if err == nil {
+		if globalErr != nil {
+			slog.Warn("failed to load global prompts", logKeyError, globalErr)
+		} else {
 			prompts = append(prompts, globalPrompts...)
 		}
 
 		pc := middleware.GetPlatformContext(ctx)
 		if pc != nil && pc.PersonaName != "" {
-			personaPrompts, err := p.promptStore.List(ctx, prompt.ListFilter{
+			personaPrompts, personaErr := p.promptStore.List(ctx, prompt.ListFilter{
 				Scope:    prompt.ScopePersona,
 				Personas: []string{pc.PersonaName},
 				Enabled:  &enabled,
 			})
-			if err == nil {
+			if personaErr != nil {
+				slog.Warn("failed to load persona prompts", logKeyError, personaErr)
+			} else {
 				prompts = append(prompts, personaPrompts...)
 			}
 		}

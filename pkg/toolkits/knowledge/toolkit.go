@@ -582,7 +582,7 @@ func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyC
 // dispatchAddPrompt handles add_prompt changes by creating a platform prompt.
 func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string, error) {
 	if t.promptCreator == nil {
-		return "", fmt.Errorf("prompt creation not available: prompt store not configured")
+		return "", fmt.Errorf("prompt creation not available: feature not initialized")
 	}
 	p := &prompt.Prompt{
 		Name:        c.Target,

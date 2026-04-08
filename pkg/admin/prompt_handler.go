@@ -2,8 +2,8 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -79,19 +79,20 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 		prompts = []prompt.Prompt{}
 	}
 
-	// Build a set of DB prompt names to avoid duplicates when merging system prompts.
-	dbNames := make(map[string]bool, len(prompts))
+	// Build a set of known names to avoid duplicates when merging system prompts.
+	seen := make(map[string]bool, len(prompts))
 	for _, p := range prompts {
-		dbNames[p.Name] = true
+		seen[p.Name] = true
 	}
 
 	// Merge system prompts (registered on the MCP server but not in DB).
 	if h.deps.PromptInfoProvider != nil && filter.OwnerEmail == "" {
 		search := strings.ToLower(filter.Search)
 		for _, info := range h.deps.PromptInfoProvider.AllPromptInfos() {
-			if dbNames[info.Name] {
+			if seen[info.Name] {
 				continue
 			}
+			seen[info.Name] = true
 			if filter.Scope != "" && filter.Scope != "system" {
 				continue
 			}
@@ -112,7 +113,10 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	total, _ := h.deps.PromptStore.Count(r.Context(), filter)
+	total, countErr := h.deps.PromptStore.Count(r.Context(), filter)
+	if countErr != nil {
+		slog.Warn("failed to count prompts", "error", countErr)
+	}
 
 	writeJSON(w, http.StatusOK, adminPromptListResponse{
 		Data:  prompts,
@@ -150,8 +154,8 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+	if err := prompt.ValidateName(req.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.Content == "" {
@@ -162,6 +166,10 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 	scope := req.Scope
 	if scope == "" {
 		scope = prompt.ScopePersonal
+	}
+	if err := prompt.ValidateScope(scope); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	source := req.Source
 	if source == "" {
@@ -226,7 +234,16 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 
 	oldName := existing.Name
 
-	if req.Name != nil {
+	if req.Name != nil && *req.Name != oldName {
+		if err := prompt.ValidateName(*req.Name); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		dup, _ := h.deps.PromptStore.Get(r.Context(), *req.Name)
+		if dup != nil {
+			writeError(w, http.StatusConflict, "prompt name already exists")
+			return
+		}
 		existing.Name = *req.Name
 	}
 	if req.DisplayName != nil {
@@ -245,6 +262,10 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 		existing.Category = *req.Category
 	}
 	if req.Scope != nil {
+		if err := prompt.ValidateScope(*req.Scope); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		existing.Scope = *req.Scope
 	}
 	if req.Personas != nil {
@@ -263,6 +284,12 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update prompt")
 		return
+	}
+
+	// Re-read to get DB-refreshed updated_at.
+	refreshed, _ := h.deps.PromptStore.GetByID(r.Context(), existing.ID)
+	if refreshed != nil {
+		existing = refreshed
 	}
 
 	// Re-register with live MCP server
@@ -300,16 +327,4 @@ func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
-}
-
-// parseIntOr returns the integer value of s, or fallback on parse error.
-func parseIntOr(s string, fallback int) int {
-	if s == "" {
-		return fallback
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return v
 }

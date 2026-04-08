@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS prompts (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_prompts_scope   ON prompts(scope);
-CREATE INDEX IF NOT EXISTS idx_prompts_owner   ON prompts(owner_email);
-CREATE INDEX IF NOT EXISTS idx_prompts_enabled ON prompts(enabled);
+CREATE INDEX IF NOT EXISTS idx_prompts_scope    ON prompts(scope);
+CREATE INDEX IF NOT EXISTS idx_prompts_owner    ON prompts(owner_email);
+CREATE INDEX IF NOT EXISTS idx_prompts_enabled  ON prompts(enabled);
+CREATE INDEX IF NOT EXISTS idx_prompts_personas ON prompts USING GIN(personas);

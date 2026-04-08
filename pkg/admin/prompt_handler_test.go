@@ -292,9 +292,3 @@ func TestCreatePrompt_DisabledNotRegistered(t *testing.T) {
 	assert.Contains(t, store.prompts, "disabled-prompt")
 	assert.NotContains(t, registrar.registered, "disabled-prompt")
 }
-
-func TestParseIntOr(t *testing.T) {
-	assert.Equal(t, 5, parseIntOr("5", 10))
-	assert.Equal(t, 10, parseIntOr("", 10))
-	assert.Equal(t, 10, parseIntOr("abc", 10))
-}

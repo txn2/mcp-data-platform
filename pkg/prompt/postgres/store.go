@@ -56,7 +56,14 @@ func (s *Store) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) 
 	return s.getBy(ctx, "id", id)
 }
 
+// validGetColumns is the allowlist of columns accepted by getBy.
+var validGetColumns = map[string]bool{"id": true, "name": true}
+
 func (s *Store) getBy(ctx context.Context, column, value string) (*prompt.Prompt, error) {
+	if !validGetColumns[column] {
+		return nil, fmt.Errorf("invalid column: %s", column)
+	}
+
 	query := `SELECT id, name, display_name, description, content, arguments,
 	                 category, scope, personas, owner_email, source, enabled,
 	                 created_at, updated_at
@@ -77,6 +84,12 @@ func (s *Store) getBy(ctx context.Context, column, value string) (*prompt.Prompt
 	}
 	if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
 		return nil, fmt.Errorf("unmarshal arguments: %w", err)
+	}
+	if p.Arguments == nil {
+		p.Arguments = []prompt.Argument{}
+	}
+	if p.Personas == nil {
+		p.Personas = []string{}
 	}
 	return p, nil
 }
@@ -155,6 +168,12 @@ func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Pr
 		}
 		if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
 			return nil, fmt.Errorf("unmarshal arguments: %w", err)
+		}
+		if p.Arguments == nil {
+			p.Arguments = []prompt.Argument{}
+		}
+		if p.Personas == nil {
+			p.Personas = []string{}
 		}
 		result = append(result, p)
 	}

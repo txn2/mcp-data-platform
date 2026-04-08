@@ -168,7 +168,9 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 			Required:    arg.Required,
 		})
 	}
+	p.promptInfosMu.Lock()
 	p.promptInfos = append(p.promptInfos, info)
+	p.promptInfosMu.Unlock()
 }
 
 // substituteArgs replaces {arg_name} placeholders in content with values from
@@ -337,8 +339,10 @@ func (p *Platform) collectToolkitPromptInfos() []registry.PromptInfo {
 // allPromptInfos returns all prompt metadata: platform-registered + toolkit-registered.
 func (p *Platform) allPromptInfos() []registry.PromptInfo {
 	tkInfos := p.collectToolkitPromptInfos()
+	p.promptInfosMu.RLock()
 	all := make([]registry.PromptInfo, 0, len(p.promptInfos)+len(tkInfos))
 	all = append(all, p.promptInfos...)
+	p.promptInfosMu.RUnlock()
 	all = append(all, tkInfos...)
 	return all
 }
@@ -406,7 +410,9 @@ func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
 			Required:    arg.Required,
 		})
 	}
+	p.promptInfosMu.Lock()
 	p.promptInfos = append(p.promptInfos, info)
+	p.promptInfosMu.Unlock()
 }
 
 // RegisterRuntimePrompt registers a prompt with the live MCP server at runtime.
@@ -419,13 +425,14 @@ func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
 // Called after delete operations on the prompt store.
 func (p *Platform) UnregisterRuntimePrompt(name string) {
 	p.mcpServer.RemovePrompts(name)
-	// Remove from promptInfos
+	p.promptInfosMu.Lock()
 	for i, info := range p.promptInfos {
 		if info.Name == name {
 			p.promptInfos = append(p.promptInfos[:i], p.promptInfos[i+1:]...)
 			break
 		}
 	}
+	p.promptInfosMu.Unlock()
 }
 
 // buildPromptResult creates a GetPromptResult with the given content.
