@@ -3,11 +3,13 @@ package platform
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
@@ -23,13 +25,15 @@ const (
 
 // registerPlatformPrompts registers platform-level prompts from config.
 // It first registers the auto-generated platform overview prompt (if applicable),
-// then registers operator-configured prompts, then workflow prompts.
+// then registers operator-configured prompts, then workflow prompts,
+// then database-stored prompts.
 func (p *Platform) registerPlatformPrompts() {
 	p.registerAutoPrompt()
 	for _, promptCfg := range p.config.Server.Prompts {
 		p.registerPromptWithCategory(promptCfg, "custom")
 	}
 	p.registerWorkflowPrompts()
+	p.registerDatabasePrompts()
 }
 
 // registerAutoPrompt registers the auto-generated "platform-overview" prompt when
@@ -164,7 +168,9 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 			Required:    arg.Required,
 		})
 	}
+	p.promptInfosMu.Lock()
 	p.promptInfos = append(p.promptInfos, info)
+	p.promptInfosMu.Unlock()
 }
 
 // substituteArgs replaces {arg_name} placeholders in content with values from
@@ -265,9 +271,15 @@ func workflowPrompts() []workflowPrompt {
 
 // registerWorkflowPrompts registers platform-level workflow prompts
 // conditional on the required toolkits being available.
-// Skips any prompt whose name matches an operator-configured prompt.
+// Skips any prompt whose name matches an operator-configured prompt or that
+// has been explicitly disabled via server.builtin_prompts config.
 func (p *Platform) registerWorkflowPrompts() {
 	for _, wp := range workflowPrompts() {
+		// Skip if explicitly disabled in config
+		if p.isBuiltinDisabled(wp.config.Name) {
+			continue
+		}
+
 		// Skip if operator already defined this prompt
 		if p.isOperatorPrompt(wp.config.Name) {
 			continue
@@ -280,6 +292,17 @@ func (p *Platform) registerWorkflowPrompts() {
 
 		p.registerPromptWithCategory(wp.config, "workflow")
 	}
+}
+
+// isBuiltinDisabled checks if a built-in prompt has been explicitly disabled
+// via server.builtin_prompts config. If the map is nil or the key is absent,
+// the prompt is enabled by default.
+func (p *Platform) isBuiltinDisabled(name string) bool {
+	if p.config.Server.BuiltinPrompts == nil {
+		return false
+	}
+	enabled, exists := p.config.Server.BuiltinPrompts[name]
+	return exists && !enabled
 }
 
 // isOperatorPrompt checks if a prompt name is already defined in operator config.
@@ -313,13 +336,98 @@ func (p *Platform) collectToolkitPromptInfos() []registry.PromptInfo {
 	return infos
 }
 
-// allPromptInfos returns all prompt metadata: platform-registered + toolkit-registered.
-func (p *Platform) allPromptInfos() []registry.PromptInfo {
+// AllPromptInfos returns all prompt metadata (platform + toolkit).
+// Exported for the admin API to surface system prompts.
+func (p *Platform) AllPromptInfos() []registry.PromptInfo {
 	tkInfos := p.collectToolkitPromptInfos()
+	p.promptInfosMu.RLock()
 	all := make([]registry.PromptInfo, 0, len(p.promptInfos)+len(tkInfos))
 	all = append(all, p.promptInfos...)
+	p.promptInfosMu.RUnlock()
 	all = append(all, tkInfos...)
 	return all
+}
+
+// registerDatabasePrompts loads enabled prompts from the database and registers
+// them with the MCP server. Called during startup after the prompt store is initialized.
+func (p *Platform) registerDatabasePrompts() {
+	if p.promptStore == nil {
+		return
+	}
+
+	enabled := true
+	prompts, err := p.promptStore.List(context.Background(), prompt.ListFilter{Enabled: &enabled})
+	if err != nil {
+		slog.Warn("failed to load prompts from database", logKeyError, err)
+		return
+	}
+
+	for i := range prompts {
+		p.registerDatabasePrompt(&prompts[i])
+	}
+	if len(prompts) > 0 {
+		slog.Info("loaded prompts from database", "count", len(prompts))
+	}
+}
+
+// registerDatabasePrompt registers a single database prompt with the MCP server.
+func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
+	promptContent := pr.Content
+
+	mcpArgs := make([]*mcp.PromptArgument, 0, len(pr.Arguments))
+	for _, arg := range pr.Arguments {
+		mcpArgs = append(mcpArgs, &mcp.PromptArgument{
+			Name:        arg.Name,
+			Description: arg.Description,
+			Required:    arg.Required,
+		})
+	}
+
+	p.mcpServer.AddPrompt(&mcp.Prompt{
+		Name:        pr.Name,
+		Description: pr.Description,
+		Arguments:   mcpArgs,
+	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		resolved := substituteArgs(promptContent, req.Params.Arguments)
+		return buildPromptResult(resolved), nil
+	})
+
+	info := registry.PromptInfo{
+		Name:        pr.Name,
+		Description: pr.Description,
+		Category:    pr.Scope,
+		Content:     pr.Content,
+	}
+	for _, arg := range pr.Arguments {
+		info.Arguments = append(info.Arguments, registry.PromptArgumentInfo{
+			Name:        arg.Name,
+			Description: arg.Description,
+			Required:    arg.Required,
+		})
+	}
+	p.promptInfosMu.Lock()
+	p.promptInfos = append(p.promptInfos, info)
+	p.promptInfosMu.Unlock()
+}
+
+// RegisterRuntimePrompt registers a prompt with the live MCP server at runtime.
+// Called after create/update operations on the prompt store.
+func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
+	p.registerDatabasePrompt(pr)
+}
+
+// UnregisterRuntimePrompt removes a prompt from the live MCP server at runtime.
+// Called after delete operations on the prompt store.
+func (p *Platform) UnregisterRuntimePrompt(name string) {
+	p.mcpServer.RemovePrompts(name)
+	p.promptInfosMu.Lock()
+	for i, info := range p.promptInfos {
+		if info.Name == name {
+			p.promptInfos = append(p.promptInfos[:i], p.promptInfos[i+1:]...)
+			break
+		}
+	}
+	p.promptInfosMu.Unlock()
 }
 
 // buildPromptResult creates a GetPromptResult with the given content.

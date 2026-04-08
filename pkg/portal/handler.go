@@ -63,19 +63,22 @@ type PersonaResolver func(roles []string) *PersonaInfo
 
 // Deps holds dependencies for the portal handler.
 type Deps struct {
-	AssetStore      AssetStore
-	ShareStore      ShareStore
-	VersionStore    VersionStore
-	CollectionStore CollectionStore
-	S3Client        S3Client
-	S3Bucket        string
-	PublicBaseURL   string
-	RateLimit       RateLimitConfig
-	OIDCEnabled     bool
-	AdminRoles      []string // roles that grant admin access in the portal
-	AuditMetrics    AuditMetrics
-	InsightStore    InsightReader
-	PersonaResolver PersonaResolver
+	AssetStore         AssetStore
+	ShareStore         ShareStore
+	VersionStore       VersionStore
+	CollectionStore    CollectionStore
+	S3Client           S3Client
+	S3Bucket           string
+	PublicBaseURL      string
+	RateLimit          RateLimitConfig
+	OIDCEnabled        bool
+	AdminRoles         []string // roles that grant admin access in the portal
+	PromptStore        PromptStore
+	PromptRegistrar    PromptRegistrar
+	PromptInfoProvider PromptInfoProvider
+	AuditMetrics       AuditMetrics
+	InsightStore       InsightReader
+	PersonaResolver    PersonaResolver
 	// Platform brand (far right of public viewer header)
 	BrandName    string // display name (default: "MCP Data Platform")
 	BrandLogoSVG string // inline SVG for header logo (empty = default icon)
@@ -160,6 +163,9 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/shares", h.listCollectionShares)
 		h.mux.HandleFunc("GET /api/v1/portal/shared-collections", h.listSharedCollections)
 	}
+
+	// Prompt routes
+	h.registerPromptRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {

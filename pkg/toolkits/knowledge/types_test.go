@@ -687,6 +687,41 @@ func TestInsightStatsJSONTags(t *testing.T) {
 	assert.InDelta(t, 5, m["total_pending"], 0.01) //nolint:revive // test value
 }
 
+func TestValidateAddPromptFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		change  ApplyChange
+		wantErr bool
+		errMsg  string
+	}{
+		{"valid", ApplyChange{ChangeType: "add_prompt", Target: "my-prompt", Detail: "content"}, false, ""},
+		{"missing target", ApplyChange{ChangeType: "add_prompt", Detail: "content"}, true, "target"},
+		{"missing detail", ApplyChange{ChangeType: "add_prompt", Target: "my-prompt"}, true, "detail"},
+		{"both empty", ApplyChange{ChangeType: "add_prompt"}, true, "target"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateAddPromptFields(tc.change)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestRequireField(t *testing.T) {
+	assert.NoError(t, requireField("value", "msg"))
+	err := requireField("", "field is required")
+	require.Error(t, err)
+	assert.Equal(t, "field is required", err.Error())
+	var rfe RequiredFieldError
+	assert.ErrorAs(t, err, &rfe)
+}
+
 // makeApplyChanges creates a slice of n copies of the given ApplyChange.
 func makeApplyChanges(n int, template ApplyChange) []ApplyChange {
 	result := make([]ApplyChange, n)

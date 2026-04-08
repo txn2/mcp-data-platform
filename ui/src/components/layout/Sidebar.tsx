@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Cable,
   KeyRound,
+  MessageSquare,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -34,9 +35,10 @@ interface Props {
 }
 
 const basePortalNavItems = [
-  { path: "/activity", label: "My Activity", icon: Activity },
-  { path: "/", label: "My Assets", icon: LayoutGrid },
+  { path: "/activity", label: "Activity", icon: Activity },
+  { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/collections", label: "Collections", icon: FolderOpen },
+  { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
 
@@ -58,6 +60,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
   { path: "/admin/knowledge", label: "Knowledge", icon: Lightbulb },
   { path: "/admin/personas", label: "Personas", icon: Users },
+  { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
 ];
 
@@ -77,7 +80,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const portalNavItems = hasKnowledge
     ? [
         ...basePortalNavItems,
-        { path: "/my-knowledge", label: "My Knowledge", icon: Lightbulb },
+        { path: "/my-knowledge", label: "Knowledge", icon: Lightbulb },
       ]
     : basePortalNavItems;
   const { data: branding } = useBranding();
@@ -113,7 +116,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   function isActive(itemPath: string) {
     // Hash-based sub-routes (e.g. /admin/settings#description) — compare against full path including hash.
     if (itemPath.includes("#")) return currentPath === itemPath;
-    if (itemPath === "/" || itemPath === "/shared" || itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge") return route === itemPath;
+    if (itemPath === "/" || itemPath === "/shared" || itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge" || itemPath === "/prompts") return route === itemPath;
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 
@@ -146,6 +149,11 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
       </div>
 
       <nav className="flex-1 space-y-1 overflow-auto p-2">
+        {!effectiveCollapsed && (
+          <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            User
+          </p>
+        )}
         {portalNavItems.map((item) => (
           <button
             key={item.path}

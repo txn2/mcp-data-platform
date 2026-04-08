@@ -92,6 +92,11 @@ var descriptionSupportedTypes = map[string]bool{
 // validateEntityTypeForChange checks whether a change type is supported for the
 // given entity URN. Returns a user-friendly error message when incompatible.
 func validateEntityTypeForChange(urn string, c ApplyChange) error {
+	// add_prompt is a platform operation, not a DataHub entity change.
+	if c.ChangeType == string(actionAddPrompt) {
+		return nil
+	}
+
 	entityType, err := entityTypeFromURN(urn)
 	if err != nil {
 		return err
@@ -99,25 +104,7 @@ func validateEntityTypeForChange(urn string, c ApplyChange) error {
 
 	// Column-level descriptions are dataset-only (schema metadata is a dataset concept).
 	if c.ChangeType == string(actionUpdateDescription) {
-		if _, isColumn := parseColumnTarget(c.Target); isColumn {
-			if entityType != entityTypeDataset {
-				return fmt.Errorf(
-					"column-level update_description is only supported for datasets, not %s entities. "+
-						"Supported operations for %s: %s",
-					entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
-				)
-			}
-			return nil
-		}
-
-		// Entity-level update_description is only supported for specific entity types.
-		if !descriptionSupportedTypes[entityType] {
-			return fmt.Errorf(
-				"update_description is not supported for %s entities. "+
-					"Supported operations for %s: %s",
-				entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
-			)
-		}
+		return validateDescriptionChange(entityType, c)
 	}
 
 	// Dataset-only operations.
@@ -138,6 +125,30 @@ func validateEntityTypeForChange(urn string, c ApplyChange) error {
 		)
 	}
 
+	return nil
+}
+
+// validateDescriptionChange validates update_description changes, handling both
+// column-level (dataset-only) and entity-level (specific types) descriptions.
+func validateDescriptionChange(entityType string, c ApplyChange) error {
+	if _, isColumn := parseColumnTarget(c.Target); isColumn {
+		if entityType != entityTypeDataset {
+			return fmt.Errorf(
+				"column-level update_description is only supported for datasets, not %s entities. "+
+					"Supported operations for %s: %s",
+				entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
+			)
+		}
+		return nil
+	}
+
+	if !descriptionSupportedTypes[entityType] {
+		return fmt.Errorf(
+			"update_description is not supported for %s entities. "+
+				"Supported operations for %s: %s",
+			entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
+		)
+	}
 	return nil
 }
 

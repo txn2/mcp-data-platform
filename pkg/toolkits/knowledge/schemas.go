@@ -60,11 +60,11 @@ var captureInsightSchema = json.RawMessage(`{
         "properties": {
           "action_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document"
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, add_prompt"
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions. For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document, this is the document ID. For remove_context_document, this is the document ID. For remove_tag, this is ignored. Leave empty for dataset-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions. For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document, this is the document ID. For remove_context_document, this is the document ID. For add_prompt, this is the prompt name. For remove_tag, this is ignored. Leave empty for dataset-level updates"
           },
           "detail": {
             "type": "string",
@@ -115,11 +115,11 @@ var applyKnowledgeSchema = json.RawMessage(`{
         "properties": {
           "change_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only. add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, containers. remove_context_document works on all entity types. Structured properties and incidents require DataHub 1.4.x."
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, add_prompt. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only. add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, containers. remove_context_document works on all entity types. Structured properties and incidents require DataHub 1.4.x. add_prompt creates a platform prompt (target=name, detail=content)."
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document/remove_context_document, this is the document ID. For remove_tag, this is ignored. Leave empty for entity-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document/remove_context_document, this is the document ID. For add_prompt, this is the prompt name. For remove_tag, this is ignored. Leave empty for entity-level updates"
           },
           "detail": {
             "type": "string",
