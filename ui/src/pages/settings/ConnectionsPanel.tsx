@@ -278,8 +278,11 @@ function ConnectionViewer({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
-  const datahubSourceName = connection.config?.datahub_source_name as string | undefined;
-  const catalogMapping = connection.config?.catalog_mapping as Record<string, string> | undefined;
+  const datahubSourceName = typeof connection.config?.datahub_source_name === "string"
+    ? connection.config.datahub_source_name : undefined;
+  const rawMapping = connection.config?.catalog_mapping;
+  const catalogMapping = (rawMapping != null && typeof rawMapping === "object" && !Array.isArray(rawMapping))
+    ? rawMapping as Record<string, string> : undefined;
   const hasDataHub = Boolean(datahubSourceName) || (catalogMapping != null && Object.keys(catalogMapping).length > 0);
   const datahubFilterKeys = new Set(["datahub_source_name", "catalog_mapping"]);
   const configEntries = Object.entries(connection.config ?? {}).filter(([key]) => !datahubFilterKeys.has(key));

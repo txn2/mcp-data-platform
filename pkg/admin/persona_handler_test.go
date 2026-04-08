@@ -605,6 +605,40 @@ func TestPersonaSourceTracking(t *testing.T) {
 		assert.Equal(t, "File Analyst", reverted.DisplayName)
 		assert.Equal(t, "file", reverted.Source)
 	})
+
+	t.Run("delete both persona tolerates ErrPersonaNotFound from store", func(t *testing.T) {
+		p := testPersonas("analyst")[0]
+		p.Source = "both"
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		cs := &mockConfigStore{mode: "database"}
+		ps := &mockPersonaStore{deleteErr: platform.ErrPersonaNotFound}
+		cfg := testConfig()
+		cfg.Personas.Definitions = map[string]platform.PersonaDef{
+			"analyst": {
+				DisplayName: "File Analyst",
+				Roles:       []string{"analyst"},
+				Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+			},
+		}
+		h := NewHandler(Deps{
+			PersonaRegistry:  pReg,
+			Config:           cfg,
+			ConfigStore:      cs,
+			PersonaStore:     ps,
+			FilePersonaNames: map[string]bool{"analyst": true},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		// Should succeed despite store returning ErrPersonaNotFound
+		assert.Equal(t, http.StatusOK, w.Code)
+		reverted, ok := pReg.Get("analyst")
+		assert.True(t, ok)
+		assert.Equal(t, "file", reverted.Source)
+	})
 }
 
 func TestExtractAuthor(t *testing.T) {

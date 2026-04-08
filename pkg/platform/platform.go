@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -82,7 +83,7 @@ const logKeyError = "error"
 // Source constants for personas and other config resources.
 const (
 	SourceFile     = "file"
-	SourceDatabase = "database" //nolint:goconst // distinct from SessionStoreDatabase
+	SourceDatabase = "database" //nolint:goconst // same value as SessionStoreDatabase but different semantic domain
 	SourceBoth     = "both"
 )
 
@@ -1620,9 +1621,14 @@ func (p *Platform) loadPersonas() error {
 	return nil
 }
 
-// FilePersonaNames returns the set of persona names loaded from the config file.
+// FilePersonaNames returns a copy of the persona names loaded from the config file.
 func (p *Platform) FilePersonaNames() map[string]bool {
-	return p.filePersonaNames
+	if p.filePersonaNames == nil {
+		return nil
+	}
+	cp := make(map[string]bool, len(p.filePersonaNames))
+	maps.Copy(cp, p.filePersonaNames)
+	return cp
 }
 
 // loadDBPersonas loads persona definitions from the database and registers
