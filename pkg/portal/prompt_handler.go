@@ -199,8 +199,9 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldName := existing.Name
-	if errMsg := applyPortalPromptFields(existing, req); errMsg != "" {
-		writePortalError(w, http.StatusBadRequest, errMsg)
+	status, msg := h.applyAndValidatePortalUpdate(r.Context(), existing, req, oldName)
+	if status != 0 {
+		writePortalError(w, status, msg)
 		return
 	}
 
@@ -241,6 +242,22 @@ func checkPortalUpdatePermission(user *User, existing *prompt.Prompt, adminRoles
 		return "you can only update your own prompts"
 	}
 	return ""
+}
+
+// applyAndValidatePortalUpdate applies field updates and checks for name conflicts.
+// oldName is the prompt's name before any mutations were applied.
+// Returns (0, "") on success, or (httpStatus, errorMessage) on failure.
+func (h *Handler) applyAndValidatePortalUpdate(ctx context.Context, existing *prompt.Prompt, req portalPromptCreateRequest, oldName string) (httpStatus int, errMsg string) {
+	if errMsg := applyPortalPromptFields(existing, req); errMsg != "" {
+		return http.StatusBadRequest, errMsg
+	}
+	if existing.Name != oldName {
+		dup, _ := h.deps.PromptStore.Get(ctx, existing.Name)
+		if dup != nil {
+			return http.StatusConflict, "prompt name already exists"
+		}
+	}
+	return 0, ""
 }
 
 // applyPortalPromptFields applies non-empty fields from the portal update request to the prompt.
