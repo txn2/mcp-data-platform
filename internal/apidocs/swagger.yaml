@@ -149,6 +149,17 @@ definitions:
       insight_text:
         type: string
     type: object
+  admin.personaContextDetail:
+    properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
+        type: string
+    type: object
   admin.personaCreateRequest:
     properties:
       agent_instructions_override:
@@ -190,10 +201,6 @@ definitions:
     type: object
   admin.personaDetail:
     properties:
-      agent_instructions_override:
-        type: string
-      agent_instructions_suffix:
-        type: string
       allow_connections:
         items:
           type: string
@@ -202,6 +209,8 @@ definitions:
         items:
           type: string
         type: array
+      context:
+        $ref: '#/definitions/admin.personaContextDetail'
       deny_connections:
         items:
           type: string
@@ -211,10 +220,6 @@ definitions:
           type: string
         type: array
       description:
-        type: string
-      description_override:
-        type: string
-      description_prefix:
         type: string
       display_name:
         type: string
@@ -226,6 +231,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
       tools:
         items:
           type: string
@@ -252,6 +260,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
       tool_count:
         type: integer
     type: object
@@ -575,6 +586,9 @@ definitions:
         items:
           type: string
         type: array
+      source:
+        description: '"file", "database", or "both"'
+        type: string
     type: object
   knowledge.Changeset:
     properties:

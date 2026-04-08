@@ -2,6 +2,8 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -17,24 +19,31 @@ type personaSummary struct {
 	Description string   `json:"description,omitempty"`
 	Roles       []string `json:"roles"`
 	ToolCount   int      `json:"tool_count"`
+	Source      string   `json:"source,omitempty"` // "file", "database", or "both"
+}
+
+// personaContextDetail holds context override fields nested under "context" in JSON.
+type personaContextDetail struct {
+	DescriptionPrefix         string `json:"description_prefix,omitempty"`
+	DescriptionOverride       string `json:"description_override,omitempty"`
+	AgentInstructionsSuffix   string `json:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsOverride string `json:"agent_instructions_override,omitempty"`
 }
 
 // personaDetail includes resolved tool lists.
 type personaDetail struct {
-	Name                      string   `json:"name"`
-	DisplayName               string   `json:"display_name"`
-	Description               string   `json:"description,omitempty"`
-	Roles                     []string `json:"roles"`
-	Priority                  int      `json:"priority"`
-	AllowTools                []string `json:"allow_tools"`
-	DenyTools                 []string `json:"deny_tools"`
-	AllowConnections          []string `json:"allow_connections,omitempty"`
-	DenyConnections           []string `json:"deny_connections,omitempty"`
-	Tools                     []string `json:"tools"`
-	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
-	DescriptionOverride       string   `json:"description_override,omitempty"`
-	AgentInstructionsSuffix   string   `json:"agent_instructions_suffix,omitempty"`
-	AgentInstructionsOverride string   `json:"agent_instructions_override,omitempty"`
+	Name             string                `json:"name"`
+	DisplayName      string                `json:"display_name"`
+	Description      string                `json:"description,omitempty"`
+	Roles            []string              `json:"roles"`
+	Priority         int                   `json:"priority"`
+	AllowTools       []string              `json:"allow_tools"`
+	DenyTools        []string              `json:"deny_tools"`
+	AllowConnections []string              `json:"allow_connections,omitempty"`
+	DenyConnections  []string              `json:"deny_connections,omitempty"`
+	Tools            []string              `json:"tools"`
+	Context          *personaContextDetail `json:"context,omitempty"`
+	Source           string                `json:"source,omitempty"` // "file", "database", or "both"
 }
 
 // personaCreateRequest is the request body for creating/updating a persona.
@@ -90,6 +99,7 @@ func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 			Description: p.Description,
 			Roles:       p.Roles,
 			ToolCount:   toolCount,
+			Source:      p.Source,
 		})
 	}
 
@@ -132,22 +142,7 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(tools)
 
-	writeJSON(w, http.StatusOK, personaDetail{
-		Name:                      p.Name,
-		DisplayName:               p.DisplayName,
-		Description:               p.Description,
-		Roles:                     p.Roles,
-		Priority:                  p.Priority,
-		AllowTools:                p.Tools.Allow,
-		DenyTools:                 p.Tools.Deny,
-		AllowConnections:          p.Connections.Allow,
-		DenyConnections:           p.Connections.Deny,
-		Tools:                     tools,
-		DescriptionPrefix:         p.Context.DescriptionPrefix,
-		DescriptionOverride:       p.Context.DescriptionOverride,
-		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
-		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
-	})
+	writeJSON(w, http.StatusOK, toPersonaDetail(p, tools))
 }
 
 // createPersona handles POST /api/v1/admin/personas.
@@ -188,13 +183,14 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := buildPersonaFromRequest(req)
+	p.Source = platform.SourceDatabase
 
 	// Persist to database FIRST — if it fails, don't register in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
 		def := platform.PersonaDefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
-			slog.Warn("failed to persist persona", logKeyName, p.Name, "error", err)
+			slog.Warn("failed to persist persona", logKeyName, p.Name, logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
 			return
 		}
@@ -205,22 +201,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, personaDetail{
-		Name:                      p.Name,
-		DisplayName:               p.DisplayName,
-		Description:               p.Description,
-		Roles:                     p.Roles,
-		Priority:                  p.Priority,
-		AllowTools:                p.Tools.Allow,
-		DenyTools:                 p.Tools.Deny,
-		AllowConnections:          p.Connections.Allow,
-		DenyConnections:           p.Connections.Deny,
-		Tools:                     []string{},
-		DescriptionPrefix:         p.Context.DescriptionPrefix,
-		DescriptionOverride:       p.Context.DescriptionOverride,
-		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
-		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
-	})
+	writeJSON(w, http.StatusCreated, toPersonaDetail(p, []string{}))
 }
 
 // updatePersona handles PUT /api/v1/admin/personas/{name}.
@@ -255,13 +236,18 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	// Override name from path
 	req.Name = name
 	p := buildPersonaFromRequest(req)
+	if h.deps.FilePersonaNames[name] {
+		p.Source = platform.SourceBoth
+	} else {
+		p.Source = platform.SourceDatabase
+	}
 
 	// Persist to database FIRST — if it fails, don't update in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
 		def := platform.PersonaDefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
-			slog.Warn("failed to persist persona update", logKeyName, p.Name, "error", err)
+			slog.Warn("failed to persist persona update", logKeyName, p.Name, logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
 			return
 		}
@@ -272,22 +258,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, personaDetail{
-		Name:                      p.Name,
-		DisplayName:               p.DisplayName,
-		Description:               p.Description,
-		Roles:                     p.Roles,
-		Priority:                  p.Priority,
-		AllowTools:                p.Tools.Allow,
-		DenyTools:                 p.Tools.Deny,
-		AllowConnections:          p.Connections.Allow,
-		DenyConnections:           p.Connections.Deny,
-		Tools:                     []string{},
-		DescriptionPrefix:         p.Context.DescriptionPrefix,
-		DescriptionOverride:       p.Context.DescriptionOverride,
-		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
-		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
-	})
+	writeJSON(w, http.StatusOK, toPersonaDetail(p, []string{}))
 }
 
 // deletePersona handles DELETE /api/v1/admin/personas/{name}.
@@ -306,19 +277,22 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	// Block deletion of the admin persona
+	// Block deletion of the admin persona.
 	if h.deps.Config != nil && name == h.deps.Config.Admin.Persona {
 		writeError(w, http.StatusConflict, "cannot delete the admin persona")
 		return
 	}
 
-	// Delete from database FIRST — if it fails, don't remove from in-memory registry.
-	if h.deps.PersonaStore != nil {
-		if err := h.deps.PersonaStore.Delete(r.Context(), name); err != nil {
-			slog.Warn("failed to delete persona from database", logKeyName, sanitizeLogValue(name), "error", err) // #nosec G706 -- name is sanitized
-			writeError(w, http.StatusInternalServerError, "failed to delete persona from database")
-			return
-		}
+	// Block deletion of file-only personas — they would reappear on restart.
+	if h.isFileOnlyPersona(name) {
+		writeError(w, http.StatusConflict,
+			"this persona is defined in the config file and cannot be deleted via the admin API")
+		return
+	}
+
+	if err := h.deletePersonaFromStore(r, name); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete persona from database")
+		return
 	}
 
 	if err := h.deps.PersonaRegistry.Unregister(name); err != nil {
@@ -326,7 +300,108 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the persona has a file fallback, re-register the file version so
+	// it reverts immediately rather than disappearing until restart.
+	if h.deps.FilePersonaNames[name] {
+		h.revertToFilePersona(name)
+	}
+
 	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+}
+
+// isFileOnlyPersona returns true if the persona exists in the file config
+// and has not been overridden by a database entry.
+func (h *Handler) isFileOnlyPersona(name string) bool {
+	if !h.deps.FilePersonaNames[name] {
+		return false
+	}
+	existing, _ := h.deps.PersonaRegistry.Get(name)
+	return existing != nil && existing.Source == platform.SourceFile
+}
+
+// deletePersonaFromStore removes a persona from the database store.
+// Returns nil if no store is configured or if the persona has a file fallback
+// and the DB entry was already absent (ErrPersonaNotFound).
+func (h *Handler) deletePersonaFromStore(r *http.Request, name string) error {
+	if h.deps.PersonaStore == nil {
+		return nil
+	}
+	err := h.deps.PersonaStore.Delete(r.Context(), name)
+	if err == nil {
+		return nil
+	}
+	// Tolerate "not found" when a file fallback exists — the DB entry
+	// may have already been removed or never existed.
+	if errors.Is(err, platform.ErrPersonaNotFound) && h.deps.FilePersonaNames[name] {
+		return nil
+	}
+	slog.Warn("failed to delete persona from database", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
+	return fmt.Errorf("deleting persona %q: %w", name, err)
+}
+
+// revertToFilePersona re-registers the file-based version of a persona after
+// its database override has been deleted.
+func (h *Handler) revertToFilePersona(name string) {
+	if h.deps.Config == nil {
+		return
+	}
+	def, ok := h.deps.Config.Personas.Definitions[name]
+	if !ok {
+		return
+	}
+	p := &persona.Persona{
+		Name:        name,
+		DisplayName: def.DisplayName,
+		Description: def.Description,
+		Roles:       def.Roles,
+		Tools: persona.ToolRules{
+			Allow: def.Tools.Allow,
+			Deny:  def.Tools.Deny,
+		},
+		Connections: persona.ConnectionRules{
+			Allow: def.Connections.Allow,
+			Deny:  def.Connections.Deny,
+		},
+		Context: persona.ContextOverrides{
+			DescriptionPrefix:         def.Context.DescriptionPrefix,
+			DescriptionOverride:       def.Context.DescriptionOverride,
+			AgentInstructionsSuffix:   def.Context.AgentInstructionsSuffix,
+			AgentInstructionsOverride: def.Context.AgentInstructionsOverride,
+		},
+		Priority: def.Priority,
+		Source:   platform.SourceFile,
+	}
+	if err := h.deps.PersonaRegistry.Register(p); err != nil {
+		slog.Warn("failed to revert persona to file version", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
+	}
+}
+
+// toPersonaDetail builds a personaDetail response from a persona and its resolved tool list.
+func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
+	ctx := &personaContextDetail{
+		DescriptionPrefix:         p.Context.DescriptionPrefix,
+		DescriptionOverride:       p.Context.DescriptionOverride,
+		AgentInstructionsSuffix:   p.Context.AgentInstructionsSuffix,
+		AgentInstructionsOverride: p.Context.AgentInstructionsOverride,
+	}
+	// Omit empty context object from JSON.
+	if *ctx == (personaContextDetail{}) {
+		ctx = nil
+	}
+	return personaDetail{
+		Name:             p.Name,
+		DisplayName:      p.DisplayName,
+		Description:      p.Description,
+		Roles:            p.Roles,
+		Priority:         p.Priority,
+		AllowTools:       p.Tools.Allow,
+		DenyTools:        p.Tools.Deny,
+		AllowConnections: p.Connections.Allow,
+		DenyConnections:  p.Connections.Deny,
+		Tools:            tools,
+		Context:          ctx,
+		Source:           p.Source,
+	}
 }
 
 // buildPersonaFromRequest converts a create request into a persona.

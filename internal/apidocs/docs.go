@@ -2185,6 +2185,23 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.personaContextDetail": {
+            "type": "object",
+            "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.personaCreateRequest": {
             "type": "object",
             "properties": {
@@ -2247,12 +2264,6 @@ const docTemplate = `{
         "admin.personaDetail": {
             "type": "object",
             "properties": {
-                "agent_instructions_override": {
-                    "type": "string"
-                },
-                "agent_instructions_suffix": {
-                    "type": "string"
-                },
                 "allow_connections": {
                     "type": "array",
                     "items": {
@@ -2264,6 +2275,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "context": {
+                    "$ref": "#/definitions/admin.personaContextDetail"
                 },
                 "deny_connections": {
                     "type": "array",
@@ -2280,12 +2294,6 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
-                "description_override": {
-                    "type": "string"
-                },
-                "description_prefix": {
-                    "type": "string"
-                },
                 "display_name": {
                     "type": "string"
                 },
@@ -2300,6 +2308,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -2340,6 +2352,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tool_count": {
                     "type": "integer"
@@ -2833,6 +2849,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 }
             }
         },

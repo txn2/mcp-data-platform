@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // --- Mock ToolkitRegistry ---
@@ -40,11 +41,34 @@ func (mockToolkit) Close() error                            { return nil }
 // Verify interface compliance.
 var _ registry.Toolkit = mockToolkit{}
 
+// mockMultiConnectionToolkit is a mockToolkit that also implements toolkit.ConnectionLister,
+// simulating aggregate toolkits like Trino multi-connection mode.
+type mockMultiConnectionToolkit struct {
+	mockToolkit
+	connections []toolkit.ConnectionDetail
+}
+
+func (m mockMultiConnectionToolkit) ListConnections() []toolkit.ConnectionDetail {
+	return m.connections
+}
+
+// Verify interface compliance.
+var (
+	_ registry.Toolkit         = mockMultiConnectionToolkit{}
+	_ toolkit.ConnectionLister = mockMultiConnectionToolkit{}
+)
+
 type mockToolkitRegistry struct {
 	allResult []mockToolkit
+	// rawToolkits allows injecting toolkits of any type (e.g. mockMultiConnectionToolkit).
+	// When set, All() returns these instead of allResult.
+	rawToolkits []registry.Toolkit
 }
 
 func (m *mockToolkitRegistry) All() []registry.Toolkit {
+	if m.rawToolkits != nil {
+		return m.rawToolkits
+	}
 	result := make([]registry.Toolkit, len(m.allResult))
 	for i, tk := range m.allResult {
 		result[i] = tk

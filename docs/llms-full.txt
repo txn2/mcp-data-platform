@@ -1891,6 +1891,20 @@ config_store:
   mode: file      # Deprecated — ignored. Accepted for backward compatibility.
 ```
 
+## Settings
+
+The admin portal includes settings pages for managing Connections, Personas, API Keys, and Configuration entries. Each resource displays a source badge indicating whether it originates from the config file, the database, or both.
+
+**Source badges:** "file" (YAML config, read-only), "database" (admin UI managed, fully editable), "both" (file with database override, database version active, file version is fallback).
+
+**Connections:** Multi-connection toolkits are expanded into individual entries. File connections are read-only; editing creates a database override. Deleting a "both" connection reverts to file. DataHub Integration section shows datahub_source_name and catalog_mapping.
+
+**Personas:** File personas cannot be deleted (they reappear on restart). Editing creates a database override (source becomes "both"). Deleting a "both" persona removes the override and immediately reverts to the file version.
+
+**API Keys:** File keys cannot be deleted. Database keys are created via the admin UI with the plaintext shown once. Same-name keys in file and database are deduplicated with source "both".
+
+**Migration from file to database:** Edit the resource in the admin UI (creates database override) → verify → remove from YAML → restart.
+
 ---
 
 # Admin API

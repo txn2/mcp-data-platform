@@ -2179,6 +2179,23 @@
                 }
             }
         },
+        "admin.personaContextDetail": {
+            "type": "object",
+            "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.personaCreateRequest": {
             "type": "object",
             "properties": {
@@ -2241,12 +2258,6 @@
         "admin.personaDetail": {
             "type": "object",
             "properties": {
-                "agent_instructions_override": {
-                    "type": "string"
-                },
-                "agent_instructions_suffix": {
-                    "type": "string"
-                },
                 "allow_connections": {
                     "type": "array",
                     "items": {
@@ -2258,6 +2269,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "context": {
+                    "$ref": "#/definitions/admin.personaContextDetail"
                 },
                 "deny_connections": {
                     "type": "array",
@@ -2274,12 +2288,6 @@
                 "description": {
                     "type": "string"
                 },
-                "description_override": {
-                    "type": "string"
-                },
-                "description_prefix": {
-                    "type": "string"
-                },
                 "display_name": {
                     "type": "string"
                 },
@@ -2294,6 +2302,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -2334,6 +2346,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 },
                 "tool_count": {
                     "type": "integer"
@@ -2827,6 +2843,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string"
                 }
             }
         },

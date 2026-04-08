@@ -766,6 +766,7 @@ func BuildAdminHandler(p *platform.Platform) http.Handler {
 		MCPServer:         p.MCPServer(),
 		DatabaseAvailable: p.Config().Database.DSN != "",
 		PlatformTools:     p.PlatformTools(),
+		FilePersonaNames:  p.FilePersonaNames(),
 	}
 
 	if p.AuditStore() != nil {

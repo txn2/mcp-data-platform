@@ -400,16 +400,45 @@ func TestNoCollisionFileKeyAndDBKeyWithSameName(t *testing.T) {
 		t.Errorf("DB key role = %q, want %q", info.Roles[0], testRoleAnalyst)
 	}
 
-	// Both should appear in ListKeys.
+	// Same-name keys are deduplicated with Source "both".
 	summaries := auth.ListKeys()
 	adminCount := 0
+	var adminSource string
 	for _, s := range summaries {
 		if s.Name == "admin" {
 			adminCount++
+			adminSource = s.Source
 		}
 	}
-	if adminCount != 2 {
-		t.Errorf("expected 2 keys named 'admin', got %d", adminCount)
+	if adminCount != 1 {
+		t.Errorf("expected 1 deduplicated key named 'admin', got %d", adminCount)
+	}
+	if adminSource != "both" {
+		t.Errorf("expected source 'both' for deduplicated key, got %q", adminSource)
+	}
+}
+
+func TestListKeysSource(t *testing.T) {
+	auth := NewAPIKeyAuthenticator(APIKeyConfig{
+		Keys: []APIKey{
+			{Key: "file-key-1", Name: "file-only", Roles: []string{"admin"}},
+		},
+	})
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("db-key-1"), bcrypt.MinCost)
+	auth.AddHashedKey(APIKey{KeyHash: string(hash), Name: "db-only", Roles: []string{"analyst"}})
+
+	summaries := auth.ListKeys()
+	sourceByName := make(map[string]string, len(summaries))
+	for _, s := range summaries {
+		sourceByName[s.Name] = s.Source
+	}
+
+	if sourceByName["file-only"] != "file" {
+		t.Errorf("file-only key source = %q, want 'file'", sourceByName["file-only"])
+	}
+	if sourceByName["db-only"] != "database" {
+		t.Errorf("db-only key source = %q, want 'database'", sourceByName["db-only"])
 	}
 }
 

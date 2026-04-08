@@ -98,6 +98,7 @@ type Deps struct {
 	ToolkitsConfig      map[string]any
 	PersonaStore        platform.PersonaStore
 	APIKeyStore         platform.APIKeyStore
+	FilePersonaNames    map[string]bool
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
