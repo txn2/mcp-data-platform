@@ -286,6 +286,15 @@ func (w *spyWriter) UpdateColumnDescription(_ context.Context, urn, fieldPath, d
 	return w.recordAndCheck("UpdateColumnDescription", urn, fieldPath, desc)
 }
 
+func (w *spyWriter) UpdateColumnDescriptionBatch(_ context.Context, urn string, columns map[string]string) error {
+	for fp, desc := range columns {
+		if err := w.recordAndCheck("UpdateColumnDescriptionBatch", urn, fp, desc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (w *spyWriter) AddTag(_ context.Context, urn, tag string) error {
 	return w.recordAndCheck("AddTag", urn, tag, "")
 }
@@ -2632,7 +2641,7 @@ func TestExecuteChanges_ColumnTarget(t *testing.T) {
 	require.Len(t, writer.WriteCalls, 1)
 
 	call := writer.WriteCalls[0]
-	assert.Equal(t, "UpdateColumnDescription", call.Method)
+	assert.Equal(t, "UpdateColumnDescriptionBatch", call.Method)
 	assert.Equal(t, testEntityURN, call.URN)
 	assert.Equal(t, "location_type_id", call.Arg1)
 	assert.Equal(t, "Type of location", call.Arg2)
@@ -2695,9 +2704,11 @@ func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 3)
 
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "UpdateColumnDescription", writer.WriteCalls[1].Method)
-	assert.Equal(t, "email", writer.WriteCalls[1].Arg1)
+	// Column descriptions are batched and applied first.
+	assert.Equal(t, "UpdateColumnDescriptionBatch", writer.WriteCalls[0].Method)
+	assert.Equal(t, "email", writer.WriteCalls[0].Arg1)
+	// Then non-column changes in order.
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
 	assert.Equal(t, "AddTag", writer.WriteCalls[2].Method)
 	// Full URN should pass through unchanged (no double-prepend)
 	assert.Equal(t, "urn:li:tag:PII", writer.WriteCalls[2].Arg1)
@@ -2713,7 +2724,7 @@ func TestExecuteChanges_ColumnTargetError(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "column description update")
+	assert.Contains(t, err.Error(), "column descriptions")
 }
 
 func TestExecuteChanges_DatasetDescriptionError(t *testing.T) {

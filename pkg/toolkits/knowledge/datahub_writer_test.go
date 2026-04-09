@@ -74,6 +74,15 @@ func TestNoopDataHubWriter_UpdateColumnDescription(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestNoopDataHubWriter_UpdateColumnDescriptionBatch(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testDatasetURN, map[string]string{
+		"email": "Email address",
+		"name":  "Full name",
+	})
+	assert.NoError(t, err)
+}
+
 func TestNoopDataHubWriter_CreateCuratedQuery(t *testing.T) {
 	writer := &NoopDataHubWriter{}
 	urn, err := writer.CreateCuratedQuery(context.Background(), testDatasetURN, "test query", "SELECT 1", "a test")

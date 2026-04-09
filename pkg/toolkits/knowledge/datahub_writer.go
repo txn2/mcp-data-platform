@@ -11,6 +11,10 @@ type DataHubWriter interface {
 	GetCurrentMetadata(ctx context.Context, urn string) (*EntityMetadata, error)
 	UpdateDescription(ctx context.Context, urn string, description string) error
 	UpdateColumnDescription(ctx context.Context, urn string, fieldPath string, description string) error
+	// UpdateColumnDescriptionBatch sets descriptions for multiple columns in a single
+	// read-modify-write cycle, avoiding the stale-read bug where back-to-back single
+	// calls lose all but the last column.
+	UpdateColumnDescriptionBatch(ctx context.Context, urn string, columns map[string]string) error
 	AddTag(ctx context.Context, urn string, tag string) error
 	RemoveTag(ctx context.Context, urn string, tag string) error
 	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
@@ -47,6 +51,11 @@ func (*NoopDataHubWriter) UpdateDescription(_ context.Context, _, _ string) erro
 
 // UpdateColumnDescription is a no-op.
 func (*NoopDataHubWriter) UpdateColumnDescription(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+// UpdateColumnDescriptionBatch is a no-op.
+func (*NoopDataHubWriter) UpdateColumnDescriptionBatch(_ context.Context, _ string, _ map[string]string) error {
 	return nil
 }
 
