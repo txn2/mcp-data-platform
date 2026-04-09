@@ -103,6 +103,18 @@ func (t *Toolkit) recallBySemantic(ctx context.Context, query, persona string, i
 		return nil, fmt.Errorf("embedding query: %w", err)
 	}
 
+	// If all embedding values are zero (noop provider), semantic search is not available.
+	allZero := true
+	for _, v := range emb {
+		if v != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return nil, fmt.Errorf("semantic search unavailable: no embedding provider configured (set memory.embedding.provider to 'ollama')")
+	}
+
 	vq := memstore.VectorQuery{
 		Embedding: emb,
 		Limit:     maxRecallLimit,

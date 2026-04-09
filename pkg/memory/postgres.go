@@ -251,52 +251,46 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Record, int,
 
 // VectorSearch performs cosine similarity search over embeddings.
 func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]ScoredRecord, error) {
-	sqlStr, args, err := buildVectorSearchQuery(query)
-	if err != nil {
-		return nil, err
+	limit := query.Limit
+	if limit <= 0 {
+		limit = DefaultLimit
 	}
 
-	// Prepend the vector parameter (position $1 in the raw SQL).
-	vec := pgvector.NewVector(query.Embedding)
-	allArgs := append([]any{vec}, args...)
+	// Build SQL manually to avoid squirrel placeholder collision with the
+	// vector parameter ($1) used in the ORDER BY and SELECT expressions.
+	args := []any{pgvector.NewVector(query.Embedding)}
+	paramIdx := 2
 
-	rows, err := s.db.QueryContext(ctx, sqlStr, allArgs...)
+	where := "WHERE embedding IS NOT NULL AND status <> 'archived'"
+	if query.Persona != "" {
+		where += fmt.Sprintf(" AND persona = $%d", paramIdx)
+		args = append(args, query.Persona)
+		paramIdx++
+	}
+	if query.Status != "" {
+		where += fmt.Sprintf(" AND status = $%d", paramIdx)
+		args = append(args, query.Status)
+		paramIdx++
+	}
+
+	cols := "id, created_at, updated_at, created_by, persona, dimension, " +
+		"content, category, confidence, source, " +
+		"entity_urns, related_columns, metadata, " +
+		"status, stale_reason, stale_at, last_verified, " +
+		"1 - (embedding <=> $1) AS score"
+
+	sqlStr := fmt.Sprintf(
+		"SELECT %s FROM %s %s ORDER BY embedding <=> $1 LIMIT %d",
+		cols, tableName, where, limit,
+	)
+
+	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, fmt.Errorf("executing vector search: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
 	return collectScoredRows(rows, query.MinScore)
-}
-
-// buildVectorSearchQuery constructs the SQL for cosine similarity search.
-func buildVectorSearchQuery(query VectorQuery) (sqlStr string, args []any, err error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = DefaultLimit
-	}
-
-	qb := psq.Select(
-		append(recordColumns(), "1 - (embedding <=> $1) AS score")...,
-	).From(tableName).
-		Where("embedding IS NOT NULL").
-		Where(sq.NotEq{"status": StatusArchived}).
-		OrderBy("embedding <=> $1").
-		Limit(uint64(limit))
-
-	if query.Persona != "" {
-		qb = qb.Where(sq.Eq{"persona": query.Persona})
-	}
-	if query.Status != "" {
-		qb = qb.Where(sq.Eq{"status": query.Status})
-	}
-
-	sqlStr, args, err = qb.ToSql()
-	if err != nil {
-		return "", nil, fmt.Errorf("building vector search query: %w", err)
-	}
-
-	return sqlStr, args, nil
 }
 
 // collectScoredRows scans all scored rows and filters by minimum score.
