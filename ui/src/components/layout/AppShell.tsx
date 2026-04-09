@@ -21,7 +21,6 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
-// MemoryPage is now integrated into KnowledgePage as a tab
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
 import { PersonasPanel } from "@/pages/settings/PersonasPanel";

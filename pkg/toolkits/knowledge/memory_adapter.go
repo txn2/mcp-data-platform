@@ -228,7 +228,7 @@ func recordToInsight(record memory.Record) Insight {
 		InsightText: record.Content,
 		Confidence:  record.Confidence,
 		EntityURNs:  record.EntityURNs,
-		Status:      mapMemoryStatusToInsight(record.Status),
+		Status:      resolveInsightStatus(record),
 	}
 
 	// Extract RelatedColumns.
@@ -240,19 +240,7 @@ func recordToInsight(record memory.Record) Insight {
 		})
 	}
 
-	// Extract metadata fields.
-	if record.Metadata != nil {
-		extractMetadataString(record.Metadata, "session_id", &insight.SessionID)
-		extractMetadataString(record.Metadata, "reviewed_by", &insight.ReviewedBy)
-		extractMetadataString(record.Metadata, "review_notes", &insight.ReviewNotes)
-		extractMetadataString(record.Metadata, "applied_by", &insight.AppliedBy)
-		extractMetadataString(record.Metadata, "changeset_ref", &insight.ChangesetRef)
-
-		if sa, ok := record.Metadata["suggested_actions"]; ok {
-			b, _ := json.Marshal(sa)
-			_ = json.Unmarshal(b, &insight.SuggestedActions)
-		}
-	}
+	extractInsightMetadata(record.Metadata, &insight)
 
 	// Ensure non-nil slices.
 	if insight.EntityURNs == nil {
@@ -269,6 +257,37 @@ func recordToInsight(record memory.Record) Insight {
 }
 
 // extractMetadataString extracts a string value from metadata.
+// resolveInsightStatus determines the insight status from a memory record,
+// preferring an explicit insight_status in metadata over the memory status mapping.
+func resolveInsightStatus(record memory.Record) string {
+	status := mapMemoryStatusToInsight(record.Status)
+	if record.Metadata != nil {
+		if v, ok := record.Metadata["insight_status"]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				status = s
+			}
+		}
+	}
+	return status
+}
+
+// extractInsightMetadata populates insight fields from the record metadata map.
+func extractInsightMetadata(meta map[string]any, insight *Insight) {
+	if meta == nil {
+		return
+	}
+	extractMetadataString(meta, "session_id", &insight.SessionID)
+	extractMetadataString(meta, "reviewed_by", &insight.ReviewedBy)
+	extractMetadataString(meta, "review_notes", &insight.ReviewNotes)
+	extractMetadataString(meta, "applied_by", &insight.AppliedBy)
+	extractMetadataString(meta, "changeset_ref", &insight.ChangesetRef)
+
+	if sa, ok := meta["suggested_actions"]; ok {
+		b, _ := json.Marshal(sa)
+		_ = json.Unmarshal(b, &insight.SuggestedActions)
+	}
+}
+
 func extractMetadataString(meta map[string]any, key string, target *string) {
 	if v, ok := meta[key]; ok {
 		if s, ok := v.(string); ok {

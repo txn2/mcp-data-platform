@@ -781,7 +781,6 @@ interface MemoryRecordsParams {
   source?: string;
   createdBy?: string;
   entityUrn?: string;
-  search?: string;
 }
 
 export function useMemoryRecords(params: MemoryRecordsParams = {}) {

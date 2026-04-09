@@ -87,7 +87,8 @@ SELECT
         WHEN status IN ('rejected', 'rolled_back') THEN 'archived'
         ELSE 'active'
     END
-FROM knowledge_insights;
+FROM knowledge_insights
+ON CONFLICT (id) DO NOTHING;
 
 -- Drop the old table now that data is migrated.
 DROP TABLE IF EXISTS knowledge_insights;

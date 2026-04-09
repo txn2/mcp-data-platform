@@ -17,6 +17,9 @@ type OllamaConfig struct {
 	Timeout time.Duration
 }
 
+// maxErrorBodyBytes is the maximum number of bytes read from an error response body.
+const maxErrorBodyBytes = 4096
+
 // ollamaProvider generates embeddings via the Ollama API.
 type ollamaProvider struct {
 	client *http.Client
@@ -79,7 +82,7 @@ func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("ollama API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 

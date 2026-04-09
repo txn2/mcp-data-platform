@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
@@ -68,7 +69,8 @@ func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 	filter := parseMemoryFilter(r)
 	records, total, err := h.store.List(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("failed to list memory records", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list memory records")
 		return
 	}
 
@@ -105,28 +107,35 @@ func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /memory/records/stats [get]
 func (h *MemoryHandler) GetStats(w http.ResponseWriter, r *http.Request) {
-	// Fetch all matching records (no pagination) to compute stats.
+	// Fetch all matching records across all pages to compute accurate stats.
 	filter := parseMemoryFilter(r)
-	filter.Limit = 0
+	filter.Limit = memory.MaxLimit
 	filter.Offset = 0
-
-	records, total, err := h.store.List(r.Context(), filter)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 
 	stats := memoryStatsResponse{
 		ByDimension: map[string]int{},
 		ByCategory:  map[string]int{},
 		ByStatus:    map[string]int{},
-		Total:       total,
 	}
 
-	for i := range records {
-		stats.ByDimension[records[i].Dimension]++
-		stats.ByCategory[records[i].Category]++
-		stats.ByStatus[records[i].Status]++
+	for {
+		records, total, err := h.store.List(r.Context(), filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to compute memory stats")
+			return
+		}
+		if stats.Total == 0 {
+			stats.Total = total
+		}
+		for i := range records {
+			stats.ByDimension[records[i].Dimension]++
+			stats.ByCategory[records[i].Category]++
+			stats.ByStatus[records[i].Status]++
+		}
+		if len(records) < memory.MaxLimit {
+			break
+		}
+		filter.Offset += memory.MaxLimit
 	}
 
 	writeJSON(w, http.StatusOK, stats)
@@ -199,7 +208,8 @@ func (h *MemoryHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 		Metadata:   req.Metadata,
 	}
 	if err := h.store.Update(r.Context(), id, updates); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("failed to update memory record", "id", id, "error", err) // #nosec G706 -- structured log with validated id, not user-facing
+		writeError(w, http.StatusInternalServerError, "failed to update memory record")
 		return
 	}
 
@@ -229,7 +239,8 @@ func (h *MemoryHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.Delete(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("failed to archive memory record", "id", id, "error", err) // #nosec G706 -- structured log with validated id, not user-facing
+		writeError(w, http.StatusInternalServerError, "failed to archive memory record")
 		return
 	}
 

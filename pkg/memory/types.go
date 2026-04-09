@@ -147,6 +147,9 @@ type Filter struct {
 	Until     *time.Time
 	Limit     int
 	Offset    int
+	// OrderBy overrides the default ordering ("created_at DESC").
+	// Must be a valid SQL ORDER BY clause (e.g. "last_verified ASC NULLS FIRST").
+	OrderBy string
 }
 
 // EffectiveLimit returns the limit capped to MaxLimit, defaulting to DefaultLimit.
@@ -226,15 +229,16 @@ func ValidateStatus(s string) error {
 }
 
 // ValidateContent checks content length constraints.
+// Length is measured in bytes (matching Go's len() behavior).
 func ValidateContent(text string) error {
 	if text == "" {
-		return fmt.Errorf("content is required (minimum %d characters)", MinContentLen)
+		return fmt.Errorf("content is required (minimum %d bytes)", MinContentLen)
 	}
 	if len(text) < MinContentLen {
-		return fmt.Errorf("content must be at least %d characters (got %d)", MinContentLen, len(text))
+		return fmt.Errorf("content must be at least %d bytes (got %d)", MinContentLen, len(text))
 	}
 	if len(text) > MaxContentLen {
-		return fmt.Errorf("content must be at most %d characters (got %d)", MaxContentLen, len(text))
+		return fmt.Errorf("content must be at most %d bytes (got %d)", MaxContentLen, len(text))
 	}
 	return nil
 }

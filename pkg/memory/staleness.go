@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -36,6 +37,8 @@ type StalenessWatcher struct {
 	cfg              StalenessConfig
 	stopCh           chan struct{}
 	wg               sync.WaitGroup
+	started          atomic.Bool
+	stopOnce         sync.Once
 }
 
 // NewStalenessWatcher creates a new watcher.
@@ -55,14 +58,21 @@ func NewStalenessWatcher(store Store, sp semantic.Provider, cfg StalenessConfig)
 }
 
 // Start begins the periodic staleness check loop.
+// It is safe to call multiple times; only the first call starts the loop.
 func (w *StalenessWatcher) Start(_ context.Context) {
+	if !w.started.CompareAndSwap(false, true) {
+		return
+	}
 	w.wg.Add(1)
 	go w.run() // #nosec G118 -- background goroutine intentionally uses its own context per tick
 }
 
 // Stop signals the watcher to stop and waits for completion.
+// It is safe to call multiple times.
 func (w *StalenessWatcher) Stop() {
-	close(w.stopCh)
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+	})
 	w.wg.Wait()
 }
 
@@ -90,8 +100,9 @@ func (w *StalenessWatcher) run() {
 // checkBatch checks one batch of the oldest-verified active memories.
 func (w *StalenessWatcher) checkBatch(ctx context.Context) error {
 	records, _, err := w.store.List(ctx, Filter{
-		Status: StatusActive,
-		Limit:  w.cfg.BatchSize,
+		Status:  StatusActive,
+		Limit:   w.cfg.BatchSize,
+		OrderBy: "last_verified ASC NULLS FIRST",
 	})
 	if err != nil {
 		return fmt.Errorf("listing records for staleness check: %w", err)

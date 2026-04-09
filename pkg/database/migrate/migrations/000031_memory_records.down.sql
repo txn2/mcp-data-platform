@@ -29,6 +29,11 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_insights_created_at ON knowledge_insigh
 CREATE INDEX IF NOT EXISTS idx_knowledge_insights_source ON knowledge_insights(source);
 
 -- Migrate data back from memory_records to knowledge_insights.
+-- NOTE: This migration converts ALL memory dimensions (knowledge, event, entity,
+-- relationship, preference) into knowledge_insights rows. Non-knowledge records
+-- are mapped with category='general' since knowledge_insights has no dimension
+-- column. Embedding data, staleness tracking fields, and dimension-specific
+-- semantics are lost during this rollback.
 INSERT INTO knowledge_insights (
     id, created_at, session_id, captured_by, persona, category,
     insight_text, confidence, entity_urns, related_columns,
@@ -41,7 +46,10 @@ SELECT
     COALESCE(metadata->>'session_id', ''),
     created_by,
     persona,
-    category,
+    CASE
+        WHEN dimension = 'knowledge' THEN category
+        ELSE 'general'
+    END,
     content,
     confidence,
     entity_urns,
@@ -50,6 +58,7 @@ SELECT
     CASE
         WHEN status = 'superseded' THEN 'superseded'
         WHEN status = 'archived' THEN 'rejected'
+        WHEN status = 'stale' THEN 'pending'
         ELSE COALESCE(metadata->>'legacy_status', 'pending')
     END,
     source,
@@ -57,8 +66,7 @@ SELECT
     COALESCE(metadata->>'review_notes', ''),
     COALESCE(metadata->>'applied_by', ''),
     COALESCE(metadata->>'changeset_ref', '')
-FROM memory_records
-WHERE dimension = 'knowledge';
+FROM memory_records;
 
 -- Drop memory_records table.
 DROP TABLE IF EXISTS memory_records;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +17,9 @@ import (
 // UPDATE memory_records, DELETE FROM memory_records) are generated
 // by the squirrel query builder at runtime.
 const tableName = "memory_records"
+
+// errNotFoundFmt is the format string for not-found errors.
+const errNotFoundFmt = "memory record not found: %s"
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
@@ -47,27 +51,23 @@ func (s *postgresStore) Insert(ctx context.Context, record Record) error {
 		return fmt.Errorf("marshaling metadata: %w", err)
 	}
 
-	qb := psq.Insert(tableName).Columns(
+	columns := []string{
 		"id", "created_by", "persona", "dimension",
 		"content", "category", "confidence", "source",
 		"entity_urns", "related_columns", "metadata", "status",
-	).Values(
+	}
+	values := []any{
 		record.ID, record.CreatedBy, record.Persona, record.Dimension,
 		record.Content, record.Category, record.Confidence, record.Source,
 		entityURNs, relatedCols, metadata, record.Status,
-	)
+	}
 
 	if len(record.Embedding) > 0 {
-		qb = psq.Insert(tableName).Columns(
-			"id", "created_by", "persona", "dimension",
-			"content", "category", "confidence", "source",
-			"entity_urns", "related_columns", "embedding", "metadata", "status",
-		).Values(
-			record.ID, record.CreatedBy, record.Persona, record.Dimension,
-			record.Content, record.Category, record.Confidence, record.Source,
-			entityURNs, relatedCols, pgvector.NewVector(record.Embedding), metadata, record.Status,
-		)
+		columns = append(columns, "embedding")
+		values = append(values, pgvector.NewVector(record.Embedding))
 	}
+
+	qb := psq.Insert(tableName).Columns(columns...).Values(values...)
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -85,7 +85,7 @@ func (s *postgresStore) Insert(ctx context.Context, record Record) error {
 // Get retrieves a single memory record by ID.
 func (s *postgresStore) Get(ctx context.Context, id string) (*Record, error) {
 	query, args, err := psq.Select(recordColumns()...).
-		From("memory_records").
+		From(tableName).
 		Where(sq.Eq{"id": id}).
 		ToSql()
 	if err != nil {
@@ -94,6 +94,9 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Record, error) {
 
 	record, err := scanRecord(s.db.QueryRowContext(ctx, query, args...))
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf(errNotFoundFmt, id)
+		}
 		return nil, fmt.Errorf("querying memory record: %w", err)
 	}
 
@@ -128,7 +131,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates RecordUpd
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("memory record not found: %s", id)
+		return fmt.Errorf(errNotFoundFmt, id)
 	}
 
 	return nil
@@ -160,7 +163,7 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 		if err != nil {
 			return qb, false, fmt.Errorf("marshaling metadata: %w", err)
 		}
-		qb = qb.Set("metadata", meta)
+		qb = qb.Set("metadata", sq.Expr("metadata || ?::jsonb", meta))
 		hasUpdates = true
 	}
 	if len(updates.Embedding) > 0 {
@@ -192,7 +195,7 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("memory record not found: %s", id)
+		return fmt.Errorf(errNotFoundFmt, id)
 	}
 
 	return nil
@@ -213,15 +216,10 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Record, int,
 	}
 
 	// Fetch paginated results.
-	limit := filter.EffectiveLimit()
-	selectQB := applyFilter(psq.Select(recordColumns()...).From(tableName), filter).
-		OrderBy("created_at DESC")
-	if limit > 0 {
-		selectQB = selectQB.Limit(uint64(limit))
-	}
-	if filter.Offset > 0 {
-		selectQB = selectQB.Offset(uint64(filter.Offset))
-	}
+	selectQB := applyPagination(
+		applyFilter(psq.Select(recordColumns()...).From(tableName), filter),
+		filter,
+	)
 
 	selectQuery, selectArgs, err := selectQB.ToSql()
 	if err != nil {
@@ -234,19 +232,45 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Record, int,
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
+	records, err := collectRecordRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return records, total, nil
+}
+
+// applyPagination adds ORDER BY, LIMIT, and OFFSET clauses to a query builder.
+func applyPagination(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
+	orderClause := "created_at DESC"
+	if filter.OrderBy != "" {
+		orderClause = filter.OrderBy
+	}
+	qb = qb.OrderBy(orderClause)
+
+	if limit := filter.EffectiveLimit(); limit > 0 {
+		qb = qb.Limit(uint64(limit))
+	}
+	if filter.Offset > 0 {
+		qb = qb.Offset(uint64(filter.Offset))
+	}
+	return qb
+}
+
+// collectRecordRows scans all rows into a slice of Record.
+func collectRecordRows(rows *sql.Rows) ([]Record, error) {
 	var records []Record
 	for rows.Next() {
 		record, err := scanRecordRow(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		records = append(records, *record)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterating memory rows: %w", err)
+		return nil, fmt.Errorf("iterating memory rows: %w", err)
 	}
-
-	return records, total, nil
+	return records, nil
 }
 
 // VectorSearch performs cosine similarity search over embeddings.
@@ -254,6 +278,9 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 	limit := query.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
+	}
+	if limit > MaxLimit {
+		limit = MaxLimit
 	}
 
 	// Build SQL manually to avoid squirrel placeholder collision with the
@@ -270,7 +297,6 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 	if query.Status != "" {
 		where += fmt.Sprintf(" AND status = $%d", paramIdx)
 		args = append(args, query.Status)
-		paramIdx++
 	}
 
 	cols := "id, created_at, updated_at, created_by, persona, dimension, " +
@@ -279,7 +305,7 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 		"status, stale_reason, stale_at, last_verified, " +
 		"1 - (embedding <=> $1) AS score"
 
-	sqlStr := fmt.Sprintf(
+	sqlStr := fmt.Sprintf( // #nosec G201 -- tableName is a constant, cols are hardcoded, where uses parameterized placeholders, limit is a sanitized int
 		"SELECT %s FROM %s %s ORDER BY embedding <=> $1 LIMIT %d",
 		cols, tableName, where, limit,
 	)
@@ -315,9 +341,14 @@ func collectScoredRows(rows *sql.Rows, minScore float64) ([]ScoredRecord, error)
 
 // EntityLookup returns active memories linked to a DataHub URN.
 func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) ([]Record, error) {
+	urnJSON, err := json.Marshal([]string{urn})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling entity URN filter: %w", err)
+	}
+
 	qb := psq.Select(recordColumns()...).
-		From("memory_records").
-		Where(sq.Expr("entity_urns @> ?::jsonb", fmt.Sprintf(`[%q]`, urn))).
+		From(tableName).
+		Where(sq.Expr("entity_urns @> ?::jsonb", urnJSON)).
 		Where(sq.Eq{"status": StatusActive}).
 		OrderBy("created_at DESC").
 		Limit(uint64(DefaultLimit))
@@ -403,27 +434,17 @@ func (s *postgresStore) MarkVerified(ctx context.Context, ids []string) error {
 }
 
 // Supersede marks an old record as superseded by a new one.
+// Uses an atomic UPDATE with jsonb || merge to avoid read-modify-write races.
 func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) error {
-	// Get old record's metadata to add superseded_by.
-	old, err := s.Get(ctx, oldID)
+	patch, err := json.Marshal(map[string]any{"superseded_by": newID})
 	if err != nil {
-		return fmt.Errorf("getting old record: %w", err)
-	}
-
-	if old.Metadata == nil {
-		old.Metadata = make(map[string]any)
-	}
-	old.Metadata["superseded_by"] = newID
-
-	meta, err := json.Marshal(old.Metadata)
-	if err != nil {
-		return fmt.Errorf("marshaling metadata: %w", err)
+		return fmt.Errorf("marshaling supersede metadata: %w", err)
 	}
 
 	now := time.Now()
 	query, args, err := psq.Update(tableName).
 		Set("status", StatusSuperseded).
-		Set("metadata", meta).
+		Set("metadata", sq.Expr("metadata || ?::jsonb", patch)).
 		Set("updated_at", now).
 		Where(sq.Eq{"id": oldID}).
 		ToSql()
@@ -431,9 +452,17 @@ func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) erro
 		return fmt.Errorf("building supersede query: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx, query, args...)
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("superseding record: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf(errNotFoundFmt, oldID)
 	}
 
 	return nil
@@ -460,7 +489,8 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 		qb = qb.Where(sq.Eq{"source": filter.Source})
 	}
 	if filter.EntityURN != "" {
-		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", fmt.Sprintf(`[%q]`, filter.EntityURN)))
+		urnJSON, _ := json.Marshal([]string{filter.EntityURN})
+		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", urnJSON))
 	}
 	if filter.Since != nil {
 		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})

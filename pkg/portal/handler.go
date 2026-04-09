@@ -1257,26 +1257,36 @@ func (h *Handler) getMyMemoryStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch all records for the user (up to a reasonable limit) to build stats.
-	records, total, err := h.deps.MemoryStore.List(r.Context(), memory.Filter{
+	// Fetch all records for the user across all pages to build accurate stats.
+	filter := memory.Filter{
 		CreatedBy: user.Email,
 		Limit:     memory.MaxLimit,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query memory stats")
-		return
 	}
 
 	stats := memoryStatsResponse{
-		Total:       total,
 		ByDimension: make(map[string]int),
 		ByCategory:  make(map[string]int),
 		ByStatus:    make(map[string]int),
 	}
-	for _, rec := range records {
-		stats.ByDimension[rec.Dimension]++
-		stats.ByCategory[rec.Category]++
-		stats.ByStatus[rec.Status]++
+
+	for {
+		records, total, err := h.deps.MemoryStore.List(r.Context(), filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to query memory stats")
+			return
+		}
+		if stats.Total == 0 {
+			stats.Total = total
+		}
+		for _, rec := range records {
+			stats.ByDimension[rec.Dimension]++
+			stats.ByCategory[rec.Category]++
+			stats.ByStatus[rec.Status]++
+		}
+		if len(records) < memory.MaxLimit {
+			break
+		}
+		filter.Offset += memory.MaxLimit
 	}
 
 	writeJSON(w, http.StatusOK, stats)

@@ -1891,22 +1891,22 @@ function HelpTab() {
         <h2 className="mb-2 text-lg font-semibold">What You Can Do Here</h2>
         <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
           <li>
-            <strong>Overview</strong>:See combined statistics for both
+            <strong>Overview</strong>: See combined statistics for both
             knowledge capture and memory. A quick view of how much the platform
             has learned and what needs attention.
           </li>
           <li>
-            <strong>Knowledge Capture</strong>:Browse, filter, and
+            <strong>Knowledge Capture</strong>: Browse, filter, and
             review captured insights. Approve or reject them. Applied insights
             become changesets.
           </li>
           <li>
-            <strong>All Memory</strong>:Browse every memory record
+            <strong>All Memory</strong>: Browse every memory record
             across all users and sessions. Filter by dimension, category,
             status, or source. Archive records that are no longer useful.
           </li>
           <li>
-            <strong>Changesets</strong>:See the history of changes
+            <strong>Changesets</strong>: See the history of changes
             applied to the DataHub catalog and roll back any that need to be
             reverted.
           </li>
@@ -2020,23 +2020,23 @@ function HelpTab() {
         </p>
         <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-muted-foreground">
           <li>
-            <strong>Knowledge</strong>:Domain facts, business rules,
+            <strong>Knowledge</strong>: Domain facts, business rules,
             and data definitions.
           </li>
           <li>
-            <strong>Event</strong>:Observations about data changes or
+            <strong>Event</strong>: Observations about data changes or
             incidents.
           </li>
           <li>
-            <strong>Entity</strong>:Information about specific datasets,
+            <strong>Entity</strong>: Information about specific datasets,
             tables, or columns.
           </li>
           <li>
-            <strong>Relationship</strong>:How datasets connect to each
+            <strong>Relationship</strong>: How datasets connect to each
             other (joins, lineage, dependencies).
           </li>
           <li>
-            <strong>Preference</strong>:User preferences for how data
+            <strong>Preference</strong>: User preferences for how data
             should be queried or displayed.
           </li>
         </ul>

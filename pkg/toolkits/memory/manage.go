@@ -118,6 +118,10 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 		return errorResult("id is required for update"), nil, nil
 	}
 
+	if result := verifyOwnership(ctx, t.store, input.ID, "update"); result != nil {
+		return result, nil, nil
+	}
+
 	if input.Content != "" {
 		if err := memstore.ValidateContent(input.Content); err != nil {
 			return errorResult(err.Error()), nil, nil
@@ -164,6 +168,10 @@ func (t *Toolkit) handleForget(ctx context.Context, input manageInput) (*mcp.Cal
 		return errorResult("id is required for forget"), nil, nil
 	}
 
+	if result := verifyOwnership(ctx, t.store, input.ID, "archive"); result != nil {
+		return result, nil, nil
+	}
+
 	if err := t.store.Delete(ctx, input.ID); err != nil {
 		return errorResult("failed to archive memory: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
@@ -172,6 +180,21 @@ func (t *Toolkit) handleForget(ctx context.Context, input manageInput) (*mcp.Cal
 		"id":      input.ID,
 		"message": "Memory archived successfully.",
 	}), nil, nil
+}
+
+// verifyOwnership fetches a record and checks that the caller owns it.
+// Returns an error result if the record is not found or the caller lacks ownership;
+// returns nil when ownership is verified.
+func verifyOwnership(ctx context.Context, store memstore.Store, id, action string) *mcp.CallToolResult {
+	pc := middleware.GetPlatformContext(ctx)
+	record, err := store.Get(ctx, id)
+	if err != nil {
+		return errorResult("memory not found")
+	}
+	if pc.UserEmail != "" && record.CreatedBy != pc.UserEmail {
+		return errorResult("you can only " + action + " your own memories")
+	}
+	return nil
 }
 
 // handleList returns memory records matching filters.
@@ -207,6 +230,8 @@ func (t *Toolkit) handleList(ctx context.Context, input manageInput) (*mcp.CallT
 }
 
 // handleReviewStale returns stale memory records for admin review.
+// Access is gated by persona tool visibility (opt-in per persona config),
+// so no additional authorization check is needed here.
 func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	filter := memstore.Filter{
 		Status: memstore.StatusStale,
@@ -263,8 +288,13 @@ func jsonResult(data any) *mcp.CallToolResult {
 
 // errorResult creates an error MCP result.
 func errorResult(msg string) *mcp.CallToolResult {
+	b, err := json.Marshal(map[string]string{"error": msg})
+	if err != nil {
+		// Fallback: plain text if marshal fails (should never happen for a string).
+		b = []byte(`{"error": "internal error"}`)
+	}
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(`{"error": %q}`, msg)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
 	}
 }

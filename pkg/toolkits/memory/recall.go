@@ -28,6 +28,17 @@ func (t *Toolkit) handleRecall(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		return errorResult("recall failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
+	// Filter by dimension if specified.
+	if input.Dimension != "" {
+		filtered := records[:0]
+		for _, r := range records {
+			if r.Record.Dimension == input.Dimension {
+				filtered = append(filtered, r)
+			}
+		}
+		records = filtered
+	}
+
 	// Trim to limit.
 	if len(records) > limit {
 		records = records[:limit]
@@ -84,6 +95,8 @@ func (t *Toolkit) recallByEntity(ctx context.Context, urns []string, persona str
 		for _, r := range records {
 			if !seen[r.ID] {
 				seen[r.ID] = true
+				// Score 1.0 is intentional: entity matches are exact URN lookups,
+				// not similarity-based, so they always receive the maximum score.
 				results = append(results, memstore.ScoredRecord{Record: r, Score: 1.0})
 			}
 		}
@@ -210,6 +223,11 @@ func (t *Toolkit) recallAuto(ctx context.Context, input recallInput, persona str
 	}
 
 	wg.Wait()
+
+	if len(allResults) == 0 && (input.Query != "" || len(input.EntityURNs) > 0) {
+		slog.Warn("auto recall returned no results from any strategy",
+			"query", input.Query, "entity_urns", input.EntityURNs)
+	}
 
 	return dedup(allResults)
 }

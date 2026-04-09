@@ -149,6 +149,50 @@ definitions:
       insight_text:
         type: string
     type: object
+  admin.memoryListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/memory.Record'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  admin.memoryStatsResponse:
+    properties:
+      by_category:
+        additionalProperties:
+          type: integer
+        type: object
+      by_dimension:
+        additionalProperties:
+          type: integer
+        type: object
+      by_status:
+        additionalProperties:
+          type: integer
+        type: object
+      total:
+        type: integer
+    type: object
+  admin.memoryUpdateRequest:
+    properties:
+      category:
+        type: string
+      confidence:
+        type: string
+      content:
+        type: string
+      dimension:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+    type: object
   admin.personaContextDetail:
     properties:
       agent_instructions_override:
@@ -723,6 +767,61 @@ definitions:
       query_sql:
         type: string
       target:
+        type: string
+    type: object
+  memory.Record:
+    properties:
+      category:
+        type: string
+      confidence:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      dimension:
+        type: string
+      embedding:
+        items:
+          type: number
+        type: array
+      entity_urns:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      last_verified:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      persona:
+        type: string
+      related_columns:
+        items:
+          $ref: '#/definitions/memory.RelatedColumn'
+        type: array
+      source:
+        type: string
+      stale_at:
+        type: string
+      stale_reason:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  memory.RelatedColumn:
+    properties:
+      column:
+        type: string
+      relevance:
+        type: string
+      urn:
         type: string
     type: object
   platform.ConnectionInstance:
@@ -1728,6 +1827,230 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
+  /memory/records:
+    get:
+      description: Returns paginated memory records with optional filtering.
+      parameters:
+      - description: Filter by persona
+        in: query
+        name: persona
+        type: string
+      - description: Filter by dimension
+        in: query
+        name: dimension
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by source
+        in: query
+        name: source
+        type: string
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by creator
+        in: query
+        name: created_by
+        type: string
+      - description: Records after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Records before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.memoryListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List memory records
+      tags:
+      - Memory
+  /memory/records/{id}:
+    delete:
+      description: Soft-deletes a memory record by setting its status to archived.
+      parameters:
+      - description: Record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Archive memory record
+      tags:
+      - Memory
+    get:
+      description: Returns a single memory record by ID.
+      parameters:
+      - description: Record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.Record'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get memory record
+      tags:
+      - Memory
+    put:
+      consumes:
+      - application/json
+      description: Update content, category, confidence, dimension, or metadata on
+        a record.
+      parameters:
+      - description: Record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.memoryUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update memory record
+      tags:
+      - Memory
+  /memory/records/stats:
+    get:
+      description: Returns aggregated memory record statistics by dimension, category,
+        and status.
+      parameters:
+      - description: Filter by persona
+        in: query
+        name: persona
+        type: string
+      - description: Filter by dimension
+        in: query
+        name: dimension
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by source
+        in: query
+        name: source
+        type: string
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by creator
+        in: query
+        name: created_by
+        type: string
+      - description: Records after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Records before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.memoryStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get memory record stats
+      tags:
+      - Memory
   /personas:
     get:
       description: Returns all configured personas with tool counts.
