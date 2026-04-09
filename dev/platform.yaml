@@ -294,6 +294,13 @@ portal:
   s3_connection: dev-s3
   s3_bucket: portal-assets
 
+memory:
+  embedding:
+    provider: ollama
+    ollama:
+      url: "http://localhost:11434"
+      model: "nomic-embed-text"
+
 knowledge:
   enabled: true
   apply:
