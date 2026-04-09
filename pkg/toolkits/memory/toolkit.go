@@ -54,9 +54,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Memory Manage",
-		Description: "Manages persistent agent/analyst memory. Commands: remember (create), update, forget (archive), list, review_stale. " +
-			"Memories persist across sessions, scoped by user and persona. " +
-			"Supports LOCOMO dimensions: knowledge, event, entity, relationship, preference.",
+		Description: "Store and manage persistent memory across sessions. " +
+			"Use 'remember' PROACTIVELY during sessions to record: user corrections, preferences, " +
+			"business context, data quality observations, and anything the user would not want to repeat next time. " +
+			"Do not wait to be asked. If the user tells you something about their data, their workflow, " +
+			"or how they want results presented, remember it. " +
+			"Commands: remember (create), update, forget (archive), list, review_stale. " +
+			"Dimensions: knowledge, event, entity, relationship, preference.",
 		InputSchema: memoryManageSchema,
 	}, t.handleManage)
 

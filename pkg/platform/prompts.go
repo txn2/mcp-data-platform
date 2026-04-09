@@ -21,6 +21,7 @@ const (
 	kindS3         = "s3"
 	kindPortal     = "portal"
 	kindKnowledge  = "knowledge"
+	kindMemory     = "memory"
 )
 
 // registerPlatformPrompts registers platform-level prompts from config.
@@ -103,7 +104,8 @@ func capabilityTable() []capabilityEntry {
 		{check: func(h map[string]bool) bool { return h[kindTrino] }, text: "Query data using SQL across connected databases"},
 		{check: func(h map[string]bool) bool { return h[kindS3] }, text: "Browse and retrieve files from object storage"},
 		{check: func(h map[string]bool) bool { return h[kindPortal] }, text: "Save artifacts (dashboards, reports, charts) as viewable, shareable assets"},
-		{check: func(h map[string]bool) bool { return h[kindKnowledge] }, text: "Capture domain knowledge and insights to improve the data catalog"},
+		{check: func(h map[string]bool) bool { return h[kindKnowledge] }, text: "Capture domain knowledge and insights to improve the data catalog. Knowledge is captured automatically from conversations, not just when asked"},
+		{check: func(h map[string]bool) bool { return h[kindMemory] }, text: "Remember corrections, preferences, and context across sessions. Agents store what they learn and apply it in future conversations"},
 		{check: func(h map[string]bool) bool { return h[kindDataHub] && h[kindTrino] }, text: "Generate reports by discovering data and querying it"},
 		{check: func(h map[string]bool) bool { return h[kindDataHub] && h[kindTrino] && h[kindPortal] }, text: "Create interactive dashboards and save them for later viewing"},
 	}
@@ -118,6 +120,7 @@ func (p *Platform) collectCapabilityBullets() []string {
 		kindS3:        len(p.toolkitRegistry.GetByKind(kindS3)) > 0,
 		kindPortal:    len(p.toolkitRegistry.GetByKind(kindPortal)) > 0,
 		kindKnowledge: len(p.toolkitRegistry.GetByKind(kindKnowledge)) > 0,
+		kindMemory:    len(p.toolkitRegistry.GetByKind(kindMemory)) > 0,
 	}
 
 	var caps []string
