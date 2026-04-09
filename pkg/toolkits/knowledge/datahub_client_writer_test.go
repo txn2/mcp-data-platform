@@ -324,6 +324,231 @@ func TestDataHubClientWriter_UpdateColumnDescription_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "updating column description")
 }
 
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_MultipleColumns(t *testing.T) {
+	var postedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Return existing schema with one field already present.
+			resp := struct {
+				Value json.RawMessage `json:"value"`
+			}{
+				Value: json.RawMessage(`{"editableSchemaFieldInfo":[{"fieldPath":"existing","description":"old desc"}]}`),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		// Capture the POST body.
+		postedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"email": "Email address",
+		"name":  "Full name",
+	})
+	require.NoError(t, err)
+
+	// Verify the POST body contains all three fields (existing + 2 new).
+	require.NotEmpty(t, postedBody)
+	body := string(postedBody)
+	assert.Contains(t, body, "existing")
+	assert.Contains(t, body, "email")
+	assert.Contains(t, body, "name")
+	assert.Contains(t, body, "Email address")
+	assert.Contains(t, body, "Full name")
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_SingleColumn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"email": "Updated email description",
+	})
+	require.NoError(t, err)
+	// Single column delegates to UpdateColumnDescription (upstream).
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_EmptyMap(t *testing.T) {
+	writer := NewDataHubClientWriter(newTestClient(t, "http://unused"))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{})
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_InvalidURN(t *testing.T) {
+	writer := NewDataHubClientWriter(newTestClient(t, "http://unused"))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), "not-a-urn", map[string]string{
+		"a": "1",
+		"b": "2",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid URN")
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_ReadError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("server error"))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"a": "1",
+		"b": "2",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "read schema")
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_WriteError(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.Method == http.MethodGet {
+			// Successful read.
+			resp := struct {
+				Value json.RawMessage `json:"value"`
+			}{
+				Value: json.RawMessage(`{"editableSchemaFieldInfo":[]}`),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		// POST fails.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("write failed"))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"a": "1",
+		"b": "2",
+	})
+	assert.Error(t, err)
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_NoExistingAspect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"col_a": "Description A",
+		"col_b": "Description B",
+	})
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_UpdateColumnDescriptionBatch_NullAspectValue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			resp := struct {
+				Value json.RawMessage `json:"value"`
+			}{
+				Value: json.RawMessage(`null`),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UpdateColumnDescriptionBatch(context.Background(), testURN, map[string]string{
+		"col_a": "Description A",
+		"col_b": "Description B",
+	})
+	require.NoError(t, err)
+}
+
+func TestParseEditableSchema(t *testing.T) {
+	body := `{"value":{"editableSchemaFieldInfo":[{"fieldPath":"email","description":"Email"}]}}`
+	schema, err := parseEditableSchema([]byte(body))
+	require.NoError(t, err)
+	require.Len(t, schema.EditableSchemaFieldInfo, 1)
+	assert.Equal(t, "email", schema.EditableSchemaFieldInfo[0].FieldPath)
+	assert.Equal(t, "Email", schema.EditableSchemaFieldInfo[0].Description)
+}
+
+func TestParseEditableSchema_NullValue(t *testing.T) {
+	body := `{"value":null}`
+	schema, err := parseEditableSchema([]byte(body))
+	require.NoError(t, err)
+	assert.Empty(t, schema.EditableSchemaFieldInfo)
+}
+
+func TestParseEditableSchema_EmptyValue(t *testing.T) {
+	body := `{"value":""}`
+	_, err := parseEditableSchema([]byte(body))
+	// Empty string is not valid JSON for the schema, should error.
+	assert.Error(t, err)
+}
+
+func TestParseEditableSchema_InvalidJSON(t *testing.T) {
+	_, err := parseEditableSchema([]byte(`not json`))
+	assert.Error(t, err)
+}
+
+func TestAspectGetURL_V1(t *testing.T) {
+	cfg := dhclient.DefaultConfig()
+	cfg.URL = "https://datahub.example.com/api/graphql"
+	cfg.Token = "test"
+	c, err := dhclient.New(cfg)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	writer := NewDataHubClientWriter(c)
+
+	got := writer.aspectGetURL("dataset", testURN, "editableSchemaMetadata")
+	assert.Contains(t, got, "/aspects/")
+	assert.Contains(t, got, "editableSchemaMetadata")
+}
+
+func TestAspectGetURL_V3(t *testing.T) {
+	cfg := dhclient.DefaultConfig()
+	cfg.URL = "https://datahub.example.com/api/graphql"
+	cfg.Token = "test"
+	cfg.APIVersion = dhclient.APIVersionV3
+	c, err := dhclient.New(cfg)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	writer := NewDataHubClientWriter(c)
+
+	got := writer.aspectGetURL("dataset", testURN, "editableSchemaMetadata")
+	assert.Contains(t, got, "/openapi/v3/entity/dataset/")
+	assert.Contains(t, got, "editableSchemaMetadata")
+}
+
+func TestTruncateBody(t *testing.T) {
+	short := []byte("short")
+	assert.Equal(t, "short", truncateBody(short))
+
+	long := []byte(strings.Repeat("x", 300))
+	result := truncateBody(long)
+	assert.Len(t, result, 203) // 200 + "..."
+	assert.True(t, strings.HasSuffix(result, "..."))
+}
+
 func TestDataHubClientWriter_CreateCuratedQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
