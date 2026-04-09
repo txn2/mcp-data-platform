@@ -14,6 +14,8 @@ import type {
   BreakdownEntry,
   Insight,
   InsightStats,
+  MemoryRecord,
+  MemoryStats,
   Collection,
   CollectionConfig,
   CollectionResponse,
@@ -594,5 +596,40 @@ export function useDeleteMyPrompt() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portal", "prompts"] });
     },
+  });
+}
+
+// --- Memory (user-scoped memory records) ---
+
+export function useMyMemories(params?: {
+  dimension?: string;
+  category?: string;
+  status?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.dimension) sp.set("dimension", params.dimension);
+  if (params?.category) sp.set("category", params.category);
+  if (params?.status) sp.set("status", params.status);
+  if (params?.source) sp.set("source", params.source);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.offset) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["my-memories", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<MemoryRecord>>(
+        `/memory/records${qs ? `?${qs}` : ""}`,
+      ),
+  });
+}
+
+export function useMyMemoryStats() {
+  return useQuery({
+    queryKey: ["my-memory-stats"],
+    queryFn: () => apiFetch<MemoryStats>("/memory/records/stats"),
   });
 }

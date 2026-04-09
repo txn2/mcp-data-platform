@@ -491,7 +491,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	// Middleware order (innermost first): enrichment, then auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
 		semProvider, nil, nil,
-		middleware.EnrichmentConfig{EnrichTrinoResults: true},
+		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
@@ -586,7 +586,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 	// Middleware order: enrichment (innermost), auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
 		nil, queryProv, nil,
-		middleware.EnrichmentConfig{EnrichDataHubResults: true},
+		middleware.EnrichmentConfig{EnrichDataHubResults: true}, nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
@@ -743,7 +743,7 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 	// 1. Enrichment (innermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
 		semProvider, nil, nil,
-		middleware.EnrichmentConfig{EnrichTrinoResults: true},
+		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	// 2. Rules
 	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(middleware.RuleEnforcementConfig{Engine: ruleEngine}))
@@ -936,6 +936,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 			SessionCache:       cache,
 			DedupMode:          mode,
 		},
+		nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 
@@ -1283,7 +1284,7 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	// 1. Enrichment (innermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
 		semProvider, nil, nil,
-		middleware.EnrichmentConfig{EnrichTrinoResults: true},
+		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	// 2. Audit
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
@@ -1448,6 +1449,7 @@ func newHTTPDedupTestSession(t *testing.T, includeQueryTool bool) httpDedupTestR
 			SessionCache:       cache,
 			DedupMode:          middleware.DedupModeReference,
 		},
+		nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
 
@@ -1591,6 +1593,7 @@ func TestMiddlewareChain_SessionDedup_StreamableHTTP_Stateless(t *testing.T) {
 			SessionCache:       cache,
 			DedupMode:          middleware.DedupModeReference,
 		},
+		nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
 
@@ -1712,6 +1715,7 @@ func TestMiddlewareChain_SessionDedup_SSE(t *testing.T) {
 			SessionCache:       cache,
 			DedupMode:          middleware.DedupModeReference,
 		},
+		nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
 

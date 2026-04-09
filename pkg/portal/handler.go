@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -52,6 +53,11 @@ type InsightReader interface {
 	Stats(ctx context.Context, filter knowledge.InsightFilter) (*knowledge.InsightStats, error)
 }
 
+// MemoryReader provides read-only access to user memory records.
+type MemoryReader interface {
+	List(ctx context.Context, filter memory.Filter) ([]memory.Record, int, error)
+}
+
 // PersonaInfo holds resolved persona details for the current user.
 type PersonaInfo struct {
 	Name  string
@@ -78,6 +84,7 @@ type Deps struct {
 	PromptInfoProvider PromptInfoProvider
 	AuditMetrics       AuditMetrics
 	InsightStore       InsightReader
+	MemoryStore        MemoryReader
 	PersonaResolver    PersonaResolver
 	// Platform brand (far right of public viewer header)
 	BrandName    string // display name (default: "MCP Data Platform")
@@ -178,6 +185,12 @@ func (h *Handler) registerRoutes() {
 	if h.deps.InsightStore != nil {
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights", h.listMyInsights)
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights/stats", h.getMyInsightStats)
+	}
+
+	// Memory routes (user-scoped memory records)
+	if h.deps.MemoryStore != nil {
+		h.mux.HandleFunc("GET /api/v1/portal/memory/records", h.listMyMemories)
+		h.mux.HandleFunc("GET /api/v1/portal/memory/records/stats", h.getMyMemoryStats)
 	}
 
 	// Public routes (rate limited)
@@ -1189,6 +1202,81 @@ func (h *Handler) getMyInsightStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query insight stats")
 		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// --- Memory handlers ---
+
+// memoryStatsResponse holds aggregated memory statistics for a user.
+type memoryStatsResponse struct {
+	Total       int            `json:"total"`
+	ByDimension map[string]int `json:"by_dimension"`
+	ByCategory  map[string]int `json:"by_category"`
+	ByStatus    map[string]int `json:"by_status"`
+}
+
+func (h *Handler) listMyMemories(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	q := r.URL.Query()
+	filter := memory.Filter{
+		CreatedBy: user.Email,
+		Dimension: q.Get("dimension"),
+		Category:  q.Get("category"),
+		Status:    q.Get("status"),
+		Source:    q.Get("source"),
+		Limit:     intParam(r, paramLimit, memory.DefaultLimit),
+		Offset:    intParam(r, paramOffset, 0),
+	}
+
+	records, total, err := h.deps.MemoryStore.List(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list memory records")
+		return
+	}
+
+	if records == nil {
+		records = []memory.Record{}
+	}
+	writeJSON(w, http.StatusOK, paginatedResponse{
+		Data: records, Total: total,
+		Limit: filter.EffectiveLimit(), Offset: filter.Offset,
+	})
+}
+
+func (h *Handler) getMyMemoryStats(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	// Fetch all records for the user (up to a reasonable limit) to build stats.
+	records, total, err := h.deps.MemoryStore.List(r.Context(), memory.Filter{
+		CreatedBy: user.Email,
+		Limit:     memory.MaxLimit,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query memory stats")
+		return
+	}
+
+	stats := memoryStatsResponse{
+		Total:       total,
+		ByDimension: make(map[string]int),
+		ByCategory:  make(map[string]int),
+		ByStatus:    make(map[string]int),
+	}
+	for _, rec := range records {
+		stats.ByDimension[rec.Dimension]++
+		stats.ByCategory[rec.Category]++
+		stats.ByStatus[rec.Status]++
 	}
 
 	writeJSON(w, http.StatusOK, stats)

@@ -13,6 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -84,6 +86,10 @@ type Toolkit struct {
 	name  string
 	store InsightStore
 
+	// Memory layer: when set, capture_insight writes to memory store.
+	memoryStore memory.Store
+	embedder    embedding.Provider
+
 	applyEnabled        bool
 	requireConfirmation bool
 	changesetStore      ChangesetStore
@@ -127,6 +133,13 @@ func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, writer
 // SetPromptCreator sets the prompt creator for add_prompt change type support.
 func (t *Toolkit) SetPromptCreator(pc PromptCreator) {
 	t.promptCreator = pc
+}
+
+// SetMemoryStore configures the memory store for unified memory writes.
+// When set, capture_insight writes directly to the memory store with embeddings.
+func (t *Toolkit) SetMemoryStore(ms memory.Store, emb embedding.Provider) {
+	t.memoryStore = ms
+	t.embedder = emb
 }
 
 // Kind returns the toolkit kind.
@@ -237,6 +250,18 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 	// Persist
 	if err := t.store.Insert(ctx, insight); err != nil {
 		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+
+	// Generate embedding for the memory record if embedder is available.
+	if t.embedder != nil && t.memoryStore != nil {
+		emb, err := t.embedder.Embed(ctx, insight.InsightText)
+		if err != nil {
+			slog.Warn("embedding generation failed for insight", "id", id, "error", err)
+		} else {
+			if updateErr := t.memoryStore.Update(ctx, id, memory.RecordUpdate{Embedding: emb}); updateErr != nil {
+				slog.Warn("failed to update embedding for insight", "id", id, "error", updateErr)
+			}
+		}
 	}
 
 	// Return success

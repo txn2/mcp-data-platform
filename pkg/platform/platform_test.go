@@ -359,7 +359,7 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 			DataHubQueryEnrichment:  true,
 		},
 		Audit: AuditConfig{
-			Enabled: true,
+			Enabled: new(true),
 		},
 	}
 
@@ -2052,7 +2052,7 @@ func TestInitAuditNoopWhenDisabled(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
-			Enabled: false,
+			Enabled: new(false),
 		},
 	}
 
@@ -2075,7 +2075,7 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
-			Enabled:       true,
+			Enabled:       new(true),
 			LogToolCalls:  true,
 			RetentionDays: testRetentionDays,
 		},
@@ -2734,7 +2734,7 @@ func TestInitKnowledge_Disabled(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
-			Enabled: false,
+			Enabled: new(false),
 		},
 	}
 
@@ -2756,7 +2756,7 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
-			Enabled: true,
+			Enabled: new(true),
 		},
 		// Database DSN intentionally left empty — knowledge tools should NOT register
 	}
@@ -2791,7 +2791,7 @@ func TestInitKnowledge_ApplyEnabled_NoDatabase(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
-			Enabled: true,
+			Enabled: new(true),
 			Apply: KnowledgeApplyConfig{
 				Enabled:             true,
 				DataHubConnection:   "primary",
@@ -2826,7 +2826,7 @@ func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
-			Enabled: true,
+			Enabled: new(true),
 			Apply: KnowledgeApplyConfig{
 				Enabled:             true,
 				DataHubConnection:   testInstanceDefault,
@@ -3009,7 +3009,7 @@ func TestKnowledgeInsightStore_Accessor(t *testing.T) {
 			Semantic:  SemanticConfig{Provider: testProviderNoop},
 			Query:     QueryConfig{Provider: testProviderNoop},
 			Storage:   StorageConfig{Provider: testProviderNoop},
-			Knowledge: KnowledgeConfig{Enabled: true},
+			Knowledge: KnowledgeConfig{Enabled: new(true)},
 		}
 		p, err := New(WithConfig(cfg))
 		if err != nil {
@@ -3039,7 +3039,7 @@ func TestKnowledgeChangesetStore_Accessor(t *testing.T) {
 			Semantic:  SemanticConfig{Provider: testProviderNoop},
 			Query:     QueryConfig{Provider: testProviderNoop},
 			Storage:   StorageConfig{Provider: testProviderNoop},
-			Knowledge: KnowledgeConfig{Enabled: true},
+			Knowledge: KnowledgeConfig{Enabled: new(true)},
 		}
 		p, err := New(WithConfig(cfg))
 		if err != nil {
@@ -3288,7 +3288,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 			wantTools:     true,
 			wantLogging:   true,
 			wantResources: false,
-			wantPrompts:   false,
+			wantPrompts:   true,
 		},
 		{
 			name: "resources enabled",
@@ -3298,7 +3298,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 			wantTools:     true,
 			wantLogging:   true,
 			wantResources: true,
-			wantPrompts:   false,
+			wantPrompts:   true,
 		},
 		{
 			name: "prompts configured via server.prompts",
@@ -3325,7 +3325,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 		{
 			name: "prompts configured via knowledge enabled",
 			config: Config{
-				Knowledge: KnowledgeConfig{Enabled: true},
+				Knowledge: KnowledgeConfig{Enabled: new(true)},
 			},
 			wantTools:     true,
 			wantLogging:   true,
@@ -3336,7 +3336,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 			name: "all capabilities enabled",
 			config: Config{
 				Resources: ResourcesConfig{Enabled: true},
-				Knowledge: KnowledgeConfig{Enabled: true},
+				Knowledge: KnowledgeConfig{Enabled: new(true)},
 			},
 			wantTools:     true,
 			wantLogging:   true,

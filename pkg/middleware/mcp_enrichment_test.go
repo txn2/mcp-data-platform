@@ -52,7 +52,7 @@ func TestInferToolkitKind(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_NonToolsCallPassthrough(t *testing.T) {
 	// Create middleware with nil providers (should be fine for non-tools/call)
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that tracks calls
 	handlerCalled := false
@@ -74,7 +74,7 @@ func TestMCPSemanticEnrichmentMiddleware_NonToolsCallPassthrough(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 	// Create middleware
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that returns error
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -94,7 +94,7 @@ func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 	// Create middleware
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{})
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that returns error result
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -135,6 +135,7 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(
 		mockProvider, nil, nil,
 		EnrichmentConfig{EnrichTrinoResults: true},
+		nil,
 	)
 
 	// Mock handler returns basic Trino result
@@ -189,6 +190,7 @@ func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(
 		nil, mockProvider, nil,
 		EnrichmentConfig{EnrichDataHubResults: true},
+		nil,
 	)
 
 	// Mock handler returns DataHub search result with URN
@@ -226,7 +228,7 @@ func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 		EnrichTrinoResults:   true,
 		EnrichDataHubResults: true,
 		EnrichS3Results:      true,
-	})
+	}, nil)
 
 	// Mock handler
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -259,6 +261,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(
 		mockProvider, nil, nil,
 		EnrichmentConfig{EnrichTrinoResults: false},
+		nil,
 	)
 
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -318,6 +321,7 @@ func TestMCPSemanticEnrichmentMiddleware_SetsEnrichmentApplied(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(
 		mockProvider, nil, nil,
 		EnrichmentConfig{EnrichTrinoResults: true},
+		nil,
 	)
 
 	// Mock handler
@@ -346,7 +350,7 @@ func TestMCPSemanticEnrichmentMiddleware_SetsEnrichmentApplied(t *testing.T) {
 func TestMCPSemanticEnrichmentMiddleware_NoEnrichmentAppliedForUnknownTool(t *testing.T) {
 	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{
 		EnrichTrinoResults: true,
-	})
+	}, nil)
 
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{

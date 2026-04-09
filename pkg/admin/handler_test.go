@@ -176,7 +176,7 @@ func TestHandler_NilKnowledgeHandler_SystemRoutesStillWork(t *testing.T) {
 
 func TestFeatureUnavailable_Knowledge(t *testing.T) {
 	cfg := testConfig()
-	cfg.Knowledge.Enabled = true
+	cfg.Knowledge.Enabled = new(true)
 
 	t.Run("knowledge enabled no DB returns 409", func(t *testing.T) {
 		h := NewHandler(Deps{Config: cfg}, nil)
@@ -200,7 +200,7 @@ func TestFeatureUnavailable_Knowledge(t *testing.T) {
 
 	t.Run("knowledge disabled returns 404", func(t *testing.T) {
 		disabledCfg := testConfig()
-		disabledCfg.Knowledge.Enabled = false
+		disabledCfg.Knowledge.Enabled = new(false)
 		h := NewHandler(Deps{Config: disabledCfg}, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
@@ -213,7 +213,7 @@ func TestFeatureUnavailable_Knowledge(t *testing.T) {
 
 func TestFeatureUnavailable_Audit(t *testing.T) {
 	cfg := testConfig()
-	cfg.Audit.Enabled = true
+	cfg.Audit.Enabled = new(true)
 
 	t.Run("audit enabled no DB returns 409", func(t *testing.T) {
 		h := NewHandler(Deps{Config: cfg}, nil)
@@ -237,7 +237,7 @@ func TestFeatureUnavailable_Audit(t *testing.T) {
 
 	t.Run("audit disabled returns 404", func(t *testing.T) {
 		disabledCfg := testConfig()
-		disabledCfg.Audit.Enabled = false
+		disabledCfg.Audit.Enabled = new(false)
 		h := NewHandler(Deps{Config: disabledCfg}, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events", http.NoBody)

@@ -21,6 +21,7 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
+// MemoryPage is now integrated into KnowledgePage as a tab
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
 import { PersonasPanel } from "@/pages/settings/PersonasPanel";
@@ -34,13 +35,13 @@ const pageTitles: Record<string, string> = {
   "/": "Assets",
   "/collections": "Collections",
   "/shared": "Shared With Me",
-  "/my-knowledge": "Knowledge",
+  "/my-knowledge": "Knowledge & Memory",
   "/prompts": "Prompts",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/tools": "Tools",
   "/admin/audit": "Audit Log",
-  "/admin/knowledge": "Knowledge",
+  "/admin/knowledge": "Knowledge & Memory",
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/connections": "Connections",

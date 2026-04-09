@@ -115,6 +115,7 @@ This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analyt
 | Trino | 7 tools | No |
 | S3 | 6-9 tools | No |
 | Knowledge | 1-2 tools | No |
+| Memory | 2 tools | No |
 
 ---
 
@@ -1162,6 +1163,37 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `changes` | array | Conditional | Required for apply |
 | `confirm` | bool | No | Required when `require_confirmation` is true |
 | `review_notes` | string | No | Notes for approve/reject actions |
+
+## Memory Tools
+
+Persistent memory for agent and analyst sessions. Requires `memory.enabled: true`. Tools are opt-in per persona (`memory_*` in `tools.allow`).
+
+### memory_manage
+
+CRUD operations for memory records. Commands: `remember` (create with optional embedding), `update`, `forget` (soft-delete), `list` (persona-scoped), `review_stale` (admin review of stale memories).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | string | No | remember, update, forget, list, review_stale |
+| `content` | string | For remember | Memory content (10-4000 chars) |
+| `id` | string | For update/forget | Memory record ID |
+| `dimension` | string | No | LOCOMO: knowledge, event, entity, relationship, preference |
+| `category` | string | No | correction, business_context, data_quality, usage_guidance, relationship, enhancement, general |
+| `confidence` | string | No | high, medium, low |
+| `entity_urns` | array | No | DataHub URNs (max 10) |
+| `metadata` | object | No | Arbitrary metadata |
+
+### memory_recall
+
+Multi-strategy retrieval. Strategies: `entity` (URN lookup), `semantic` (vector similarity), `graph` (lineage traversal), `auto` (combined).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Natural language query |
+| `strategy` | string | No | entity, semantic, graph, auto (default: auto) |
+| `entity_urns` | array | No | DataHub URNs for entity/graph |
+| `include_stale` | bool | No | Include stale memories |
+| `limit` | int | No | Max results (default 10, max 50) |
 
 ## Portal Tools
 

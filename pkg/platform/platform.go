@@ -31,7 +31,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
@@ -49,6 +51,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -149,6 +152,12 @@ type Platform struct {
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
+
+	// Memory layer
+	memoryStore      memory.Store
+	embeddingProv    embedding.Provider
+	stalenessWatcher *memory.StalenessWatcher
+	memoryAdapter    middleware.MemoryProvider
 
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore        portal.AssetStore
@@ -261,6 +270,11 @@ func (p *Platform) initDataInfra() error {
 
 // initExtensions initializes optional extension toolkits and apps.
 func (p *Platform) initExtensions() error {
+	// Memory must init before knowledge so the memory store is available
+	// for the knowledge toolkit's memory adapter.
+	if err := p.initMemory(); err != nil {
+		return err
+	}
 	if err := p.initKnowledge(); err != nil {
 		return err
 	}
@@ -268,6 +282,85 @@ func (p *Platform) initExtensions() error {
 		return err
 	}
 	return p.initMCPApps()
+}
+
+// initMemory initializes the memory layer: store, embedder, toolkit, staleness watcher.
+func (p *Platform) initMemory() error {
+	if isExplicitlyDisabled(p.config.Memory.Enabled) || p.db == nil {
+		return nil
+	}
+
+	// 1. Create memory store.
+	p.memoryStore = memory.NewPostgresStore(p.db)
+
+	// 2. Create embedding provider.
+	switch p.config.Memory.Embedding.Provider {
+	case "ollama":
+		p.embeddingProv = embedding.NewOllamaProvider(embedding.OllamaConfig{
+			URL:     p.config.Memory.Embedding.Ollama.URL,
+			Model:   p.config.Memory.Embedding.Ollama.Model,
+			Timeout: p.config.Memory.Embedding.Ollama.Timeout,
+		})
+	default:
+		p.embeddingProv = embedding.NewNoopProvider(embedding.DefaultDimension)
+	}
+
+	// 3. Create and register memory toolkit.
+	tk, err := memorykit.New("default", p.memoryStore, p.embeddingProv)
+	if err != nil {
+		return fmt.Errorf("creating memory toolkit: %w", err)
+	}
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering memory toolkit: %w", err)
+	}
+
+	// 4. Create middleware adapter for cross-injection.
+	p.memoryAdapter = &memoryMiddlewareBridge{store: p.memoryStore}
+
+	// 5. Start staleness watcher if configured.
+	if p.config.Memory.Staleness.Enabled && p.semanticProvider != nil {
+		p.stalenessWatcher = memory.NewStalenessWatcher(
+			p.memoryStore, p.semanticProvider,
+			memory.StalenessConfig{
+				Interval:  p.config.Memory.Staleness.Interval,
+				BatchSize: p.config.Memory.Staleness.BatchSize,
+			},
+		)
+		p.stalenessWatcher.Start(context.Background())
+	}
+
+	slog.Info("memory layer enabled",
+		"embedding_provider", p.config.Memory.Embedding.Provider,
+		"staleness_enabled", p.config.Memory.Staleness.Enabled)
+	return nil
+}
+
+// memoryMiddlewareBridge adapts memory.Store to middleware.MemoryProvider,
+// converting between memory.Snippet and middleware.MemorySnippet.
+type memoryMiddlewareBridge struct {
+	store memory.Store
+}
+
+// RecallForEntities converts memory snippets to middleware format.
+func (b *memoryMiddlewareBridge) RecallForEntities(ctx context.Context, urns []string, personaName string, limit int) ([]middleware.MemorySnippet, error) {
+	adapter := memory.NewMiddlewareAdapter(b.store)
+	memSnippets, err := adapter.RecallForEntities(ctx, urns, personaName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recalling memories for entities: %w", err)
+	}
+
+	snippets := make([]middleware.MemorySnippet, len(memSnippets))
+	for i, ms := range memSnippets {
+		snippets[i] = middleware.MemorySnippet{
+			ID:         ms.ID,
+			Content:    ms.Content,
+			Dimension:  ms.Dimension,
+			Category:   ms.Category,
+			Confidence: ms.Confidence,
+			CreatedAt:  ms.CreatedAt,
+		}
+	}
+	return snippets, nil
 }
 
 // initDatabase initializes the database connection and runs migrations if configured.
@@ -593,15 +686,8 @@ func (p *Platform) initAudit(opts *Options) error {
 		return nil
 	}
 
-	// If audit logging is disabled, use noop logger
-	if !p.config.Audit.Enabled {
-		p.auditLogger = &middleware.NoopAuditLogger{}
-		return nil
-	}
-
-	// Audit logging requires a database connection
-	if p.db == nil {
-		slog.Warn("audit logging enabled but no database configured, using noop logger")
+	// Audit is enabled by default when a database is available.
+	if isExplicitlyDisabled(p.config.Audit.Enabled) || p.db == nil {
 		p.auditLogger = &middleware.NoopAuditLogger{}
 		return nil
 	}
@@ -836,16 +922,18 @@ func (p *Platform) initSessionGate() {
 // Knowledge tools require database persistence — without a database the
 // toolkit is not registered and its tools won't appear in tools/list.
 func (p *Platform) initKnowledge() error {
-	if !p.config.Knowledge.Enabled {
+	if isExplicitlyDisabled(p.config.Knowledge.Enabled) || p.db == nil {
 		return nil
 	}
 
-	if p.db == nil {
-		slog.Warn("knowledge enabled but no database configured; knowledge tools will not be registered")
-		return nil
+	// Use memory-backed adapter when memory store is available (migration
+	// drops knowledge_insights in favor of memory_records).
+	var store knowledgekit.InsightStore
+	if p.memoryStore != nil {
+		store = knowledgekit.NewMemoryInsightAdapter(p.memoryStore)
+	} else {
+		store = knowledgekit.NewPostgresStore(p.db)
 	}
-
-	store := knowledgekit.NewPostgresStore(p.db)
 	p.knowledgeInsightStore = store
 
 	tk, err := knowledgekit.New("default", store)
@@ -853,27 +941,14 @@ func (p *Platform) initKnowledge() error {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
 
-	// Configure apply_knowledge tool if enabled
-	if p.config.Knowledge.Apply.Enabled {
-		csStore := knowledgekit.NewPostgresChangesetStore(p.db)
-		p.knowledgeChangesetStore = csStore
+	// Wire memory store for embedding generation on capture_insight.
+	if p.memoryStore != nil && p.embeddingProv != nil {
+		tk.SetMemoryStore(p.memoryStore, p.embeddingProv)
+	}
 
-		writer, writerErr := p.createDataHubWriter()
-		if writerErr != nil {
-			return fmt.Errorf("creating datahub writer: %w", writerErr)
-		}
-		p.knowledgeDataHubWriter = writer
-
-		tk.SetApplyConfig(knowledgekit.ApplyConfig{
-			Enabled:             true,
-			DataHubConnection:   p.config.Knowledge.Apply.DataHubConnection,
-			RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
-		}, csStore, writer)
-
-		slog.Info("knowledge apply enabled",
-			"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
-			"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
-		)
+	// Configure apply_knowledge tool if enabled.
+	if err := p.configureKnowledgeApply(tk); err != nil {
+		return err
 	}
 
 	// Wire prompt creator for add_prompt change type
@@ -886,6 +961,34 @@ func (p *Platform) initKnowledge() error {
 	}
 
 	slog.Info("knowledge capture enabled")
+	return nil
+}
+
+// configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.
+func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
+	if !p.config.Knowledge.Apply.Enabled {
+		return nil
+	}
+
+	csStore := knowledgekit.NewPostgresChangesetStore(p.db)
+	p.knowledgeChangesetStore = csStore
+
+	writer, err := p.createDataHubWriter()
+	if err != nil {
+		return fmt.Errorf("creating datahub writer: %w", err)
+	}
+	p.knowledgeDataHubWriter = writer
+
+	tk.SetApplyConfig(knowledgekit.ApplyConfig{
+		Enabled:             true,
+		DataHubConnection:   p.config.Knowledge.Apply.DataHubConnection,
+		RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
+	}, csStore, writer)
+
+	slog.Info("knowledge apply enabled",
+		"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
+		"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
+	)
 	return nil
 }
 
@@ -918,12 +1021,7 @@ func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
 // initPortal initializes the asset portal toolkit if enabled.
 // The portal requires a database for metadata and an S3 connection for content storage.
 func (p *Platform) initPortal() error {
-	if !p.config.Portal.Enabled {
-		return nil
-	}
-
-	if p.db == nil {
-		slog.Warn("portal enabled but no database configured; portal tools will not be registered")
+	if isExplicitlyDisabled(p.config.Portal.Enabled) || p.db == nil {
 		return nil
 	}
 
@@ -1244,24 +1342,8 @@ func (p *Platform) finalizeSetup() {
 	//
 	// Therefore we add in reverse (innermost first):
 
-	// 1. Semantic enrichment (innermost) - enriches responses with cross-service context
-	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
-		p.config.Injection.DataHubQueryEnrichment ||
-		p.config.Injection.S3SemanticEnrichment ||
-		p.config.Injection.DataHubStorageEnrichment
-
-	if needsEnrichment {
-		enrichCfg := p.buildEnrichmentConfig()
-		enrichCfg.WorkflowTracker = p.workflowTracker
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPSemanticEnrichmentMiddleware(
-				p.semanticProvider,
-				p.queryProvider,
-				p.storageProvider,
-				enrichCfg,
-			),
-		)
-	}
+	// 1. Semantic enrichment (innermost) - enriches responses with cross-service context.
+	p.addEnrichmentMiddleware()
 
 	// 1.5. Provenance tracking - accumulates tool calls per session for save_artifact
 	p.addProvenanceMiddleware()
@@ -1293,7 +1375,7 @@ func (p *Platform) finalizeSetup() {
 	}
 
 	// 4. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
-	if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
+	if !isExplicitlyDisabled(p.config.Audit.Enabled) && p.config.Audit.LogToolCalls {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(p.auditLogger),
 		)
@@ -1423,11 +1505,39 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	}
 
 	// Prompts are available when configured.
-	if len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || p.config.Knowledge.Enabled {
+	if len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled) {
 		caps.Prompts = &mcp.PromptCapabilities{}
 	}
 
 	return caps
+}
+
+// addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
+func (p *Platform) addEnrichmentMiddleware() {
+	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
+		p.config.Injection.DataHubQueryEnrichment ||
+		p.config.Injection.S3SemanticEnrichment ||
+		p.config.Injection.DataHubStorageEnrichment
+
+	if !needsEnrichment {
+		return
+	}
+
+	enrichCfg := p.buildEnrichmentConfig()
+	enrichCfg.WorkflowTracker = p.workflowTracker
+	var mp middleware.MemoryProvider
+	if p.memoryAdapter != nil {
+		mp = p.memoryAdapter
+	}
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPSemanticEnrichmentMiddleware(
+			p.semanticProvider,
+			p.queryProvider,
+			p.storageProvider,
+			enrichCfg,
+			mp,
+		),
+	)
 }
 
 // buildEnrichmentConfig creates the enrichment middleware config, including
@@ -1992,6 +2102,11 @@ func (p *Platform) FileDefaults() map[string]string {
 	return p.fileDefaults
 }
 
+// MemoryStore returns the memory store, or nil if memory is disabled.
+func (p *Platform) MemoryStore() memory.Store {
+	return p.memoryStore
+}
+
 // KnowledgeInsightStore returns the insight store, or nil if knowledge is disabled.
 func (p *Platform) KnowledgeInsightStore() knowledgekit.InsightStore {
 	return p.knowledgeInsightStore
@@ -2438,6 +2553,10 @@ func (p *Platform) stopBackgroundTrackers() {
 	if p.sessionGate != nil {
 		slog.Debug("shutdown: stopping session gate")
 		p.sessionGate.Stop()
+	}
+	if p.stalenessWatcher != nil {
+		slog.Debug("shutdown: stopping staleness watcher")
+		p.stalenessWatcher.Stop()
 	}
 }
 

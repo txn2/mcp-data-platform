@@ -33,6 +33,8 @@ import type {
   AdminAssetListResponse,
   PromptListResponse,
   Prompt,
+  MemoryListResponse,
+  MemoryStats,
 } from "./types";
 import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
 
@@ -761,6 +763,90 @@ export function useDeleteAdminPrompt() {
       apiFetch(`/prompts/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "prompts"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+interface MemoryRecordsParams {
+  page?: number;
+  perPage?: number;
+  persona?: string;
+  dimension?: string;
+  category?: string;
+  status?: string;
+  source?: string;
+  createdBy?: string;
+  entityUrn?: string;
+  search?: string;
+}
+
+export function useMemoryRecords(params: MemoryRecordsParams = {}) {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.perPage) searchParams.set("per_page", String(params.perPage));
+  if (params.persona) searchParams.set("persona", params.persona);
+  if (params.dimension) searchParams.set("dimension", params.dimension);
+  if (params.category) searchParams.set("category", params.category);
+  if (params.status) searchParams.set("status", params.status);
+  if (params.source) searchParams.set("source", params.source);
+  if (params.createdBy) searchParams.set("created_by", params.createdBy);
+  if (params.entityUrn) searchParams.set("entity_urn", params.entityUrn);
+
+  const qs = searchParams.toString();
+  return useQuery({
+    queryKey: ["memory", "records", params],
+    queryFn: () =>
+      apiFetch<MemoryListResponse>(
+        `/memory/records${qs ? `?${qs}` : ""}`,
+      ),
+    refetchInterval: REFETCH_INTERVAL,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMemoryStats() {
+  return useQuery({
+    queryKey: ["memory", "stats"],
+    queryFn: () => apiFetch<MemoryStats>("/memory/records/stats"),
+    refetchInterval: REFETCH_INTERVAL,
+  });
+}
+
+export function useUpdateMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      content?: string;
+      category?: string;
+      confidence?: string;
+      dimension?: string;
+      metadata?: Record<string, unknown>;
+    }) =>
+      apiFetch(`/memory/records/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memory"] });
+    },
+  });
+}
+
+export function useArchiveMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/memory/records/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memory"] });
     },
   });
 }

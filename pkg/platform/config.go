@@ -64,6 +64,7 @@ type Config struct {
 	MCPApps       MCPAppsConfig       `yaml:"mcpapps"`
 	Sessions      SessionsConfig      `yaml:"sessions"`
 	Knowledge     KnowledgeConfig     `yaml:"knowledge"`
+	Memory        MemoryConfig        `yaml:"memory"`
 	Portal        PortalConfig        `yaml:"portal"`
 	Admin         AdminConfig         `yaml:"admin"`
 	Resources     ResourcesConfig     `yaml:"resources"`
@@ -83,8 +84,9 @@ type AdminConfig struct {
 }
 
 // KnowledgeConfig configures the knowledge capture feature.
+// Enabled by default when a database is available. Set enabled: false to disable.
 type KnowledgeConfig struct {
-	Enabled bool                 `yaml:"enabled"`
+	Enabled *bool                `yaml:"enabled"`
 	Apply   KnowledgeApplyConfig `yaml:"apply"`
 }
 
@@ -95,9 +97,39 @@ type KnowledgeApplyConfig struct {
 	RequireConfirmation bool   `yaml:"require_confirmation"`
 }
 
+// MemoryConfig configures the persistent memory layer.
+// Memory is enabled by default when a database is available.
+// Set enabled: false to explicitly disable.
+type MemoryConfig struct {
+	Enabled   *bool           `yaml:"enabled"`
+	Embedding EmbeddingConfig `yaml:"embedding"`
+	Staleness StalenessConfig `yaml:"staleness"`
+}
+
+// EmbeddingConfig configures the embedding provider for vector search.
+type EmbeddingConfig struct {
+	Provider string            `yaml:"provider"` // "ollama" or "noop"
+	Ollama   OllamaEmbedConfig `yaml:"ollama"`
+}
+
+// OllamaEmbedConfig configures the Ollama embedding provider.
+type OllamaEmbedConfig struct {
+	URL     string        `yaml:"url"`
+	Model   string        `yaml:"model"`
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// StalenessConfig configures the memory staleness watcher.
+type StalenessConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Interval  time.Duration `yaml:"interval"`
+	BatchSize int           `yaml:"batch_size"`
+}
+
 // PortalConfig configures the asset portal for saving AI-generated artifacts.
+// Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
-	Enabled        bool                  `yaml:"enabled"`
+	Enabled        *bool                 `yaml:"enabled"`
 	Title          string                `yaml:"title"`            // sidebar/branding title (default: "MCP Data Platform")
 	Logo           string                `yaml:"logo"`             // URL to logo (fallback for both themes)
 	LogoLight      string                `yaml:"logo_light"`       // URL to logo for light theme
@@ -467,10 +499,11 @@ type RulesConfig struct {
 }
 
 // AuditConfig configures audit logging.
+// Enabled by default when a database is available. Set enabled: false to disable.
 type AuditConfig struct {
-	Enabled       bool `yaml:"enabled"`
-	LogToolCalls  bool `yaml:"log_tool_calls"`
-	RetentionDays int  `yaml:"retention_days"`
+	Enabled       *bool `yaml:"enabled"`
+	LogToolCalls  bool  `yaml:"log_tool_calls"`
+	RetentionDays int   `yaml:"retention_days"`
 }
 
 // MCPAppsConfig configures MCP Apps support for interactive UI components.
@@ -660,6 +693,12 @@ type SessionGateConfig struct {
 
 	// ExemptTools lists tool names that bypass the gate (e.g., "list_connections").
 	ExemptTools []string `yaml:"exempt_tools"`
+}
+
+// isExplicitlyDisabled returns true only when the pointer is non-nil and false.
+// A nil pointer means "use the default" (enabled when prerequisites are met).
+func isExplicitlyDisabled(b *bool) bool {
+	return b != nil && !*b
 }
 
 // SessionsConfig configures session externalization.

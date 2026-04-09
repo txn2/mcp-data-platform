@@ -65,8 +65,8 @@ func (p *Platform) buildFeatures() Features {
 		SemanticEnrichment: p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.S3SemanticEnrichment,
 		QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
 		StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
-		AuditLogging:       p.config.Audit.Enabled,
-		KnowledgeCapture:   p.config.Knowledge.Enabled,
+		AuditLogging:       !isExplicitlyDisabled(p.config.Audit.Enabled),
+		KnowledgeCapture:   !isExplicitlyDisabled(p.config.Knowledge.Enabled),
 	}
 
 	if p.config.Knowledge.Apply.Enabled {

@@ -621,6 +621,39 @@ knowledge:
 !!! note "Prerequisites"
     Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.
 
+## Memory Layer Configuration
+
+The memory layer provides persistent memory for agent and analyst sessions with vector search, cross-injection, and staleness detection. See [Memory Layer](../memory/overview.md) for the full feature documentation.
+
+```yaml
+memory:
+  enabled: true
+  embedding:
+    provider: ollama
+    ollama:
+      url: "http://localhost:11434"
+      model: "nomic-embed-text"
+      timeout: 30s
+  staleness:
+    enabled: true
+    interval: 15m
+    batch_size: 50
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` (when database available) | Enable memory layer. Set `false` to explicitly disable. |
+| `embedding.provider` | string | `noop` | Embedding provider: `ollama` or `noop` |
+| `embedding.ollama.url` | string | `http://localhost:11434` | Ollama API base URL |
+| `embedding.ollama.model` | string | `nomic-embed-text` | Ollama embedding model (768-dim) |
+| `embedding.ollama.timeout` | duration | `30s` | Embedding API timeout |
+| `staleness.enabled` | bool | `false` | Enable background staleness watcher |
+| `staleness.interval` | duration | `15m` | Staleness check interval |
+| `staleness.batch_size` | int | `50` | Records per check cycle |
+
+!!! note "Prerequisites"
+    Memory requires `database.dsn` to be configured and the pgvector PostgreSQL extension installed. Memory tools are opt-in per persona (`memory_*` in `tools.allow`).
+
 ## MCP Apps Configuration
 
 MCP Apps provide interactive UI components that enhance tool results. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
