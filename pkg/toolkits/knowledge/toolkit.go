@@ -548,14 +548,52 @@ const columnTargetPrefix = "column:"
 
 // executeChanges applies changes to DataHub, rolling back on failure.
 // Returns a list of IDs/URNs created by changes (query URNs, document IDs, incident URNs).
+// Column description updates are batched into a single read-modify-write to avoid
+// the stale-read bug where back-to-back single calls lose all but the last column.
 func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
-	// Pre-flight: validate entity type compatibility for all changes before executing any.
-	for i, c := range changes {
-		if err := validateEntityTypeForChange(urn, c); err != nil {
-			return nil, fmt.Errorf("change %d of %d rejected: %w", i+1, len(changes), err)
+	if err := validateAllChanges(urn, changes); err != nil {
+		return nil, err
+	}
+
+	columnDescs, nonColumnChanges := partitionColumnChanges(changes)
+
+	if len(columnDescs) > 0 {
+		if err := t.datahubWriter.UpdateColumnDescriptionBatch(ctx, urn, columnDescs); err != nil {
+			return nil, fmt.Errorf("datahub write failed for column descriptions: %w", err)
 		}
 	}
 
+	return t.dispatchNonColumnChanges(ctx, urn, nonColumnChanges)
+}
+
+// validateAllChanges pre-checks entity type compatibility for all changes.
+func validateAllChanges(urn string, changes []ApplyChange) error {
+	for i, c := range changes {
+		if err := validateEntityTypeForChange(urn, c); err != nil {
+			return fmt.Errorf("change %d of %d rejected: %w", i+1, len(changes), err)
+		}
+	}
+	return nil
+}
+
+// partitionColumnChanges separates column description updates from other changes.
+func partitionColumnChanges(changes []ApplyChange) (map[string]string, []ApplyChange) {
+	columnDescs := make(map[string]string)
+	var other []ApplyChange
+	for _, c := range changes {
+		if c.ChangeType == string(actionUpdateDescription) {
+			if fieldPath, ok := parseColumnTarget(c.Target); ok {
+				columnDescs[fieldPath] = c.Detail
+				continue
+			}
+		}
+		other = append(other, c)
+	}
+	return columnDescs, other
+}
+
+// dispatchNonColumnChanges applies non-column changes individually.
+func (t *Toolkit) dispatchNonColumnChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
 	var createdURNs []string
 	for i, c := range changes {
 		queryURN, err := t.dispatchChange(ctx, urn, c)

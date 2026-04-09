@@ -207,6 +207,10 @@ func (*mockDataHubWriter) UpdateColumnDescription(_ context.Context, _, _, _ str
 	return nil
 }
 
+func (*mockDataHubWriter) UpdateColumnDescriptionBatch(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+
 func (*mockDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ string) (string, error) {
 	return "", nil
 }
