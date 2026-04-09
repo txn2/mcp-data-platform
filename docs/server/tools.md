@@ -42,6 +42,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
 | Knowledge | `capture_insight` | Record domain knowledge |
 | Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
+| Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
+| Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
 | Portal | `manage_artifact` | List, get, update, or delete saved artifacts |
 
@@ -579,6 +581,45 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
 
 For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
+
+---
+
+## Memory Tools
+
+!!! tip "Full documentation"
+    For the complete memory layer documentation including architecture, staleness detection, and cross-injection, see [Memory Layer](../memory/overview.md).
+
+### memory_manage
+
+Manages persistent agent/analyst memory. Opt-in per persona (requires `memory_*` in `tools.allow`). Requires `memory.enabled: true`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | string | No | Operation: `remember`, `update`, `forget`, `list`, `review_stale`. Omit for help. |
+| `content` | string | For `remember` | Memory content (10-4000 chars) |
+| `id` | string | For `update`, `forget` | Memory record ID |
+| `dimension` | string | No | LOCOMO dimension: `knowledge`, `event`, `entity`, `relationship`, `preference` |
+| `category` | string | No | Category: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement`, `general` |
+| `confidence` | string | No | `high`, `medium`, `low` (default: `medium`) |
+| `source` | string | No | `user`, `agent_discovery`, `enrichment_gap`, `automation`, `lineage_event` |
+| `entity_urns` | string[] | No | DataHub entity URNs this memory relates to (max 10) |
+| `metadata` | object | No | Arbitrary metadata (e.g., `suggested_actions`, `superseded_by`) |
+| `filter_*` | string | No | Filters for `list`: `filter_dimension`, `filter_category`, `filter_status`, `filter_entity_urn` |
+| `limit` | int | No | Page size for `list` (default 20, max 100) |
+| `offset` | int | No | Pagination offset for `list` |
+
+### memory_recall
+
+Multi-strategy memory retrieval. Use when cross-injection does not surface the context you need. Opt-in per persona.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Natural language query for semantic search |
+| `strategy` | string | No | `entity`, `semantic`, `graph`, `auto` (default: `auto`) |
+| `entity_urns` | string[] | No | DataHub URNs for `entity` and `graph` strategies |
+| `dimension` | string | No | Filter by LOCOMO dimension |
+| `include_stale` | bool | No | Include stale memories (default: false) |
+| `limit` | int | No | Max results (default 10, max 50) |
 
 ---
 

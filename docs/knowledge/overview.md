@@ -4,6 +4,9 @@ description: Capture domain knowledge shared during AI sessions and write it bac
 
 # Knowledge Capture
 
+!!! tip "Memory Layer"
+    Knowledge capture is part of the broader [Memory Layer](../memory/overview.md). Insights captured via `capture_insight` are stored in `memory_records` (the unified memory table) and can be recalled, enriched, and promoted to durable DataHub knowledge via `apply_knowledge`.
+
 ## The Problem
 
 Every organization has tribal knowledge about its data: what columns actually mean, which tables are reliable, when timestamps shifted time zones, how business metrics are calculated. This knowledge lives in the heads of experienced team members and surfaces in conversations, but it rarely makes it back into the data catalog.
@@ -22,8 +25,8 @@ flowchart LR
         A[User shares<br/>domain knowledge] --> B[capture_insight<br/>tool]
     end
 
-    subgraph "PostgreSQL"
-        B --> C[(knowledge_insights<br/>status: pending)]
+    subgraph "PostgreSQL + pgvector"
+        B --> C[(memory_records<br/>status: active)]
     end
 
     subgraph "Admin Review"

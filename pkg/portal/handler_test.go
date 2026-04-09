@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -3686,4 +3687,154 @@ func TestVersionedExtension(t *testing.T) {
 			assert.Equal(t, tt.want, ExtensionForContentType(tt.ct))
 		})
 	}
+}
+
+// --- Memory mock and tests ---
+
+type mockMemoryStore struct {
+	listResult []memory.Record
+	listTotal  int
+	listErr    error
+	lastFilter memory.Filter
+}
+
+func (m *mockMemoryStore) List(_ context.Context, f memory.Filter) ([]memory.Record, int, error) {
+	m.lastFilter = f
+	return m.listResult, m.listTotal, m.listErr
+}
+
+var _ MemoryReader = (*mockMemoryStore)(nil)
+
+func newMemoryTestHandler(store *mockMemoryStore, user *User) *Handler {
+	return NewHandler(Deps{
+		AssetStore:  &mockAssetStore{},
+		ShareStore:  &mockShareStore{},
+		MemoryStore: store,
+	}, testAuthMiddleware(user))
+}
+
+func TestListMyMemories_Success(t *testing.T) {
+	store := &mockMemoryStore{
+		listResult: []memory.Record{
+			{ID: "mem-1", CreatedBy: "alice@example.com", Dimension: "knowledge", Category: "correction", Status: "active"},
+		},
+		listTotal: 1,
+	}
+	user := &User{UserID: "user-1", Email: "alice@example.com"}
+	h := newMemoryTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records?dimension=knowledge&category=correction&status=active&source=user&limit=10", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "alice@example.com", store.lastFilter.CreatedBy)
+	assert.Equal(t, "knowledge", store.lastFilter.Dimension)
+	assert.Equal(t, "correction", store.lastFilter.Category)
+	assert.Equal(t, "active", store.lastFilter.Status)
+	assert.Equal(t, "user", store.lastFilter.Source)
+	assert.Equal(t, 10, store.lastFilter.Limit)
+}
+
+func TestListMyMemories_Unauthenticated(t *testing.T) {
+	store := &mockMemoryStore{}
+	h := newMemoryTestHandler(store, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestListMyMemories_Error(t *testing.T) {
+	store := &mockMemoryStore{listErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1", Email: "alice@example.com"}
+	h := newMemoryTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListMyMemories_EmptyResult(t *testing.T) {
+	store := &mockMemoryStore{listResult: nil, listTotal: 0}
+	user := &User{UserID: "user-1", Email: "alice@example.com"}
+	h := newMemoryTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp paginatedResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, 0, resp.Total)
+}
+
+func TestGetMyMemoryStats_Success(t *testing.T) {
+	store := &mockMemoryStore{
+		listResult: []memory.Record{
+			{Dimension: "knowledge", Category: "correction", Status: "active"},
+			{Dimension: "knowledge", Category: "business_context", Status: "active"},
+			{Dimension: "event", Category: "correction", Status: "stale"},
+		},
+		listTotal: 3,
+	}
+	user := &User{UserID: "user-1", Email: "alice@example.com"}
+	h := newMemoryTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "alice@example.com", store.lastFilter.CreatedBy)
+
+	var stats memoryStatsResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&stats))
+	assert.Equal(t, 3, stats.Total)
+	assert.Equal(t, 2, stats.ByDimension["knowledge"])
+	assert.Equal(t, 1, stats.ByDimension["event"])
+	assert.Equal(t, 2, stats.ByCategory["correction"])
+	assert.Equal(t, 1, stats.ByCategory["business_context"])
+	assert.Equal(t, 2, stats.ByStatus["active"])
+	assert.Equal(t, 1, stats.ByStatus["stale"])
+}
+
+func TestGetMyMemoryStats_Unauthenticated(t *testing.T) {
+	store := &mockMemoryStore{}
+	h := newMemoryTestHandler(store, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetMyMemoryStats_Error(t *testing.T) {
+	store := &mockMemoryStore{listErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1", Email: "alice@example.com"}
+	h := newMemoryTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records/stats", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestMemoryNotRegisteredWithoutStore(t *testing.T) {
+	// When MemoryStore is nil, memory routes should not be registered.
+	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "user-1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/memory/records", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

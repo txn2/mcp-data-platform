@@ -233,3 +233,31 @@ export interface InsightStats {
   by_category: Record<string, number>;
   by_confidence: Record<string, number>;
 }
+
+// Memory types (user-scoped memory records)
+export interface MemoryRecord {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  persona: string;
+  dimension: string;
+  content: string;
+  category: string;
+  confidence: string;
+  source: string;
+  entity_urns: string[];
+  related_columns: RelatedColumn[];
+  metadata: Record<string, unknown>;
+  status: string;
+  stale_reason?: string;
+  stale_at?: string;
+  last_verified?: string;
+}
+
+export interface MemoryStats {
+  total: number;
+  by_dimension: Record<string, number>;
+  by_category: Record<string, number>;
+  by_status: Record<string, number>;
+}

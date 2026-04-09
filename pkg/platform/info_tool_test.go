@@ -60,7 +60,7 @@ func TestHandleInfo(t *testing.T) {
 					DataHubQueryEnrichment:  true,
 				},
 				Audit: AuditConfig{
-					Enabled: true,
+					Enabled: new(true),
 				},
 			},
 			wantName: "test-platform",
@@ -140,7 +140,7 @@ func TestInfoFeatures(t *testing.T) {
 			DataHubStorageEnrichment: true,
 		},
 		Audit: AuditConfig{
-			Enabled: true,
+			Enabled: new(true),
 		},
 	}
 

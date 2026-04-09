@@ -58,7 +58,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
-  { path: "/admin/knowledge", label: "Knowledge", icon: Lightbulb },
+  { path: "/admin/knowledge", label: "Knowledge & Memory", icon: Lightbulb },
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
@@ -68,7 +68,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const userTools = useAuthStore((s) => s.user?.tools);
-  const hasKnowledge = userTools?.includes("capture_insight") ?? false;
+  const hasKnowledge = (userTools?.includes("capture_insight") || userTools?.includes("memory_manage")) ?? false;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // On mobile, close the sidebar after navigating.
@@ -80,7 +80,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const portalNavItems = hasKnowledge
     ? [
         ...basePortalNavItems,
-        { path: "/my-knowledge", label: "Knowledge", icon: Lightbulb },
+        { path: "/my-knowledge", label: "Knowledge & Memory", icon: Lightbulb },
       ]
     : basePortalNavItems;
   const { data: branding } = useBranding();

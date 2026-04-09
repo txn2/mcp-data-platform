@@ -513,11 +513,11 @@ func TestConfigTypes_TuningConfig(t *testing.T) {
 
 func TestConfigTypes_AuditConfig(t *testing.T) {
 	cfg := AuditConfig{
-		Enabled:       true,
+		Enabled:       new(true),
 		LogToolCalls:  true,
 		RetentionDays: cfgTestRetentionDays,
 	}
-	if !cfg.Enabled {
+	if cfg.Enabled == nil || !*cfg.Enabled {
 		t.Error("Enabled = false")
 	}
 	if cfg.RetentionDays != cfgTestRetentionDays {
@@ -789,7 +789,7 @@ portal:
   logo_light: "https://cdn.example.com/logo-light.svg"
   logo_dark: "https://cdn.example.com/logo-dark.svg"
 `)
-	if !cfg.Portal.Enabled {
+	if cfg.Portal.Enabled == nil || !*cfg.Portal.Enabled {
 		t.Error("Portal.Enabled = false, want true")
 	}
 	if cfg.Portal.Title != "ACME Data Platform" {

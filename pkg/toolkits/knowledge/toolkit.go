@@ -13,6 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -84,6 +86,10 @@ type Toolkit struct {
 	name  string
 	store InsightStore
 
+	// Memory layer: when set, capture_insight writes to memory store.
+	memoryStore memory.Store
+	embedder    embedding.Provider
+
 	applyEnabled        bool
 	requireConfirmation bool
 	changesetStore      ChangesetStore
@@ -129,6 +135,13 @@ func (t *Toolkit) SetPromptCreator(pc PromptCreator) {
 	t.promptCreator = pc
 }
 
+// SetMemoryStore configures the memory store for unified memory writes.
+// When set, capture_insight writes directly to the memory store with embeddings.
+func (t *Toolkit) SetMemoryStore(ms memory.Store, emb embedding.Provider) {
+	t.memoryStore = ms
+	t.embedder = emb
+}
+
 // Kind returns the toolkit kind.
 func (*Toolkit) Kind() string {
 	return "knowledge"
@@ -149,11 +162,15 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  toolName,
 		Title: "Capture Insight",
-		Description: "Records domain knowledge shared during a session for later admin review and catalog integration. " +
-			"Use this when you discover corrections to metadata, business context about data meaning, " +
-			"data quality observations, usage tips, or relationships between datasets. " +
-			"Set source to 'agent_discovery' for insights you figure out yourself, or 'enrichment_gap' " +
-			"to flag metadata gaps for admin attention. Defaults to 'user' for user-provided knowledge.",
+		Description: "Capture domain knowledge for admin review and catalog improvement. " +
+			"Call this PROACTIVELY whenever you encounter knowledge worth preserving. Do not wait to be asked. " +
+			"Capture when: the user corrects a description or assumption about data; " +
+			"the user explains business context (seasonal patterns, operating hours, calculation rules); " +
+			"the user shares data quality observations; " +
+			"you discover something yourself by querying (set source to 'agent_discovery'); " +
+			"you notice missing or outdated metadata (set source to 'enrichment_gap'). " +
+			"If the user says something like 'stores close at 9pm' or 'that column excludes returns', capture it immediately. " +
+			"Defaults to source 'user' for user-provided knowledge.",
 		InputSchema: captureInsightSchema,
 	}, t.handleCaptureInsight)
 
@@ -237,6 +254,18 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 	// Persist
 	if err := t.store.Insert(ctx, insight); err != nil {
 		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+
+	// Generate embedding for the memory record if embedder is available.
+	if t.embedder != nil && t.memoryStore != nil {
+		emb, err := t.embedder.Embed(ctx, insight.InsightText)
+		if err != nil {
+			slog.Warn("embedding generation failed for insight", "id", id, "error", err)
+		} else {
+			if updateErr := t.memoryStore.Update(ctx, id, memory.RecordUpdate{Embedding: emb}); updateErr != nil {
+				slog.Warn("failed to update embedding for insight", "id", id, "error", updateErr)
+			}
+		}
 	}
 
 	// Return success
@@ -1074,6 +1103,14 @@ func changesToMap(changes []ApplyChange) map[string]any {
 
 // knowledgeCapturePrompt guides the AI agent on when to suggest capturing insights.
 const knowledgeCapturePrompt = `## Knowledge Capture Guidance
+
+### Default Behavior: Capture Proactively
+
+You should capture knowledge automatically during normal conversation. Do not wait for the user to say "capture this" or "remember that." When someone tells you a fact about their data, that is knowledge. Record it.
+
+Use capture_insight for domain knowledge that should be reviewed by an admin and potentially written into the catalog. Use memory_manage(command='remember') for preferences, corrections, and context that should persist across sessions but does not need admin review.
+
+The goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.
 
 ### When to Capture an Insight
 

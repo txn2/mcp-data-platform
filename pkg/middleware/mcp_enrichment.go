@@ -24,11 +24,13 @@ func MCPSemanticEnrichmentMiddleware(
 	queryProvider query.Provider,
 	storageProvider storage.Provider,
 	cfg EnrichmentConfig,
+	memoryProvider MemoryProvider,
 ) mcp.Middleware {
 	enricher := &semanticEnricher{
 		semanticProvider: semanticProvider,
 		queryProvider:    queryProvider,
 		storageProvider:  storageProvider,
+		memoryProvider:   memoryProvider,
 		cfg:              cfg,
 	}
 
@@ -99,6 +101,9 @@ func applyEnrichment(
 			pc.EnrichmentMode = EnrichmentModeFull
 		}
 	}
+
+	// Attach relevant memories from the memory layer.
+	enrichedResult = enrichWithMemories(ctx, enricher.memoryProvider, enrichedResult, pc)
 
 	appendDiscoveryNoteIfNeeded(enrichedResult, pc, enricher.cfg.WorkflowTracker)
 

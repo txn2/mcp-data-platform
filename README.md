@@ -121,8 +121,11 @@ Define who can use which tools. Analysts get read access to queries and searches
 ### Comprehensive Audit Logging
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
+### Persistent Memory
+Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations, `memory_recall` offers multi-strategy retrieval (entity lookup, vector similarity, DataHub lineage traversal). Memories are automatically injected into toolkit responses via the cross-injection middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
+
 ### Knowledge Capture
-AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions, and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
+AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions (now backed by the memory layer with vector embeddings), and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
 
 ### Resource Templates
 Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates expose table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`) without making tool calls.

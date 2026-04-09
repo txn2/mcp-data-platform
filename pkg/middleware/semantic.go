@@ -123,6 +123,7 @@ type semanticEnricher struct {
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 	storageProvider  storage.Provider
+	memoryProvider   MemoryProvider
 	cfg              EnrichmentConfig
 }
 

@@ -98,6 +98,7 @@ type Deps struct {
 	AuditQuerier        AuditQuerier
 	AuditMetricsQuerier AuditMetricsQuerier
 	Knowledge           *KnowledgeHandler
+	Memory              *MemoryHandler
 	APIKeyManager       APIKeyManager
 	BrowserAuth         *browsersession.Authenticator
 	DatabaseAvailable   bool
@@ -181,6 +182,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // registerRoutes registers all admin API routes.
 func (h *Handler) registerRoutes() {
 	h.registerKnowledgeRoutes()
+	h.registerMemoryRoutes()
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
 	h.registerAuditMetricsRoutes()
@@ -204,8 +206,22 @@ func (h *Handler) registerKnowledgeRoutes() {
 		h.mux.HandleFunc("GET /api/v1/admin/knowledge/changesets", h.deps.Knowledge.ListChangesets)
 		h.mux.HandleFunc("GET /api/v1/admin/knowledge/changesets/{id}", h.deps.Knowledge.GetChangeset)
 		h.mux.HandleFunc("POST /api/v1/admin/knowledge/changesets/{id}/rollback", h.deps.Knowledge.RollbackChangeset)
-	} else if h.deps.Config != nil && h.deps.Config.Knowledge.Enabled {
+	} else if h.deps.Config != nil && (h.deps.Config.Knowledge.Enabled == nil || *h.deps.Config.Knowledge.Enabled) {
 		h.mux.HandleFunc("/api/v1/admin/knowledge/", h.featureUnavailable("knowledge", "database"))
+	}
+}
+
+// registerMemoryRoutes registers memory record management endpoints or a
+// 409 fallback when the feature is enabled in config but unavailable.
+func (h *Handler) registerMemoryRoutes() {
+	if h.deps.Memory != nil {
+		h.mux.HandleFunc("GET /api/v1/admin/memory/records", h.deps.Memory.ListRecords)
+		h.mux.HandleFunc("GET /api/v1/admin/memory/records/stats", h.deps.Memory.GetStats)
+		h.mux.HandleFunc("GET /api/v1/admin/memory/records/{id}", h.deps.Memory.GetRecord)
+		h.mux.HandleFunc("PUT /api/v1/admin/memory/records/{id}", h.deps.Memory.UpdateRecord)
+		h.mux.HandleFunc("DELETE /api/v1/admin/memory/records/{id}", h.deps.Memory.DeleteRecord)
+	} else if h.deps.Config != nil && (h.deps.Config.Memory.Enabled == nil || *h.deps.Config.Memory.Enabled) {
+		h.mux.HandleFunc("/api/v1/admin/memory/", h.featureUnavailable("memory", "database"))
 	}
 }
 
@@ -230,7 +246,7 @@ func (h *Handler) registerAuditRoutes() {
 		h.mux.HandleFunc("GET /api/v1/admin/audit/events", h.listAuditEvents)
 		h.mux.HandleFunc("GET /api/v1/admin/audit/events/{id}", h.getAuditEvent)
 		h.mux.HandleFunc("GET /api/v1/admin/audit/stats", h.getAuditStats)
-	} else if h.deps.Config != nil && h.deps.Config.Audit.Enabled {
+	} else if h.deps.Config != nil && (h.deps.Config.Audit.Enabled == nil || *h.deps.Config.Audit.Enabled) {
 		h.mux.HandleFunc("/api/v1/admin/audit/", h.featureUnavailable("audit", "database"))
 	}
 }

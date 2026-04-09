@@ -222,7 +222,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 	if p != nil && p.Config() != nil {
 		c := p.Config()
 		cfg.requireAuth = !c.Auth.AllowAnonymous
-		cfg.portalUI = c.Portal.Enabled && ui.Available()
+		cfg.portalUI = (c.Portal.Enabled == nil || *c.Portal.Enabled) && ui.Available()
 		cfg.tlsEnabled = c.Server.TLS.Enabled
 		cfg.tlsCertFile = c.Server.TLS.CertFile
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
@@ -482,8 +482,17 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
 }
 
 // mountPortalAPI registers the portal REST API on the mux if portal is enabled.
+// portalDisabled returns true when portal is explicitly disabled or platform is nil.
+func portalDisabled(p *platform.Platform) bool {
+	if p == nil {
+		return true
+	}
+	e := p.Config().Portal.Enabled
+	return e != nil && !*e
+}
+
 func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
-	if p == nil || !p.Config().Portal.Enabled {
+	if p == nil || portalDisabled(p) {
 		return
 	}
 	if p.PortalAssetStore() == nil || p.PortalShareStore() == nil {
@@ -565,6 +574,9 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if p.KnowledgeInsightStore() != nil {
 		deps.InsightStore = p.KnowledgeInsightStore()
 	}
+	if p.MemoryStore() != nil {
+		deps.MemoryStore = p.MemoryStore()
+	}
 	if pr := p.PersonaRegistry(); pr != nil {
 		tr := p.ToolkitRegistry()
 		deps.PersonaResolver = buildPersonaResolver(pr, tr)
@@ -590,7 +602,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 // mountPortalUI registers the unified portal SPA frontend on the mux when the
 // portal UI config gate is enabled and assets are available.
 func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
-	if p == nil || !p.Config().Portal.Enabled || !assetsAvailable {
+	if p == nil || portalDisabled(p) || !assetsAvailable {
 		return
 	}
 	mux.Handle("/portal/", http.StripPrefix("/portal", ui.Handler()))
@@ -647,6 +659,10 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 			p.KnowledgeChangesetStore(),
 			p.KnowledgeDataHubWriter(),
 		)
+	}
+
+	if p.MemoryStore() != nil {
+		deps.Memory = admin.NewMemoryHandler(p.MemoryStore())
 	}
 
 	if p.APIKeyAuthenticator() != nil {

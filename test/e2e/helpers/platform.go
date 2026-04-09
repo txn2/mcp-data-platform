@@ -186,5 +186,6 @@ func CreateEnrichmentMiddleware(
 			EnrichS3Results:             true,
 			EnrichDataHubStorageResults: true,
 		},
+		nil, // no memory provider in test helpers
 	)
 }

@@ -29,9 +29,9 @@ func TestGetSystemInfo(t *testing.T) {
 		cfg.Server.Name = "test-platform"
 		cfg.Server.Description = "Test description"
 		cfg.Server.Transport = "http"
-		cfg.Audit.Enabled = true
+		cfg.Audit.Enabled = new(true)
 		cfg.OAuth.Enabled = true
-		cfg.Knowledge.Enabled = true
+		cfg.Knowledge.Enabled = new(true)
 		cfg.Admin.Enabled = true
 		cfg.Portal.Logo = "https://cdn.example.com/logo.svg"
 		cfg.Portal.LogoLight = "https://cdn.example.com/logo-light.svg"
@@ -85,8 +85,8 @@ func TestGetSystemInfo(t *testing.T) {
 
 	t.Run("features reflect no-DB mode", func(t *testing.T) {
 		cfg := testConfig()
-		cfg.Audit.Enabled = true
-		cfg.Knowledge.Enabled = true
+		cfg.Audit.Enabled = new(true)
+		cfg.Knowledge.Enabled = new(true)
 
 		h := NewHandler(Deps{
 			Config:            cfg,

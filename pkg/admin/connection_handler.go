@@ -354,11 +354,11 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		key := l.kind + "/" + l.name
 		seen[key] = true
 		ec := effectiveConnection{
-			Kind: l.kind, Name: l.name, Connection: l.connection, Source: "file", Tools: l.tools,
+			Kind: l.kind, Name: l.name, Connection: l.connection, Source: platform.SourceFile, Tools: l.tools,
 			Description: l.description, Config: l.config,
 		}
 		if inst, ok := dbMap[key]; ok {
-			ec.Source = "both"
+			ec.Source = platform.SourceBoth
 			ec.Description = inst.Description
 			ec.Config = inst.Config
 			ec.CreatedBy = inst.CreatedBy
@@ -372,7 +372,7 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 			continue
 		}
 		result = append(result, effectiveConnection{
-			Kind: inst.Kind, Name: inst.Name, Connection: inst.Name, Source: "database",
+			Kind: inst.Kind, Name: inst.Name, Connection: inst.Name, Source: platform.SourceDatabase,
 			Description: inst.Description, Config: inst.Config, CreatedBy: inst.CreatedBy,
 			UpdatedAt: &inst.UpdatedAt,
 		})
