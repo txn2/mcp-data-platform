@@ -663,6 +663,41 @@ func TestResolveInsightStatus_MetadataOverride(t *testing.T) {
 			},
 			expected: StatusPending,
 		},
+		{
+			name: "legacy_status from migration",
+			record: memory.Record{
+				Status:   memory.StatusActive,
+				Metadata: map[string]any{"legacy_status": StatusApproved},
+			},
+			expected: StatusApproved,
+		},
+		{
+			name: "legacy_status applied from migration",
+			record: memory.Record{
+				Status:   memory.StatusActive,
+				Metadata: map[string]any{"legacy_status": StatusApplied},
+			},
+			expected: StatusApplied,
+		},
+		{
+			name: "insight_status takes precedence over legacy_status",
+			record: memory.Record{
+				Status: memory.StatusActive,
+				Metadata: map[string]any{
+					"insight_status": StatusRejected,
+					"legacy_status":  StatusApproved,
+				},
+			},
+			expected: StatusRejected,
+		},
+		{
+			name: "empty legacy_status does not override",
+			record: memory.Record{
+				Status:   memory.StatusActive,
+				Metadata: map[string]any{"legacy_status": ""},
+			},
+			expected: StatusPending,
+		},
 	}
 
 	for _, tt := range tests {

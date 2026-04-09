@@ -297,6 +297,7 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 	if query.Status != "" {
 		where += fmt.Sprintf(" AND status = $%d", paramIdx)
 		args = append(args, query.Status)
+		paramIdx++ //nolint:ineffassign,wastedassign // keep consistent increment pattern for future filters
 	}
 
 	cols := "id, created_at, updated_at, created_by, persona, dimension, " +

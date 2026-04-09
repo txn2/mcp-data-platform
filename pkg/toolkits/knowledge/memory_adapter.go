@@ -261,11 +261,19 @@ func recordToInsight(record memory.Record) Insight {
 // preferring an explicit insight_status in metadata over the memory status mapping.
 func resolveInsightStatus(record memory.Record) string {
 	status := mapMemoryStatusToInsight(record.Status)
-	if record.Metadata != nil {
-		if v, ok := record.Metadata["insight_status"]; ok {
-			if s, ok := v.(string); ok && s != "" {
-				status = s
-			}
+	if record.Metadata == nil {
+		return status
+	}
+	// Prefer explicit insight_status (set by UpdateStatus/approve/reject).
+	if v, ok := record.Metadata["insight_status"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	// Fall back to legacy_status (set by migration from knowledge_insights).
+	if v, ok := record.Metadata["legacy_status"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
 		}
 	}
 	return status
