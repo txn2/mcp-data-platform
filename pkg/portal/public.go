@@ -87,12 +87,14 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	h.renderAssetViewer(w, asset, data, share)
+	h.renderAssetViewer(w, r, asset, data, share)
 }
 
 // renderAssetViewer renders the public_viewer.html template for an asset.
 // Used by both single-asset public shares and collection item views.
-func (h *Handler) renderAssetViewer(w http.ResponseWriter, asset *Asset, data []byte, share *Share) {
+// When the request includes ?embedded=1, chrome (header, notice, info modal)
+// is suppressed so the viewer can be loaded in an iframe without double headers.
+func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, asset *Asset, data []byte, share *Share) {
 	contentJSON, _ := json.Marshal(map[string]any{ // #nosec G104 -- string/[]string map marshaling cannot fail
 		"contentType": asset.ContentType,
 		"content":     string(data),
@@ -141,6 +143,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, asset *Asset, data []
 		"ExpiresAtISO":       expiresAtISO,
 		"HideExpiration":     share.HideExpiration,
 		"NoticeText":         share.NoticeText,
+		"Embedded":           r.URL.Query().Get("embedded") == "1",
 	})
 }
 
@@ -352,7 +355,7 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Render with the exact same template and data as a single-asset public view.
-	h.renderAssetViewer(w, asset, data, share)
+	h.renderAssetViewer(w, r, asset, data, share)
 }
 
 // publicCollectionItemThumbnail serves an asset's thumbnail within a public collection share.

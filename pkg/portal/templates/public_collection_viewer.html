@@ -207,7 +207,7 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
     // Load the full asset viewer (same page as single-asset public shares) in an iframe.
     var iframe = document.createElement('iframe');
     iframe.style.cssText = 'width:100%;height:100%;border:none';
-    iframe.src = '/portal/view/' + token + '/items/' + assetId + '/view';
+    iframe.src = '/portal/view/' + token + '/items/' + assetId + '/view?embedded=1';
     body.innerHTML = '';
     body.appendChild(iframe);
   };

@@ -1049,15 +1049,16 @@ func (p *Platform) initPortal() error {
 
 	// Create and register toolkit
 	tk := portalkit.New(portalkit.Config{
-		Name:           "default",
-		AssetStore:     p.portalAssetStore,
-		ShareStore:     p.portalShareStore,
-		VersionStore:   p.portalVersionStore,
-		S3Client:       s3Client,
-		S3Bucket:       p.config.Portal.S3Bucket,
-		S3Prefix:       p.config.Portal.S3Prefix,
-		BaseURL:        p.config.Portal.PublicBaseURL,
-		MaxContentSize: p.config.Portal.MaxContentSize,
+		Name:            "default",
+		AssetStore:      p.portalAssetStore,
+		ShareStore:      p.portalShareStore,
+		VersionStore:    p.portalVersionStore,
+		CollectionStore: p.portalCollectionStore,
+		S3Client:        s3Client,
+		S3Bucket:        p.config.Portal.S3Bucket,
+		S3Prefix:        p.config.Portal.S3Prefix,
+		BaseURL:         p.config.Portal.PublicBaseURL,
+		MaxContentSize:  p.config.Portal.MaxContentSize,
 	})
 
 	if err := p.toolkitRegistry.Register(tk); err != nil {
