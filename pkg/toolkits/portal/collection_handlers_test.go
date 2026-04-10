@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ type inMemoryCollectionStore struct {
 	updateErr   error
 	deleteErr   error
 	setSectErr  error
+	listErr     error
 }
 
 func newInMemoryCollectionStore() *inMemoryCollectionStore {
@@ -49,6 +51,9 @@ func (s *inMemoryCollectionStore) Get(_ context.Context, id string) (*portal.Col
 }
 
 func (s *inMemoryCollectionStore) List(_ context.Context, filter portal.CollectionFilter) ([]portal.Collection, int, error) {
+	if s.listErr != nil {
+		return nil, 0, s.listErr
+	}
 	var result []portal.Collection
 	for _, c := range s.collections {
 		if c.DeletedAt != nil {
@@ -120,7 +125,7 @@ func (s *inMemoryCollectionStore) SetSections(_ context.Context, collectionID st
 
 var _ portal.CollectionStore = (*inMemoryCollectionStore)(nil)
 
-func userCtx(userID, email string) context.Context { //nolint:unparam // test helper, values vary by intent
+func collCtx(userID, email string) context.Context {
 	return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID:    userID,
 		UserEmail: email,
@@ -138,7 +143,7 @@ func toolkitWithCollections(cs *inMemoryCollectionStore) *Toolkit {
 
 func extractJSON(t *testing.T, result *mcp.CallToolResult) map[string]any {
 	t.Helper()
-	tc, ok := result.Content[0].(*mcp.TextContent)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
@@ -147,7 +152,7 @@ func extractJSON(t *testing.T, result *mcp.CallToolResult) map[string]any {
 
 func extractError(t *testing.T, result *mcp.CallToolResult) string {
 	t.Helper()
-	tc, ok := result.Content[0].(*mcp.TextContent)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	return tc.Text
 }
@@ -157,7 +162,7 @@ func extractError(t *testing.T, result *mcp.CallToolResult) string {
 func TestCreateCollection_Success(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:      "create_collection",
@@ -184,7 +189,7 @@ func TestCreateCollection_Success(t *testing.T) {
 func TestCreateCollection_WithSections(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "create_collection",
@@ -211,7 +216,7 @@ func TestCreateCollection_WithSections(t *testing.T) {
 
 func TestCreateCollection_MissingName(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "create_collection",
@@ -225,7 +230,7 @@ func TestCreateCollection_InsertError(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.insertErr = notFoundError{}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "create_collection",
@@ -238,9 +243,9 @@ func TestCreateCollection_InsertError(t *testing.T) {
 
 func TestCreateCollection_SetSectionsError(t *testing.T) {
 	cs := newInMemoryCollectionStore()
-	cs.setSectErr = notFoundError{}
+	cs.setSectErr = errors.New("db timeout")
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:   "create_collection",
@@ -249,12 +254,15 @@ func TestCreateCollection_SetSectionsError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, extractError(t, result), "failed to set sections")
+
+	errText := extractError(t, result)
+	// Error must include collection_id so agent can retry set_sections
+	assert.Contains(t, errText, "created but failed to set sections")
 }
 
 func TestCreateCollection_InvalidSections(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:   "create_collection",
@@ -266,6 +274,27 @@ func TestCreateCollection_InvalidSections(t *testing.T) {
 	assert.Contains(t, extractError(t, result), "asset_id is required")
 }
 
+func TestCreateCollection_NoBaseURL(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	tk := New(Config{
+		Name:            "test",
+		CollectionStore: cs,
+		S3Bucket:        "bucket",
+	})
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "create_collection",
+		Name:   "No URL",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	out := extractJSON(t, result)
+	_, hasURL := out["portal_url"]
+	assert.False(t, hasURL)
+}
+
 // --- list_collections tests ---
 
 func TestListCollections_Success(t *testing.T) {
@@ -273,7 +302,7 @@ func TestListCollections_Success(t *testing.T) {
 	cs.collections["c1"] = portal.Collection{ID: "c1", OwnerID: "user1", Name: "Coll 1"}
 	cs.collections["c2"] = portal.Collection{ID: "c2", OwnerID: "user1", Name: "Coll 2"}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "list_collections",
@@ -289,7 +318,7 @@ func TestListCollections_Success(t *testing.T) {
 
 func TestListCollections_Empty(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "list_collections",
@@ -307,7 +336,7 @@ func TestListCollections_FiltersByOwner(t *testing.T) {
 	cs.collections["c1"] = portal.Collection{ID: "c1", OwnerID: "user1", Name: "Mine"}
 	cs.collections["c2"] = portal.Collection{ID: "c2", OwnerID: "user2", Name: "Theirs"}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "list_collections",
@@ -316,6 +345,20 @@ func TestListCollections_FiltersByOwner(t *testing.T) {
 
 	out := extractJSON(t, result)
 	assert.Equal(t, float64(1), out["total"])
+}
+
+func TestListCollections_StoreError(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.listErr = errors.New("db connection lost")
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "list_collections",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "failed to list collections")
 }
 
 // --- get_collection tests ---
@@ -329,7 +372,7 @@ func TestGetCollection_Success(t *testing.T) {
 		{ID: "s1", Title: "Section One", Items: []portal.CollectionItem{{ID: "i1", AssetID: "a1"}}},
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "get_collection", CollectionID: "c1",
@@ -389,7 +432,7 @@ func TestUpdateCollection_Success(t *testing.T) {
 		ID: "c1", OwnerID: "user1", Name: "Old Name", Description: "Old Desc",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "update_collection", CollectionID: "c1", Name: "New Name",
@@ -397,18 +440,34 @@ func TestUpdateCollection_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
+	// Returns full collection object
 	out := extractJSON(t, result)
-	assert.Equal(t, "Collection updated successfully.", out["message"])
+	assert.Equal(t, "New Name", out["name"])
+	assert.Equal(t, "Old Desc", out["description"])
+}
 
-	// Verify name changed, description carried forward
-	coll, _ := cs.Get(context.Background(), "c1")
-	assert.Equal(t, "New Name", coll.Name)
-	assert.Equal(t, "Old Desc", coll.Description)
+func TestUpdateCollection_DescriptionOnly(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "user1", Name: "Keep This", Description: "Old Desc",
+	}
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update_collection", CollectionID: "c1", Description: "New Desc",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	out := extractJSON(t, result)
+	assert.Equal(t, "Keep This", out["name"])
+	assert.Equal(t, "New Desc", out["description"])
 }
 
 func TestUpdateCollection_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "update_collection",
@@ -421,10 +480,10 @@ func TestUpdateCollection_MissingID(t *testing.T) {
 func TestUpdateCollection_WrongOwner(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.collections["c1"] = portal.Collection{
-		ID: "c1", OwnerID: "user2", Name: "Theirs",
+		ID: "c1", OwnerID: "owner-xyz", Name: "Theirs",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("attacker", "attacker@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "update_collection", CollectionID: "c1", Name: "Stolen",
@@ -436,7 +495,7 @@ func TestUpdateCollection_WrongOwner(t *testing.T) {
 
 func TestUpdateCollection_NotFound(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "update_collection", CollectionID: "nonexistent", Name: "X",
@@ -444,6 +503,40 @@ func TestUpdateCollection_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Contains(t, extractError(t, result), "collection not found")
+}
+
+func TestUpdateCollection_Deleted(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	now := time.Now()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "user1", Name: "Gone", DeletedAt: &now,
+	}
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update_collection", CollectionID: "c1", Name: "Revive?",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "collection has been deleted")
+}
+
+func TestUpdateCollection_StoreError(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "user1", Name: "Current",
+	}
+	cs.updateErr = errors.New("db timeout")
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update_collection", CollectionID: "c1", Name: "Attempt",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "failed to update collection")
 }
 
 // --- delete_collection tests ---
@@ -454,7 +547,7 @@ func TestDeleteCollection_Success(t *testing.T) {
 		ID: "c1", OwnerID: "user1", Name: "To Delete",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "delete_collection", CollectionID: "c1",
@@ -471,7 +564,7 @@ func TestDeleteCollection_Success(t *testing.T) {
 
 func TestDeleteCollection_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "delete_collection",
@@ -484,10 +577,10 @@ func TestDeleteCollection_MissingID(t *testing.T) {
 func TestDeleteCollection_WrongOwner(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.collections["c1"] = portal.Collection{
-		ID: "c1", OwnerID: "user2", Name: "Theirs",
+		ID: "c1", OwnerID: "owner-xyz", Name: "Theirs",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("attacker", "attacker@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "delete_collection", CollectionID: "c1",
@@ -497,6 +590,23 @@ func TestDeleteCollection_WrongOwner(t *testing.T) {
 	assert.Contains(t, extractError(t, result), "you can only delete your own collections")
 }
 
+func TestDeleteCollection_Deleted(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	now := time.Now()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "user1", Name: "Already Gone", DeletedAt: &now,
+	}
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "delete_collection", CollectionID: "c1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "collection has been deleted")
+}
+
 func TestDeleteCollection_StoreError(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.collections["c1"] = portal.Collection{
@@ -504,7 +614,7 @@ func TestDeleteCollection_StoreError(t *testing.T) {
 	}
 	cs.deleteErr = notFoundError{}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "delete_collection", CollectionID: "c1",
@@ -522,7 +632,7 @@ func TestSetSections_Success(t *testing.T) {
 		ID: "c1", OwnerID: "user1", Name: "My Coll",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:       "set_sections",
@@ -553,7 +663,7 @@ func TestSetSections_ClearSections(t *testing.T) {
 	}
 	cs.sections["c1"] = []portal.CollectionSection{{ID: "old", Title: "Old"}}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:       "set_sections",
@@ -568,7 +678,7 @@ func TestSetSections_ClearSections(t *testing.T) {
 
 func TestSetSections_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action: "set_sections",
@@ -581,10 +691,10 @@ func TestSetSections_MissingID(t *testing.T) {
 func TestSetSections_WrongOwner(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.collections["c1"] = portal.Collection{
-		ID: "c1", OwnerID: "user2", Name: "Theirs",
+		ID: "c1", OwnerID: "owner-xyz", Name: "Theirs",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("attacker", "attacker@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:       "set_sections",
@@ -596,13 +706,32 @@ func TestSetSections_WrongOwner(t *testing.T) {
 	assert.Contains(t, extractError(t, result), "you can only modify your own collections")
 }
 
+func TestSetSections_Deleted(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	now := time.Now()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "user1", Name: "Gone", DeletedAt: &now,
+	}
+	tk := toolkitWithCollections(cs)
+	ctx := collCtx("user1", "user1@example.com")
+
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action:       "set_sections",
+		CollectionID: "c1",
+		Sections:     []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: "a1"}}}},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "collection has been deleted")
+}
+
 func TestSetSections_InvalidSection(t *testing.T) {
 	cs := newInMemoryCollectionStore()
 	cs.collections["c1"] = portal.Collection{
 		ID: "c1", OwnerID: "user1", Name: "My Coll",
 	}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:       "set_sections",
@@ -621,7 +750,7 @@ func TestSetSections_StoreError(t *testing.T) {
 	}
 	cs.setSectErr = notFoundError{}
 	tk := toolkitWithCollections(cs)
-	ctx := userCtx("user1", "user1@example.com")
+	ctx := collCtx("user1", "user1@example.com")
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
 		Action:       "set_sections",
@@ -666,23 +795,37 @@ func TestConvertSections_EmptyInput(t *testing.T) {
 	assert.Len(t, sections, 0)
 }
 
-func TestCreateCollection_NoBaseURL(t *testing.T) {
+// --- getActiveCollection tests ---
+
+func TestGetActiveCollection_NotFound(t *testing.T) {
 	cs := newInMemoryCollectionStore()
-	tk := New(Config{
-		Name:            "test",
-		CollectionStore: cs,
-		S3Bucket:        "bucket",
-	})
-	ctx := userCtx("user1", "user1@example.com")
+	tk := toolkitWithCollections(cs)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
-		Action: "create_collection",
-		Name:   "No URL",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
+	coll, errResult := tk.getActiveCollection(context.Background(), "missing")
+	assert.Nil(t, coll)
+	assert.NotNil(t, errResult)
+	assert.True(t, errResult.IsError)
+}
 
-	out := extractJSON(t, result)
-	_, hasURL := out["portal_url"]
-	assert.False(t, hasURL)
+func TestGetActiveCollection_Deleted(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	now := time.Now()
+	cs.collections["c1"] = portal.Collection{ID: "c1", DeletedAt: &now}
+	tk := toolkitWithCollections(cs)
+
+	coll, errResult := tk.getActiveCollection(context.Background(), "c1")
+	assert.Nil(t, coll)
+	assert.NotNil(t, errResult)
+	assert.Contains(t, extractError(&testing.T{}, errResult), "collection has been deleted")
+}
+
+func TestGetActiveCollection_Success(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.collections["c1"] = portal.Collection{ID: "c1", Name: "Active"}
+	tk := toolkitWithCollections(cs)
+
+	coll, errResult := tk.getActiveCollection(context.Background(), "c1")
+	assert.NotNil(t, coll)
+	assert.Nil(t, errResult)
+	assert.Equal(t, "Active", coll.Name)
 }

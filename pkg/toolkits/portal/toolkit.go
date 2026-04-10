@@ -111,6 +111,7 @@ type Toolkit struct {
 	s3Prefix        string
 	baseURL         string
 	maxContentSize  int
+	actions         map[string]manageActionHandler
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -134,7 +135,7 @@ func New(cfg Config) *Toolkit {
 	if collectionStore == nil {
 		collectionStore = portal.NewNoopCollectionStore()
 	}
-	return &Toolkit{
+	tk := &Toolkit{
 		name:            cfg.Name,
 		assetStore:      assetStore,
 		shareStore:      shareStore,
@@ -146,6 +147,8 @@ func New(cfg Config) *Toolkit {
 		baseURL:         cfg.BaseURL,
 		maxContentSize:  cfg.MaxContentSize,
 	}
+	tk.actions = tk.buildActions()
+	return tk
 }
 
 // Kind returns the toolkit kind.
@@ -348,8 +351,8 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 // manageActionHandler is a function that handles a manage_artifact action.
 type manageActionHandler func(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error)
 
-// manageActions returns the action dispatch table for manage_artifact.
-func (t *Toolkit) manageActions() map[string]manageActionHandler {
+// buildActions constructs the action dispatch table, called once during New().
+func (t *Toolkit) buildActions() map[string]manageActionHandler {
 	return map[string]manageActionHandler{
 		"list":              t.handleList,
 		"get":               t.handleGet,
@@ -368,7 +371,7 @@ func (t *Toolkit) manageActions() map[string]manageActionHandler {
 
 // handleManageArtifact dispatches to the appropriate action handler.
 func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolRequest, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
-	handler, ok := t.manageActions()[input.Action]
+	handler, ok := t.actions[input.Action]
 	if !ok {
 		return errorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, "+
