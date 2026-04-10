@@ -43,7 +43,7 @@ var manageArtifactSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Valid values: list, get, update, delete, list_versions, revert"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections"
     },
     "asset_id": {
       "type": "string",
@@ -55,11 +55,11 @@ var manageArtifactSchema = json.RawMessage(`{
     },
     "name": {
       "type": "string",
-      "description": "New name (for update action)"
+      "description": "Name (for update, create_collection, update_collection)"
     },
     "description": {
       "type": "string",
-      "description": "New description (for update action)"
+      "description": "Description (for update, create_collection, update_collection)"
     },
     "tags": {
       "type": "array",
@@ -73,11 +73,57 @@ var manageArtifactSchema = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Max results for list/list_versions actions (default 50, max 200)"
+      "description": "Max results for list/list_versions/list_collections (default 50, max 200)"
     },
     "version": {
       "type": "integer",
       "description": "Version number (required for revert action)"
+    },
+    "collection_id": {
+      "type": "string",
+      "description": "Collection ID (required for get_collection, update_collection, delete_collection, set_sections)"
+    },
+    "search": {
+      "type": "string",
+      "description": "Search term for list_collections"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Offset for paginated results (list_collections)"
+    },
+    "sections": {
+      "type": "array",
+      "description": "Sections with asset references (for create_collection and set_sections)",
+      "items": {
+        "type": "object",
+        "required": ["title", "items"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Section title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional section description"
+          },
+          "items": {
+            "type": "array",
+            "description": "Assets in this section",
+            "items": {
+              "type": "object",
+              "required": ["asset_id"],
+              "additionalProperties": false,
+              "properties": {
+                "asset_id": {
+                  "type": "string",
+                  "description": "ID of the asset to include"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }`)

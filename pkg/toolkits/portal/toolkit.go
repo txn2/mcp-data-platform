@@ -49,15 +49,31 @@ type saveArtifactInput struct {
 
 // manageArtifactInput defines the input for manage_artifact.
 type manageArtifactInput struct {
-	Action      string   `json:"action"`
-	AssetID     string   `json:"asset_id,omitempty"`
-	Content     string   `json:"content,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
-	Limit       int      `json:"limit,omitempty"`
-	Version     int      `json:"version,omitempty"`
+	Action       string         `json:"action"`
+	AssetID      string         `json:"asset_id,omitempty"`
+	Content      string         `json:"content,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	Tags         []string       `json:"tags,omitempty"`
+	ContentType  string         `json:"content_type,omitempty"`
+	Limit        int            `json:"limit,omitempty"`
+	Version      int            `json:"version,omitempty"`
+	CollectionID string         `json:"collection_id,omitempty"`
+	Sections     []sectionInput `json:"sections,omitempty"`
+	Search       string         `json:"search,omitempty"`
+	Offset       int            `json:"offset,omitempty"`
+}
+
+// sectionInput defines a collection section in MCP tool input.
+type sectionInput struct {
+	Title       string      `json:"title"`
+	Description string      `json:"description,omitempty"`
+	Items       []itemInput `json:"items"`
+}
+
+// itemInput defines a collection item in MCP tool input.
+type itemInput struct {
+	AssetID string `json:"asset_id"`
 }
 
 // saveArtifactOutput is the success response for save_artifact.
@@ -71,28 +87,30 @@ type saveArtifactOutput struct {
 
 // Config holds configuration for creating a portal toolkit.
 type Config struct {
-	Name           string
-	AssetStore     portal.AssetStore
-	ShareStore     portal.ShareStore
-	VersionStore   portal.VersionStore
-	S3Client       portal.S3Client
-	S3Bucket       string
-	S3Prefix       string
-	BaseURL        string
-	MaxContentSize int // max artifact content size in bytes (0 = no limit)
+	Name            string
+	AssetStore      portal.AssetStore
+	ShareStore      portal.ShareStore
+	VersionStore    portal.VersionStore
+	CollectionStore portal.CollectionStore
+	S3Client        portal.S3Client
+	S3Bucket        string
+	S3Prefix        string
+	BaseURL         string
+	MaxContentSize  int // max artifact content size in bytes (0 = no limit)
 }
 
 // Toolkit implements the portal artifact toolkit.
 type Toolkit struct {
-	name           string
-	assetStore     portal.AssetStore
-	shareStore     portal.ShareStore
-	versionStore   portal.VersionStore
-	s3Client       portal.S3Client
-	s3Bucket       string
-	s3Prefix       string
-	baseURL        string
-	maxContentSize int
+	name            string
+	assetStore      portal.AssetStore
+	shareStore      portal.ShareStore
+	versionStore    portal.VersionStore
+	collectionStore portal.CollectionStore
+	s3Client        portal.S3Client
+	s3Bucket        string
+	s3Prefix        string
+	baseURL         string
+	maxContentSize  int
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -112,16 +130,21 @@ func New(cfg Config) *Toolkit {
 	if versionStore == nil {
 		versionStore = portal.NewNoopVersionStore()
 	}
+	collectionStore := cfg.CollectionStore
+	if collectionStore == nil {
+		collectionStore = portal.NewNoopCollectionStore()
+	}
 	return &Toolkit{
-		name:           cfg.Name,
-		assetStore:     assetStore,
-		shareStore:     shareStore,
-		versionStore:   versionStore,
-		s3Client:       cfg.S3Client,
-		s3Bucket:       cfg.S3Bucket,
-		s3Prefix:       cfg.S3Prefix,
-		baseURL:        cfg.BaseURL,
-		maxContentSize: cfg.MaxContentSize,
+		name:            cfg.Name,
+		assetStore:      assetStore,
+		shareStore:      shareStore,
+		versionStore:    versionStore,
+		collectionStore: collectionStore,
+		s3Client:        cfg.S3Client,
+		s3Bucket:        cfg.S3Bucket,
+		s3Prefix:        cfg.S3Prefix,
+		baseURL:         cfg.BaseURL,
+		maxContentSize:  cfg.MaxContentSize,
 	}
 }
 
@@ -151,10 +174,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Manage Artifact",
-		Description: "Lists, retrieves, updates, or deletes saved artifacts. " +
-			"Actions: list (show user's artifacts), get (metadata + content), " +
-			"update (change name/description/tags/content), delete (soft-delete), " +
-			"list_versions (show version history), revert (revert to a previous version).",
+		Description: "Manages saved artifacts and collections. " +
+			"Asset actions: list, get, update, delete, list_versions, revert. " +
+			"Collection actions: create_collection, list_collections, get_collection, " +
+			"update_collection, delete_collection, set_sections.",
 		InputSchema: manageArtifactSchema,
 	}, t.handleManageArtifact)
 
@@ -322,24 +345,37 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	return jsonResult(t.buildSaveOutput(assetID, prov))
 }
 
-// handleManageArtifact dispatches to list/get/update/delete.
-func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolRequest, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
-	switch input.Action {
-	case "list":
-		return t.handleList(ctx, input)
-	case "get":
-		return t.handleGet(ctx, input)
-	case "update":
-		return t.handleUpdate(ctx, input)
-	case "delete":
-		return t.handleDelete(ctx, input)
-	case "list_versions":
-		return t.handleListVersions(ctx, input)
-	case "revert":
-		return t.handleRevert(ctx, input)
-	default:
-		return errorResult(fmt.Sprintf("invalid action %q: must be one of: list, get, update, delete, list_versions, revert", input.Action)), nil, nil
+// manageActionHandler is a function that handles a manage_artifact action.
+type manageActionHandler func(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error)
+
+// manageActions returns the action dispatch table for manage_artifact.
+func (t *Toolkit) manageActions() map[string]manageActionHandler {
+	return map[string]manageActionHandler{
+		"list":              t.handleList,
+		"get":               t.handleGet,
+		"update":            t.handleUpdate,
+		"delete":            t.handleDelete,
+		"list_versions":     t.handleListVersions,
+		"revert":            t.handleRevert,
+		"create_collection": t.handleCreateCollection,
+		"list_collections":  t.handleListCollections,
+		"get_collection":    t.handleGetCollection,
+		"update_collection": t.handleUpdateCollection,
+		"delete_collection": t.handleDeleteCollection,
+		"set_sections":      t.handleSetSections,
 	}
+}
+
+// handleManageArtifact dispatches to the appropriate action handler.
+func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolRequest, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+	handler, ok := t.manageActions()[input.Action]
+	if !ok {
+		return errorResult(fmt.Sprintf(
+			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, "+
+				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
+			input.Action)), nil, nil
+	}
+	return handler(ctx, input)
 }
 
 func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
