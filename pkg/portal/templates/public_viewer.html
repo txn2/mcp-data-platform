@@ -279,6 +279,8 @@
     </script>
 </head>
 <body>
+    {{if .Embedded}}<style>body{margin:0;padding:0} .content{height:100vh}</style>{{end}}
+    {{if not .Embedded}}
     <div class="header">
         {{if or .ImplementorName .ImplementorLogoSVG}}
         <div class="brand brand-implementor">
@@ -318,6 +320,7 @@
         {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
     </div>
     {{end}}
+    {{end}}
     <div class="content">
         <style>{{.ContentViewerCSS}}</style>
         <div id="content-root">
@@ -326,6 +329,7 @@
         <script type="application/json" id="content-data">{{.ContentJSON}}</script>
         <script>{{.ContentViewerJS}}</script>
     </div>
+    {{if not .Embedded}}
     <div class="modal-overlay" id="info-modal" hidden>
         <div class="modal-card">
             <h2>About this asset</h2>
@@ -410,5 +414,6 @@
         });
     })();
     </script>
+    {{end}}
 </body>
 </html>
