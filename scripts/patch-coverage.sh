@@ -25,8 +25,15 @@ if [ -z "$MERGE_BASE" ]; then
     exit 0
 fi
 
-if [ "$MERGE_BASE" = "$(git rev-parse HEAD)" ]; then
-    echo "SKIP: HEAD is the merge base (on $BASE_BRANCH or no new commits)."
+# Determine diff strategy: include uncommitted/staged changes so that
+# `make verify` catches patch coverage issues BEFORE committing.
+# - If HEAD != merge-base, diff committed changes + any uncommitted on top.
+# - If HEAD == merge-base (no commits yet), diff working tree against base.
+HAS_UNCOMMITTED=$(git diff --name-only HEAD 2>/dev/null | head -1)
+HAS_STAGED=$(git diff --cached --name-only 2>/dev/null | head -1)
+
+if [ "$MERGE_BASE" = "$(git rev-parse HEAD)" ] && [ -z "$HAS_UNCOMMITTED" ] && [ -z "$HAS_STAGED" ]; then
+    echo "SKIP: HEAD is the merge base (on $BASE_BRANCH or no new commits) and no uncommitted changes."
     exit 0
 fi
 
@@ -36,7 +43,9 @@ MODULE=$(head -c 500 go.mod | grep '^module ' | awk '{print $2}')
 
 # Step 1: Parse git diff into "file line" pairs (one per changed line).
 # Only non-test .go files; skip pure-deletion hunks.
-git diff --unified=0 "$MERGE_BASE"...HEAD | awk '
+# Use diff against merge-base including working tree changes so coverage
+# is checked before the commit is created.
+git diff --unified=0 "$MERGE_BASE" | awk '
     /^\+\+\+ b\// {
         f = substr($0, 7)
         # skip non-Go and test files
