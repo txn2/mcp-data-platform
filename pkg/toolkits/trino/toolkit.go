@@ -59,11 +59,6 @@ type Config struct {
 	// Elicitation configures user confirmation for expensive operations.
 	// Injected by the platform from elicitation config.
 	Elicitation ElicitationConfig `yaml:"elicitation"`
-
-	// UnwrapJSONDefault enables automatic JSON unwrapping by default on
-	// trino_query and trino_execute. Injected by the platform from
-	// injection.unwrap_json config.
-	UnwrapJSONDefault bool `yaml:"unwrap_json_default"`
 }
 
 // ElicitationConfig configures elicitation triggers for the Trino toolkit.
@@ -290,9 +285,6 @@ func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired
 	}
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, trinotools.WithAnnotations(toTrinoAnnotations(cfg.Annotations)))
-	}
-	if cfg.UnwrapJSONDefault {
-		opts = append(opts, trinotools.WithMiddleware(&UnwrapJSONMiddleware{}))
 	}
 	if connRequired != nil {
 		opts = append(opts, trinotools.WithMiddleware(connRequired))

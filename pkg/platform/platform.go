@@ -1409,7 +1409,14 @@ func (p *Platform) finalizeSetup() {
 	//
 	// Therefore we add in reverse (innermost first):
 
-	// 1. Semantic enrichment (innermost) - enriches responses with cross-service context.
+	// 0. Unwrap JSON default (innermost) — injects unwrap_json=true into trino_query
+	// and trino_execute arguments so single-row VARCHAR-of-JSON results are returned
+	// as parsed objects. Must be innermost so the modified arguments reach the handler.
+	if p.config.Injection.IsUnwrapJSONEnabled() {
+		p.mcpServer.AddReceivingMiddleware(middleware.MCPUnwrapJSONMiddleware())
+	}
+
+	// 1. Semantic enrichment - enriches responses with cross-service context.
 	p.addEnrichmentMiddleware()
 
 	// 1.5. Provenance tracking - accumulates tool calls per session for save_artifact
@@ -2470,9 +2477,8 @@ func (p *Platform) injectToolkitPlatformConfig() {
 
 	needsProgress := p.config.Progress.Enabled
 	needsElicitation := p.config.Elicitation.Enabled
-	needsUnwrapJSON := p.config.Injection.IsUnwrapJSONEnabled()
 
-	if !needsProgress && !needsElicitation && !needsUnwrapJSON {
+	if !needsProgress && !needsElicitation {
 		return
 	}
 
@@ -2480,9 +2486,6 @@ func (p *Platform) injectToolkitPlatformConfig() {
 		instanceCfg, ok := v.(map[string]any)
 		if !ok {
 			continue
-		}
-		if needsUnwrapJSON {
-			instanceCfg["unwrap_json_default"] = true
 		}
 		if needsProgress {
 			instanceCfg["progress_enabled"] = true
