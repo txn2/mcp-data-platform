@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Validation limits.
@@ -22,6 +23,12 @@ var (
 	categoryRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	tagRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
 )
+
+// DeniedExtensions lists file extensions that are blocked for upload.
+var DeniedExtensions = map[string]bool{
+	".exe": true, ".sh": true, ".bat": true, ".cmd": true,
+	".ps1": true, ".msi": true, ".com": true, ".scr": true,
+}
 
 // DeniedMIMETypes lists MIME types that are blocked for upload.
 var DeniedMIMETypes = map[string]bool{
@@ -44,7 +51,7 @@ func ValidateCategory(cat string) error {
 
 // ValidateDisplayName checks display name length and content.
 func ValidateDisplayName(name string) error {
-	n := len(strings.TrimSpace(name))
+	n := utf8.RuneCountInString(strings.TrimSpace(name))
 	if n == 0 {
 		return fmt.Errorf("display_name is required")
 	}
@@ -56,7 +63,7 @@ func ValidateDisplayName(name string) error {
 
 // ValidateDescription checks description length and content.
 func ValidateDescription(desc string) error {
-	n := len(strings.TrimSpace(desc))
+	n := utf8.RuneCountInString(strings.TrimSpace(desc))
 	if n == 0 {
 		return fmt.Errorf("description is required")
 	}
@@ -116,26 +123,32 @@ func SanitizeFilename(name string) (string, error) {
 		return "", fmt.Errorf("filename is empty")
 	}
 
-	// Strip directory components.
+	name = normalizeFilename(name)
+
+	if name == "" || name == "." {
+		return "", fmt.Errorf("filename contains only invalid characters")
+	}
+
+	ext := filepath.Ext(name)
+	if DeniedExtensions[ext] {
+		return "", fmt.Errorf("file extension %q is not allowed", ext)
+	}
+
+	return name, nil
+}
+
+// normalizeFilename strips path components, lowercases, replaces spaces,
+// and removes non-safe characters.
+func normalizeFilename(name string) string {
 	name = filepath.Base(name)
-
-	// Lowercase.
 	name = strings.ToLower(name)
-
-	// Replace spaces with hyphens.
 	name = strings.ReplaceAll(name, " ", "-")
 
-	// Strip dangerous characters.
 	var b strings.Builder
 	for _, r := range name {
 		if r == '.' || r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		}
 	}
-	name = b.String()
-
-	if name == "" || name == "." {
-		return "", fmt.Errorf("filename contains only invalid characters")
-	}
-	return name, nil
+	return b.String()
 }

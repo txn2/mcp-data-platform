@@ -28,6 +28,8 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Resource Templates**: Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates: table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`).
 
+- **Managed Resources**: Human-uploaded reference material (samples, playbooks, templates, references) surfaced directly to AI assistants via MCP `resources/list` and `resources/read`. Three visibility scopes: global, persona, and user. PostgreSQL metadata with S3 blob storage. REST API for CRUD, Admin Portal page for management. Auto-enabled when a database is available.
+
 - **Progress Notifications**: Long-running Trino queries send granular progress updates (executing, formatting, complete) to clients that provide `_meta.progressToken`. Zero overhead when disabled.
 
 - **Client Logging**: Server-to-client log messages for platform decisions (enrichment, timing) via MCP `logging/setLevel` protocol. Zero overhead if the client hasn't opted in.
@@ -424,6 +426,90 @@ resources:
 ```
 
 Invalid entries (missing URI, name, or mime_type; both or neither content fields) are skipped with a warning; valid entries in the same list are still registered.
+
+## Managed Resources Configuration
+
+Managed resources are human-uploaded reference files (samples, playbooks, templates, references) stored in S3 with metadata in PostgreSQL. They are surfaced to AI assistants via the standard MCP `resources/list` and `resources/read` protocol, and managed through a REST API and the Admin Portal.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `resources.managed.enabled` | bool* | auto | Enable managed resources. nil = auto (enabled when database is available) |
+| `resources.managed.uri_scheme` | string | `"mcp"` | URI scheme prefix for resource URIs |
+| `resources.managed.s3_connection` | string | `""` | Name of the S3 toolkit instance used for blob storage |
+| `resources.managed.s3_bucket` | string | `""` | S3 bucket for resource file blobs |
+
+Example:
+
+```yaml
+resources:
+  managed:
+    enabled: true
+    uri_scheme: "mcp"
+    s3_connection: "primary"
+    s3_bucket: "platform-resources"
+```
+
+### Scope Model
+
+Resources are assigned one of three visibility scopes:
+
+| Scope | Visibility | scope_id | Example URI |
+|-------|-----------|----------|-------------|
+| `global` | All authenticated users | (empty) | `mcp://global/templates/query-patterns.sql` |
+| `persona` | Users operating under the named persona | persona name | `mcp://persona/analyst/playbooks/data-quality-checklist.md` |
+| `user` | Only the owning user | user subject ID | `mcp://user/abc123/references/my-notes.txt` |
+
+### URI Scheme
+
+Resource URIs follow the pattern: `{scheme}://{scope}/{scope_id?}/{category}/{filename}`
+
+- Global: `mcp://global/{category}/{filename}`
+- Persona: `mcp://persona/{persona_name}/{category}/{filename}`
+- User: `mcp://user/{user_sub}/{category}/{filename}`
+
+### Categories
+
+Resources must be assigned a category (lowercase alphanumeric with hyphens, max 31 chars). The portal UI offers four built-in categories: `samples`, `playbooks`, `templates`, `references`.
+
+### Permission Model
+
+| Action | Global | Persona | User |
+|--------|--------|---------|------|
+| **Read** | All authenticated users | Users with matching persona | Owner only |
+| **Write (create)** | Platform admins | Platform admins or persona admins (`persona-admin:{name}`) | Any authenticated user (own scope) |
+| **Modify/Delete** | Original uploader or platform admin | Original uploader, platform admin, or persona admin | Original uploader or platform admin |
+
+Platform admin roles: `admin`, `platform-admin`.
+
+### REST API Endpoints
+
+All endpoints are mounted at `/api/v1/resources` and require authentication (Bearer token or browser session).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/resources` | Upload a new resource (multipart form) |
+| `GET` | `/api/v1/resources` | List resources visible to the caller |
+| `GET` | `/api/v1/resources/{id}` | Get resource metadata by ID |
+| `GET` | `/api/v1/resources/{id}/content` | Download resource file content |
+| `PATCH` | `/api/v1/resources/{id}` | Update resource metadata (display_name, description, tags, category) |
+| `DELETE` | `/api/v1/resources/{id}` | Delete resource (metadata and S3 blob) |
+
+List supports query parameters: `scope`, `scope_id`, `category`, `tag`, `q` (text search), `offset`.
+
+Upload (POST) accepts multipart form fields: `file` (required), `scope`, `scope_id`, `category`, `display_name`, `description`, `tags`. Maximum upload size: 100 MB. Executable file extensions and MIME types are blocked.
+
+### MCP Protocol Integration
+
+When managed resources are enabled, the `MCPManagedResourceMiddleware` intercepts MCP `resources/list` and `resources/read` requests:
+
+- **resources/list**: Appends managed resources (filtered by caller's visible scopes) to the SDK's static resource list.
+- **resources/read**: For URIs matching the configured scheme (default: `mcp://`), looks up the resource in the database, checks read permission, and returns the file content from S3. Text types under 1 MB are returned inline; larger or binary content is returned as a blob. Falls through to the SDK handler for non-matching URIs.
+
+MCP resource capabilities are advertised whenever resource templates, custom resources, or managed resources are enabled.
+
+### Portal UI
+
+The Admin Portal includes a Resources page for uploading, browsing, editing, and deleting managed resources. Users can filter by scope, category, and tags, search by name or description, upload files via drag-and-drop, and edit metadata inline.
 
 ## Progress Notifications Configuration
 

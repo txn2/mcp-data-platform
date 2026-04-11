@@ -263,7 +263,8 @@ func buildScopeWhere(filter Filter) (where string, args []any) {
 		idx++
 	}
 	if filter.Query != "" {
-		pattern := "%" + filter.Query + "%"
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(filter.Query)
+		pattern := "%" + escaped + "%"
 		where += fmt.Sprintf(" AND (display_name ILIKE $%d OR description ILIKE $%d)", idx, idx+1)
 		args = append(args, pattern, pattern)
 	}

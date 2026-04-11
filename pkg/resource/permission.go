@@ -15,7 +15,8 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 	switch scope {
 	case ScopeUser:
 		// Any authenticated user can write to their own user scope.
-		return scopeID == c.Sub
+		// Platform admins can write to any user scope.
+		return scopeID == c.Sub || isPlatformAdmin(c)
 	case ScopePersona:
 		return isPlatformAdmin(c) || isPersonaAdmin(c, scopeID)
 	case ScopeGlobal:

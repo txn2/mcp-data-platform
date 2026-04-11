@@ -702,10 +702,10 @@ func TestNarrowScopes(t *testing.T) {
 		t.Errorf("narrowed with ID = %v", result)
 	}
 
-	// No match returns original.
+	// No match returns empty (never expands visibility).
 	result = narrowScopes(visible, "bogus", "")
-	if len(result) != 3 {
-		t.Errorf("no-match should return original, got %d", len(result))
+	if len(result) != 0 {
+		t.Errorf("no-match should return empty, got %d", len(result))
 	}
 }
 

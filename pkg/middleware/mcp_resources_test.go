@@ -107,28 +107,19 @@ func TestExtractResourceURI(t *testing.T) {
 	}
 }
 
-func TestScopesFromContext_NoPlatformContext(t *testing.T) {
-	cfg := ManagedResourceConfig{}
-	scopes := scopesFromContext(context.Background(), cfg)
-	if len(scopes) != 1 || scopes[0].Scope != resource.ScopeGlobal {
-		t.Errorf("expected global-only scope, got %v", scopes)
-	}
-}
-
-func TestScopesFromContext_WithPlatformContext(t *testing.T) {
+func TestScopesFromPlatformContext(t *testing.T) {
 	pc := &PlatformContext{
 		UserID:      "user-1",
 		Roles:       []string{"analyst"},
 		PersonaName: "analyst",
 	}
-	ctx := WithPlatformContext(context.Background(), pc)
 
 	cfg := ManagedResourceConfig{
 		PersonasForRoles: func(_ []string) []string {
 			return []string{"analyst", "viewer"}
 		},
 	}
-	scopes := scopesFromContext(ctx, cfg)
+	scopes := scopesFromPlatformContext(pc, cfg)
 
 	// Should have: global + user/user-1 + persona/analyst + persona/viewer = 4
 	if len(scopes) != 4 {
@@ -193,8 +184,10 @@ func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {
 	mw := MCPManagedResourceMiddleware(cfg)
 	handler := mw(next)
 
-	// Use a context with no PlatformContext (defaults to global-only scope).
-	result, err := handler(context.Background(), methodListResources, &mcp.ListResourcesRequest{})
+	// Use a context with PlatformContext (required for managed resource injection).
+	pc := &PlatformContext{UserID: "test-user", Roles: []string{"analyst"}}
+	ctx := WithPlatformContext(context.Background(), pc)
+	result, err := handler(ctx, methodListResources, &mcp.ListResourcesRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

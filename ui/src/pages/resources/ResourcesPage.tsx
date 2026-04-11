@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Search,
   FileUp,
@@ -16,7 +16,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useResources, useUploadResource, useUpdateResource, useDeleteResource } from "@/api/resources/hooks";
-import { BASE_URL } from "@/api/resources/client";
+import { resourceFetchRaw } from "@/api/resources/client";
 import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
 import { formatBytes } from "@/lib/format";
@@ -71,11 +71,17 @@ function scopeBadgeColor(scope: string) {
 
 export function ResourcesPage({ admin }: Props) {
   const userPersona = useAuthStore((s) => s.user?.persona);
-  const { data: personaData } = usePersonas();
+  const { data: personaData } = usePersonas(!!admin);
   const personaNames = (personaData?.personas ?? []).map((p) => p.name);
 
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
   const [activeTab, setActiveTab] = useState<string>(admin ? "all" : "user");
   const [showUpload, setShowUpload] = useState(false);
   const [detail, setDetail] = useState<Resource | null>(null);
@@ -147,8 +153,8 @@ export function ResourcesPage({ admin }: Props) {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search resources..."
             className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
@@ -345,15 +351,24 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
     return [{ scope: "user", scope_id: user?.user_id || "" }];
   }
 
+  const submitting = useRef(false);
+
   const handleSubmit = useCallback(async () => {
-    if (!file) { setError("File is required"); return; }
-    if (!displayName.trim()) { setError("Display name is required"); return; }
-    if (!description.trim()) { setError("Description is required"); return; }
+    if (submitting.current) return;
+    submitting.current = true;
+
+    if (!file) { setError("File is required"); submitting.current = false; return; }
+    if (!displayName.trim()) { setError("Display name is required"); submitting.current = false; return; }
+    if (!description.trim()) { setError("Description is required"); submitting.current = false; return; }
+
+    const maxBytes = 100 * 1024 * 1024;
+    if (file.size > maxBytes) { setError("File exceeds 100 MB limit"); submitting.current = false; return; }
 
     const targets = resolveTargets();
     if (targets.length === 0) {
       if (scope === "persona") setError("Select at least one persona");
       else if (scope === "user") setError("Enter at least one email address");
+      submitting.current = false;
       return;
     }
 
@@ -361,6 +376,7 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
     setError("");
 
     const tags = tagsInput.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const successes: string[] = [];
     const errors: string[] = [];
 
     for (const target of targets) {
@@ -375,14 +391,19 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
 
       try {
         await upload.mutateAsync(fd);
+        successes.push(target.scope_id || "global");
       } catch (err) {
         errors.push(`${target.scope_id || "global"}: ${err instanceof Error ? err.message : "failed"}`);
       }
     }
 
     setUploading(false);
+    submitting.current = false;
     if (errors.length > 0) {
-      setError(errors.join("; "));
+      const msg = errors.length === targets.length
+        ? errors.join("; ")
+        : `Succeeded: ${successes.join(", ")}. Failed: ${errors.join("; ")}`;
+      setError(msg);
     } else {
       onClose();
     }
@@ -571,15 +592,25 @@ function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: { resour
         )}
 
         <div className="flex items-center gap-2 pt-2 border-t">
-          <a
-            href={`${BASE_URL}/${r.id}/content`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={async () => {
+              try {
+                const res = await resourceFetchRaw(`/${r.id}/content`);
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = r.filename;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch { /* ignore */ }
+            }}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm hover:bg-muted transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
             Download
-          </a>
+          </button>
           {canModify && (
             <>
               <button

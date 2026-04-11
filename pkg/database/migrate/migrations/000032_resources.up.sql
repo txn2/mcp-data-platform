@@ -27,4 +27,3 @@ CREATE TABLE IF NOT EXISTS resources (
 CREATE INDEX IF NOT EXISTS idx_resources_scope ON resources (scope, scope_id);
 CREATE INDEX IF NOT EXISTS idx_resources_uploader ON resources (uploader_sub);
 CREATE INDEX IF NOT EXISTS idx_resources_category ON resources (category);
-CREATE INDEX IF NOT EXISTS idx_resources_uri ON resources (uri);

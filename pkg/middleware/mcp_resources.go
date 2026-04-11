@@ -68,13 +68,19 @@ func handleManagedList(ctx context.Context, next mcp.MethodHandler, method strin
 		return result, err
 	}
 
-	// Derive visible scopes from PlatformContext.
-	scopes := scopesFromContext(ctx, cfg)
+	// Require auth context — skip injecting managed resources for unauthenticated callers.
+	pc := GetPlatformContext(ctx)
+	if pc == nil {
+		return result, nil
+	}
+	scopes := scopesFromPlatformContext(pc, cfg)
 
 	// Query managed resources.
 	managed, _, listErr := cfg.Store.List(ctx, resource.Filter{
 		Scopes: scopes,
-		Limit:  500, // reasonable upper bound for resources/list
+		// MCP resources/list is not expected to be high-cardinality. Cap at 500
+		// to avoid memory pressure; add cursor pagination if this becomes a limit.
+		Limit: 500,
 	})
 	if listErr != nil {
 		slog.Warn("managed resources: list failed, returning static only", "error", listErr)
@@ -130,12 +136,13 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 		return next(ctx, method, req)
 	}
 
-	// Permission check.
+	// Permission check — require authentication for managed resources.
 	pc := GetPlatformContext(ctx)
-	claims := resource.Claims{}
-	if pc != nil {
-		claims = claimsFromPC(pc, cfg)
+	if pc == nil {
+		// No auth context — fall through to SDK handler.
+		return next(ctx, method, req)
 	}
+	claims := claimsFromPC(pc, cfg)
 	if !resource.CanReadResource(claims, res) {
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
@@ -182,12 +189,8 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 	}, nil
 }
 
-// scopesFromContext derives resource visibility scopes from PlatformContext.
-func scopesFromContext(ctx context.Context, cfg ManagedResourceConfig) []resource.ScopeFilter {
-	pc := GetPlatformContext(ctx)
-	if pc == nil {
-		return []resource.ScopeFilter{{Scope: resource.ScopeGlobal}}
-	}
+// scopesFromPlatformContext derives resource visibility scopes from a known PlatformContext.
+func scopesFromPlatformContext(pc *PlatformContext, cfg ManagedResourceConfig) []resource.ScopeFilter {
 	claims := claimsFromPC(pc, cfg)
 	return resource.VisibleScopes(claims)
 }

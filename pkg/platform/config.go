@@ -581,7 +581,6 @@ type ManagedResourcesCfg struct {
 	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp"
 	S3Connection string `yaml:"s3_connection"` // name of S3 toolkit instance
 	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs
-	MaxUploadMB  int    `yaml:"max_upload_mb"` // default: 100
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.

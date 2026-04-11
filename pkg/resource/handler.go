@@ -2,12 +2,15 @@ package resource
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // MaxMultipartMemory is the max memory for multipart form parsing (10 MB).
@@ -209,6 +212,11 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.persistResource(r, claims, input, uf)
 	if err != nil {
+		var ce *conflictError
+		if errors.As(err, &ce) {
+			writeError(w, http.StatusConflict, ce.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -219,7 +227,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) persistResource(r *http.Request, claims *Claims, input *createInput, uf *uploadedFile) (*Resource, error) {
 	id, err := GenerateID()
 	if err != nil {
-		return nil, fmt.Errorf("generating ID")
+		return nil, fmt.Errorf("generating ID: %w", err)
 	}
 
 	uri := BuildURI(h.uriScheme(), input.scope, input.scopeID, input.category, uf.filename)
@@ -237,17 +245,27 @@ func (h *Handler) persistResource(r *http.Request, claims *Claims, input *create
 	if h.deps.S3Client != nil {
 		if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, uf.data, uf.mimeType); err != nil {
 			slog.Error("resource upload: s3 put failed", msgError, err)
-			return nil, fmt.Errorf("storing file")
+			return nil, fmt.Errorf("storing file: %w", err)
 		}
 	}
 
 	if err := h.deps.Store.Insert(r.Context(), res); err != nil {
+		// Clean up orphaned S3 blob.
+		if h.deps.S3Client != nil {
+			_ = h.deps.S3Client.DeleteObject(r.Context(), h.deps.S3Bucket, s3Key)
+		}
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return nil, &conflictError{msg: "a resource with this scope, category, and filename already exists"}
+		}
 		slog.Error("resource upload: db insert failed", msgError, err)
-		return nil, fmt.Errorf("saving resource metadata")
+		return nil, fmt.Errorf("saving resource metadata: %w", err)
 	}
 
 	saved, getErr := h.deps.Store.Get(r.Context(), id)
 	if getErr != nil {
+		now := time.Now().UTC()
+		res.CreatedAt = now
+		res.UpdatedAt = now
 		return &res, nil //nolint:nilerr // fallback to pre-read version if re-fetch fails
 	}
 	return saved, nil
@@ -266,10 +284,7 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 			}
 		}
 	}
-	if len(narrowed) > 0 {
-		return narrowed
-	}
-	return visible
+	return narrowed
 }
 
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -284,12 +299,20 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		scopes = narrowScopes(scopes, scopeParam, r.URL.Query().Get("scope_id"))
 	}
 
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
 	filter := Filter{
 		Scopes:   scopes,
 		Category: r.URL.Query().Get("category"),
 		Tag:      r.URL.Query().Get("tag"),
 		Query:    r.URL.Query().Get("q"),
 		Limit:    DefaultListLimit,
+		Offset:   offset,
 	}
 
 	resources, total, err := h.deps.Store.List(r.Context(), filter)
@@ -440,7 +463,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	var u Update
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -487,10 +510,12 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete S3 object.
+	// Delete S3 object — fail the request if blob deletion fails to avoid orphaned DB rows.
 	if h.deps.S3Client != nil {
 		if err := h.deps.S3Client.DeleteObject(r.Context(), h.deps.S3Bucket, res.S3Key); err != nil {
 			slog.Error("resource delete: s3 delete failed", msgError, err) //nolint:gosec // structured slog
+			writeError(w, http.StatusInternalServerError, "deleting resource blob")
+			return
 		}
 	}
 
@@ -502,6 +527,11 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// conflictError signals a 409 Conflict (e.g. duplicate URI).
+type conflictError struct{ msg string }
+
+func (e *conflictError) Error() string { return e.msg }
 
 // --- HTTP helpers ---
 

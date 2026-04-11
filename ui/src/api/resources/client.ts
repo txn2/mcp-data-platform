@@ -22,7 +22,7 @@ async function resourceFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers["X-API-Key"] = apiKey;
   }
 
-  if (!init?.method || init.method !== "GET") {
+  if (init?.method && init.method !== "GET") {
     headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
   }
 

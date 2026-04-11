@@ -188,6 +188,14 @@ mcp-data-platform/
 │   │   ├── trino/
 │   │   │   └── adapter.go         # Trino implementation
 │   │   └── noop.go                # No-op for testing
+│   ├── resource/                  # Managed resources (human-uploaded files)
+│   │   ├── types.go               # Resource, Filter, Scope types
+│   │   ├── store.go               # Store interface + PostgreSQL implementation
+│   │   ├── handler.go             # REST API handler (CRUD)
+│   │   ├── permission.go          # Claims, scope-based permission checks
+│   │   ├── validate.go            # Input validation (filename, MIME, tags)
+│   │   ├── uri.go                 # URI scheme builder/parser
+│   │   └── id.go                  # Secure random ID generation
 │   ├── registry/                  # Toolkit registry
 │   │   ├── registry.go            # ToolkitRegistry
 │   │   ├── toolkit.go             # Toolkit interface
@@ -316,6 +324,16 @@ injection:
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 ```
 
+### Managed Resources
+```yaml
+resources:
+  managed:
+    enabled: true             # auto-enabled when database is available; set false to disable
+    uri_scheme: "mcp"         # URI prefix for resource URIs (default: "mcp")
+    s3_connection: "primary"  # name of S3 toolkit instance for blob storage
+    s3_bucket: "resources"    # S3 bucket for uploaded files
+```
+
 ### Audit Logging
 ```yaml
 audit:
@@ -353,6 +371,18 @@ type Provider interface {
     GetExecutionContext(ctx context.Context, urns []string) (*ExecutionContext, error)
     GetTableSchema(ctx context.Context, table TableIdentifier) (*TableSchema, error)
     Close() error
+}
+```
+
+### Resource Store
+```go
+type Store interface {
+    Insert(ctx context.Context, r Resource) error
+    Get(ctx context.Context, id string) (*Resource, error)
+    GetByURI(ctx context.Context, uri string) (*Resource, error)
+    List(ctx context.Context, filter Filter) ([]Resource, int, error)
+    Update(ctx context.Context, id string, u Update) error
+    Delete(ctx context.Context, id string) error
 }
 ```
 
