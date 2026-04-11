@@ -405,6 +405,12 @@ type InjectionConfig struct {
 	EstimateRowCounts        bool               `yaml:"estimate_row_counts"`
 	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
 
+	// UnwrapJSON defaults the unwrap_json parameter to true on trino_query
+	// and trino_execute, so single-row VARCHAR-of-JSON responses (e.g. from
+	// OpenSearch/Elasticsearch raw_query) are returned as parsed objects
+	// instead of double-encoded strings. Defaults to true (nil = enabled).
+	UnwrapJSON *bool `yaml:"unwrap_json"`
+
 	// ColumnContextFiltering limits column-level semantic enrichment to
 	// columns referenced in the SQL query. Saves tokens when queries
 	// touch a subset of a wide table. Defaults to true (nil = enabled).
@@ -419,6 +425,15 @@ type InjectionConfig struct {
 	// SchemaPreviewMaxColumns caps how many columns appear in each
 	// schema preview. Defaults to 15 (nil = 15).
 	SchemaPreviewMaxColumns *int `yaml:"schema_preview_max_columns"`
+}
+
+// IsUnwrapJSONEnabled returns whether unwrap_json defaults to true,
+// defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsUnwrapJSONEnabled() bool {
+	if c.UnwrapJSON == nil {
+		return true
+	}
+	return *c.UnwrapJSON
 }
 
 // IsColumnContextFilteringEnabled returns whether column context filtering

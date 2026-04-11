@@ -263,6 +263,14 @@ injection:
   # search_schema_preview: true            # Default: true
   # schema_preview_max_columns: 15         # Default: 15
 
+  # JSON unwrap default
+  # Defaults unwrap_json to true on trino_query and trino_execute so
+  # single-row VARCHAR-of-JSON results (e.g. from OpenSearch/Elasticsearch
+  # raw_query) are returned as parsed JSON objects instead of double-encoded
+  # strings. Upstream fall-through is graceful: non-matching results are
+  # unaffected. Set to false to preserve double-encoded VARCHAR behavior.
+  # unwrap_json: true                # Default: true
+
   # Column context filtering
   # Limits column-level semantic enrichment to only columns referenced
   # in the SQL query. Saves tokens when queries touch a subset of wide tables.

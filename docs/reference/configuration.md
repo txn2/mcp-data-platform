@@ -720,6 +720,7 @@ injection:
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
   datahub_storage_enrichment: true
+  unwrap_json: true
   column_context_filtering: true
   search_schema_preview: true
   schema_preview_max_columns: 15
@@ -736,6 +737,7 @@ injection:
 | `datahub_query_enrichment` | bool | `false` | Enrich DataHub with Trino |
 | `s3_semantic_enrichment` | bool | `false` | Enrich S3 with DataHub |
 | `datahub_storage_enrichment` | bool | `false` | Enrich DataHub with S3 |
+| `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results (e.g. from raw_query) |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
 | `search_schema_preview` | bool | `true` | Add column preview to search query_context |
 | `schema_preview_max_columns` | int | `15` | Max columns per entity in schema preview |
@@ -977,6 +979,7 @@ injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
+  unwrap_json: true
   column_context_filtering: true
   search_schema_preview: true
   schema_preview_max_columns: 15

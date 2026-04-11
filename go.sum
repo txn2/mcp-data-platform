@@ -288,8 +288,8 @@ github.com/txn2/mcp-datahub v1.8.1 h1:nQGpL5UC7nXR1Gm6LqMOwgv6bRRsnFYWO5G3VvdG5/
 github.com/txn2/mcp-datahub v1.8.1/go.mod h1:+GPUNirzhGDEUGiSsebuxToLriUygkugHkwDYrFiDKY=
 github.com/txn2/mcp-s3 v1.1.0 h1:fncD3bMXdRlUUVcjc3j4lBBD0wuOzudSJkotdRNrKrA=
 github.com/txn2/mcp-s3 v1.1.0/go.mod h1:8ZB3tEZvEan+9cBqvnaMoCYbkhW0TzDuW2cesNYkEH4=
-github.com/txn2/mcp-trino v1.2.0 h1:XImkDJpahNT+2SHxCO97ZT4GEJBoH8Cr1eVeeX4oIRw=
-github.com/txn2/mcp-trino v1.2.0/go.mod h1:CA7KPlS9YfyveeAUvOeL6lCzOyi2wGTxDs3cJ0c4SXI=
+github.com/txn2/mcp-trino v1.3.0 h1:QKoNzm/WeRTE6RJ++pAeOCwwxd3L5M4XWNb/XniYnCQ=
+github.com/txn2/mcp-trino v1.3.0/go.mod h1:e9niXtowe/ji8QADqH3i352tkxEXo4KKkcHnG2KxIHs=
 github.com/uptrace/bun v1.1.12 h1:sOjDVHxNTuM6dNGaba0wUuz7KvDE1BmNu9Gqs2gJSXQ=
 github.com/uptrace/bun v1.1.12/go.mod h1:NPG6JGULBeQ9IU6yHp7YGELRa5Agmd7ATZdz4tGZ6z0=
 github.com/uptrace/bun/dialect/pgdialect v1.1.12 h1:m/CM1UfOkoBTglGO5CUTKnIKKOApOYxkcP2qn0F9tJk=
