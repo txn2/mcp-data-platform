@@ -13,6 +13,7 @@ import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
 import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
+import { ResourcesPage } from "@/pages/resources/ResourcesPage";
 
 // Admin pages (admin only)
 import { HomePage } from "@/pages/home/HomePage";
@@ -33,6 +34,7 @@ const pageTitles: Record<string, string> = {
   "/activity": "Activity",
   "/": "Assets",
   "/collections": "Collections",
+  "/resources": "Resources",
   "/shared": "Shared With Me",
   "/my-knowledge": "Knowledge & Memory",
   "/prompts": "Prompts",
@@ -46,6 +48,7 @@ const pageTitles: Record<string, string> = {
   "/admin/connections": "Connections",
   "/admin/personas": "Personas",
   "/admin/prompts": "Prompts",
+  "/admin/resources": "Resources",
   "/admin/keys": "Keys",
   "/admin/changelog": "Change Log",
 };
@@ -246,6 +249,9 @@ export function AppShell() {
               onNavigate={navigate}
             />
           )}
+          {!isAdminRoute && route === "/resources" && (
+            <ResourcesPage onNavigate={navigate} />
+          )}
           {!isAdminRoute && route === "/shared" && (
             <SharedWithMePage onNavigate={navigate} />
           )}
@@ -304,6 +310,9 @@ export function AppShell() {
               {route === "/admin/personas" && <PersonasPanel />}
               {route === "/admin/prompts" && (
                 <AdminPromptsPage onNavigate={navigate} />
+              )}
+              {route === "/admin/resources" && (
+                <ResourcesPage admin onNavigate={navigate} />
               )}
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/changelog" && <ChangelogPage />}

@@ -28,9 +28,6 @@ func (p *Platform) registerCustomResources() {
 			Description: def.Description,
 			MIMEType:    def.MIMEType,
 		}, handler)
-		if p.resourceRegistry != nil {
-			p.resourceRegistry[def.URI] = handler
-		}
 	}
 }
 

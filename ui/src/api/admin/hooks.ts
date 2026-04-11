@@ -338,10 +338,11 @@ export function useCallTool() {
 // Personas
 // ---------------------------------------------------------------------------
 
-export function usePersonas() {
+export function usePersonas(enabled = true) {
   return useQuery({
     queryKey: ["personas"],
     queryFn: () => apiFetch<PersonaListResponse>("/personas"),
+    enabled,
   });
 }
 

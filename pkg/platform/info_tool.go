@@ -51,6 +51,7 @@ type Features struct {
 	AuditLogging       bool                `json:"audit_logging"`
 	KnowledgeCapture   bool                `json:"knowledge_capture"`
 	KnowledgeApply     *KnowledgeApplyInfo `json:"knowledge_apply,omitempty"`
+	ManagedResources   bool                `json:"managed_resources"`
 }
 
 // KnowledgeApplyInfo provides information about the knowledge apply feature.
@@ -67,6 +68,7 @@ func (p *Platform) buildFeatures() Features {
 		StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
 		AuditLogging:       !isExplicitlyDisabled(p.config.Audit.Enabled),
 		KnowledgeCapture:   !isExplicitlyDisabled(p.config.Knowledge.Enabled),
+		ManagedResources:   p.resourceStore != nil,
 	}
 
 	if p.config.Knowledge.Apply.Enabled {
@@ -194,6 +196,14 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 			description = full.ApplyDescription(description)
 			agentInstructions = full.ApplyAgentInstructions(agentInstructions)
 		}
+	}
+
+	// Append resources discoverability nudge when managed resources are initialized.
+	if p.resourceStore != nil {
+		agentInstructions += "\n\nUploaded resources (samples, playbooks, templates, references) " +
+			"are available via the MCP resources primitive. Call resources/list to discover " +
+			"what reference material has been uploaded. Use these resources when the task " +
+			"involves user-provided context, examples, formatting specifications, or reference data."
 	}
 
 	reg := DefaultRegistry()

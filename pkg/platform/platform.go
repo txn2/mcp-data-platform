@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -176,6 +178,10 @@ type Platform struct {
 	// Session gate
 	sessionGate *middleware.SessionGate
 
+	// Resource store (managed resources)
+	resourceStore    resource.Store
+	resourceS3Client resource.S3Client
+
 	// Prompt store + metadata collected during registration
 	promptStore   prompt.Store
 	promptInfosMu sync.RWMutex
@@ -183,10 +189,6 @@ type Platform struct {
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
-
-	// Resource registry maps URIs to handlers so the read_resource tool can
-	// serve them without going through the MCP resources/read protocol path.
-	resourceRegistry map[string]mcp.ResourceHandler
 }
 
 // New creates a new platform instance.
@@ -201,9 +203,8 @@ func New(opts ...Option) (*Platform, error) {
 	}
 
 	p := &Platform{
-		config:           options.Config,
-		lifecycle:        NewLifecycle(),
-		resourceRegistry: make(map[string]mcp.ResourceHandler),
+		config:    options.Config,
+		lifecycle: NewLifecycle(),
 	}
 
 	// Initialize components
@@ -279,6 +280,9 @@ func (p *Platform) initExtensions() error {
 		return err
 	}
 	if err := p.initPortal(); err != nil {
+		return err
+	}
+	if err := p.initManagedResources(); err != nil {
 		return err
 	}
 	return p.initMCPApps()
@@ -1098,6 +1102,68 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 	return portal.NewS3ClientAdapter(c), nil
 }
 
+// initManagedResources initializes the managed resources subsystem (human-uploaded
+// reference material stored in S3 with metadata in PostgreSQL).
+func (p *Platform) initManagedResources() error {
+	if isExplicitlyDisabled(p.config.Resources.Managed.Enabled) || p.db == nil {
+		return nil
+	}
+
+	p.resourceStore = resource.NewPostgresStore(p.db)
+
+	// Create S3 client from referenced connection.
+	if p.config.Resources.Managed.S3Connection != "" {
+		connName := p.config.Resources.Managed.S3Connection
+		s3Cfg := p.getS3Config(connName)
+		if s3Cfg == nil {
+			return fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
+		}
+
+		clientCfg := &s3client.Config{
+			Region:          s3Cfg.Region,
+			Endpoint:        s3Cfg.Endpoint,
+			AccessKeyID:     s3Cfg.AccessKeyID,
+			SecretAccessKey: s3Cfg.SecretKey,
+			Name:            s3Cfg.ConnectionName,
+			UsePathStyle:    s3Cfg.UsePathStyle,
+		}
+
+		c, err := s3client.New(context.Background(), clientCfg)
+		if err != nil {
+			return fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
+		}
+
+		p.resourceS3Client = portal.NewS3ClientAdapter(c)
+	} else {
+		slog.Warn("managed resources: no s3_connection configured; blob storage disabled")
+	}
+
+	slog.Info("managed resources enabled",
+		"s3_connection", p.config.Resources.Managed.S3Connection,
+		"s3_bucket", p.config.Resources.Managed.S3Bucket,
+		"uri_scheme", p.managedResourceURIScheme(),
+	)
+	return nil
+}
+
+// managedResourceURIScheme returns the configured URI scheme or the default.
+func (p *Platform) managedResourceURIScheme() string {
+	if s := p.config.Resources.Managed.URIScheme; s != "" {
+		return s
+	}
+	return resource.DefaultURIScheme
+}
+
+// ResourceStore returns the managed resource store (nil if not enabled).
+func (p *Platform) ResourceStore() resource.Store {
+	return p.resourceStore
+}
+
+// ResourceS3Client returns the S3 client for managed resources (nil if not configured).
+func (p *Platform) ResourceS3Client() resource.S3Client {
+	return p.resourceS3Client
+}
+
 // initMCPApps initializes MCP Apps support.
 func (p *Platform) initMCPApps() error {
 	if !p.config.MCPApps.IsEnabled() {
@@ -1349,6 +1415,9 @@ func (p *Platform) finalizeSetup() {
 	// 1.5. Provenance tracking - accumulates tool calls per session for save_artifact
 	p.addProvenanceMiddleware()
 
+	// 1.6. Managed resources - injects database-backed resources into resources/list and resources/read
+	p.addManagedResourceMiddleware()
+
 	// 2. Client logging - sends enrichment info to client via session.Log()
 	if p.config.ClientLogging.Enabled {
 		p.mcpServer.AddReceivingMiddleware(
@@ -1409,6 +1478,41 @@ func (p *Platform) finalizeSetup() {
 
 	// 9. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
+}
+
+// addManagedResourceMiddleware registers managed resources middleware when enabled.
+func (p *Platform) addManagedResourceMiddleware() {
+	if p.resourceStore == nil {
+		return
+	}
+	cfg := middleware.ManagedResourceConfig{
+		Store:     p.resourceStore,
+		S3Client:  p.resourceS3Client,
+		S3Bucket:  p.config.Resources.Managed.S3Bucket,
+		URIScheme: p.managedResourceURIScheme(),
+	}
+	// Resolve all persona memberships from roles.
+	if p.personaRegistry != nil {
+		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+	}
+	p.mcpServer.AddReceivingMiddleware(middleware.MCPManagedResourceMiddleware(cfg))
+}
+
+// personasForRolesFunc returns a PersonasForRoles function that resolves
+// all persona names a user belongs to from their roles.
+func personasForRolesFunc(pr *persona.Registry) middleware.PersonasForRoles {
+	return func(roles []string) []string {
+		var names []string
+		for _, per := range pr.All() {
+			for _, r := range per.Roles {
+				if slices.Contains(roles, r) {
+					names = append(names, per.Name)
+					break
+				}
+			}
+		}
+		return names
+	}
 }
 
 // addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
@@ -1500,8 +1604,8 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 		Logging: &mcp.LoggingCapabilities{},
 	}
 
-	// Resources are available when enabled in config.
-	if p.config.Resources.Enabled {
+	// Resources are available when templates or managed resources are enabled.
+	if p.config.Resources.Enabled || p.resourceStore != nil || len(p.config.Resources.Custom) > 0 {
 		caps.Resources = &mcp.ResourceCapabilities{}
 	}
 
@@ -1917,9 +2021,6 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
-
-	// Register read_resource tool so AI can access registered resources as tools
-	p.registerResourceTool()
 
 	// Validate agent_instructions references against registered tools
 	p.validateAgentInstructions()

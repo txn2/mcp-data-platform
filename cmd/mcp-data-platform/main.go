@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -306,6 +308,9 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount portal API if enabled
 	mountPortalAPI(mux, p)
 
+	// Mount managed resources API if enabled
+	mountResourcesAPI(mux, p)
+
 	// Mount unified portal UI (includes both portal and admin sections)
 	mountPortalUI(mux, p, ui.Available())
 
@@ -553,6 +558,63 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	log.Println("Portal API enabled on /api/v1/portal/")
+}
+
+// mountResourcesAPI registers the managed resources REST API on the mux if enabled.
+func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || p.ResourceStore() == nil {
+		return
+	}
+
+	var portalAuthOpts []portal.AuthenticatorOption
+	if p.BrowserSessionAuth() != nil {
+		portalAuthOpts = append(portalAuthOpts, portal.WithBrowserAuth(p.BrowserSessionAuth()))
+	}
+	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
+
+	pr := p.PersonaRegistry()
+	extractClaims := func(r *http.Request) (*resource.Claims, error) {
+		user, err := portalAuth.Authenticate(r)
+		if err != nil || user == nil {
+			return nil, fmt.Errorf("authentication required")
+		}
+		claims := &resource.Claims{
+			Sub:   user.UserID,
+			Email: user.Email,
+			Roles: user.Roles,
+		}
+		// Resolve all persona memberships.
+		if pr != nil {
+			for _, per := range pr.All() {
+				if matchesAnyRole(per.Roles, user.Roles) {
+					claims.Personas = append(claims.Personas, per.Name)
+				}
+			}
+		}
+		return claims, nil
+	}
+
+	deps := resource.Deps{
+		Store:     p.ResourceStore(),
+		S3Client:  p.ResourceS3Client(),
+		S3Bucket:  p.Config().Resources.Managed.S3Bucket,
+		URIScheme: p.Config().Resources.Managed.URIScheme,
+	}
+
+	handler := resource.NewHandler(deps, extractClaims, nil)
+	mux.Handle("/api/v1/resources/", handler)
+	mux.Handle("/api/v1/resources", handler)
+	log.Println("Managed resources API enabled on /api/v1/resources")
+}
+
+// matchesAnyRole checks if any persona role matches any user role.
+func matchesAnyRole(personaRoles, userRoles []string) bool {
+	for _, pr := range personaRoles {
+		if slices.Contains(userRoles, pr) {
+			return true
+		}
+	}
+	return false
 }
 
 // mcpappsBrandName extracts brand_name from the mcpapps platform-info config,

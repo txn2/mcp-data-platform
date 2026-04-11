@@ -130,6 +130,9 @@ AI sessions generate valuable domain knowledge: column meanings, data quality is
 ### Resource Templates
 Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates expose table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`) without making tool calls.
 
+### Managed Resources
+Human-uploaded reference material (samples, playbooks, templates, references) surfaced directly to AI assistants via MCP `resources/list` and `resources/read`. Resources are scoped to three visibility levels: global (visible to all authenticated users), persona (visible to users in a specific persona), and user (visible only to the owner). Metadata is stored in PostgreSQL; file blobs are stored in S3. A REST API at `/api/v1/resources` provides CRUD operations, and the Admin Portal includes a dedicated Resources page for uploading, browsing, and managing resources. Enabled automatically when a database is available.
+
 ### Progress Notifications
 Long-running Trino queries send granular progress updates to MCP clients (executing, formatting, complete). Clients that provide a `_meta.progressToken` receive real-time status. Zero overhead when disabled.
 
@@ -371,6 +374,16 @@ database:
   dsn: "${DATABASE_URL}"
 ```
 
+### Managed Resources
+```yaml
+resources:
+  managed:
+    enabled: true             # auto-enabled when database is available
+    uri_scheme: "mcp"         # URI prefix (default: "mcp")
+    s3_connection: "primary"  # name of S3 toolkit instance for blob storage
+    s3_bucket: "resources"    # S3 bucket for uploaded files
+```
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -397,6 +410,7 @@ database:
 | `pkg/tuning` | Prompts, hints, and operational rules |
 | `pkg/storage` | S3-compatible storage provider abstraction |
 | `pkg/portal` | Asset portal types, stores, and S3 client for AI-generated artifacts |
+| `pkg/resource` | Managed resources: scoped file uploads, REST API, MCP integration |
 | `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge, Portal) |
 | `pkg/admin` | Admin REST API for knowledge management |
 | `pkg/client` | Platform client utilities |
