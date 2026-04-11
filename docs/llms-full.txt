@@ -352,8 +352,8 @@ When `workflow.require_discovery_before_query` is disabled (default), the platfo
 |-------|------|---------|-------------|
 | `portal.enabled` | bool | `false` | Enable portal toolkit and save_artifact/manage_artifact tools |
 | `portal.s3_connection` | string | - | Name of the S3 toolkit instance for artifact storage |
-| `portal.s3_bucket` | string | - | S3 bucket for artifact content |
-| `portal.s3_prefix` | string | `""` | Key prefix within the bucket |
+| `portal.s3_bucket` | string | `portal-assets` | S3 bucket for artifact content |
+| `portal.s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
 | `portal.public_base_url` | string | `""` | Base URL for portal links in save_artifact responses |
 | `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
@@ -437,7 +437,7 @@ Managed resources are human-uploaded reference files (samples, playbooks, templa
 | `resources.managed.enabled` | bool* | auto | Enable managed resources. nil = auto (enabled when database is available) |
 | `resources.managed.uri_scheme` | string | `"mcp"` | URI scheme prefix for resource URIs |
 | `resources.managed.s3_connection` | string | `""` | Name of the S3 toolkit instance used for blob storage |
-| `resources.managed.s3_bucket` | string | `""` | S3 bucket for resource file blobs |
+| `resources.managed.s3_bucket` | string | `managed-resources` | S3 bucket for resource file blobs |
 
 Example:
 

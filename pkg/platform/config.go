@@ -126,6 +126,12 @@ type StalenessConfig struct {
 	BatchSize int           `yaml:"batch_size"`
 }
 
+// Default bucket and prefix for portal artifact storage.
+const (
+	defaultPortalS3Bucket = "portal-assets"
+	defaultPortalS3Prefix = "artifacts/"
+)
+
 // PortalConfig configures the asset portal for saving AI-generated artifacts.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
@@ -135,8 +141,8 @@ type PortalConfig struct {
 	LogoLight      string                `yaml:"logo_light"`       // URL to logo for light theme
 	LogoDark       string                `yaml:"logo_dark"`        // URL to logo for dark theme
 	S3Connection   string                `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
-	S3Bucket       string                `yaml:"s3_bucket"`        // bucket for artifact storage
-	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket
+	S3Bucket       string                `yaml:"s3_bucket"`        // bucket for artifact storage (default: "portal-assets")
+	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket (default: "artifacts/")
 	PublicBaseURL  string                `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
 	MaxContentSize int                   `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
 	Implementor    ImplementorConfig     `yaml:"implementor"`      // optional implementor brand (far-left header zone)
@@ -589,13 +595,16 @@ type ResourcesConfig struct {
 	Managed ManagedResourcesCfg `yaml:"managed"` // human-uploaded resources via portal
 }
 
+// defaultManagedResourcesS3Bucket is the default S3 bucket for managed resources.
+const defaultManagedResourcesS3Bucket = "managed-resources"
+
 // ManagedResourcesCfg configures human-uploaded resources stored in S3/Postgres.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type ManagedResourcesCfg struct {
 	Enabled      *bool  `yaml:"enabled"`       // nil = auto (enabled when DB available)
 	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp"
 	S3Connection string `yaml:"s3_connection"` // name of S3 toolkit instance
-	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs
+	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs (default: "managed-resources")
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.
@@ -821,6 +830,7 @@ func applyDefaults(cfg *Config) {
 	applySessionDefaults(cfg)
 	applyAdminDefaults(cfg)
 	applyPortalDefaults(cfg)
+	applyResourceDefaults(cfg)
 	applyElicitationDefaults(cfg)
 	applyWorkflowDefaults(cfg)
 	applySessionGateDefaults(cfg)
@@ -833,6 +843,19 @@ func applyPortalDefaults(cfg *Config) {
 	}
 	if cfg.Portal.MaxContentSize == 0 {
 		cfg.Portal.MaxContentSize = defaultMaxContentSize
+	}
+	if cfg.Portal.S3Bucket == "" {
+		cfg.Portal.S3Bucket = defaultPortalS3Bucket
+	}
+	if cfg.Portal.S3Prefix == "" {
+		cfg.Portal.S3Prefix = defaultPortalS3Prefix
+	}
+}
+
+// applyResourceDefaults sets defaults for managed resources config.
+func applyResourceDefaults(cfg *Config) {
+	if cfg.Resources.Managed.S3Bucket == "" {
+		cfg.Resources.Managed.S3Bucket = defaultManagedResourcesS3Bucket
 	}
 }
 
