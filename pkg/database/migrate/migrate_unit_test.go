@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 62
+	migrateTestFileCount    = 64
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -94,6 +94,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000030_prompts.down.sql",
 		"000031_memory_records.up.sql",
 		"000031_memory_records.down.sql",
+		"000032_resources.up.sql",
+		"000032_resources.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -140,6 +142,8 @@ func TestMigrationFilesNotEmpty(t *testing.T) {
 		"migrations/000017_portal_assets_owner_email.down.sql",
 		"migrations/000031_memory_records.up.sql",
 		"migrations/000031_memory_records.down.sql",
+		"migrations/000032_resources.up.sql",
+		"migrations/000032_resources.down.sql",
 	}
 
 	for _, file := range files {

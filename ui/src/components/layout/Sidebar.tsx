@@ -20,6 +20,7 @@ import {
   Cable,
   KeyRound,
   MessageSquare,
+  FileUp,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -38,6 +39,7 @@ const basePortalNavItems = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/collections", label: "Collections", icon: FolderOpen },
+  { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
@@ -61,6 +63,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/knowledge", label: "Knowledge & Memory", icon: Lightbulb },
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
+  { path: "/admin/resources", label: "Resources", icon: FileUp },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
 ];
 
