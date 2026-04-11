@@ -666,8 +666,8 @@ portal:
 | `portal.logo_light` | string | `""` | URL to logo for light theme (overrides `logo`) |
 | `portal.logo_dark` | string | `""` | URL to logo for dark theme (overrides `logo`) |
 | `portal.s3_connection` | string | - | Name of the S3 toolkit instance to use for artifact storage |
-| `portal.s3_bucket` | string | - | S3 bucket for storing artifact content |
-| `portal.s3_prefix` | string | `""` | Key prefix within the bucket (e.g., `artifacts/`) |
+| `portal.s3_bucket` | string | `portal-assets` | S3 bucket for storing artifact content |
+| `portal.s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
 | `portal.public_base_url` | string | `""` | Base URL for portal links returned in `save_artifact` responses |
 | `portal.max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |

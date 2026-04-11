@@ -653,6 +653,54 @@ func TestSessionDedupConfig_EffectiveMode(t *testing.T) {
 	})
 }
 
+func TestPortalConfig_EffectiveS3Bucket(t *testing.T) {
+	t.Run("empty defaults to portal-assets", func(t *testing.T) {
+		cfg := &PortalConfig{}
+		if got := cfg.EffectiveS3Bucket(); got != "portal-assets" {
+			t.Errorf("EffectiveS3Bucket() = %q, want %q", got, "portal-assets")
+		}
+	})
+
+	t.Run("explicit value preserved", func(t *testing.T) {
+		cfg := &PortalConfig{S3Bucket: "my-bucket"}
+		if got := cfg.EffectiveS3Bucket(); got != "my-bucket" {
+			t.Errorf("EffectiveS3Bucket() = %q, want %q", got, "my-bucket")
+		}
+	})
+}
+
+func TestPortalConfig_EffectiveS3Prefix(t *testing.T) {
+	t.Run("empty defaults to artifacts/", func(t *testing.T) {
+		cfg := &PortalConfig{}
+		if got := cfg.EffectiveS3Prefix(); got != "artifacts/" {
+			t.Errorf("EffectiveS3Prefix() = %q, want %q", got, "artifacts/")
+		}
+	})
+
+	t.Run("explicit value preserved", func(t *testing.T) {
+		cfg := &PortalConfig{S3Prefix: "custom/"}
+		if got := cfg.EffectiveS3Prefix(); got != "custom/" {
+			t.Errorf("EffectiveS3Prefix() = %q, want %q", got, "custom/")
+		}
+	})
+}
+
+func TestManagedResourcesCfg_EffectiveS3Bucket(t *testing.T) {
+	t.Run("empty defaults to managed-resources", func(t *testing.T) {
+		cfg := &ManagedResourcesCfg{}
+		if got := cfg.EffectiveS3Bucket(); got != "managed-resources" {
+			t.Errorf("EffectiveS3Bucket() = %q, want %q", got, "managed-resources")
+		}
+	})
+
+	t.Run("explicit value preserved", func(t *testing.T) {
+		cfg := &ManagedResourcesCfg{S3Bucket: "my-resources"}
+		if got := cfg.EffectiveS3Bucket(); got != "my-resources" {
+			t.Errorf("EffectiveS3Bucket() = %q, want %q", got, "my-resources")
+		}
+	})
+}
+
 func TestApplyDefaults_ShutdownConfig(t *testing.T) {
 	t.Run("defaults applied", func(t *testing.T) {
 		cfg := &Config{}

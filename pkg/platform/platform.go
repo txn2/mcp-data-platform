@@ -1059,8 +1059,8 @@ func (p *Platform) initPortal() error {
 		VersionStore:    p.portalVersionStore,
 		CollectionStore: p.portalCollectionStore,
 		S3Client:        s3Client,
-		S3Bucket:        p.config.Portal.S3Bucket,
-		S3Prefix:        p.config.Portal.S3Prefix,
+		S3Bucket:        p.config.Portal.EffectiveS3Bucket(),
+		S3Prefix:        p.config.Portal.EffectiveS3Prefix(),
 		BaseURL:         p.config.Portal.PublicBaseURL,
 		MaxContentSize:  p.config.Portal.MaxContentSize,
 	})
@@ -1071,7 +1071,7 @@ func (p *Platform) initPortal() error {
 
 	slog.Info("portal enabled",
 		"s3_connection", p.config.Portal.S3Connection,
-		"s3_bucket", p.config.Portal.S3Bucket,
+		"s3_bucket", p.config.Portal.EffectiveS3Bucket(),
 	)
 	return nil
 }
@@ -1140,7 +1140,7 @@ func (p *Platform) initManagedResources() error {
 
 	slog.Info("managed resources enabled",
 		"s3_connection", p.config.Resources.Managed.S3Connection,
-		"s3_bucket", p.config.Resources.Managed.S3Bucket,
+		"s3_bucket", p.config.Resources.Managed.EffectiveS3Bucket(),
 		"uri_scheme", p.managedResourceURIScheme(),
 	)
 	return nil
@@ -1495,7 +1495,7 @@ func (p *Platform) addManagedResourceMiddleware() {
 	cfg := middleware.ManagedResourceConfig{
 		Store:     p.resourceStore,
 		S3Client:  p.resourceS3Client,
-		S3Bucket:  p.config.Resources.Managed.S3Bucket,
+		S3Bucket:  p.config.Resources.Managed.EffectiveS3Bucket(),
 		URIScheme: p.managedResourceURIScheme(),
 	}
 	// Resolve all persona memberships from roles.
