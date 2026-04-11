@@ -255,6 +255,7 @@ toolkits:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 ```
 
@@ -618,6 +619,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `trino_semantic_enrichment` | bool | false | Add DataHub context to Trino results |
 | `datahub_query_enrichment` | bool | false | Add Trino availability to DataHub results |
 | `s3_semantic_enrichment` | bool | false | Add DataHub context to S3 results |
+| `unwrap_json` | bool | true | Auto-unwrap single-row VARCHAR-of-JSON results (e.g. from raw_query) |
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
 | `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
 | `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |

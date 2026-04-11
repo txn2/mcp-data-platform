@@ -2470,8 +2470,9 @@ func (p *Platform) injectToolkitPlatformConfig() {
 
 	needsProgress := p.config.Progress.Enabled
 	needsElicitation := p.config.Elicitation.Enabled
+	needsUnwrapJSON := p.config.Injection.IsUnwrapJSONEnabled()
 
-	if !needsProgress && !needsElicitation {
+	if !needsProgress && !needsElicitation && !needsUnwrapJSON {
 		return
 	}
 
@@ -2479,6 +2480,9 @@ func (p *Platform) injectToolkitPlatformConfig() {
 		instanceCfg, ok := v.(map[string]any)
 		if !ok {
 			continue
+		}
+		if needsUnwrapJSON {
+			instanceCfg["unwrap_json_default"] = true
 		}
 		if needsProgress {
 			instanceCfg["progress_enabled"] = true

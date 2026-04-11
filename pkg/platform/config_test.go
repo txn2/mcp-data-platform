@@ -1190,6 +1190,55 @@ server:
 	})
 }
 
+func TestInjectionConfig_IsUnwrapJSONEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if !cfg.IsUnwrapJSONEnabled() {
+			t.Error("expected nil UnwrapJSON to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		v := true
+		cfg := &InjectionConfig{UnwrapJSON: &v}
+		if !cfg.IsUnwrapJSONEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		v := false
+		cfg := &InjectionConfig{UnwrapJSON: &v}
+		if cfg.IsUnwrapJSONEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with unwrap_json false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  unwrap_json: false
+`)
+		if cfg.Injection.IsUnwrapJSONEnabled() {
+			t.Error("expected unwrap_json: false to disable unwrap")
+		}
+	})
+
+	t.Run("YAML loading without unwrap_json", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  trino_semantic_enrichment: true
+`)
+		if !cfg.Injection.IsUnwrapJSONEnabled() {
+			t.Error("expected missing unwrap_json to default to true")
+		}
+	})
+}
+
 func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
 		cfg := &InjectionConfig{}

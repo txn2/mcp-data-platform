@@ -18,7 +18,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
 	github.com/txn2/mcp-datahub v1.8.1
 	github.com/txn2/mcp-s3 v1.1.0
-	github.com/txn2/mcp-trino v1.2.0
+	github.com/txn2/mcp-trino v1.3.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1

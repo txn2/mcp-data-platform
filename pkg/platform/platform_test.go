@@ -3273,6 +3273,54 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 	})
 }
 
+func TestInjectToolkitPlatformConfig_UnwrapJSON(t *testing.T) {
+	t.Run("injects unwrap_json_default when enabled", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{"host": "host1"},
+					},
+				},
+			},
+			// UnwrapJSON defaults to true (nil = enabled).
+		}}
+		p.injectToolkitPlatformConfig()
+
+		instanceCfg, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any)["primary"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		got, gotOK := instanceCfg["unwrap_json_default"].(bool)
+		if !gotOK || !got {
+			t.Errorf("unwrap_json_default = %v, want true", got)
+		}
+	})
+
+	t.Run("does not inject unwrap_json_default when disabled", func(t *testing.T) {
+		unwrapFalse := false
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{"host": "host1"},
+					},
+				},
+			},
+			Injection: InjectionConfig{UnwrapJSON: &unwrapFalse},
+		}}
+		p.injectToolkitPlatformConfig()
+
+		instanceCfg, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any)["primary"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		if _, exists := instanceCfg["unwrap_json_default"]; exists {
+			t.Error("unwrap_json_default should not be set when unwrap_json is disabled")
+		}
+	})
+}
+
 func TestBuildServerCapabilities(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -321,6 +321,7 @@ semantic:
 injection:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
+  unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON results (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 ```
 

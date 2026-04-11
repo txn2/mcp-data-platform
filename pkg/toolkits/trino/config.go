@@ -83,6 +83,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 
 	// Platform-injected flags
 	c.ProgressEnabled = getBool(cfg, "progress_enabled")
+	c.UnwrapJSONDefault = getBool(cfg, "unwrap_json_default")
 	c.Elicitation = getElicitationConfig(cfg)
 
 	return c, nil
