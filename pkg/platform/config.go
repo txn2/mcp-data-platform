@@ -149,22 +149,6 @@ type PortalConfig struct {
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
 }
 
-// EffectiveS3Bucket returns the configured bucket or the default.
-func (c *PortalConfig) EffectiveS3Bucket() string {
-	if c.S3Bucket != "" {
-		return c.S3Bucket
-	}
-	return defaultPortalS3Bucket
-}
-
-// EffectiveS3Prefix returns the configured prefix or the default.
-func (c *PortalConfig) EffectiveS3Prefix() string {
-	if c.S3Prefix != "" {
-		return c.S3Prefix
-	}
-	return defaultPortalS3Prefix
-}
-
 // ImplementorConfig configures the optional implementor brand shown in the
 // far-left zone of the public viewer header (e.g., "ACME Corp").
 type ImplementorConfig struct {
@@ -623,14 +607,6 @@ type ManagedResourcesCfg struct {
 	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs (default: "managed-resources")
 }
 
-// EffectiveS3Bucket returns the configured bucket or the default.
-func (c *ManagedResourcesCfg) EffectiveS3Bucket() string {
-	if c.S3Bucket != "" {
-		return c.S3Bucket
-	}
-	return defaultManagedResourcesS3Bucket
-}
-
 // CustomResourceDef defines a user-configured static MCP resource.
 type CustomResourceDef struct {
 	URI         string `yaml:"uri"`
@@ -854,6 +830,7 @@ func applyDefaults(cfg *Config) {
 	applySessionDefaults(cfg)
 	applyAdminDefaults(cfg)
 	applyPortalDefaults(cfg)
+	applyResourceDefaults(cfg)
 	applyElicitationDefaults(cfg)
 	applyWorkflowDefaults(cfg)
 	applySessionGateDefaults(cfg)
@@ -866,6 +843,19 @@ func applyPortalDefaults(cfg *Config) {
 	}
 	if cfg.Portal.MaxContentSize == 0 {
 		cfg.Portal.MaxContentSize = defaultMaxContentSize
+	}
+	if cfg.Portal.S3Bucket == "" {
+		cfg.Portal.S3Bucket = defaultPortalS3Bucket
+	}
+	if cfg.Portal.S3Prefix == "" {
+		cfg.Portal.S3Prefix = defaultPortalS3Prefix
+	}
+}
+
+// applyResourceDefaults sets defaults for managed resources config.
+func applyResourceDefaults(cfg *Config) {
+	if cfg.Resources.Managed.S3Bucket == "" {
+		cfg.Resources.Managed.S3Bucket = defaultManagedResourcesS3Bucket
 	}
 }
 
