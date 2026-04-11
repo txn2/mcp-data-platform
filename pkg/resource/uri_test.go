@@ -61,21 +61,21 @@ func TestParseURI(t *testing.T) {
 		{"mcp", "mcp://persona/finance/templates/spec.yaml", ScopePersona, "finance", "templates/spec.yaml", true},
 		{"mcp", "mcp://user/u-123/samples/data.csv", ScopeUser, "u-123", "samples/data.csv", true},
 		{"acme", "acme://global/refs/guide.md", ScopeGlobal, "", "refs/guide.md", true},
-		{"mcp", "other://global/test", "", "", "", false},        // wrong scheme
-		{"mcp", "mcp://unknown/test", "", "", "", false},         // unknown scope
-		{"mcp", "mcp://persona", "", "", "", false},              // missing path
-		{"mcp", "mcp://user/", "", "", "", false},                // missing scope_id path
+		{"mcp", "other://global/test", "", "", "", false}, // wrong scheme
+		{"mcp", "mcp://unknown/test", "", "", "", false},  // unknown scope
+		{"mcp", "mcp://persona", "", "", "", false},       // missing path
+		{"mcp", "mcp://user/", "", "", "", false},         // missing scope_id path
 	}
 	for _, tt := range tests {
-		scope, scopeID, path, err := ParseURI(tt.scheme, tt.uri)
+		parsed, err := ParseURI(tt.scheme, tt.uri)
 		if tt.ok {
 			if err != nil {
 				t.Errorf("ParseURI(%q, %q) unexpected error: %v", tt.scheme, tt.uri, err)
 				continue
 			}
-			if scope != tt.scope || scopeID != tt.scopeID || path != tt.path {
+			if parsed.Scope != tt.scope || parsed.ScopeID != tt.scopeID || parsed.Path != tt.path {
 				t.Errorf("ParseURI(%q, %q) = (%q, %q, %q), want (%q, %q, %q)",
-					tt.scheme, tt.uri, scope, scopeID, path, tt.scope, tt.scopeID, tt.path)
+					tt.scheme, tt.uri, parsed.Scope, parsed.ScopeID, parsed.Path, tt.scope, tt.scopeID, tt.path)
 			}
 		} else if err == nil {
 			t.Errorf("ParseURI(%q, %q) expected error", tt.scheme, tt.uri)

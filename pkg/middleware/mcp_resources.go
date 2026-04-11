@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -139,7 +140,11 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
 
-	// Fetch blob from S3.
+	return fetchResourceContent(ctx, cfg, res)
+}
+
+// fetchResourceContent fetches resource content from S3 and builds the read result.
+func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource) (*mcp.ReadResourceResult, error) {
 	if cfg.S3Client == nil {
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
@@ -152,7 +157,7 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 
 	body, _, s3Err := cfg.S3Client.GetObject(ctx, cfg.S3Bucket, res.S3Key)
 	if s3Err != nil {
-		slog.Error("managed resource read: s3 get failed", "error", s3Err, "uri", uri)
+		slog.Error("managed resource read: s3 get failed", "error", s3Err, "uri", res.URI)
 		return nil, fmt.Errorf("error reading resource content")
 	}
 
@@ -206,7 +211,7 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 func extractResourceURI(req mcp.Request) (string, error) {
 	raw, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshaling request: %w", err)
 	}
 	var wrapper struct {
 		Params struct {
@@ -214,7 +219,7 @@ func extractResourceURI(req mcp.Request) (string, error) {
 		} `json:"params"`
 	}
 	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return "", err
+		return "", fmt.Errorf("unmarshaling request: %w", err)
 	}
 	return wrapper.Params.URI, nil
 }
@@ -234,10 +239,5 @@ func isTextMIME(mime string) bool {
 		"application/sql",
 		"application/csv",
 	}
-	for _, t := range textTypes {
-		if mime == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(textTypes, mime)
 }

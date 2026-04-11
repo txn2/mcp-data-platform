@@ -27,6 +27,9 @@ type S3Client interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
+// DefaultListLimit is used when no limit is specified in a list query.
+const DefaultListLimit = 100
+
 // --- PostgreSQL Store ---
 
 type postgresStore struct {
@@ -38,7 +41,7 @@ func NewPostgresStore(db *sql.DB) Store {
 	return &postgresStore{db: db}
 }
 
-func (s *postgresStore) Insert(ctx context.Context, r Resource) error {
+func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO resources
 		(id, scope, scope_id, category, filename, display_name, description,
@@ -57,7 +60,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error {
 	return nil
 }
 
-func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) {
+func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
@@ -67,7 +70,7 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) {
 	return s.scanOne(s.db.QueryRowContext(ctx, query, id))
 }
 
-func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, error) {
+func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
@@ -77,7 +80,7 @@ func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, er
 	return s.scanOne(s.db.QueryRowContext(ctx, query, uri))
 }
 
-func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) {
+func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) { //nolint:revive // interface impl
 	if len(filter.Scopes) == 0 {
 		return nil, 0, nil
 	}
@@ -97,8 +100,9 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	// Fetch page.
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = DefaultListLimit
 	}
+	// #nosec G202 -- dynamic scope filter requires concatenation
 	selectQuery := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
@@ -112,7 +116,7 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	if err != nil {
 		return nil, 0, fmt.Errorf("listing resources: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var resources []Resource
 	for rows.Next() {
@@ -128,7 +132,7 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	return resources, total, nil
 }
 
-func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
+func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
 	setClauses := []string{"updated_at = $1"}
 	args := []any{time.Now().UTC()}
 	idx := 2
@@ -154,7 +158,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 		idx++
 	}
 
-	query := fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d",
+	query := fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
 		strings.Join(setClauses, ", "), idx)
 	args = append(args, id)
 
@@ -169,7 +173,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 	return nil
 }
 
-func (s *postgresStore) Delete(ctx context.Context, id string) error {
+func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:revive // interface impl
 	res, err := s.db.ExecContext(ctx, "DELETE FROM resources WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("deleting resource: %w", err)
@@ -183,7 +187,7 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 
 // --- helpers ---
 
-func (s *postgresStore) scanOne(row *sql.Row) (*Resource, error) {
+func (*postgresStore) scanOne(row *sql.Row) (*Resource, error) { //nolint:revive // interface-adjacent helper
 	var r Resource
 	var scopeID sql.NullString
 	var tags []string
@@ -205,7 +209,7 @@ func (s *postgresStore) scanOne(row *sql.Row) (*Resource, error) {
 	return &r, nil
 }
 
-func (s *postgresStore) scanRow(rows *sql.Rows) (*Resource, error) {
+func (*postgresStore) scanRow(rows *sql.Rows) (*Resource, error) { //nolint:revive // interface-adjacent helper
 	var r Resource
 	var scopeID sql.NullString
 	var tags []string
@@ -229,10 +233,9 @@ func (s *postgresStore) scanRow(rows *sql.Rows) (*Resource, error) {
 
 // buildScopeWhere builds a WHERE clause for scope visibility filtering,
 // plus optional category, tag, and text search filters.
-func buildScopeWhere(filter Filter) (string, []any) {
+func buildScopeWhere(filter Filter) (where string, args []any) {
 	// Build scope OR conditions.
 	var scopeConds []string
-	var args []any
 	idx := 1
 
 	for _, sf := range filter.Scopes {
@@ -247,7 +250,7 @@ func buildScopeWhere(filter Filter) (string, []any) {
 		}
 	}
 
-	where := "(" + strings.Join(scopeConds, " OR ") + ")"
+	where = "(" + strings.Join(scopeConds, " OR ") + ")"
 
 	if filter.Category != "" {
 		where += fmt.Sprintf(" AND category = $%d", idx)

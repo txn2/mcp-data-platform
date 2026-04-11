@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -609,10 +610,8 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 // matchesAnyRole checks if any persona role matches any user role.
 func matchesAnyRole(personaRoles, userRoles []string) bool {
 	for _, pr := range personaRoles {
-		for _, ur := range userRoles {
-			if pr == ur {
-				return true
-			}
+		if slices.Contains(userRoles, pr) {
+			return true
 		}
 	}
 	return false

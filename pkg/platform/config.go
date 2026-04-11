@@ -569,19 +569,19 @@ type CSPAppConfig struct {
 
 // ResourcesConfig configures MCP resource templates and managed resources.
 type ResourcesConfig struct {
-	Enabled  bool                `yaml:"enabled"`   // gates schema/glossary/availability templates
-	Custom   []CustomResourceDef `yaml:"custom"`    // always registered when non-empty
-	Managed  ManagedResourcesCfg `yaml:"managed"`   // human-uploaded resources via portal
+	Enabled bool                `yaml:"enabled"` // gates schema/glossary/availability templates
+	Custom  []CustomResourceDef `yaml:"custom"`  // always registered when non-empty
+	Managed ManagedResourcesCfg `yaml:"managed"` // human-uploaded resources via portal
 }
 
 // ManagedResourcesCfg configures human-uploaded resources stored in S3/Postgres.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type ManagedResourcesCfg struct {
-	Enabled      *bool  `yaml:"enabled"`        // nil = auto (enabled when DB available)
-	URIScheme    string `yaml:"uri_scheme"`     // default: "mcp"
-	S3Connection string `yaml:"s3_connection"`  // name of S3 toolkit instance
-	S3Bucket     string `yaml:"s3_bucket"`      // bucket for resource blobs
-	MaxUploadMB  int    `yaml:"max_upload_mb"`  // default: 100
+	Enabled      *bool  `yaml:"enabled"`       // nil = auto (enabled when DB available)
+	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp"
+	S3Connection string `yaml:"s3_connection"` // name of S3 toolkit instance
+	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs
+	MaxUploadMB  int    `yaml:"max_upload_mb"` // default: 100
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.

@@ -5,12 +5,22 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 )
 
 // MaxMultipartMemory is the max memory for multipart form parsing (10 MB).
 const MaxMultipartMemory = 10 << 20
+
+// Common response message constants.
+const (
+	msgError          = "error"
+	msgUnauthorized   = "unauthorized"
+	msgNotFound       = "not found"
+	pathParamID       = "id"
+	headerContentType = "Content-Type"
+)
 
 // Deps holds the dependencies for the resource HTTP handler.
 type Deps struct {
@@ -69,188 +79,222 @@ func (h *Handler) uriScheme() string {
 	return DefaultURIScheme
 }
 
-// --- Create ---
+// createInput holds the validated fields from a resource creation request.
+type createInput struct {
+	scope       Scope
+	scopeID     string
+	category    string
+	displayName string
+	description string
+	tags        []string
+}
 
-func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil {
-		slog.Warn("resource upload: multipart parse failed",
-			"error", err,
-			"content_type", r.Header.Get("Content-Type"),
-		)
-		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
-		return
-	}
-
+// validateCreateInput parses and validates the form fields for resource creation.
+func validateCreateInput(r *http.Request) (*createInput, error) {
 	scope := Scope(r.FormValue("scope"))
 	scopeID := r.FormValue("scope_id")
 	category := r.FormValue("category")
 	displayName := r.FormValue("display_name")
 	description := r.FormValue("description")
-	tagsRaw := r.Form["tags"]
+	tags := r.Form["tags"]
 
-	// Validate all fields.
 	if err := ValidateScope(scope, scopeID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
 	if err := ValidateCategory(category); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
 	if err := ValidateDisplayName(displayName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
 	if err := ValidateDescription(description); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
-	if err := ValidateTags(tagsRaw); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	if err := ValidateTags(tags); err != nil {
+		return nil, err
 	}
-
-	// Permission check.
-	if !CanWriteScope(*claims, scope, scopeID) {
-		writeError(w, http.StatusForbidden, "insufficient permissions for scope")
-		return
+	if tags == nil {
+		tags = []string{}
 	}
 
-	// Read uploaded file.
+	return &createInput{
+		scope:       scope,
+		scopeID:     scopeID,
+		category:    category,
+		displayName: displayName,
+		description: description,
+		tags:        tags,
+	}, nil
+}
+
+// uploadedFile holds the contents and metadata of an uploaded file.
+type uploadedFile struct {
+	data     []byte
+	filename string
+	mimeType string
+}
+
+// readUploadedFile reads and validates the uploaded file from the request.
+func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "file is required")
-		return
+		return nil, fmt.Errorf("file is required")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if header.Size > MaxUploadBytes {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("file exceeds %d MB limit", MaxUploadBytes/(1<<20)))
-		return
+		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
 	}
 
-	mimeType := header.Header.Get("Content-Type")
+	mimeType := header.Header.Get(headerContentType)
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
 	if err := ValidateMIMEType(mimeType); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, err
 	}
 
 	filename, err := SanitizeFilename(header.Filename)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid filename: "+err.Error())
-		return
+		return nil, fmt.Errorf("invalid filename: %w", err)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(file, MaxUploadBytes+1))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "reading file")
-		return
+		return nil, fmt.Errorf("reading file: %w", err)
 	}
 	if int64(len(data)) > MaxUploadBytes {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("file exceeds %d MB limit", MaxUploadBytes/(1<<20)))
+		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
+	}
+
+	return &uploadedFile{
+		data:     data,
+		filename: filename,
+		mimeType: mimeType,
+	}, nil
+}
+
+// --- Create ---
+
+func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.extractFn(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadBytes)
+	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil { // #nosec G120 -- body bounded by MaxBytesReader above
+		slog.Warn("resource upload: multipart parse failed", msgError, err) //nolint:gosec // structured slog, no injection
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+
+	input, err := validateCreateInput(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if !CanWriteScope(*claims, input.scope, input.scopeID) {
+		writeError(w, http.StatusForbidden, "insufficient permissions for scope")
+		return
+	}
+
+	uf, err := readUploadedFile(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	res, err := h.persistResource(r, claims, input, uf)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
+}
+
+// persistResource generates an ID, uploads to S3, inserts metadata, and returns the saved resource.
+func (h *Handler) persistResource(r *http.Request, claims *Claims, input *createInput, uf *uploadedFile) (*Resource, error) {
 	id, err := GenerateID()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "generating ID")
-		return
+		return nil, fmt.Errorf("generating ID")
 	}
 
-	uri := BuildURI(h.uriScheme(), scope, scopeID, category, filename)
-	s3Key := BuildS3Key(scope, scopeID, id, filename)
-
-	if tags := tagsRaw; tags == nil {
-		tagsRaw = []string{}
-	}
+	uri := BuildURI(h.uriScheme(), input.scope, input.scopeID, input.category, uf.filename)
+	s3Key := BuildS3Key(input.scope, input.scopeID, id, uf.filename)
 
 	res := Resource{
-		ID:            id,
-		Scope:         scope,
-		ScopeID:       scopeID,
-		Category:      category,
-		Filename:      filename,
-		DisplayName:   displayName,
-		Description:   description,
-		MIMEType:      mimeType,
-		SizeBytes:     int64(len(data)),
-		S3Key:         s3Key,
-		URI:           uri,
-		Tags:          tagsRaw,
-		UploaderSub:   claims.Sub,
-		UploaderEmail: claims.Email,
+		ID: id, Scope: input.scope, ScopeID: input.scopeID,
+		Category: input.category, Filename: uf.filename,
+		DisplayName: input.displayName, Description: input.description,
+		MIMEType: uf.mimeType, SizeBytes: int64(len(uf.data)),
+		S3Key: s3Key, URI: uri, Tags: input.tags,
+		UploaderSub: claims.Sub, UploaderEmail: claims.Email,
 	}
 
-	// Upload to S3.
 	if h.deps.S3Client != nil {
-		if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, data, mimeType); err != nil {
-			slog.Error("resource upload: s3 put failed", "error", err, "key", s3Key)
-			writeError(w, http.StatusInternalServerError, "storing file")
-			return
+		if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, uf.data, uf.mimeType); err != nil {
+			slog.Error("resource upload: s3 put failed", msgError, err)
+			return nil, fmt.Errorf("storing file")
 		}
 	}
 
-	// Insert metadata.
 	if err := h.deps.Store.Insert(r.Context(), res); err != nil {
-		slog.Error("resource upload: db insert failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "saving resource metadata")
-		return
+		slog.Error("resource upload: db insert failed", msgError, err)
+		return nil, fmt.Errorf("saving resource metadata")
 	}
 
-	// Re-read to get timestamps.
-	saved, err := h.deps.Store.Get(r.Context(), id)
-	if err != nil {
-		writeJSON(w, http.StatusCreated, res)
-		return
+	saved, getErr := h.deps.Store.Get(r.Context(), id)
+	if getErr != nil {
+		return &res, nil //nolint:nilerr // fallback to pre-read version if re-fetch fails
 	}
-	writeJSON(w, http.StatusCreated, saved)
+	return saved, nil
 }
 
 // --- List ---
 
+// narrowScopes filters visible scopes to match the caller-requested scope
+// and optional scope ID. If no matches are found the original list is returned.
+func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []ScopeFilter {
+	var narrowed []ScopeFilter
+	for _, sf := range visible {
+		if string(sf.Scope) == scopeParam {
+			if scopeIDParam == "" || sf.ScopeID == scopeIDParam {
+				narrowed = append(narrowed, sf)
+			}
+		}
+	}
+	if len(narrowed) > 0 {
+		return narrowed
+	}
+	return visible
+}
+
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
+	scopes := VisibleScopes(*claims)
+	if scopeParam := r.URL.Query().Get("scope"); scopeParam != "" {
+		scopes = narrowScopes(scopes, scopeParam, r.URL.Query().Get("scope_id"))
+	}
+
 	filter := Filter{
-		Scopes:   VisibleScopes(*claims),
+		Scopes:   scopes,
 		Category: r.URL.Query().Get("category"),
 		Tag:      r.URL.Query().Get("tag"),
 		Query:    r.URL.Query().Get("q"),
-		Limit:    100,
-	}
-
-	// Apply caller-requested scope filter only if it narrows visibility.
-	if scopeParam := r.URL.Query().Get("scope"); scopeParam != "" {
-		scopeIDParam := r.URL.Query().Get("scope_id")
-		var narrowed []ScopeFilter
-		for _, sf := range filter.Scopes {
-			if string(sf.Scope) == scopeParam {
-				if scopeIDParam == "" || sf.ScopeID == scopeIDParam {
-					narrowed = append(narrowed, sf)
-				}
-			}
-		}
-		if len(narrowed) > 0 {
-			filter.Scopes = narrowed
-		}
+		Limit:    DefaultListLimit,
 	}
 
 	resources, total, err := h.deps.Store.List(r.Context(), filter)
 	if err != nil {
-		slog.Error("resource list failed", "error", err)
+		slog.Error("resource list failed", msgError, err)
 		writeError(w, http.StatusInternalServerError, "listing resources")
 		return
 	}
@@ -269,18 +313,18 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathParamID)
 	res, err := h.deps.Store.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanReadResource(*claims, res) {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 
@@ -289,21 +333,31 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 // --- Get Content ---
 
+// sanitizeContentType extracts the base media type, discarding parameters.
+// Falls back to application/octet-stream for unparseable values.
+func sanitizeContentType(ct string) string {
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err != nil || mediaType == "" {
+		return "application/octet-stream"
+	}
+	return mediaType
+}
+
 func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathParamID)
 	res, err := h.deps.Store.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanReadResource(*claims, res) {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 
@@ -314,7 +368,7 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, res.S3Key)
 	if err != nil {
-		slog.Error("resource content: s3 get failed", "error", err, "key", res.S3Key)
+		slog.Error("resource content: s3 get failed", msgError, err) //nolint:gosec // structured slog
 		writeError(w, http.StatusInternalServerError, "retrieving content")
 		return
 	}
@@ -322,29 +376,61 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = res.MIMEType
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, res.Filename))
+	safeType := sanitizeContentType(contentType)
+
+	disposition := "attachment"
+	if strings.HasPrefix(safeType, "text/") {
+		disposition = "inline"
+	}
+
+	w.Header().Set(headerContentType, safeType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, res.Filename))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	_, _ = w.Write(body) // #nosec G705 -- Content-Type is sanitized via mime.ParseMediaType above
 }
 
 // --- Update ---
 
+// validateUpdate checks that all provided fields in the update are valid.
+func validateUpdate(u Update) error {
+	if u.DisplayName != nil {
+		if err := ValidateDisplayName(*u.DisplayName); err != nil {
+			return err
+		}
+	}
+	if u.Description != nil {
+		if err := ValidateDescription(*u.Description); err != nil {
+			return err
+		}
+	}
+	if u.Tags != nil {
+		if err := ValidateTags(u.Tags); err != nil {
+			return err
+		}
+	}
+	if u.Category != nil {
+		if err := ValidateCategory(*u.Category); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathParamID)
 	res, err := h.deps.Store.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanReadResource(*claims, res) {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanModifyResource(*claims, res) {
@@ -358,34 +444,13 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate provided fields.
-	if u.DisplayName != nil {
-		if err := ValidateDisplayName(*u.DisplayName); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	if u.Description != nil {
-		if err := ValidateDescription(*u.Description); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	if u.Tags != nil {
-		if err := ValidateTags(u.Tags); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	if u.Category != nil {
-		if err := ValidateCategory(*u.Category); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
+	if err := validateUpdate(u); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	if err := h.deps.Store.Update(r.Context(), id, u); err != nil {
-		slog.Error("resource update failed", "error", err)
+		slog.Error("resource update failed", msgError, err)
 		writeError(w, http.StatusInternalServerError, "updating resource")
 		return
 	}
@@ -403,18 +468,18 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathParamID)
 	res, err := h.deps.Store.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanReadResource(*claims, res) {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanModifyResource(*claims, res) {
@@ -425,12 +490,12 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	// Delete S3 object.
 	if h.deps.S3Client != nil {
 		if err := h.deps.S3Client.DeleteObject(r.Context(), h.deps.S3Bucket, res.S3Key); err != nil {
-			slog.Error("resource delete: s3 delete failed", "error", err, "key", res.S3Key)
+			slog.Error("resource delete: s3 delete failed", msgError, err) //nolint:gosec // structured slog
 		}
 	}
 
 	if err := h.deps.Store.Delete(r.Context(), id); err != nil {
-		slog.Error("resource delete failed", "error", err)
+		slog.Error("resource delete failed", msgError, err)
 		writeError(w, http.StatusInternalServerError, "deleting resource")
 		return
 	}
@@ -441,19 +506,19 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 // --- HTTP helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("failed to write JSON response", "error", err)
+		slog.Error("failed to write JSON response", msgError, err)
 	}
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	// Sanitize: never leak internal details.
-	if status >= 500 {
+	if status >= http.StatusInternalServerError {
 		msg = strings.SplitN(msg, ":", 2)[0]
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{msgError: msg})
 }

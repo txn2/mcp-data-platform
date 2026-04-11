@@ -35,20 +35,27 @@ func BuildS3Key(scope Scope, scopeID, resourceID, filename string) string {
 	return fmt.Sprintf("resources/%s/%s/%s/%s", scopeDir, scopeIDDir, resourceID, filename)
 }
 
+// ParsedURI holds the components extracted from a resource URI.
+type ParsedURI struct {
+	Scope   Scope
+	ScopeID string
+	Path    string
+}
+
 // ParseURI extracts scope, scopeID, and path from a resource URI.
 // Returns an error if the URI does not match the expected format.
-func ParseURI(scheme, uri string) (scope Scope, scopeID, path string, err error) {
+func ParseURI(scheme, uri string) (ParsedURI, error) {
 	if scheme == "" {
 		scheme = DefaultURIScheme
 	}
 	prefix := scheme + "://"
 	if !strings.HasPrefix(uri, prefix) {
-		return "", "", "", fmt.Errorf("URI does not start with %s: %s", prefix, uri)
+		return ParsedURI{}, fmt.Errorf("uri does not start with %s: %s", prefix, uri)
 	}
 	rest := strings.TrimPrefix(uri, prefix)
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) < 2 {
-		return "", "", "", fmt.Errorf("URI missing path: %s", uri)
+		return ParsedURI{}, fmt.Errorf("uri missing path: %s", uri)
 	}
 
 	scopeStr := parts[0]
@@ -56,20 +63,20 @@ func ParseURI(scheme, uri string) (scope Scope, scopeID, path string, err error)
 
 	switch scopeStr {
 	case "global":
-		return ScopeGlobal, "", remainder, nil
+		return ParsedURI{Scope: ScopeGlobal, Path: remainder}, nil
 	case "persona":
 		subParts := strings.SplitN(remainder, "/", 2)
 		if len(subParts) < 2 {
-			return "", "", "", fmt.Errorf("persona URI missing scope_id: %s", uri)
+			return ParsedURI{}, fmt.Errorf("persona URI missing scope_id: %s", uri)
 		}
-		return ScopePersona, subParts[0], subParts[1], nil
+		return ParsedURI{Scope: ScopePersona, ScopeID: subParts[0], Path: subParts[1]}, nil
 	case "user":
 		subParts := strings.SplitN(remainder, "/", 2)
 		if len(subParts) < 2 {
-			return "", "", "", fmt.Errorf("user URI missing scope_id: %s", uri)
+			return ParsedURI{}, fmt.Errorf("user URI missing scope_id: %s", uri)
 		}
-		return ScopeUser, subParts[0], subParts[1], nil
+		return ParsedURI{Scope: ScopeUser, ScopeID: subParts[0], Path: subParts[1]}, nil
 	default:
-		return "", "", "", fmt.Errorf("unknown scope in URI: %s", scopeStr)
+		return ParsedURI{}, fmt.Errorf("unknown scope in URI: %s", scopeStr)
 	}
 }

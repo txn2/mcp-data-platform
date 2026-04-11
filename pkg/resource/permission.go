@@ -1,5 +1,7 @@
 package resource
 
+import "slices"
+
 // Claims represents the identity information needed for resource permission checks.
 type Claims struct {
 	Sub      string   // Keycloak subject (user ID)
@@ -73,23 +75,12 @@ func VisibleScopes(c Claims) []ScopeFilter {
 }
 
 func isPlatformAdmin(c Claims) bool {
-	for _, r := range c.Roles {
-		if r == "admin" || r == "platform-admin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Roles, "admin") || slices.Contains(c.Roles, "platform-admin")
 }
 
 func isPersonaAdmin(c Claims, personaName string) bool {
 	if isPlatformAdmin(c) {
 		return true
 	}
-	target := "persona-admin:" + personaName
-	for _, r := range c.Roles {
-		if r == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Roles, "persona-admin:"+personaName)
 }

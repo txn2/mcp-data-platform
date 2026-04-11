@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -42,9 +43,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/query"
-	"github.com/txn2/mcp-data-platform/pkg/resource"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -188,7 +189,6 @@ type Platform struct {
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
-
 }
 
 // New creates a new platform instance.
@@ -1493,24 +1493,26 @@ func (p *Platform) addManagedResourceMiddleware() {
 	}
 	// Resolve all persona memberships from roles.
 	if p.personaRegistry != nil {
-		pr := p.personaRegistry
-		cfg.PersonasForRoles = func(roles []string) []string {
-			var names []string
-			for _, per := range pr.All() {
-				for _, pr := range per.Roles {
-					for _, ur := range roles {
-						if pr == ur {
-							names = append(names, per.Name)
-							goto nextPersona
-						}
-					}
-				}
-			nextPersona:
-			}
-			return names
-		}
+		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
 	}
 	p.mcpServer.AddReceivingMiddleware(middleware.MCPManagedResourceMiddleware(cfg))
+}
+
+// personasForRolesFunc returns a PersonasForRoles function that resolves
+// all persona names a user belongs to from their roles.
+func personasForRolesFunc(pr *persona.Registry) middleware.PersonasForRoles {
+	return func(roles []string) []string {
+		var names []string
+		for _, per := range pr.All() {
+			for _, r := range per.Roles {
+				if slices.Contains(roles, r) {
+					names = append(names, per.Name)
+					break
+				}
+			}
+		}
+		return names
+	}
 }
 
 // addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.

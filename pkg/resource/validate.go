@@ -10,16 +10,18 @@ import (
 
 // Validation limits.
 const (
-	MaxUploadBytes      = 100 << 20 // 100 MB
-	MaxDescriptionLen   = 2000
-	MaxDisplayNameLen   = 200
-	MaxTagsPerResource  = 20
-	MaxTagLen           = 50
-	MaxCategoryLen      = 31
+	MaxUploadBytes     = 100 << 20 // 100 MB
+	MaxDescriptionLen  = 2000
+	MaxDisplayNameLen  = 200
+	MaxTagsPerResource = 20
+	MaxTagLen          = 50
+	MaxCategoryLen     = 31
 )
 
-var categoryRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-var tagRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
+var (
+	categoryRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	tagRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
+)
 
 // DeniedMIMETypes lists MIME types that are blocked for upload.
 var DeniedMIMETypes = map[string]bool{
@@ -81,12 +83,10 @@ func ValidateTags(tags []string) error {
 // The base type is extracted (e.g. "text/html" from "text/html; charset=utf-8")
 // before checking the deny list.
 func ValidateMIMEType(mt string) error {
-	base := mt
-	if idx := strings.IndexByte(mt, ';'); idx >= 0 {
-		base = strings.TrimSpace(mt[:idx])
-	}
+	base, _, _ := strings.Cut(mt, ";")
+	base = strings.TrimSpace(base)
 	if DeniedMIMETypes[base] {
-		return fmt.Errorf("MIME type %q is not allowed", base)
+		return fmt.Errorf("mime type %q is not allowed", base)
 	}
 	return nil
 }
