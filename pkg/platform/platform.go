@@ -1111,9 +1111,8 @@ func (p *Platform) initManagedResources() error {
 
 	p.resourceStore = resource.NewPostgresStore(p.db)
 
-	// Create S3 client from referenced connection.
-	if p.config.Resources.Managed.S3Connection != "" {
-		connName := p.config.Resources.Managed.S3Connection
+	// Create S3 client from referenced or default S3 connection.
+	if connName := p.managedResourceS3Connection(); connName != "" {
 		s3Cfg := p.getS3Config(connName)
 		if s3Cfg == nil {
 			return fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
@@ -1139,7 +1138,7 @@ func (p *Platform) initManagedResources() error {
 	}
 
 	slog.Info("managed resources enabled",
-		"s3_connection", p.config.Resources.Managed.S3Connection,
+		"s3_connection", p.managedResourceS3Connection(),
 		"s3_bucket", p.config.Resources.Managed.S3Bucket,
 		"uri_scheme", p.managedResourceURIScheme(),
 	)
@@ -1152,6 +1151,25 @@ func (p *Platform) managedResourceURIScheme() string {
 		return s
 	}
 	return resource.DefaultURIScheme
+}
+
+// managedResourceS3Connection returns the S3 connection name for managed
+// resources. Returns the explicit config value if set, otherwise falls back
+// to the default/first S3 toolkit instance.
+func (p *Platform) managedResourceS3Connection() string {
+	name := p.config.Resources.Managed.S3Connection
+	if name != "" {
+		return name
+	}
+	// No explicit s3_connection — resolve the default S3 toolkit instance
+	// so managed resources automatically use an available S3 backend.
+	cfg := p.getS3Config("")
+	if cfg == nil {
+		slog.Debug("managed resources: no S3 toolkit available for default resolution")
+		return ""
+	}
+	slog.Debug("managed resources: using default S3 connection", "s3_connection", cfg.ConnectionName)
+	return cfg.ConnectionName
 }
 
 // ResourceStore returns the managed resource store (nil if not enabled).

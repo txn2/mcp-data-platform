@@ -4343,6 +4343,46 @@ func TestAPIKeyStoreAccessor(t *testing.T) {
 	}
 }
 
+func TestResolvedResourceS3Connection(t *testing.T) {
+	t.Run("explicit connection returned", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Resources: ResourcesConfig{
+				Managed: ManagedResourcesCfg{S3Connection: "my-s3"},
+			},
+		}}
+		if got := p.managedResourceS3Connection(); got != "my-s3" {
+			t.Errorf("got %q, want my-s3", got)
+		}
+	})
+
+	t.Run("falls back to default S3 instance", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					"instances": map[string]any{
+						"primary": map[string]any{
+							"endpoint":        "http://localhost:9000",
+							"access_key_id":   "key",
+							"secret_key":      "secret",
+							"connection_name": "primary",
+						},
+					},
+				},
+			},
+		}}
+		if got := p.managedResourceS3Connection(); got != "primary" {
+			t.Errorf("got %q, want primary", got)
+		}
+	})
+
+	t.Run("empty when no S3 toolkit", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		if got := p.managedResourceS3Connection(); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
 func TestNotifyResourceListChanged(t *testing.T) {
 	t.Run("nil server does not panic", func(_ *testing.T) {
 		p := &Platform{}
