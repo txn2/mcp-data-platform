@@ -84,7 +84,7 @@ func TestMCPToolCallMiddleware_AuthenticationFailure(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on auth failure")
@@ -122,7 +122,7 @@ func TestMCPToolCallMiddleware_AuthorizationFailure(t *testing.T) {
 		reason:      "tool not allowed for persona",
 	}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on authz failure")
@@ -168,7 +168,7 @@ func TestMCPToolCallMiddleware_Success(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -228,7 +228,7 @@ func TestMCPToolCallMiddleware_NonToolsCallPassthrough(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: false}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -267,7 +267,7 @@ func TestMCPToolCallMiddleware_MissingToolName(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with missing tool name")
@@ -298,7 +298,7 @@ func TestMCPToolCallMiddleware_NilParams(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with nil params")
@@ -331,7 +331,7 @@ func TestMCPToolCallMiddleware_WrongParamsType(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called with wrong params type")
@@ -377,7 +377,7 @@ func TestMCPToolCallMiddleware_ToolkitLookup(t *testing.T) {
 		found:      true,
 	}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -441,7 +441,7 @@ func TestMCPToolCallMiddleware_ToolkitLookupNotFound(t *testing.T) {
 		found: false, // Tool not found in any toolkit
 	}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -570,7 +570,7 @@ func TestMCPToolCallMiddleware_SessionIDPopulated(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		pc := GetPlatformContext(ctx)
@@ -614,7 +614,7 @@ func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: "admin"}
 
-	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{
@@ -912,7 +912,7 @@ func TestMCPToolCallMiddleware_ConnectionOverride(t *testing.T) {
 		found:      true,
 	}
 
-	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, mcpTestStdio)
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	t.Run("connection arg overrides toolkit default", func(t *testing.T) {
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -980,7 +980,7 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
-	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, "http")
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: "http", AdminPersona: "admin"})
 
 	t.Run("uses AwareHandler session ID when SDK returns default", func(t *testing.T) {
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -1049,7 +1049,7 @@ func TestMCPToolCallMiddleware_PreAuthenticatedUser(t *testing.T) {
 	}
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 
-	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		pc := GetPlatformContext(ctx)
@@ -1107,7 +1107,7 @@ func TestMCPToolCallMiddleware_PreAuthenticatedUser_AuthzDenied(t *testing.T) {
 		reason:      "tool not allowed",
 	}
 
-	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, mcpTestStdio)
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
 
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		t.Fatal("next should not be called on authz failure")

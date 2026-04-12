@@ -47,6 +47,13 @@ func (e *PlatformError) Error() string { return e.Message }
 // ErrorCategory implements CategorizedError.
 func (e *PlatformError) ErrorCategory() string { return e.Category }
 
+// ToolCallConfig holds configuration for MCPToolCallMiddleware.
+type ToolCallConfig struct {
+	Transport       string                  // "stdio" or "http"
+	AdminPersona    string                  // persona name that grants platform admin
+	WorkflowTracker *SessionWorkflowTracker // optional workflow tracker
+}
+
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
 // tools/call requests and enforces authentication and authorization.
 //
@@ -59,13 +66,9 @@ func (e *PlatformError) ErrorCategory() string { return e.Category }
 // 5. Runs authorization to check if the user can access the tool
 // 6. Either proceeds with the call or returns an access denied error
 //
-// The transport parameter identifies the server transport ("stdio" or "http").
 // The toolkitLookup parameter is optional; if nil, toolkit metadata won't be populated.
-func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup, transport string, workflowTracker ...*SessionWorkflowTracker) mcp.Middleware {
-	var tracker *SessionWorkflowTracker
-	if len(workflowTracker) > 0 {
-		tracker = workflowTracker[0]
-	}
+func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, toolkitLookup ToolkitLookup, cfg ToolCallConfig) mcp.Middleware {
+	tracker := cfg.WorkflowTracker
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only intercept tools/call requests
@@ -90,7 +93,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 					pc.SessionID = awareID
 				}
 			}
-			pc.Transport = transport
+			pc.Transport = cfg.Transport
 			pc.Source = "mcp"
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 
@@ -100,6 +103,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				authorizer:      authorizer,
 				pc:              pc,
 				toolName:        toolName,
+				adminPersona:    cfg.AdminPersona,
 				workflowTracker: tracker,
 			})
 		}
@@ -177,6 +181,7 @@ type authParams struct {
 	authorizer      Authorizer
 	pc              *PlatformContext
 	toolName        string
+	adminPersona    string
 	workflowTracker *SessionWorkflowTracker
 }
 
@@ -219,6 +224,7 @@ func authenticateAndAuthorize(
 	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
 	params.pc.Authorized = authorized
 	params.pc.PersonaName = personaName
+	params.pc.IsAdmin = personaName != "" && personaName == params.adminPersona
 	if !authorized {
 		params.pc.AuthzError = reason
 		slog.Warn("tool call authorization denied",

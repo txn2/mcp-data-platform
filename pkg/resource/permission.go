@@ -4,10 +4,12 @@ import "slices"
 
 // Claims represents the identity information needed for resource permission checks.
 type Claims struct {
-	Sub      string   // Keycloak subject (user ID)
-	Email    string   // user email
-	Personas []string // persona names the user belongs to
-	Roles    []string // e.g., "admin", "platform-admin", "persona-admin:finance"
+	Sub             string   // Keycloak subject (user ID)
+	Email           string   // user email
+	Personas        []string // persona names the user belongs to
+	Roles           []string // raw roles from auth (may have prefix, e.g., "dp_admin")
+	IsAdmin         bool     // resolved by the caller from persona config
+	AdminOfPersonas []string // persona names this user can admin (resolved by caller from role patterns)
 }
 
 // CanWriteScope checks whether the caller has write permission for the given scope.
@@ -76,12 +78,15 @@ func VisibleScopes(c Claims) []ScopeFilter {
 }
 
 func isPlatformAdmin(c Claims) bool {
-	return slices.Contains(c.Roles, "admin") || slices.Contains(c.Roles, "platform-admin")
+	return c.IsAdmin ||
+		slices.Contains(c.Roles, "admin") ||
+		slices.Contains(c.Roles, "platform-admin")
 }
 
 func isPersonaAdmin(c Claims, personaName string) bool {
 	if isPlatformAdmin(c) {
 		return true
 	}
-	return slices.Contains(c.Roles, "persona-admin:"+personaName)
+	return slices.Contains(c.AdminOfPersonas, personaName) ||
+		slices.Contains(c.Roles, "persona-admin:"+personaName)
 }

@@ -8,6 +8,10 @@ func TestCanWriteScope(t *testing.T) {
 	admin := Claims{Sub: "admin-1", Roles: []string{"admin"}}
 	user := Claims{Sub: "user-1", Roles: []string{"analyst"}}
 	personaAdmin := Claims{Sub: "pa-1", Roles: []string{"persona-admin:finance"}}
+	// Simulates an API key or OIDC user with prefixed role dp_admin mapped to admin persona.
+	prefixedAdmin := Claims{Sub: "pa-2", Roles: []string{"dp_admin"}, IsAdmin: true}
+	// Simulates a persona admin with a prefixed role.
+	prefixedPersonaAdmin := Claims{Sub: "pa-3", Roles: []string{"dp_persona-admin:finance"}, AdminOfPersonas: []string{"finance"}}
 
 	tests := []struct {
 		name    string
@@ -23,6 +27,12 @@ func TestCanWriteScope(t *testing.T) {
 		{"user cannot write other user scope", user, ScopeUser, "other", false},
 		{"persona admin writes their persona", personaAdmin, ScopePersona, "finance", true},
 		{"persona admin cannot write other persona", personaAdmin, ScopePersona, "engineering", false},
+		{"prefixed role admin writes global via IsAdmin", prefixedAdmin, ScopeGlobal, "", true},
+		{"prefixed role admin writes persona via IsAdmin", prefixedAdmin, ScopePersona, "finance", true},
+		{"prefixed role admin writes user scope via IsAdmin", prefixedAdmin, ScopeUser, "other-user", true},
+		{"prefixed persona admin writes their persona", prefixedPersonaAdmin, ScopePersona, "finance", true},
+		{"prefixed persona admin cannot write other persona", prefixedPersonaAdmin, ScopePersona, "engineering", false},
+		{"prefixed persona admin cannot write global", prefixedPersonaAdmin, ScopeGlobal, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -150,6 +160,17 @@ func TestIsPlatformAdmin(t *testing.T) {
 	if isPlatformAdmin(Claims{Roles: []string{"analyst"}}) {
 		t.Error("analyst should not be platform admin")
 	}
+	// IsAdmin flag set by caller based on persona resolution — works
+	// regardless of role name (e.g., dp_admin, custom_superuser).
+	if !isPlatformAdmin(Claims{Roles: []string{"dp_admin"}, IsAdmin: true}) {
+		t.Error("IsAdmin=true should be platform admin regardless of role name")
+	}
+	if !isPlatformAdmin(Claims{IsAdmin: true}) {
+		t.Error("IsAdmin=true with no roles should still be platform admin")
+	}
+	if isPlatformAdmin(Claims{Roles: []string{"dp_analyst"}, IsAdmin: false}) {
+		t.Error("IsAdmin=false with non-admin role should not be platform admin")
+	}
 }
 
 func TestIsPersonaAdmin(t *testing.T) {
@@ -161,5 +182,12 @@ func TestIsPersonaAdmin(t *testing.T) {
 	}
 	if !isPersonaAdmin(Claims{Roles: []string{"admin"}}, "anything") {
 		t.Error("platform admin should be persona admin of any persona")
+	}
+	// AdminOfPersonas resolved by caller — works with prefixed roles.
+	if !isPersonaAdmin(Claims{Roles: []string{"dp_persona-admin:finance"}, AdminOfPersonas: []string{"finance"}}, "finance") {
+		t.Error("AdminOfPersonas should grant persona admin for prefixed roles")
+	}
+	if isPersonaAdmin(Claims{Roles: []string{"dp_persona-admin:finance"}, AdminOfPersonas: []string{"finance"}}, "engineering") {
+		t.Error("AdminOfPersonas for finance should not grant admin for engineering")
 	}
 }
