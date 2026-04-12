@@ -1164,6 +1164,26 @@ func (p *Platform) ResourceS3Client() resource.S3Client {
 	return p.resourceS3Client
 }
 
+// sentinelResourceURI is a temporary resource used to trigger
+// notifications/resources/list_changed on the MCP server.
+const sentinelResourceURI = "mcp://internal/sentinel"
+
+// NotifyResourceListChanged signals all connected MCP clients to refresh
+// their cached resource list. Call this after REST API resource changes
+// (create, update, delete) so clients see the updated managed resources.
+func (p *Platform) NotifyResourceListChanged() {
+	if p.mcpServer == nil {
+		return
+	}
+	p.mcpServer.AddResource(&mcp.Resource{
+		URI:  sentinelResourceURI,
+		Name: "_sentinel",
+	}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		return &mcp.ReadResourceResult{}, nil
+	})
+	p.mcpServer.RemoveResources(sentinelResourceURI)
+}
+
 // initMCPApps initializes MCP Apps support.
 func (p *Platform) initMCPApps() error {
 	if !p.config.MCPApps.IsEnabled() {

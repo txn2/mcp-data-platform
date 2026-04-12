@@ -76,6 +76,9 @@ type Config struct {
 	SessionGate   SessionGateConfig   `yaml:"session_gate"`
 }
 
+// defaultAdminPersona is the persona name that grants platform admin.
+const defaultAdminPersona = "admin"
+
 // AdminConfig configures the admin REST API.
 type AdminConfig struct {
 	Enabled    bool   `yaml:"enabled"`
@@ -887,7 +890,7 @@ func applyWorkflowDefaults(cfg *Config) {
 // applyAdminDefaults sets defaults for admin API config.
 func applyAdminDefaults(cfg *Config) {
 	if cfg.Admin.Persona == "" {
-		cfg.Admin.Persona = "admin"
+		cfg.Admin.Persona = defaultAdminPersona
 	}
 	if cfg.Admin.PathPrefix == "" {
 		cfg.Admin.PathPrefix = "/api/v1/admin"

@@ -31,6 +31,7 @@ type Deps struct {
 	S3Client  S3Client
 	S3Bucket  string
 	URIScheme string // defaults to "mcp" if empty
+	NotifyFn  func() // called after create/update/delete to notify MCP clients
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.
@@ -42,6 +43,13 @@ type Handler struct {
 	mux       *http.ServeMux
 	deps      Deps
 	extractFn ClaimsExtractor
+}
+
+// notify calls the notification function if configured.
+func (h *Handler) notify() {
+	if h.deps.NotifyFn != nil {
+		h.deps.NotifyFn()
+	}
 }
 
 // NewHandler creates a resource handler with auth middleware.
@@ -221,6 +229,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)
+	h.notify()
 }
 
 // persistResource generates an ID, uploads to S3, inserts metadata, and returns the saved resource.
@@ -484,6 +493,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+	h.notify()
 }
 
 // --- Delete ---
@@ -526,6 +536,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	h.notify()
 }
 
 // conflictError signals a 409 Conflict (e.g. duplicate URI).
