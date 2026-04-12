@@ -4360,24 +4360,77 @@ func TestResolvedResourceS3Connection(t *testing.T) {
 			Toolkits: map[string]any{
 				"s3": map[string]any{
 					"instances": map[string]any{
-						"primary": map[string]any{
-							"endpoint":        "http://localhost:9000",
-							"access_key_id":   "key",
-							"secret_key":      "secret",
-							"connection_name": "primary",
+						"acme": map[string]any{
+							"endpoint":      "http://localhost:9000",
+							"access_key_id": "key",
+							"secret_key":    "secret",
 						},
 					},
 				},
 			},
 		}}
-		if got := p.managedResourceS3Connection(); got != "primary" {
-			t.Errorf("got %q, want primary", got)
+		if got := p.managedResourceS3Connection(); got != "acme" {
+			t.Errorf("got %q, want acme", got)
 		}
 	})
 
 	t.Run("empty when no S3 toolkit", func(t *testing.T) {
 		p := &Platform{config: &Config{}}
 		if got := p.managedResourceS3Connection(); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
+func TestResolveDefaultS3Instance(t *testing.T) {
+	t.Run("returns instance name", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					"instances": map[string]any{
+						"mys3": map[string]any{"endpoint": "http://localhost:9000"},
+					},
+				},
+			},
+		}}
+		if got := p.resolveDefaultS3Instance(); got != "mys3" {
+			t.Errorf("got %q, want mys3", got)
+		}
+	})
+
+	t.Run("returns configured default", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					"default": "second",
+					"instances": map[string]any{
+						"first":  map[string]any{"endpoint": "http://a:9000"},
+						"second": map[string]any{"endpoint": "http://b:9000"},
+					},
+				},
+			},
+		}}
+		if got := p.resolveDefaultS3Instance(); got != "second" {
+			t.Errorf("got %q, want second", got)
+		}
+	})
+
+	t.Run("empty when no S3 toolkit", func(t *testing.T) {
+		p := &Platform{config: &Config{}}
+		if got := p.resolveDefaultS3Instance(); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("empty when instances not a map", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"s3": map[string]any{
+					"instances": "invalid",
+				},
+			},
+		}}
+		if got := p.resolveDefaultS3Instance(); got != "" {
 			t.Errorf("got %q, want empty", got)
 		}
 	})
