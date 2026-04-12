@@ -174,6 +174,89 @@ func TestClaimsFromPC(t *testing.T) {
 	}
 }
 
+func TestGetOrAuthenticatePC(t *testing.T) {
+	t.Run("returns existing PlatformContext", func(t *testing.T) {
+		existing := &PlatformContext{UserID: "existing"}
+		ctx := context.WithValue(context.Background(), platformContextKey, existing)
+		got := getOrAuthenticatePC(ctx, nil, ManagedResourceConfig{})
+		if got != existing {
+			t.Error("should return existing PlatformContext")
+		}
+	})
+
+	t.Run("authenticates when no PlatformContext", func(t *testing.T) {
+		auth := &mockManagedAuth{
+			user: &UserInfo{UserID: "u1", Email: "u1@example.com", Roles: []string{"dp_admin"}},
+		}
+		cfg := ManagedResourceConfig{
+			Authenticator:    auth,
+			AdminPersona:     "admin",
+			PersonasForRoles: func(_ []string) []string { return []string{"admin"} },
+		}
+		// Pass a request so bridgeAuthToken is exercised.
+		req := &mcp.ServerRequest[*mcp.ReadResourceParams]{
+			Params: &mcp.ReadResourceParams{URI: "mcp://global/test/file.txt"},
+		}
+		got := getOrAuthenticatePC(context.Background(), req, cfg)
+		if got == nil {
+			t.Fatal("expected non-nil PlatformContext")
+		}
+		if got.UserID != "u1" {
+			t.Errorf("UserID = %q, want u1", got.UserID)
+		}
+		if !got.IsAdmin {
+			t.Error("expected IsAdmin=true for admin persona")
+		}
+	})
+
+	t.Run("returns nil when auth fails", func(t *testing.T) {
+		auth := &mockManagedAuth{err: fmt.Errorf("unauthorized")}
+		cfg := ManagedResourceConfig{Authenticator: auth}
+		got := getOrAuthenticatePC(context.Background(), nil, cfg)
+		if got != nil {
+			t.Error("expected nil when auth fails")
+		}
+	})
+
+	t.Run("returns nil when no authenticator", func(t *testing.T) {
+		got := getOrAuthenticatePC(context.Background(), nil, ManagedResourceConfig{})
+		if got != nil {
+			t.Error("expected nil when no authenticator configured")
+		}
+	})
+
+	t.Run("non-admin persona does not set IsAdmin", func(t *testing.T) {
+		auth := &mockManagedAuth{
+			user: &UserInfo{UserID: "u2", Roles: []string{"dp_analyst"}},
+		}
+		cfg := ManagedResourceConfig{
+			Authenticator:    auth,
+			AdminPersona:     "admin",
+			PersonasForRoles: func(_ []string) []string { return []string{"analyst"} },
+		}
+		got := getOrAuthenticatePC(context.Background(), nil, cfg)
+		if got == nil {
+			t.Fatal("expected non-nil PlatformContext")
+		}
+		if got.IsAdmin {
+			t.Error("expected IsAdmin=false for non-admin persona")
+		}
+		if got.PersonaName != "analyst" {
+			t.Errorf("PersonaName = %q, want analyst", got.PersonaName)
+		}
+	})
+}
+
+// mockManagedAuth is a minimal Authenticator for resource middleware tests.
+type mockManagedAuth struct {
+	user *UserInfo
+	err  error
+}
+
+func (m *mockManagedAuth) Authenticate(_ context.Context) (*UserInfo, error) {
+	return m.user, m.err
+}
+
 // --- handleManagedList tests ---
 
 func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {

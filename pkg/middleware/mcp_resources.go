@@ -39,6 +39,8 @@ type ManagedResourceConfig struct {
 	S3Bucket         string
 	URIScheme        string
 	PersonasForRoles PersonasForRoles // resolves roles → persona names
+	Authenticator    Authenticator    // authenticates users for resources/list and resources/read
+	AdminPersona     string           // persona name that grants platform admin
 }
 
 // MCPManagedResourceMiddleware intercepts resources/list and resources/read
@@ -68,8 +70,9 @@ func handleManagedList(ctx context.Context, next mcp.MethodHandler, method strin
 		return result, err
 	}
 
-	// Require auth context — skip injecting managed resources for unauthenticated callers.
-	pc := GetPlatformContext(ctx)
+	// Get auth context — try PlatformContext first (set by MCPToolCallMiddleware
+	// for tools/call), then authenticate directly for resources/list.
+	pc := getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
 		return result, nil
 	}
@@ -137,7 +140,7 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	}
 
 	// Permission check — require authentication for managed resources.
-	pc := GetPlatformContext(ctx)
+	pc := getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
 		// No auth context — fall through to SDK handler.
 		return next(ctx, method, req)
@@ -210,6 +213,41 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 	claims.IsAdmin = pc.IsAdmin
 	claims.AdminOfPersonas = extractPersonaAdminRoles(pc.Roles)
 	return claims
+}
+
+// getOrAuthenticatePC returns the PlatformContext from the context if available
+// (set by MCPToolCallMiddleware for tools/call), or authenticates the user
+// directly for resources/list and resources/read methods. Returns nil if
+// authentication fails or no authenticator is configured.
+func getOrAuthenticatePC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) *PlatformContext {
+	if pc := GetPlatformContext(ctx); pc != nil {
+		return pc
+	}
+	if cfg.Authenticator == nil {
+		return nil
+	}
+	// Bridge auth token from per-request headers (Streamable HTTP).
+	if req != nil {
+		ctx = bridgeAuthToken(ctx, req)
+	}
+	userInfo, err := cfg.Authenticator.Authenticate(ctx)
+	if err != nil || userInfo == nil {
+		return nil
+	}
+	pc := &PlatformContext{
+		UserID:    userInfo.UserID,
+		UserEmail: userInfo.Email,
+		Roles:     userInfo.Roles,
+	}
+	// Resolve persona for admin status.
+	if cfg.PersonasForRoles != nil {
+		personas := cfg.PersonasForRoles(userInfo.Roles)
+		if len(personas) > 0 {
+			pc.PersonaName = personas[0]
+		}
+		pc.IsAdmin = cfg.AdminPersona != "" && slices.Contains(personas, cfg.AdminPersona)
+	}
+	return pc
 }
 
 // personaAdminInfix is the role substring that marks a persona-admin grant.
