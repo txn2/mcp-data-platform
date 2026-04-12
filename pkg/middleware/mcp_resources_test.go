@@ -322,6 +322,108 @@ func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {
 	}
 }
 
+// TestMCPManagedResourceMiddleware_ListAuthenticatesFallback verifies the
+// production path where resources/list is called WITHOUT a pre-set
+// PlatformContext. The middleware must authenticate the user directly
+// via the configured Authenticator and return managed resources.
+func TestMCPManagedResourceMiddleware_ListAuthenticatesFallback(t *testing.T) {
+	store := newMockResourceStore()
+	store.resources["r1"] = &resource.Resource{
+		ID:          "r1",
+		Scope:       resource.ScopeGlobal,
+		URI:         "mcp://global/samples/test.csv",
+		DisplayName: "Test CSV",
+		Description: "A test CSV file.",
+		MIMEType:    "text/csv",
+	}
+
+	cfg := ManagedResourceConfig{
+		Store:     store,
+		URIScheme: "mcp",
+		Authenticator: &mockManagedAuth{
+			user: &UserInfo{UserID: "u1", Email: "u1@example.com", Roles: []string{"dp_admin"}},
+		},
+		AdminPersona:     "admin",
+		PersonasForRoles: func(_ []string) []string { return []string{"admin"} },
+	}
+
+	staticResource := &mcp.Resource{URI: "file:///static.txt", Name: "Static"}
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{staticResource}}, nil
+	}
+
+	mw := MCPManagedResourceMiddleware(cfg)
+	handler := mw(next)
+
+	// NO PlatformContext in context — forces the authentication fallback.
+	req := &mcp.ServerRequest[*mcp.ListResourcesParams]{Params: &mcp.ListResourcesParams{}}
+	result, err := handler(context.Background(), methodListResources, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	listResult, ok := result.(*mcp.ListResourcesResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *mcp.ListResourcesResult", result)
+	}
+
+	if len(listResult.Resources) != 2 {
+		t.Errorf("expected 2 resources (1 static + 1 managed), got %d", len(listResult.Resources))
+		for i, r := range listResult.Resources {
+			t.Logf("  [%d] URI=%s Name=%s", i, r.URI, r.Name)
+		}
+	}
+
+	if len(listResult.Resources) >= 2 {
+		managed := listResult.Resources[1]
+		if managed.URI != "mcp://global/samples/test.csv" {
+			t.Errorf("managed URI = %q, want mcp://global/samples/test.csv", managed.URI)
+		}
+	}
+}
+
+// TestMCPManagedResourceMiddleware_ListNoAuthReturnsStaticOnly verifies that
+// when no Authenticator is configured and no PlatformContext exists, the
+// middleware returns only static resources without error.
+func TestMCPManagedResourceMiddleware_ListNoAuthReturnsStaticOnly(t *testing.T) {
+	store := newMockResourceStore()
+	store.resources["r1"] = &resource.Resource{
+		ID:    "r1",
+		Scope: resource.ScopeGlobal,
+		URI:   "mcp://global/samples/test.csv",
+	}
+
+	cfg := ManagedResourceConfig{
+		Store:     store,
+		URIScheme: "mcp",
+		// No Authenticator — simulates stdio transport without auth.
+	}
+
+	staticResource := &mcp.Resource{URI: "file:///static.txt", Name: "Static"}
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{staticResource}}, nil
+	}
+
+	mw := MCPManagedResourceMiddleware(cfg)
+	handler := mw(next)
+
+	// No PlatformContext, no Authenticator.
+	result, err := handler(context.Background(), methodListResources, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	listResult, ok := result.(*mcp.ListResourcesResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *mcp.ListResourcesResult", result)
+	}
+
+	// Should have only the static resource — managed resources not injected.
+	if len(listResult.Resources) != 1 {
+		t.Errorf("expected 1 static resource, got %d", len(listResult.Resources))
+	}
+}
+
 func TestMCPManagedResourceMiddleware_ListNoManaged(t *testing.T) {
 	store := newMockResourceStore() // empty store
 
