@@ -1138,7 +1138,7 @@ func (p *Platform) initManagedResources() error {
 	}
 
 	slog.Info("managed resources enabled",
-		"s3_connection", p.config.Resources.Managed.S3Connection,
+		"s3_connection", p.managedResourceS3Connection(),
 		"s3_bucket", p.config.Resources.Managed.S3Bucket,
 		"uri_scheme", p.managedResourceURIScheme(),
 	)
@@ -1157,13 +1157,18 @@ func (p *Platform) managedResourceURIScheme() string {
 // resources. Returns the explicit config value if set, otherwise falls back
 // to the default/first S3 toolkit instance.
 func (p *Platform) managedResourceS3Connection() string {
-	if name := p.config.Resources.Managed.S3Connection; name != "" {
+	name := p.config.Resources.Managed.S3Connection
+	if name != "" {
 		return name
 	}
+	// No explicit s3_connection — resolve the default S3 toolkit instance
+	// so managed resources automatically use an available S3 backend.
 	cfg := p.getS3Config("")
 	if cfg == nil {
+		slog.Debug("managed resources: no S3 toolkit available for default resolution")
 		return ""
 	}
+	slog.Debug("managed resources: using default S3 connection", "s3_connection", cfg.ConnectionName)
 	return cfg.ConnectionName
 }
 
