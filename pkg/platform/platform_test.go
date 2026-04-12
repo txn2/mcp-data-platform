@@ -4342,3 +4342,16 @@ func TestAPIKeyStoreAccessor(t *testing.T) {
 		t.Error("APIKeyStore() should return the assigned store")
 	}
 }
+
+func TestNotifyResourceListChanged(t *testing.T) {
+	t.Run("nil server does not panic", func(_ *testing.T) {
+		p := &Platform{}
+		p.NotifyResourceListChanged() // should not panic
+	})
+
+	t.Run("triggers notification via sentinel", func(t *testing.T) {
+		p := newTestPlatform(t)
+		// Should not panic — adds and removes a sentinel resource.
+		p.NotifyResourceListChanged()
+	})
+}

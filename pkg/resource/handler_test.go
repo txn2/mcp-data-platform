@@ -255,6 +255,67 @@ func TestHandleCreate_Success(t *testing.T) {
 	}
 }
 
+func TestNotifyFn_CalledOnCreate(t *testing.T) {
+	store := newMockStore()
+	s3 := newMockS3()
+	notified := false
+	deps := Deps{
+		Store:     store,
+		S3Client:  s3,
+		S3Bucket:  "test-bucket",
+		URIScheme: "mcp",
+		NotifyFn:  func() { notified = true },
+	}
+	h := NewHandler(deps, okExtractor, nil)
+
+	fields := map[string]string{
+		"scope":        "global",
+		"category":     "samples",
+		"display_name": "Notify Test",
+		"description":  "Testing notify callback",
+	}
+	req := buildMultipartRequest(t, fields, []byte("data"), "test.txt")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !notified {
+		t.Error("expected NotifyFn to be called after create")
+	}
+}
+
+func TestNotifyFn_CalledOnDelete(t *testing.T) {
+	store := newMockStore()
+	store.resources["r1"] = &Resource{
+		ID: "r1", Scope: ScopeGlobal, UploaderSub: "user-123",
+		S3Key: "resources/global/r1/file.txt",
+	}
+	s3 := newMockS3()
+	s3.objects["resources/global/r1/file.txt"] = []byte("data")
+	notified := false
+	deps := Deps{
+		Store:     store,
+		S3Client:  s3,
+		S3Bucket:  "test-bucket",
+		URIScheme: "mcp",
+		NotifyFn:  func() { notified = true },
+	}
+	h := NewHandler(deps, okExtractor, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/resources/r1", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !notified {
+		t.Error("expected NotifyFn to be called after delete")
+	}
+}
+
 func TestHandleCreate_Unauthorized(t *testing.T) {
 	store := newMockStore()
 	s3 := newMockS3()
