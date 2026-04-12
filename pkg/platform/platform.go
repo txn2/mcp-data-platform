@@ -1163,13 +1163,31 @@ func (p *Platform) managedResourceS3Connection() string {
 	}
 	// No explicit s3_connection — resolve the default S3 toolkit instance
 	// so managed resources automatically use an available S3 backend.
-	cfg := p.getS3Config("")
-	if cfg == nil {
+	resolved := p.resolveDefaultS3Instance()
+	if resolved == "" {
 		slog.Debug("managed resources: no S3 toolkit available for default resolution")
 		return ""
 	}
-	slog.Debug("managed resources: using default S3 connection", "s3_connection", cfg.ConnectionName)
-	return cfg.ConnectionName
+	slog.Debug("managed resources: using default S3 connection", "s3_connection", resolved)
+	return resolved
+}
+
+// resolveDefaultS3Instance returns the name of the default/first S3 toolkit
+// instance, or "" if no S3 toolkit is configured.
+func (p *Platform) resolveDefaultS3Instance() string {
+	toolkitsCfg, ok := p.config.Toolkits["s3"]
+	if !ok {
+		return ""
+	}
+	kindCfg, ok := toolkitsCfg.(map[string]any)
+	if !ok {
+		return ""
+	}
+	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
+	if !ok {
+		return ""
+	}
+	return resolveDefaultInstance(kindCfg, instances)
 }
 
 // ResourceStore returns the managed resource store (nil if not enabled).
