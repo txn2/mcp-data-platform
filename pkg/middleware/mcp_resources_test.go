@@ -165,6 +165,13 @@ func TestClaimsFromPC(t *testing.T) {
 	if claims.IsAdmin {
 		t.Error("expected IsAdmin=false when PlatformContext.IsAdmin is false")
 	}
+
+	// AdminOfPersonas extracted from prefixed roles.
+	pc.Roles = []string{"dp_persona-admin:finance", "dp_analyst"}
+	claims = claimsFromPC(pc, cfg)
+	if len(claims.AdminOfPersonas) != 1 || claims.AdminOfPersonas[0] != "finance" {
+		t.Errorf("AdminOfPersonas = %v, want [finance]", claims.AdminOfPersonas)
+	}
 }
 
 // --- handleManagedList tests ---

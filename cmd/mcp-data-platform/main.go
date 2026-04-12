@@ -613,7 +613,24 @@ func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona s
 			}
 		}
 	}
+	claims.AdminOfPersonas = extractPersonaAdminRoles(user.Roles)
 	return claims
+}
+
+// personaAdminInfix is the role substring that marks a persona-admin grant.
+// Roles may carry an arbitrary prefix (e.g., "dp_persona-admin:finance").
+const personaAdminInfix = "persona-admin:"
+
+// extractPersonaAdminRoles extracts persona names from roles containing
+// the "persona-admin:" pattern, tolerating any prefix.
+func extractPersonaAdminRoles(roles []string) []string {
+	var out []string
+	for _, r := range roles {
+		if _, name, ok := strings.Cut(r, personaAdminInfix); ok && name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // matchesAnyRole checks if any persona role matches any user role.

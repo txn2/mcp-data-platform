@@ -1166,4 +1166,53 @@ func TestBuildResourceClaims(t *testing.T) {
 			t.Errorf("expected 2 personas, got %v", claims.Personas)
 		}
 	})
+
+	t.Run("persona-admin roles populate AdminOfPersonas", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u5",
+			Email:  "pa@example.com",
+			Roles:  []string{"dp_persona-admin:finance", "dp_analyst"},
+		}
+		claims := buildResourceClaims(user, reg, "admin")
+		if !slices.Contains(claims.AdminOfPersonas, "finance") {
+			t.Errorf("expected finance in AdminOfPersonas, got %v", claims.AdminOfPersonas)
+		}
+	})
+}
+
+func TestExtractPersonaAdminRoles(t *testing.T) {
+	t.Run("unprefixed role", func(t *testing.T) {
+		got := extractPersonaAdminRoles([]string{"persona-admin:finance"})
+		if len(got) != 1 || got[0] != "finance" {
+			t.Errorf("got %v, want [finance]", got)
+		}
+	})
+
+	t.Run("prefixed role", func(t *testing.T) {
+		got := extractPersonaAdminRoles([]string{"dp_persona-admin:engineering"})
+		if len(got) != 1 || got[0] != "engineering" {
+			t.Errorf("got %v, want [engineering]", got)
+		}
+	})
+
+	t.Run("multiple persona-admin roles", func(t *testing.T) {
+		got := extractPersonaAdminRoles([]string{"dp_persona-admin:finance", "dp_persona-admin:ops", "dp_analyst"})
+		if len(got) != 2 {
+			t.Errorf("got %v, want 2 entries", got)
+		}
+	})
+
+	t.Run("no persona-admin roles", func(t *testing.T) {
+		got := extractPersonaAdminRoles([]string{"dp_admin", "dp_analyst"})
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty", got)
+		}
+	})
+
+	t.Run("empty persona name ignored", func(t *testing.T) {
+		got := extractPersonaAdminRoles([]string{"persona-admin:"})
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty for trailing colon", got)
+		}
+	})
 }
