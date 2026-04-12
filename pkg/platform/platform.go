@@ -1497,10 +1497,12 @@ func (p *Platform) addManagedResourceMiddleware() {
 		return
 	}
 	cfg := middleware.ManagedResourceConfig{
-		Store:     p.resourceStore,
-		S3Client:  p.resourceS3Client,
-		S3Bucket:  p.config.Resources.Managed.S3Bucket,
-		URIScheme: p.managedResourceURIScheme(),
+		Store:         p.resourceStore,
+		S3Client:      p.resourceS3Client,
+		S3Bucket:      p.config.Resources.Managed.S3Bucket,
+		URIScheme:     p.managedResourceURIScheme(),
+		Authenticator: p.authenticator,
+		AdminPersona:  p.config.Admin.Persona,
 	}
 	// Resolve all persona memberships from roles.
 	if p.personaRegistry != nil {
