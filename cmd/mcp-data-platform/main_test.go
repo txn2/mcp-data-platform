@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/health"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -1089,6 +1092,78 @@ func TestMcpappsBrandName(t *testing.T) {
 		got := mcpappsBrandName(p)
 		if got != "" {
 			t.Errorf("mcpappsBrandName() = %q, want empty", got)
+		}
+	})
+}
+
+func TestBuildResourceClaims(t *testing.T) {
+	reg := persona.NewRegistry()
+	_ = reg.Register(&persona.Persona{
+		Name:  "admin",
+		Roles: []string{"dp_admin"},
+	})
+	_ = reg.Register(&persona.Persona{
+		Name:  "analyst",
+		Roles: []string{"dp_analyst"},
+	})
+
+	t.Run("prefixed admin role resolves IsAdmin via persona", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u1",
+			Email:  "admin@example.com",
+			Roles:  []string{"dp_admin"},
+		}
+		claims := buildResourceClaims(user, reg, "admin")
+		if !claims.IsAdmin {
+			t.Error("expected IsAdmin=true for user with dp_admin role mapped to admin persona")
+		}
+		if !slices.Contains(claims.Personas, "admin") {
+			t.Errorf("expected admin in Personas, got %v", claims.Personas)
+		}
+	})
+
+	t.Run("non-admin role does not set IsAdmin", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u2",
+			Email:  "analyst@example.com",
+			Roles:  []string{"dp_analyst"},
+		}
+		claims := buildResourceClaims(user, reg, "admin")
+		if claims.IsAdmin {
+			t.Error("expected IsAdmin=false for non-admin user")
+		}
+		if !slices.Contains(claims.Personas, "analyst") {
+			t.Errorf("expected analyst in Personas, got %v", claims.Personas)
+		}
+	})
+
+	t.Run("nil registry skips persona resolution", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u3",
+			Email:  "u3@example.com",
+			Roles:  []string{"dp_admin"},
+		}
+		claims := buildResourceClaims(user, nil, "admin")
+		if claims.IsAdmin {
+			t.Error("expected IsAdmin=false when registry is nil")
+		}
+		if len(claims.Personas) != 0 {
+			t.Errorf("expected no personas, got %v", claims.Personas)
+		}
+	})
+
+	t.Run("user with multiple roles gets all matching personas", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u4",
+			Email:  "multi@example.com",
+			Roles:  []string{"dp_admin", "dp_analyst"},
+		}
+		claims := buildResourceClaims(user, reg, "admin")
+		if !claims.IsAdmin {
+			t.Error("expected IsAdmin=true")
+		}
+		if len(claims.Personas) != 2 {
+			t.Errorf("expected 2 personas, got %v", claims.Personas)
 		}
 	})
 }

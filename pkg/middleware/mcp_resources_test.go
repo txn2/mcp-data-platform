@@ -150,6 +150,21 @@ func TestClaimsFromPC(t *testing.T) {
 	if len(claims.Personas) != 2 {
 		t.Errorf("Personas = %v, want [a b]", claims.Personas)
 	}
+
+	// IsAdmin propagated from PlatformContext.
+	pc.IsAdmin = true
+	cfg.PersonasForRoles = nil
+	claims = claimsFromPC(pc, cfg)
+	if !claims.IsAdmin {
+		t.Error("expected IsAdmin=true when PlatformContext.IsAdmin is true")
+	}
+
+	// IsAdmin=false propagated.
+	pc.IsAdmin = false
+	claims = claimsFromPC(pc, cfg)
+	if claims.IsAdmin {
+		t.Error("expected IsAdmin=false when PlatformContext.IsAdmin is false")
+	}
 }
 
 // --- handleManagedList tests ---

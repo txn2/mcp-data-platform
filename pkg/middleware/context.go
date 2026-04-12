@@ -44,6 +44,7 @@ type PlatformContext struct {
 
 	// Authorization
 	Authorized bool
+	IsAdmin    bool // user belongs to the platform's admin persona
 	AuthzError string
 
 	// Transport metadata

@@ -207,6 +207,7 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 	} else if pc.PersonaName != "" {
 		claims.Personas = []string{pc.PersonaName}
 	}
+	claims.IsAdmin = pc.IsAdmin
 	return claims
 }
 

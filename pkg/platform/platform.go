@@ -1471,7 +1471,11 @@ func (p *Platform) finalizeSetup() {
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, p.config.Server.Transport, p.workflowTracker),
+		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, middleware.ToolCallConfig{
+			Transport:       p.config.Server.Transport,
+			AdminPersona:    p.config.Admin.Persona,
+			WorkflowTracker: p.workflowTracker,
+		}),
 	)
 
 	// 7. MCP Apps metadata - injects _meta.ui into tools/list

@@ -261,7 +261,7 @@ func TestMiddlewareChain_AuditReceivesPlatformContext(t *testing.T) {
 	// MCPAuditMiddleware is added FIRST (innermost).
 	// MCPToolCallMiddleware is added SECOND (outermost — runs first).
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	// Connect client
 	ctx := context.Background()
@@ -341,7 +341,7 @@ func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
 
 	// WRONG ORDER: auth first (innermost), audit second (outermost).
 	// This is what the code did before the fix.
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 
 	ctx := context.Background()
@@ -493,7 +493,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 		semProvider, nil, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -588,7 +588,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 		nil, queryProv, nil,
 		middleware.EnrichmentConfig{EnrichDataHubResults: true}, nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -655,7 +655,7 @@ func TestMiddlewareChain_DefaultDenyPersona(t *testing.T) {
 	})
 
 	// Only auth middleware (outermost)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -750,7 +750,7 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 	// 3. Audit
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 	// 4. Auth/Authz (outermost)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -821,7 +821,7 @@ func TestMiddlewareChain_AuditResponseSize(t *testing.T) {
 
 	// Middleware: audit (innermost), auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -938,7 +938,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 		},
 		nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	return server
 }
@@ -1289,7 +1289,7 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	// 2. Audit
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 	// 3. Auth/Authz (outermost)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -1451,7 +1451,7 @@ func newHTTPDedupTestSession(t *testing.T, includeQueryTool bool) httpDedupTestR
 		},
 		nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
 
 	// Start a real HTTP server with Streamable HTTP transport
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
@@ -1595,7 +1595,7 @@ func TestMiddlewareChain_SessionDedup_StreamableHTTP_Stateless(t *testing.T) {
 		},
 		nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, "http"))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
 
 	// Stateless mode: each request creates a new temporary session
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
@@ -1717,7 +1717,7 @@ func TestMiddlewareChain_SessionDedup_SSE(t *testing.T) {
 		},
 		nil,
 	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	// SSE handler
 	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
@@ -1951,7 +1951,7 @@ func TestWorkflowGating_NoDiscovery(t *testing.T) {
 		},
 	}
 	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, chainTestStdio, tracker))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2010,7 +2010,7 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 		},
 	}
 	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, chainTestStdio, tracker))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2068,7 +2068,7 @@ func TestWorkflowGating_Escalation(t *testing.T) {
 		},
 	}
 	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, chainTestStdio, tracker))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2172,7 +2172,7 @@ func TestWorkflowGating_BackwardCompat(t *testing.T) {
 	// No workflow tracker — static fallback
 	ruleCfg := middleware.RuleEnforcementConfig{Engine: ruleEngine}
 	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, chainTestStdio))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2254,7 +2254,7 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 	// 1. Provenance (innermost) — records tool calls, harvests on save_artifact
 	// 2. Auth (outermost) — creates PlatformContext with session ID
 	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(tracker, saveToolName))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, "http"))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
 
 	// Stateless Streamable HTTP handler — no SDK-managed sessions.
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {

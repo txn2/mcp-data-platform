@@ -127,6 +127,7 @@ func testClaims() *Claims {
 		Email:    "user@example.com",
 		Personas: []string{"analyst"},
 		Roles:    []string{"admin"},
+		IsAdmin:  true,
 	}
 }
 

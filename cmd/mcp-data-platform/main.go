@@ -573,25 +573,13 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
 
 	pr := p.PersonaRegistry()
+	adminPersona := p.Config().Admin.Persona
 	extractClaims := func(r *http.Request) (*resource.Claims, error) {
 		user, err := portalAuth.Authenticate(r)
 		if err != nil || user == nil {
 			return nil, fmt.Errorf("authentication required")
 		}
-		claims := &resource.Claims{
-			Sub:   user.UserID,
-			Email: user.Email,
-			Roles: user.Roles,
-		}
-		// Resolve all persona memberships.
-		if pr != nil {
-			for _, per := range pr.All() {
-				if matchesAnyRole(per.Roles, user.Roles) {
-					claims.Personas = append(claims.Personas, per.Name)
-				}
-			}
-		}
-		return claims, nil
+		return buildResourceClaims(user, pr, adminPersona), nil
 	}
 
 	deps := resource.Deps{
@@ -605,6 +593,27 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
 	log.Println("Managed resources API enabled on /api/v1/resources")
+}
+
+// buildResourceClaims creates resource Claims from an authenticated user,
+// resolving persona memberships and admin status from the persona registry.
+func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona string) *resource.Claims {
+	claims := &resource.Claims{
+		Sub:   user.UserID,
+		Email: user.Email,
+		Roles: user.Roles,
+	}
+	if pr != nil {
+		for _, per := range pr.All() {
+			if matchesAnyRole(per.Roles, user.Roles) {
+				claims.Personas = append(claims.Personas, per.Name)
+				if per.Name == adminPersona {
+					claims.IsAdmin = true
+				}
+			}
+		}
+	}
+	return claims
 }
 
 // matchesAnyRole checks if any persona role matches any user role.
