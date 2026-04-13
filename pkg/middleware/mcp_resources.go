@@ -16,6 +16,9 @@ import (
 const (
 	methodListResources = "resources/list"
 	methodReadResource  = "resources/read"
+	logKeyURI           = "uri"
+	logKeyUserID        = "user_id"
+	logKeyError         = "error"
 )
 
 // ResourceListProvider loads managed resources for a given set of scope filters.
@@ -48,12 +51,21 @@ type ManagedResourceConfig struct {
 // resources. It filters the list by the caller's visible scopes derived from
 // PlatformContext.
 func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
+	slog.Debug("MCPManagedResourceMiddleware: registered",
+		"store_nil", cfg.Store == nil,
+		"s3_nil", cfg.S3Client == nil,
+		"auth_nil", cfg.Authenticator == nil,
+		"scheme", cfg.URIScheme,
+		"admin_persona", cfg.AdminPersona,
+	)
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			switch method {
 			case methodListResources:
+				slog.Debug("managed resources middleware: intercepting resources/list")
 				return handleManagedList(ctx, next, method, req, cfg)
 			case methodReadResource:
+				slog.Debug("managed resources middleware: intercepting resources/read")
 				return handleManagedRead(ctx, next, method, req, cfg)
 			default:
 				return next(ctx, method, req)
@@ -69,22 +81,31 @@ func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
 func handleManagedList(ctx context.Context, next mcp.MethodHandler, method string, req mcp.Request, cfg ManagedResourceConfig) (mcp.Result, error) {
 	result, err := next(ctx, method, req)
 	if err != nil {
+		slog.Debug("managed resources list: next handler error", logKeyError, err)
 		return result, err
 	}
 
 	listResult, ok := result.(*mcp.ListResourcesResult)
 	if !ok || cfg.Store == nil {
+		slog.Debug("managed resources list: skipping", "result_type_ok", ok, "store_nil", cfg.Store == nil)
 		return result, nil
+	}
+
+	slog.Debug("managed resources list: SDK returned resources", "count", len(listResult.Resources))
+	for i, r := range listResult.Resources {
+		slog.Debug("managed resources list: SDK resource", "index", i, logKeyURI, r.URI, "name", r.Name)
 	}
 
 	prefix := managedURIPrefix(cfg)
 	if !containsManagedResources(listResult.Resources, prefix) {
+		slog.Debug("managed resources list: no managed resources in SDK list, returning as-is", "prefix", prefix)
 		return result, nil
 	}
 
-	// Determine which managed URIs the caller can see.
 	visibleURIs := resolveVisibleManagedURIs(ctx, req, cfg)
+	slog.Debug("managed resources list: resolved visible URIs", "count", len(visibleURIs), "visible", visibleURIs)
 	listResult.Resources = filterResources(listResult.Resources, prefix, visibleURIs)
+	slog.Debug("managed resources list: filtered result", "count", len(listResult.Resources))
 	return listResult, nil
 }
 
@@ -112,12 +133,13 @@ func containsManagedResources(resources []*mcp.Resource, prefix string) bool {
 func resolveVisibleManagedURIs(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) map[string]bool {
 	pc := getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
+		slog.Debug("resolveVisibleManagedURIs: no auth, returning nil (all managed will be removed)")
 		return nil
 	}
 	scopes := scopesFromPlatformContext(pc, cfg)
 	managed, _, err := cfg.Store.List(ctx, resource.Filter{Scopes: scopes, Limit: 1000})
 	if err != nil {
-		slog.Warn("managed resources: scope filter failed, removing all managed", "error", err)
+		slog.Warn("managed resources: scope filter failed, removing all managed", logKeyError, err)
 		return nil
 	}
 	visible := make(map[string]bool, len(managed))
@@ -144,9 +166,9 @@ func filterResources(resources []*mcp.Resource, prefix string, visibleURIs map[s
 // handleManagedRead tries the managed resource store first, then falls through
 // to the SDK's handler for static/template resources.
 func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method string, req mcp.Request, cfg ManagedResourceConfig) (mcp.Result, error) {
-	// Extract URI from the request.
 	uri, err := extractResourceURI(req)
 	if err != nil || uri == "" {
+		slog.Debug("managed resources read: URI extraction failed, falling through", logKeyError, err, logKeyURI, uri)
 		return next(ctx, method, req)
 	}
 
@@ -156,35 +178,39 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	}
 	prefix := scheme + "://"
 
-	// Only handle URIs matching our scheme.
 	if !strings.HasPrefix(uri, prefix) {
+		slog.Debug("managed resources read: URI doesn't match scheme, falling through", logKeyURI, uri, "prefix", prefix)
 		return next(ctx, method, req)
 	}
 
-	// Look up in managed resources store.
 	res, getErr := cfg.Store.GetByURI(ctx, uri)
 	if getErr != nil {
-		// Not found in managed resources — fall through to SDK.
+		slog.Debug("managed resources read: not in store, falling through to SDK", logKeyURI, uri, logKeyError, getErr)
 		return next(ctx, method, req)
 	}
+	slog.Debug("managed resources read: found in store", logKeyURI, uri, "scope", res.Scope, "id", res.ID)
 
-	// Permission check — require authentication for managed resources.
 	pc := getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
-		// No auth context — fall through to SDK handler.
+		slog.Warn("managed resources read: auth failed, falling through to SDK", logKeyURI, uri)
 		return next(ctx, method, req)
 	}
+	slog.Debug("managed resources read: authenticated", logKeyURI, uri, logKeyUserID, pc.UserID, "persona", pc.PersonaName)
+
 	claims := claimsFromPC(pc, cfg)
 	if !resource.CanReadResource(claims, res) {
+		slog.Warn("managed resources read: permission denied", logKeyURI, uri, logKeyUserID, pc.UserID, "scope", res.Scope)
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
 
+	slog.Debug("managed resources read: serving content", logKeyURI, uri, "mime_type", res.MIMEType, "s3_key", res.S3Key)
 	return fetchResourceContent(ctx, cfg, res)
 }
 
 // fetchResourceContent fetches resource content from S3 and builds the read result.
 func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource) (*mcp.ReadResourceResult, error) {
 	if cfg.S3Client == nil {
+		slog.Warn("managed resource read: S3 client nil, returning placeholder", logKeyURI, res.URI)
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      res.URI,
@@ -196,7 +222,7 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 
 	body, _, s3Err := cfg.S3Client.GetObject(ctx, cfg.S3Bucket, res.S3Key)
 	if s3Err != nil {
-		slog.Error("managed resource read: s3 get failed", "error", s3Err, "uri", res.URI)
+		slog.Error("managed resource read: s3 get failed", logKeyError, s3Err, logKeyURI, res.URI)
 		return nil, fmt.Errorf("error reading resource content")
 	}
 
@@ -250,19 +276,25 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 // authentication fails or no authenticator is configured.
 func getOrAuthenticatePC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) *PlatformContext {
 	if pc := GetPlatformContext(ctx); pc != nil {
+		slog.Debug("getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
 		return pc
 	}
 	if cfg.Authenticator == nil {
+		slog.Debug("getOrAuthenticatePC: no authenticator configured")
 		return nil
 	}
 	// Bridge auth token from per-request headers (Streamable HTTP).
 	if req != nil {
 		ctx = bridgeAuthToken(ctx, req)
 	}
+	tokenPresent := GetToken(ctx) != ""
+	slog.Debug("getOrAuthenticatePC: attempting direct auth", "token_present", tokenPresent)
 	userInfo, err := cfg.Authenticator.Authenticate(ctx)
 	if err != nil || userInfo == nil {
+		slog.Debug("getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
 		return nil
 	}
+	slog.Debug("getOrAuthenticatePC: auth succeeded", logKeyUserID, userInfo.UserID, "email", userInfo.Email)
 	pc := &PlatformContext{
 		UserID:    userInfo.UserID,
 		UserEmail: userInfo.Email,

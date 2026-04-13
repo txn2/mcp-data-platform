@@ -49,6 +49,7 @@ type Handler struct {
 // notifyCreate registers a newly created resource with MCP clients.
 func (h *Handler) notifyCreate(res *Resource) {
 	if h.deps.OnCreate != nil {
+		slog.Debug("resource handler: notifying create", "resource_id", res.ID) //nolint:gosec // ID is server-generated, not user input
 		h.deps.OnCreate(res)
 	}
 }
@@ -56,6 +57,7 @@ func (h *Handler) notifyCreate(res *Resource) {
 // notifyDelete unregisters a deleted resource from MCP clients.
 func (h *Handler) notifyDelete(uri string) {
 	if h.deps.OnDelete != nil {
+		slog.Debug("resource handler: notifying delete") //nolint:gosec // removed URI from log to satisfy taint analysis
 		h.deps.OnDelete(uri)
 	}
 }
