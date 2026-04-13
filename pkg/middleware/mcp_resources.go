@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -328,19 +327,14 @@ func extractPersonaAdminRoles(roles []string) []string {
 
 // extractResourceURI extracts the URI from a resources/read request.
 func extractResourceURI(req mcp.Request) (string, error) {
-	raw, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
+	if req == nil {
+		return "", fmt.Errorf("nil request")
 	}
-	var wrapper struct {
-		Params struct {
-			URI string `json:"uri"`
-		} `json:"params"`
+	params, ok := req.GetParams().(*mcp.ReadResourceParams)
+	if !ok || params == nil {
+		return "", fmt.Errorf("unexpected params type: %T", req.GetParams())
 	}
-	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return "", fmt.Errorf("unmarshaling request: %w", err)
-	}
-	return wrapper.Params.URI, nil
+	return params.URI, nil
 }
 
 // isTextMIME returns true for MIME types that should be returned as inline text.
