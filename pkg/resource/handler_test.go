@@ -255,16 +255,16 @@ func TestHandleCreate_Success(t *testing.T) {
 	}
 }
 
-func TestNotifyFn_CalledOnCreate(t *testing.T) {
+func TestOnCreate_CalledOnCreate(t *testing.T) {
 	store := newMockStore()
 	s3 := newMockS3()
-	notified := false
+	var created *Resource
 	deps := Deps{
 		Store:     store,
 		S3Client:  s3,
 		S3Bucket:  "test-bucket",
 		URIScheme: "mcp",
-		NotifyFn:  func() { notified = true },
+		OnCreate:  func(res *Resource) { created = res },
 	}
 	h := NewHandler(deps, okExtractor, nil)
 
@@ -281,26 +281,29 @@ func TestNotifyFn_CalledOnCreate(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !notified {
-		t.Error("expected NotifyFn to be called after create")
+	if created == nil {
+		t.Fatal("expected OnCreate to be called with the resource")
+	}
+	if created.DisplayName != "Notify Test" {
+		t.Errorf("created.DisplayName = %q, want Notify Test", created.DisplayName)
 	}
 }
 
-func TestNotifyFn_CalledOnDelete(t *testing.T) {
+func TestOnDelete_CalledOnDelete(t *testing.T) {
 	store := newMockStore()
 	store.resources["r1"] = &Resource{
 		ID: "r1", Scope: ScopeGlobal, UploaderSub: "user-123",
-		S3Key: "resources/global/r1/file.txt",
+		URI: "mcp://global/test/file.txt", S3Key: "resources/global/r1/file.txt",
 	}
 	s3 := newMockS3()
 	s3.objects["resources/global/r1/file.txt"] = []byte("data")
-	notified := false
+	var deletedURI string
 	deps := Deps{
 		Store:     store,
 		S3Client:  s3,
 		S3Bucket:  "test-bucket",
 		URIScheme: "mcp",
-		NotifyFn:  func() { notified = true },
+		OnDelete:  func(uri string) { deletedURI = uri },
 	}
 	h := NewHandler(deps, okExtractor, nil)
 
@@ -311,8 +314,8 @@ func TestNotifyFn_CalledOnDelete(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !notified {
-		t.Error("expected NotifyFn to be called after delete")
+	if deletedURI != "mcp://global/test/file.txt" {
+		t.Errorf("deletedURI = %q, want mcp://global/test/file.txt", deletedURI)
 	}
 }
 
