@@ -62,54 +62,83 @@ func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
 	}
 }
 
-// handleManagedList appends managed resources to the SDK's static list.
+// handleManagedList filters the SDK's resource list by the caller's visible
+// scopes. Managed resources are registered with the SDK via AddResource for
+// discoverability, but the SDK returns ALL resources to every client. This
+// middleware removes resources the caller shouldn't see based on their auth.
 func handleManagedList(ctx context.Context, next mcp.MethodHandler, method string, req mcp.Request, cfg ManagedResourceConfig) (mcp.Result, error) {
-	// First get the static resources from the SDK.
 	result, err := next(ctx, method, req)
 	if err != nil {
 		return result, err
 	}
 
-	// Get auth context — try PlatformContext first (set by MCPToolCallMiddleware
-	// for tools/call), then authenticate directly for resources/list.
+	listResult, ok := result.(*mcp.ListResourcesResult)
+	if !ok || cfg.Store == nil {
+		return result, nil
+	}
+
+	prefix := managedURIPrefix(cfg)
+	if !containsManagedResources(listResult.Resources, prefix) {
+		return result, nil
+	}
+
+	// Determine which managed URIs the caller can see.
+	visibleURIs := resolveVisibleManagedURIs(ctx, req, cfg)
+	listResult.Resources = filterResources(listResult.Resources, prefix, visibleURIs)
+	return listResult, nil
+}
+
+// managedURIPrefix returns the URI prefix for managed resources.
+func managedURIPrefix(cfg ManagedResourceConfig) string {
+	scheme := cfg.URIScheme
+	if scheme == "" {
+		scheme = resource.DefaultURIScheme
+	}
+	return scheme + "://"
+}
+
+// containsManagedResources checks if any resource in the list has the managed prefix.
+func containsManagedResources(resources []*mcp.Resource, prefix string) bool {
+	for _, r := range resources {
+		if strings.HasPrefix(r.URI, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveVisibleManagedURIs returns the set of managed resource URIs visible
+// to the authenticated caller. Returns nil if auth fails (all managed removed).
+func resolveVisibleManagedURIs(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) map[string]bool {
 	pc := getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
-		return result, nil
+		return nil
 	}
 	scopes := scopesFromPlatformContext(pc, cfg)
-
-	// Query managed resources.
-	managed, _, listErr := cfg.Store.List(ctx, resource.Filter{
-		Scopes: scopes,
-		// MCP resources/list is not expected to be high-cardinality. Cap at 500
-		// to avoid memory pressure; add cursor pagination if this becomes a limit.
-		Limit: 500,
-	})
-	if listErr != nil {
-		slog.Warn("managed resources: list failed, returning static only", "error", listErr)
-		return result, nil
+	managed, _, err := cfg.Store.List(ctx, resource.Filter{Scopes: scopes, Limit: 1000})
+	if err != nil {
+		slog.Warn("managed resources: scope filter failed, removing all managed", "error", err)
+		return nil
 	}
-	if len(managed) == 0 {
-		return result, nil
-	}
-
-	// Merge managed resources into the result.
-	listResult, ok := result.(*mcp.ListResourcesResult)
-	if !ok {
-		return result, nil
-	}
-
+	visible := make(map[string]bool, len(managed))
 	for i := range managed {
-		r := &managed[i]
-		listResult.Resources = append(listResult.Resources, &mcp.Resource{
-			URI:         r.URI,
-			Name:        r.DisplayName,
-			Description: r.Description,
-			MIMEType:    r.MIMEType,
-		})
+		visible[managed[i].URI] = true
 	}
+	return visible
+}
 
-	return listResult, nil
+// filterResources keeps static resources and only visible managed resources.
+// If visibleURIs is nil, all managed resources are removed.
+func filterResources(resources []*mcp.Resource, prefix string, visibleURIs map[string]bool) []*mcp.Resource {
+	filtered := make([]*mcp.Resource, 0, len(resources))
+	for _, r := range resources {
+		if !strings.HasPrefix(r.URI, prefix) {
+			filtered = append(filtered, r) // static — always keep
+		} else if visibleURIs != nil && visibleURIs[r.URI] {
+			filtered = append(filtered, r) // managed — keep if visible
+		}
+	}
+	return filtered
 }
 
 // handleManagedRead tries the managed resource store first, then falls through

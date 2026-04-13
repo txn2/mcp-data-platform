@@ -30,8 +30,9 @@ type Deps struct {
 	Store     Store
 	S3Client  S3Client
 	S3Bucket  string
-	URIScheme string // defaults to "mcp" if empty
-	NotifyFn  func() // called after create/update/delete to notify MCP clients
+	URIScheme string          // defaults to "mcp" if empty
+	OnCreate  func(*Resource) // called after successful create to register with MCP
+	OnDelete  func(string)    // called after successful delete with URI to unregister
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.
@@ -45,10 +46,17 @@ type Handler struct {
 	extractFn ClaimsExtractor
 }
 
-// notify calls the notification function if configured.
-func (h *Handler) notify() {
-	if h.deps.NotifyFn != nil {
-		h.deps.NotifyFn()
+// notifyCreate registers a newly created resource with MCP clients.
+func (h *Handler) notifyCreate(res *Resource) {
+	if h.deps.OnCreate != nil {
+		h.deps.OnCreate(res)
+	}
+}
+
+// notifyDelete unregisters a deleted resource from MCP clients.
+func (h *Handler) notifyDelete(uri string) {
+	if h.deps.OnDelete != nil {
+		h.deps.OnDelete(uri)
 	}
 }
 
@@ -229,7 +237,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)
-	h.notify()
+	h.notifyCreate(res)
 }
 
 // persistResource generates an ID, uploads to S3, inserts metadata, and returns the saved resource.
@@ -493,7 +501,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
-	h.notify()
+	h.notifyCreate(updated)
 }
 
 // --- Delete ---
@@ -536,7 +544,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-	h.notify()
+	h.notifyDelete(res.URI)
 }
 
 // conflictError signals a 409 Conflict (e.g. duplicate URI).

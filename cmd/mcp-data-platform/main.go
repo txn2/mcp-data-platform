@@ -587,7 +587,8 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		S3Client:  p.ResourceS3Client(),
 		S3Bucket:  p.Config().Resources.Managed.S3Bucket,
 		URIScheme: p.Config().Resources.Managed.URIScheme,
-		NotifyFn:  p.NotifyResourceListChanged,
+		OnCreate:  p.RegisterManagedResource,
+		OnDelete:  p.UnregisterManagedResource,
 	}
 
 	handler := resource.NewHandler(deps, extractClaims, nil)
