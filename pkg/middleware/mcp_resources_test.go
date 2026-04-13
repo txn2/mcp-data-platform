@@ -259,7 +259,7 @@ func (m *mockManagedAuth) Authenticate(_ context.Context) (*UserInfo, error) {
 
 // --- handleManagedList tests ---
 
-func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {
+func TestMCPManagedResourceMiddleware_ListFiltersByScope(t *testing.T) {
 	store := newMockResourceStore()
 	store.resources["r1"] = &resource.Resource{
 		ID:          "r1",
@@ -275,21 +275,20 @@ func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {
 		URIScheme: "mcp",
 	}
 
-	// Simulate the static handler returning one static resource.
-	staticResource := &mcp.Resource{
-		URI:  "file:///static.txt",
-		Name: "Static",
-	}
+	// SDK list includes both static and managed resources (managed registered via AddResource).
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.ListResourcesResult{
-			Resources: []*mcp.Resource{staticResource},
+			Resources: []*mcp.Resource{
+				{URI: "file:///static.txt", Name: "Static"},
+				{URI: "mcp://global/samples/test.csv", Name: "Test CSV"},
+			},
 		}, nil
 	}
 
 	mw := MCPManagedResourceMiddleware(cfg)
 	handler := mw(next)
 
-	// Use a context with PlatformContext (required for managed resource injection).
+	// Authenticated user sees global resources.
 	pc := &PlatformContext{UserID: "test-user", Roles: []string{"analyst"}}
 	ctx := WithPlatformContext(context.Background(), pc)
 	result, err := handler(ctx, methodListResources, &mcp.ListResourcesRequest{})
@@ -302,22 +301,11 @@ func TestMCPManagedResourceMiddleware_ListAppendsManaged(t *testing.T) {
 		t.Fatalf("result type = %T, want *mcp.ListResourcesResult", result)
 	}
 
-	// Should have 1 static + 1 managed = 2 resources.
+	// Should have 1 static + 1 managed = 2 resources (global is visible to all).
 	if len(listResult.Resources) != 2 {
 		t.Errorf("expected 2 resources, got %d", len(listResult.Resources))
 		for i, r := range listResult.Resources {
 			t.Logf("  [%d] URI=%s Name=%s", i, r.URI, r.Name)
-		}
-	}
-
-	// Second resource should be the managed one.
-	if len(listResult.Resources) >= 2 {
-		managed := listResult.Resources[1]
-		if managed.URI != "mcp://global/samples/test.csv" {
-			t.Errorf("managed URI = %q", managed.URI)
-		}
-		if managed.Name != "Test CSV" {
-			t.Errorf("managed Name = %q", managed.Name)
 		}
 	}
 }
@@ -347,9 +335,12 @@ func TestMCPManagedResourceMiddleware_ListAuthenticatesFallback(t *testing.T) {
 		PersonasForRoles: func(_ []string) []string { return []string{"admin"} },
 	}
 
-	staticResource := &mcp.Resource{URI: "file:///static.txt", Name: "Static"}
+	// SDK list includes both static and managed (registered via AddResource).
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{staticResource}}, nil
+		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{
+			{URI: "file:///static.txt", Name: "Static"},
+			{URI: "mcp://global/samples/test.csv", Name: "Test CSV"},
+		}}, nil
 	}
 
 	mw := MCPManagedResourceMiddleware(cfg)
@@ -367,17 +358,11 @@ func TestMCPManagedResourceMiddleware_ListAuthenticatesFallback(t *testing.T) {
 		t.Fatalf("result type = %T, want *mcp.ListResourcesResult", result)
 	}
 
+	// Admin sees both static and managed (global visible to all).
 	if len(listResult.Resources) != 2 {
 		t.Errorf("expected 2 resources (1 static + 1 managed), got %d", len(listResult.Resources))
 		for i, r := range listResult.Resources {
 			t.Logf("  [%d] URI=%s Name=%s", i, r.URI, r.Name)
-		}
-	}
-
-	if len(listResult.Resources) >= 2 {
-		managed := listResult.Resources[1]
-		if managed.URI != "mcp://global/samples/test.csv" {
-			t.Errorf("managed URI = %q, want mcp://global/samples/test.csv", managed.URI)
 		}
 	}
 }
@@ -399,15 +384,18 @@ func TestMCPManagedResourceMiddleware_ListNoAuthReturnsStaticOnly(t *testing.T) 
 		// No Authenticator — simulates stdio transport without auth.
 	}
 
-	staticResource := &mcp.Resource{URI: "file:///static.txt", Name: "Static"}
+	// SDK list includes both static and managed (registered via AddResource).
 	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{staticResource}}, nil
+		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{
+			{URI: "file:///static.txt", Name: "Static"},
+			{URI: "mcp://global/samples/test.csv", Name: "Test CSV"},
+		}}, nil
 	}
 
 	mw := MCPManagedResourceMiddleware(cfg)
 	handler := mw(next)
 
-	// No PlatformContext, no Authenticator.
+	// No PlatformContext, no Authenticator — managed resources filtered out.
 	result, err := handler(context.Background(), methodListResources, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -418,9 +406,12 @@ func TestMCPManagedResourceMiddleware_ListNoAuthReturnsStaticOnly(t *testing.T) 
 		t.Fatalf("result type = %T, want *mcp.ListResourcesResult", result)
 	}
 
-	// Should have only the static resource — managed resources not injected.
+	// Should have only the static resource — managed resources filtered out without auth.
 	if len(listResult.Resources) != 1 {
 		t.Errorf("expected 1 static resource, got %d", len(listResult.Resources))
+	}
+	if len(listResult.Resources) > 0 && listResult.Resources[0].URI != "file:///static.txt" {
+		t.Errorf("expected static resource, got %s", listResult.Resources[0].URI)
 	}
 }
 
@@ -450,6 +441,58 @@ func TestMCPManagedResourceMiddleware_ListNoManaged(t *testing.T) {
 	listResult, _ := result.(*mcp.ListResourcesResult)
 	if len(listResult.Resources) != 1 {
 		t.Errorf("expected 1 resource (static only), got %d", len(listResult.Resources))
+	}
+}
+
+func TestMCPManagedResourceMiddleware_ListStoreErrorRemovesManaged(t *testing.T) {
+	errStore := &errorResourceStore{}
+	cfg := ManagedResourceConfig{
+		Store:     errStore,
+		URIScheme: "mcp",
+	}
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.ListResourcesResult{Resources: []*mcp.Resource{
+			{URI: "file:///static.txt", Name: "Static"},
+			{URI: "mcp://global/test/file.txt", Name: "Managed"},
+		}}, nil
+	}
+
+	mw := MCPManagedResourceMiddleware(cfg)
+	handler := mw(next)
+
+	// Authenticated but store fails — managed resources removed for safety.
+	pc := &PlatformContext{UserID: "u1", Roles: []string{"admin"}}
+	ctx := WithPlatformContext(context.Background(), pc)
+	result, err := handler(ctx, methodListResources, &mcp.ListResourcesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	listResult, ok := result.(*mcp.ListResourcesResult)
+	if !ok {
+		t.Fatal("expected *ListResourcesResult")
+	}
+	if len(listResult.Resources) != 1 {
+		t.Errorf("expected 1 static resource after store error, got %d", len(listResult.Resources))
+	}
+}
+
+// errorResourceStore always returns an error for List.
+type errorResourceStore struct{}
+
+func (*errorResourceStore) List(_ context.Context, _ resource.Filter) ([]resource.Resource, int, error) {
+	return nil, 0, fmt.Errorf("database error")
+}
+
+func (*errorResourceStore) GetByURI(_ context.Context, _ string) (*resource.Resource, error) {
+	return nil, fmt.Errorf("not found")
+}
+
+func TestManagedURIPrefix_Default(t *testing.T) {
+	cfg := ManagedResourceConfig{} // no URIScheme set
+	if got := managedURIPrefix(cfg); got != "mcp://" {
+		t.Errorf("managedURIPrefix() = %q, want mcp://", got)
 	}
 }
 

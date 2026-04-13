@@ -73,6 +73,9 @@ const cfgKeyInstances = "instances"
 // minSigningKeyLength is the minimum length in bytes for an OAuth signing key.
 const minSigningKeyLength = 32
 
+// logKeyCount is the slog key for item counts in log messages.
+const logKeyCount = "count"
+
 // builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
 const builtinPlatformInfoName = "platform-info"
 
@@ -252,6 +255,7 @@ func (p *Platform) initializeComponents(opts *Options) error {
 		return err
 	}
 	p.finalizeSetup()
+	p.LoadManagedResources()
 	return nil
 }
 
@@ -499,7 +503,7 @@ func (p *Platform) initConfigStore() error {
 		}
 		p.configStore = store
 		if len(entries) > 0 {
-			slog.Info("config store: applied database overrides", "count", len(entries))
+			slog.Info("config store: applied database overrides", logKeyCount, len(entries))
 		}
 	} else {
 		p.configStore = configstore.NewFileStore(p.fileDefaults)
@@ -1200,24 +1204,58 @@ func (p *Platform) ResourceS3Client() resource.S3Client {
 	return p.resourceS3Client
 }
 
-// sentinelResourceURI is a temporary resource used to trigger
-// notifications/resources/list_changed on the MCP server.
-const sentinelResourceURI = "mcp://internal/sentinel"
-
-// NotifyResourceListChanged signals all connected MCP clients to refresh
-// their cached resource list. Call this after REST API resource changes
-// (create, update, delete) so clients see the updated managed resources.
-func (p *Platform) NotifyResourceListChanged() {
-	if p.mcpServer == nil {
+// RegisterManagedResource registers a managed resource with the MCP server
+// so it appears in the SDK's native resource list. The handler is a no-op —
+// the middleware handles the actual resources/read with auth and S3 fetch.
+// This also triggers notifications/resources/list_changed for connected clients.
+func (p *Platform) RegisterManagedResource(res *resource.Resource) {
+	if p.mcpServer == nil || res == nil {
 		return
 	}
 	p.mcpServer.AddResource(&mcp.Resource{
-		URI:  sentinelResourceURI,
-		Name: "_sentinel",
+		URI:         res.URI,
+		Name:        res.DisplayName,
+		Description: res.Description,
+		MIMEType:    res.MIMEType,
 	}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// No-op: the middleware handles resources/read with auth and S3.
 		return &mcp.ReadResourceResult{}, nil
 	})
-	p.mcpServer.RemoveResources(sentinelResourceURI)
+}
+
+// UnregisterManagedResource removes a managed resource from the MCP server's
+// resource list. This also triggers notifications/resources/list_changed.
+func (p *Platform) UnregisterManagedResource(uri string) {
+	if p.mcpServer == nil {
+		return
+	}
+	p.mcpServer.RemoveResources(uri)
+}
+
+// LoadManagedResources registers all existing managed resources from the
+// database with the MCP server so they're visible on the first resources/list
+// call. Called during platform initialization.
+func (p *Platform) LoadManagedResources() {
+	if p.resourceStore == nil {
+		return
+	}
+	if p.mcpServer == nil {
+		return
+	}
+	resources, _, err := p.resourceStore.List(context.Background(), resource.Filter{
+		Scopes: []resource.ScopeFilter{{Scope: resource.ScopeGlobal}},
+		Limit:  1000,
+	})
+	if err != nil {
+		slog.Warn("managed resources: failed to load existing resources", "error", err)
+		return
+	}
+	for i := range resources {
+		p.RegisterManagedResource(&resources[i])
+	}
+	if len(resources) > 0 {
+		slog.Info("managed resources: registered existing resources", logKeyCount, len(resources))
+	}
 }
 
 // initMCPApps initializes MCP Apps support.
@@ -1675,7 +1713,7 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 
 	// Resources are available when templates or managed resources are enabled.
 	if p.config.Resources.Enabled || p.resourceStore != nil || len(p.config.Resources.Custom) > 0 {
-		caps.Resources = &mcp.ResourceCapabilities{}
+		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
 	}
 
 	// Prompts are available when configured.
@@ -1958,7 +1996,7 @@ func (p *Platform) loadDBPersonas() {
 		}
 	}
 	if len(defs) > 0 {
-		slog.Info("loaded DB persona overrides", "count", len(defs))
+		slog.Info("loaded DB persona overrides", logKeyCount, len(defs))
 	}
 }
 
@@ -1984,7 +2022,7 @@ func (p *Platform) loadDBAPIKeys() {
 		})
 	}
 	if len(defs) > 0 {
-		slog.Info("loaded DB api keys", "count", len(defs))
+		slog.Info("loaded DB api keys", logKeyCount, len(defs))
 	}
 }
 

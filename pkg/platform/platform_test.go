@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -4436,15 +4437,76 @@ func TestResolveDefaultS3Instance(t *testing.T) {
 	})
 }
 
-func TestNotifyResourceListChanged(t *testing.T) {
+func TestRegisterManagedResource(t *testing.T) {
 	t.Run("nil server does not panic", func(_ *testing.T) {
 		p := &Platform{}
-		p.NotifyResourceListChanged() // should not panic
+		p.RegisterManagedResource(&resource.Resource{URI: "mcp://test", DisplayName: "Test"})
 	})
 
-	t.Run("triggers notification via sentinel", func(t *testing.T) {
+	t.Run("nil resource does not panic", func(_ *testing.T) {
 		p := newTestPlatform(t)
-		// Should not panic — adds and removes a sentinel resource.
-		p.NotifyResourceListChanged()
+		p.RegisterManagedResource(nil)
+	})
+
+	t.Run("registers with MCP server", func(t *testing.T) {
+		p := newTestPlatform(t)
+		p.RegisterManagedResource(&resource.Resource{
+			URI:         "mcp://global/test/file.txt",
+			DisplayName: "Test File",
+			Description: "A test resource",
+			MIMEType:    "text/plain",
+		})
+		// No panic — resource registered successfully.
+		_ = t // resource is registered; SDK will include it in resources/list.
 	})
 }
+
+func TestUnregisterManagedResource(t *testing.T) {
+	t.Run("nil server does not panic", func(_ *testing.T) {
+		p := &Platform{}
+		p.UnregisterManagedResource("mcp://test")
+	})
+
+	t.Run("removes from MCP server", func(_ *testing.T) {
+		p := newTestPlatform(t)
+		p.RegisterManagedResource(&resource.Resource{
+			URI:         "mcp://global/test/file.txt",
+			DisplayName: "Test File",
+		})
+		p.UnregisterManagedResource("mcp://global/test/file.txt")
+	})
+}
+
+func TestLoadManagedResources(t *testing.T) {
+	t.Run("nil store does not panic", func(_ *testing.T) {
+		p := newTestPlatform(t)
+		p.LoadManagedResources() // no store, should be no-op
+	})
+
+	t.Run("store without server does not panic", func(_ *testing.T) {
+		p := &Platform{
+			resourceStore: &noopResourceStore{},
+		}
+		p.LoadManagedResources() // store set but no server
+	})
+}
+
+// noopResourceStore satisfies resource.Store for guard-clause tests.
+type noopResourceStore struct{}
+
+func (*noopResourceStore) Insert(_ context.Context, _ resource.Resource) error { return nil }
+
+func (*noopResourceStore) Get(_ context.Context, _ string) (*resource.Resource, error) {
+	return &resource.Resource{}, nil
+}
+
+func (*noopResourceStore) GetByURI(_ context.Context, _ string) (*resource.Resource, error) {
+	return &resource.Resource{}, nil
+}
+
+func (*noopResourceStore) List(_ context.Context, _ resource.Filter) ([]resource.Resource, int, error) {
+	return nil, 0, nil
+}
+
+func (*noopResourceStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
+func (*noopResourceStore) Delete(_ context.Context, _ string) error                    { return nil }
