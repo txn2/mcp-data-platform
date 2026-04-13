@@ -107,6 +107,21 @@ func TestExtractResourceURI(t *testing.T) {
 	}
 }
 
+func TestExtractResourceURI_NilRequest(t *testing.T) {
+	_, err := extractResourceURI(nil)
+	if err == nil {
+		t.Error("expected error for nil request")
+	}
+}
+
+func TestExtractResourceURI_WrongParamsType(t *testing.T) {
+	req := &mcp.ServerRequest[*mcp.ListResourcesParams]{Params: &mcp.ListResourcesParams{}}
+	_, err := extractResourceURI(req)
+	if err == nil {
+		t.Error("expected error for wrong params type")
+	}
+}
+
 func TestScopesFromPlatformContext(t *testing.T) {
 	pc := &PlatformContext{
 		UserID:      "user-1",

@@ -49,7 +49,7 @@ type Handler struct {
 // notifyCreate registers a newly created resource with MCP clients.
 func (h *Handler) notifyCreate(res *Resource) {
 	if h.deps.OnCreate != nil {
-		slog.Debug("resource handler: notifying create", "resource_id", res.ID) //nolint:gosec // ID is server-generated, not user input
+		slog.Debug("resource handler: notifying create", "resource_id", res.ID) // #nosec G706 -- ID is server-generated, not user input
 		h.deps.OnCreate(res)
 	}
 }
