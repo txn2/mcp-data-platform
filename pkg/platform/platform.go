@@ -1210,16 +1210,28 @@ func (p *Platform) ResourceS3Client() resource.S3Client {
 // This also triggers notifications/resources/list_changed for connected clients.
 func (p *Platform) RegisterManagedResource(res *resource.Resource) {
 	if p.mcpServer == nil || res == nil {
+		slog.Debug("RegisterManagedResource: skipping", "server_nil", p.mcpServer == nil, "res_nil", res == nil)
 		return
 	}
+	slog.Debug("RegisterManagedResource: registering with SDK", "uri", res.URI, "name", res.DisplayName)
 	p.mcpServer.AddResource(&mcp.Resource{
 		URI:         res.URI,
 		Name:        res.DisplayName,
 		Description: res.Description,
 		MIMEType:    res.MIMEType,
-	}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		// No-op: the middleware handles resources/read with auth and S3.
-		return &mcp.ReadResourceResult{}, nil
+	}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// Fallback handler — the middleware normally intercepts resources/read
+		// before this runs. If we get here, the middleware fell through (auth
+		// failure or config issue). Return a placeholder instead of nil to
+		// avoid the SDK's "nil information" error.
+		slog.Warn("managed resource: SDK fallback handler called (middleware did not intercept)", "uri", req.Params.URI)
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{{
+				URI:      req.Params.URI,
+				MIMEType: res.MIMEType,
+				Text:     "(resource content unavailable — authentication required)",
+			}},
+		}, nil
 	})
 }
 
@@ -1227,8 +1239,10 @@ func (p *Platform) RegisterManagedResource(res *resource.Resource) {
 // resource list. This also triggers notifications/resources/list_changed.
 func (p *Platform) UnregisterManagedResource(uri string) {
 	if p.mcpServer == nil {
+		slog.Debug("UnregisterManagedResource: skipping, no server")
 		return
 	}
+	slog.Debug("UnregisterManagedResource: removing from SDK", "uri", uri)
 	p.mcpServer.RemoveResources(uri)
 }
 
@@ -1237,9 +1251,11 @@ func (p *Platform) UnregisterManagedResource(uri string) {
 // call. Called during platform initialization.
 func (p *Platform) LoadManagedResources() {
 	if p.resourceStore == nil {
+		slog.Debug("LoadManagedResources: no resource store, skipping")
 		return
 	}
 	if p.mcpServer == nil {
+		slog.Debug("LoadManagedResources: no MCP server, skipping")
 		return
 	}
 	resources, _, err := p.resourceStore.List(context.Background(), resource.Filter{
