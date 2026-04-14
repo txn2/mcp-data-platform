@@ -423,6 +423,58 @@ func TestExtractURNsFromMap(t *testing.T) {
 	}
 }
 
+func TestIsDatasetURN(t *testing.T) {
+	tests := []struct {
+		urn  string
+		want bool
+	}{
+		{"urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.orders,PROD)", true},
+		{"urn:li:dataset:simple", true},
+		{"urn:li:domain:sales", false},
+		{"urn:li:tag:PII", false},
+		{"urn:li:query:85695abc", false},
+		{"urn:li:corpuser:admin", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.urn, func(t *testing.T) {
+			if got := isDatasetURN(tt.urn); got != tt.want {
+				t.Errorf("isDatasetURN(%q) = %v, want %v", tt.urn, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterDatasetURNs(t *testing.T) {
+	input := []string{
+		"urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.orders,PROD)",
+		"urn:li:domain:sales",
+		"urn:li:tag:PII",
+		"urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.customers,PROD)",
+		"urn:li:query:85695abc",
+	}
+	got := filterDatasetURNs(input)
+	want := []string{
+		"urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.orders,PROD)",
+		"urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.customers,PROD)",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("filterDatasetURNs returned %d URNs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("filterDatasetURNs[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFilterDatasetURNsEmpty(t *testing.T) {
+	got := filterDatasetURNs(nil)
+	if len(got) != 0 {
+		t.Errorf("filterDatasetURNs(nil) returned %d URNs, want 0", len(got))
+	}
+}
+
 func TestAppendSemanticContext(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		result := NewToolResultText("original")

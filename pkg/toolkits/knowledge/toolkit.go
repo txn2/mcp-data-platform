@@ -200,7 +200,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For update_context_document, target is the document ID, detail is the new content, query_sql is the new title, query_description is the category. " +
 				"For remove_context_document, target is the document ID. " +
 				"add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, and containers. " +
-				"Structured properties, incidents, and context documents require DataHub 1.4.x.",
+				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
+				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → rolled_back.",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}

@@ -28,31 +28,14 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects when connection is empty", func(t *testing.T) {
+	t.Run("passes when connection is empty and default exists", func(t *testing.T) {
 		tc := trinotools.NewToolContext(trinotools.ToolQuery, trinotools.QueryInput{
 			SQL: "SELECT 1",
 		})
 
 		_, err := mw.Before(context.Background(), tc)
-		if err == nil {
-			t.Fatal("expected error for missing connection")
-		}
-
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "multiple Trino connections") {
-			t.Errorf("error should mention multiple connections, got: %s", errMsg)
-		}
-		if !strings.Contains(errMsg, trinoTestWarehouse) {
-			t.Errorf("error should list warehouse, got: %s", errMsg)
-		}
-		if !strings.Contains(errMsg, "elasticsearch") {
-			t.Errorf("error should list elasticsearch, got: %s", errMsg)
-		}
-		if !strings.Contains(errMsg, "Data warehouse for analytics") {
-			t.Errorf("error should include descriptions, got: %s", errMsg)
-		}
-		if !strings.Contains(errMsg, "(default)") {
-			t.Errorf("error should mark default connection, got: %s", errMsg)
+		if err != nil {
+			t.Errorf("expected pass-through when default exists, got: %v", err)
 		}
 	})
 
@@ -79,7 +62,7 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects describe_table without connection", func(t *testing.T) {
+	t.Run("passes describe_table without connection when default exists", func(t *testing.T) {
 		tc := trinotools.NewToolContext(trinotools.ToolDescribeTable, trinotools.DescribeTableInput{
 			Catalog: "hive",
 			Schema:  "default",
@@ -87,17 +70,17 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 		})
 
 		_, err := mw.Before(context.Background(), tc)
-		if err == nil {
-			t.Fatal("expected error for missing connection on describe_table")
+		if err != nil {
+			t.Errorf("expected pass-through when default exists, got: %v", err)
 		}
 	})
 
-	t.Run("rejects browse without connection", func(t *testing.T) {
+	t.Run("passes browse without connection when default exists", func(t *testing.T) {
 		tc := trinotools.NewToolContext(trinotools.ToolBrowse, trinotools.BrowseInput{})
 
 		_, err := mw.Before(context.Background(), tc)
-		if err == nil {
-			t.Fatal("expected error for missing connection on browse")
+		if err != nil {
+			t.Errorf("expected pass-through when default exists, got: %v", err)
 		}
 	})
 
@@ -112,6 +95,37 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 			t.Errorf("expected no error, got: %v", err)
 		}
 	})
+}
+
+func TestConnectionRequiredMiddleware_NoDefault(t *testing.T) {
+	noDefaultConns := []ConnectionDescription{
+		{Name: trinoTestWarehouse, Description: "Data warehouse for analytics", IsDefault: false},
+		{Name: "elasticsearch", Description: "Elasticsearch for sales data", IsDefault: false},
+		{Name: "cassandra", Description: "", IsDefault: false},
+	}
+	mw := NewConnectionRequiredMiddleware(noDefaultConns)
+
+	t.Run("rejects when connection is empty and no default", func(t *testing.T) {
+		tc := trinotools.NewToolContext(trinotools.ToolQuery, trinotools.QueryInput{
+			SQL: "SELECT 1",
+		})
+
+		_, err := mw.Before(context.Background(), tc)
+		if err == nil {
+			t.Fatal("expected error for missing connection without default")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "multiple Trino connections") {
+			t.Errorf("error should mention multiple connections, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, trinoTestWarehouse) {
+			t.Errorf("error should list warehouse, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, "elasticsearch") {
+			t.Errorf("error should list elasticsearch, got: %s", errMsg)
+		}
+	})
 
 	t.Run("connection without description in error", func(t *testing.T) {
 		_, err := mw.Before(context.Background(), trinotools.NewToolContext(
@@ -120,9 +134,37 @@ func TestConnectionRequiredMiddleware_Before(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		// cassandra has no description, should just show the name
 		if !strings.Contains(err.Error(), "cassandra") {
 			t.Errorf("error should list cassandra, got: %s", err.Error())
+		}
+	})
+}
+
+func TestConnectionRequiredMiddleware_HasDefault(t *testing.T) {
+	t.Run("returns true when default exists", func(t *testing.T) {
+		mw := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a", IsDefault: false},
+			{Name: "b", IsDefault: true},
+		})
+		if !mw.hasDefault() {
+			t.Error("expected hasDefault() = true")
+		}
+	})
+
+	t.Run("returns false when no default", func(t *testing.T) {
+		mw := NewConnectionRequiredMiddleware([]ConnectionDescription{
+			{Name: "a", IsDefault: false},
+			{Name: "b", IsDefault: false},
+		})
+		if mw.hasDefault() {
+			t.Error("expected hasDefault() = false")
+		}
+	})
+
+	t.Run("returns false for empty connections", func(t *testing.T) {
+		mw := NewConnectionRequiredMiddleware(nil)
+		if mw.hasDefault() {
+			t.Error("expected hasDefault() = false for nil connections")
 		}
 	})
 }

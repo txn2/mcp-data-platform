@@ -47,8 +47,13 @@ func NewConnectionSourceMap() *ConnectionSourceMap {
 }
 
 // Add registers a connection's DataHub source mapping.
+// If the same connection (kind+name) already exists, the old entry is
+// replaced so that bySourceName never contains duplicates.
 func (m *ConnectionSourceMap) Add(src ConnectionSource) {
 	key := src.Kind + "/" + src.Name
+	if _, exists := m.byConnection[key]; exists {
+		m.Remove(src.Kind, src.Name)
+	}
 	m.byConnection[key] = &src
 	m.bySourceName[src.DataHubSourceName] = append(m.bySourceName[src.DataHubSourceName], &src)
 }

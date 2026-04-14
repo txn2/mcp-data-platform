@@ -180,7 +180,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Manages saved artifacts and collections. " +
 			"Asset actions: list, get, update, delete, list_versions, revert. " +
 			"Collection actions: create_collection, list_collections, get_collection, " +
-			"update_collection, delete_collection, set_sections.",
+			"update_collection, delete_collection, set_sections. " +
+			"Note: 'list' returns full metadata including provenance for each asset. " +
+			"Use 'get' with a specific asset_id for content retrieval.",
 		InputSchema: manageArtifactSchema,
 	}, t.handleManageArtifact)
 

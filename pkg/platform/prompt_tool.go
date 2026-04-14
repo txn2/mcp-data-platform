@@ -12,6 +12,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
+const (
+	promptErrGet    = "failed to get prompt"
+	promptLogKey    = "name"
+	promptLogKeyErr = "error"
+)
+
 // platformPromptCreator adapts the prompt store and platform for the
 // knowledge toolkit's PromptCreator interface.
 type platformPromptCreator struct {
@@ -57,7 +63,9 @@ func (p *Platform) registerPromptTool() {
 		Title: "Manage Prompts",
 		Description: "Create, update, delete, list, or get prompts. " +
 			"Non-admin users can manage their own personal prompts. " +
-			"Admins can manage prompts at all scope levels (global, persona, personal).",
+			"Admins can manage prompts at all scope levels (global, persona, personal). " +
+			"This tool manages database-stored prompts only; static prompts from server " +
+			"configuration are not listed or editable here.",
 		InputSchema: managePromptSchema(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return p.handleManagePrompt(ctx, input)
@@ -104,6 +112,11 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 		return promptErrorResult("only admins can create global or persona-scoped prompts"), nil, nil
 	}
 
+	personas := input.Personas
+	if personas == nil {
+		personas = []string{}
+	}
+
 	pr := &prompt.Prompt{
 		Name:        input.Name,
 		DisplayName: input.DisplayName,
@@ -112,14 +125,15 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 		Arguments:   input.Arguments,
 		Category:    input.Category,
 		Scope:       scope,
-		Personas:    input.Personas,
+		Personas:    personas,
 		OwnerEmail:  email,
 		Source:      prompt.SourceOperator,
 		Enabled:     true,
 	}
 
 	if err := p.promptStore.Create(ctx, pr); err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to create prompt: %v", err)), nil, nil
+		slog.Error("failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult("failed to create prompt"), nil, nil
 	}
 
 	p.RegisterRuntimePrompt(pr)
@@ -139,7 +153,8 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 
 	existing, err := p.promptStore.Get(ctx, input.Name)
 	if err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to get prompt: %v", err)), nil, nil
+		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult(promptErrGet), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -160,7 +175,8 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	}
 
 	if err := p.promptStore.Update(ctx, existing); err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to update prompt: %v", err)), nil, nil
+		slog.Error("failed to update prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult("failed to update prompt"), nil, nil
 	}
 
 	// Re-register with updated content
@@ -211,7 +227,8 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 
 	existing, err := p.promptStore.Get(ctx, input.Name)
 	if err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to get prompt: %v", err)), nil, nil
+		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult(promptErrGet), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -228,7 +245,8 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	}
 
 	if err := p.promptStore.Delete(ctx, input.Name); err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to delete prompt: %v", err)), nil, nil
+		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult("failed to delete prompt"), nil, nil
 	}
 
 	p.UnregisterRuntimePrompt(input.Name)
@@ -263,7 +281,8 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 
 	prompts, err := p.promptStore.List(ctx, filter)
 	if err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to list prompts: %v", err)), nil, nil
+		slog.Error("failed to list prompts", promptLogKeyErr, err)
+		return promptErrorResult("failed to list prompts"), nil, nil
 	}
 
 	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
@@ -313,7 +332,8 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 
 	pr, err := p.promptStore.Get(ctx, input.Name)
 	if err != nil {
-		return promptErrorResult(fmt.Sprintf("failed to get prompt: %v", err)), nil, nil
+		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		return promptErrorResult(promptErrGet), nil, nil
 	}
 	if pr == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -428,7 +448,7 @@ func managePromptSchema() any {
 			"personas": map[string]any{
 				schemaKeyType:        "array",
 				"items":              map[string]any{schemaKeyType: schemaValString},
-				schemaKeyDescription: "Personas this prompt is assigned to (when scope is 'persona')",
+				schemaKeyDescription: "Personas this prompt is assigned to. Defaults to empty list if omitted.",
 			},
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,

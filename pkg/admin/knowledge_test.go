@@ -429,12 +429,12 @@ func TestUpdateInsightStatus(t *testing.T) {
 	t.Run("invalid status transition returns 409", func(t *testing.T) {
 		insight := &knowledge.Insight{
 			ID:     "ins-789",
-			Status: knowledge.StatusApproved, // approved -> rejected is not valid
+			Status: knowledge.StatusRejected, // rejected is terminal — cannot approve
 		}
 		store := &mockInsightStore{getResult: insight}
 		kh := NewKnowledgeHandler(store, nil, nil)
 
-		body := `{"status":"rejected"}`
+		body := `{"status":"approved"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-789/status", strings.NewReader(body))
 		req.SetPathValue("id", "ins-789")
 		w := httptest.NewRecorder()
