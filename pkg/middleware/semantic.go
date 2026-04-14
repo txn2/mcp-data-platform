@@ -712,12 +712,14 @@ func (e *semanticEnricher) enrichDataHubResult(
 ) (*mcp.CallToolResult, error) {
 	provider := e.queryProvider
 
-	// Extract URNs from result content
-	urns := extractURNsFromResult(result)
+	// Extract URNs from result content, keeping only dataset URNs.
+	// Non-dataset URNs (domains, tags, queries, owners) cannot be
+	// resolved to queryable tables and would produce spurious errors.
+	urns := filterDatasetURNs(extractURNsFromResult(result))
 
 	// Also extract URN from request (for tools like datahub_get_schema that take urn param)
 	if reqURN := extractURNFromRequest(request); reqURN != "" {
-		if !slices.Contains(urns, reqURN) {
+		if isDatasetURN(reqURN) && !slices.Contains(urns, reqURN) {
 			urns = append(urns, reqURN)
 		}
 	}
@@ -995,6 +997,25 @@ func splitTableName(name string) []string {
 		}
 	}
 	return result
+}
+
+// datasetURNPrefix identifies dataset URNs in DataHub's URN scheme.
+const datasetURNPrefix = "urn:li:dataset:"
+
+// isDatasetURN returns true if the URN represents a dataset entity.
+func isDatasetURN(urn string) bool {
+	return strings.HasPrefix(urn, datasetURNPrefix)
+}
+
+// filterDatasetURNs returns only dataset URNs from the input slice.
+func filterDatasetURNs(urns []string) []string {
+	filtered := make([]string, 0, len(urns))
+	for _, urn := range urns {
+		if isDatasetURN(urn) {
+			filtered = append(filtered, urn)
+		}
+	}
+	return filtered
 }
 
 // extractURNsFromResult extracts URNs from result content.

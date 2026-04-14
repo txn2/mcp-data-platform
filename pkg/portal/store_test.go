@@ -40,7 +40,7 @@ func TestPostgresAssetStoreInsert(t *testing.T) {
 		WithArgs(
 			asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
 			asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID, 1,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID, 0,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

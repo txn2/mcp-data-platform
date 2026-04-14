@@ -19,6 +19,10 @@ import (
 type mockPlatformPromptStore struct {
 	prompts   map[string]*prompt.Prompt
 	createErr error
+	getErr    error
+	updateErr error
+	deleteErr error
+	listErr   error
 }
 
 func newMockPlatformPromptStore() *mockPlatformPromptStore {
@@ -35,6 +39,9 @@ func (m *mockPlatformPromptStore) Create(_ context.Context, p *prompt.Prompt) er
 }
 
 func (m *mockPlatformPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
 	p := m.prompts[name]
 	return p, nil //nolint:nilnil // interface contract
 }
@@ -49,11 +56,17 @@ func (m *mockPlatformPromptStore) GetByID(_ context.Context, id string) (*prompt
 }
 
 func (m *mockPlatformPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
 	m.prompts[p.Name] = p
 	return nil
 }
 
 func (m *mockPlatformPromptStore) Delete(_ context.Context, name string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	delete(m.prompts, name)
 	return nil
 }
@@ -68,7 +81,10 @@ func (m *mockPlatformPromptStore) DeleteByID(_ context.Context, id string) error
 	return nil
 }
 
-func (m *mockPlatformPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt.Prompt, error) {
+func (m *mockPlatformPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt.Prompt, error) { //nolint:revive // interface impl
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	var result []prompt.Prompt
 	for _, p := range m.prompts {
 		if f.Scope != "" && p.Scope != f.Scope {
@@ -190,6 +206,29 @@ func TestHandlePromptCreate_NonAdminPersonalOK(t *testing.T) {
 	assert.Equal(t, "user@example.com", store.prompts["my-personal"].OwnerEmail)
 }
 
+func TestHandlePromptCreate_NilPersonasDefaultsToEmpty(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+		Name: "no-personas", Content: "content", Scope: "personal",
+		// Personas intentionally omitted (nil)
+	})
+	assert.False(t, r.IsError)
+	assert.Equal(t, []string{}, store.prompts["no-personas"].Personas)
+}
+
+func TestHandlePromptCreate_StoreErrorDoesNotLeakDetails(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.createErr = fmt.Errorf("pq: null value in column \"personas\" violates not-null constraint (23502)")
+	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+		Name: "test", Content: "content",
+	})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to create prompt")
+	assert.NotContains(t, text, "pq:")
+	assert.NotContains(t, text, "23502")
+}
+
 func TestHandlePromptCreate_StoreError(t *testing.T) {
 	p, store := newTestPlatformWithPromptStore()
 	store.createErr = fmt.Errorf("db down")
@@ -258,6 +297,29 @@ func TestHandlePromptUpdate_ScopeChangeByNonAdmin(t *testing.T) {
 	assert.Contains(t, resultText(r), "only admins")
 }
 
+func TestHandlePromptUpdate_StoreGetError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.getErr = fmt.Errorf("pq: connection refused")
+	r, _, _ := p.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to get prompt")
+	assert.NotContains(t, text, "pq:")
+}
+
+func TestHandlePromptUpdate_StoreUpdateError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["test"] = &prompt.Prompt{
+		ID: "id-1", Name: "test", Scope: prompt.ScopeGlobal,
+	}
+	store.updateErr = fmt.Errorf("pq: disk full")
+	r, _, _ := p.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to update prompt")
+	assert.NotContains(t, text, "pq:")
+}
+
 // --- handlePromptDelete ---
 
 func TestHandlePromptDelete_Success(t *testing.T) {
@@ -285,6 +347,29 @@ func TestHandlePromptDelete_NonAdminDeniedNonPersonal(t *testing.T) {
 	r, _, _ := p.handlePromptDelete(userCtx("user@example.com", "analyst"), managePromptInput{Name: "global"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "non-admins")
+}
+
+func TestHandlePromptDelete_StoreGetError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.getErr = fmt.Errorf("pq: timeout")
+	r, _, _ := p.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to get prompt")
+	assert.NotContains(t, text, "pq:")
+}
+
+func TestHandlePromptDelete_StoreDeleteError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["test"] = &prompt.Prompt{
+		ID: "id-1", Name: "test", Scope: prompt.ScopeGlobal,
+	}
+	store.deleteErr = fmt.Errorf("pq: constraint violation")
+	r, _, _ := p.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to delete prompt")
+	assert.NotContains(t, text, "pq:")
 }
 
 // --- handlePromptList ---
@@ -337,6 +422,16 @@ func TestHandlePromptList_NonAdminWithScope(t *testing.T) {
 	assert.Equal(t, 1, count) // only global
 }
 
+func TestHandlePromptList_StoreError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.listErr = fmt.Errorf("pq: too many connections")
+	r, _, _ := p.handlePromptList(adminCtx(), managePromptInput{Command: "list"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to list prompts")
+	assert.NotContains(t, text, "pq:")
+}
+
 // --- handlePromptGet ---
 
 func TestHandlePromptGet_Found(t *testing.T) {
@@ -364,6 +459,16 @@ func TestHandlePromptGet_NonAdminDeniedOtherPersonal(t *testing.T) {
 	r, _, _ := p.handlePromptGet(userCtx("alice@example.com", "engineer"), managePromptInput{Name: "secret"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "your own")
+}
+
+func TestHandlePromptGet_StoreError(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.getErr = fmt.Errorf("pq: connection reset")
+	r, _, _ := p.handlePromptGet(adminCtx(), managePromptInput{Name: "test"})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to get prompt")
+	assert.NotContains(t, text, "pq:")
 }
 
 // --- applyPromptUpdates ---

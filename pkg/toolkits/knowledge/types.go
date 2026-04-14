@@ -283,7 +283,8 @@ var validTransitions = map[string]map[string]bool{
 		StatusSuperseded: true,
 	},
 	StatusApproved: {
-		StatusApplied: true,
+		StatusApplied:  true,
+		StatusRejected: true,
 	},
 	StatusApplied: {
 		StatusRolledBack: true,

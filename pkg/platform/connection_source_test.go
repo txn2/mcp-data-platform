@@ -179,6 +179,17 @@ func TestDefaultSourceNameForKind(t *testing.T) {
 	assert.Equal(t, "", defaultSourceNameForKind(""))
 }
 
+func TestConnectionSourceMap_AddDeduplicates(t *testing.T) {
+	m := NewConnectionSourceMap()
+	src := ConnectionSource{Kind: "trino", Name: "prod", DataHubSourceName: "trino"}
+	m.Add(src)
+	m.Add(src) // add same connection again
+
+	conns := m.ConnectionsForURN("urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)")
+	assert.Len(t, conns, 1, "duplicate Add should not create duplicate entries")
+	assert.Equal(t, "prod", conns[0].Name)
+}
+
 func TestConnectionSourceMap_Nil(t *testing.T) {
 	var m *ConnectionSourceMap
 

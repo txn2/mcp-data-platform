@@ -264,7 +264,7 @@ func TestValidateStatusTransition(t *testing.T) {
 
 		// Invalid transitions from approved
 		{name: "approved to pending", from: StatusApproved, to: StatusPending, wantErr: true},
-		{name: "approved to rejected", from: StatusApproved, to: StatusRejected, wantErr: true},
+		{name: "approved to rejected", from: StatusApproved, to: StatusRejected, wantErr: false},
 		{name: "approved to approved", from: StatusApproved, to: StatusApproved, wantErr: true},
 		{name: "approved to rolled_back", from: StatusApproved, to: StatusRolledBack, wantErr: true},
 		{name: "approved to superseded", from: StatusApproved, to: StatusSuperseded, wantErr: true},

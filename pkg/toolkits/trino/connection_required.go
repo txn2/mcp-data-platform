@@ -51,6 +51,12 @@ func (m *ConnectionRequiredMiddleware) Before(ctx context.Context, tc *trinotool
 		return ctx, nil
 	}
 
+	// When a default connection exists, allow pass-through.
+	// The handler's Manager.Client("") resolves to the default.
+	if m.hasDefault() {
+		return ctx, nil
+	}
+
 	return ctx, fmt.Errorf("multiple Trino connections are configured — you must specify the 'connection' parameter.\n\n%s",
 		m.formatAvailableConnections())
 }
@@ -63,6 +69,16 @@ func (*ConnectionRequiredMiddleware) After(
 	handlerErr error,
 ) (*mcp.CallToolResult, error) {
 	return result, handlerErr
+}
+
+// hasDefault returns true if any connection is marked as default.
+func (m *ConnectionRequiredMiddleware) hasDefault() bool {
+	for _, c := range m.connections {
+		if c.IsDefault {
+			return true
+		}
+	}
+	return false
 }
 
 // extractConnectionFromInput extracts the Connection field from a tool input

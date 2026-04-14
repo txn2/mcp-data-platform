@@ -73,10 +73,8 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 		return fmt.Errorf("marshaling provenance: %w", err)
 	}
 
+	// Zero is the correct initial value — CreateVersion increments it to 1.
 	currentVersion := asset.CurrentVersion
-	if currentVersion <= 0 {
-		currentVersion = 1
-	}
 
 	query := `
 		INSERT INTO portal_assets
