@@ -19,7 +19,7 @@ var captureInsightSchema = json.RawMessage(`{
     },
     "insight_text": {
       "type": "string",
-      "description": "The insight content (10-4000 characters)",
+      "description": "The insight content (10-4000 characters). Supports markdown: use backticks for column/table names, bullet lists for multi-point observations, code blocks for SQL.",
       "minLength": 10,
       "maxLength": 4000
     },

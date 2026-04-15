@@ -14,6 +14,7 @@ import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { Insight, Changeset, MemoryRecord } from "@/api/admin/types";
 import { formatUser } from "@/lib/formatUser";
+import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import {
   PieChart,
   Pie,
@@ -843,9 +844,9 @@ function InsightDrawer({
           {/* Full insight text */}
           <div>
             <p className="mb-1 text-xs text-muted-foreground">Insight</p>
-            <p className="rounded bg-muted p-3 text-sm">
-              {insight.insight_text}
-            </p>
+            <div className="rounded bg-muted p-3">
+              <MarkdownRenderer content={insight.insight_text} bare />
+            </div>
           </div>
 
           {/* Entity URNs */}
@@ -1375,9 +1376,9 @@ function MemoryDrawer({
           {/* Full content */}
           <div>
             <p className="mb-1 text-xs text-muted-foreground">Content</p>
-            <p className="rounded bg-muted p-3 text-sm whitespace-pre-wrap">
-              {record.content}
-            </p>
+            <div className="rounded bg-muted p-3">
+              <MarkdownRenderer content={record.content} bare />
+            </div>
           </div>
 
           {/* Entity URNs */}

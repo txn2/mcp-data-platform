@@ -14,7 +14,7 @@ var memoryManageSchema = json.RawMessage(`{
     },
     "content": {
       "type": "string",
-      "description": "Memory content text. Required for 'remember'. Min 10, max 4000 characters."
+      "description": "Memory content text. Required for 'remember'. Min 10, max 4000 characters. Supports markdown: use backticks for column/table names, bullet lists for multi-point observations, code blocks for SQL."
     },
     "id": {
       "type": "string",

@@ -1218,7 +1218,8 @@ Do NOT capture insights for:
 - Suggest concrete actions (add_tag, update_description) when applicable
 - Set confidence to "high" only when the user is clearly authoritative
 - For agent discoveries, set confidence based on evidence strength: "high" if verified by querying, "medium" if inferred from patterns, "low" if speculative
-- Capture the insight promptly while context is fresh`
+- Capture the insight promptly while context is fresh
+- Use markdown formatting when it aids clarity: backticks for ` + "`column_name`" + ` and ` + "`table_name`" + `, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.`
 
 // Verify interface compliance.
 var _ interface {

@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import mermaid from "mermaid";
+import DOMPurify from "dompurify";
 
 /** Detect whether the document is currently in dark mode. */
 function isDark(): boolean {
@@ -72,7 +73,7 @@ function MermaidBlock({ content }: { content: string }) {
       .render(id, content)
       .then(({ svg }) => {
         if (!cancelled && ref.current) {
-          ref.current.innerHTML = svg;
+          ref.current.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } });
           setError(null);
         }
       })
@@ -94,7 +95,7 @@ function MermaidBlock({ content }: { content: string }) {
       mermaid
         .render(id + "t", content)
         .then(({ svg }) => {
-          if (ref.current) ref.current.innerHTML = svg;
+          if (ref.current) ref.current.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } });
         })
         .catch(() => {});
     });
@@ -126,7 +127,7 @@ function MermaidBlock({ content }: { content: string }) {
   );
 }
 
-export function MarkdownRenderer({ content, bare }: { content: string; bare?: boolean }) {
+export function MarkdownRenderer({ content, bare }: { content: string | null | undefined; bare?: boolean }) {
   const components: Components = {
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it
@@ -158,8 +159,10 @@ export function MarkdownRenderer({ content, bare }: { content: string; bare?: bo
     ),
   };
 
+  if (!content) return null;
+
   return (
-    <div className={`prose prose-sm max-w-none dark:prose-invert ${bare ? "" : "rounded-lg border bg-card p-6"}`}>
+    <div className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

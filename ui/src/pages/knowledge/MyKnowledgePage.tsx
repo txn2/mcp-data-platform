@@ -8,6 +8,7 @@ import {
 import { StatCard } from "@/components/cards/StatCard";
 import { Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Insight, MemoryRecord } from "@/api/portal/types";
+import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
 
 const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
@@ -98,7 +99,7 @@ function InsightCard({ insight }: { insight: Insight }) {
           {new Date(insight.created_at).toLocaleDateString()}
         </span>
       </div>
-      <p className="text-sm leading-relaxed">{insight.insight_text}</p>
+      <MarkdownRenderer content={insight.insight_text} bare />
       {insight.entity_urns.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {insight.entity_urns.map((urn) => (
@@ -141,7 +142,7 @@ function MemoryCard({ record }: { record: MemoryRecord }) {
           {new Date(record.created_at).toLocaleDateString()}
         </span>
       </div>
-      <p className="text-sm leading-relaxed">{record.content}</p>
+      <MarkdownRenderer content={record.content} bare />
       {record.entity_urns && record.entity_urns.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {record.entity_urns.map((urn) => (
