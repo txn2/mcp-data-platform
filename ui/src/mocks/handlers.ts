@@ -213,14 +213,6 @@ const portalAssets = [
 
 const thumbnailStore = new Map<string, ArrayBuffer>();
 
-const THUMB_COLORS: Record<string, string> = {
-  "text/html": "#3b82f6",
-  "image/svg+xml": "#8b5cf6",
-  "text/markdown": "#10b981",
-  "text/jsx": "#f59e0b",
-  "text/csv": "#06b6d4",
-};
-
 const STATIC_THUMBNAILS: Record<string, string> = {
   "ast-001": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
 <defs><linearGradient id="hdr1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e293b"/><stop offset="100%" stop-color="#334155"/></linearGradient></defs>
@@ -1453,7 +1445,7 @@ export const handlers = [
     const buffer = await request.arrayBuffer();
     thumbnailStore.set(`col-${id}`, buffer);
     const col = mockCollections.find((c) => c.id === id);
-    if (col) (col as Record<string, unknown>).thumbnail_s3_key = `thumbnails/col-${id}.png`;
+    if (col) (col as unknown as Record<string, unknown>).thumbnail_s3_key = `thumbnails/col-${id}.png`;
     return new HttpResponse(null, { status: 204 });
   }),
 
