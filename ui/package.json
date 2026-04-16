@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate-api-types": "npx swagger2openapi ../internal/apidocs/swagger.json -o src/api/generated/openapi3.json && openapi-typescript src/api/generated/openapi3.json -o src/api/generated/admin-api.d.ts"
+    "generate-api-types": "npx swagger2openapi ../internal/apidocs/swagger.json -o src/api/generated/openapi3.json && openapi-typescript src/api/generated/openapi3.json -o src/api/generated/admin-api.d.ts",
+    "screenshots": "playwright test --config e2e/screenshots/playwright.config.ts",
+    "screenshots:convert": "tsx e2e/screenshots/helpers/convert.ts"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -49,6 +51,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.1.7",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -62,8 +65,10 @@
     "jsdom": "^26.1.0",
     "msw": "^2.12.10",
     "openapi-typescript": "^7.6.1",
+    "sharp": "^0.34.5",
     "swagger2openapi": "^7.0.8",
     "tailwindcss": "^4.1.7",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.33.0",
     "vite": "^6.4.2",

@@ -28,13 +28,13 @@ function seededInt(min: number, max: number): number {
 // ---------------------------------------------------------------------------
 
 const acmeUsers = [
-  { email: "sarah.chen@acme-corp.com", persona: "admin" },
-  { email: "marcus.johnson@acme-corp.com", persona: "data-engineer" },
-  { email: "rachel.thompson@acme-corp.com", persona: "inventory-analyst" },
-  { email: "david.park@acme-corp.com", persona: "regional-director" },
-  { email: "amanda.lee@acme-corp.com", persona: "data-engineer" },
-  { email: "emily.watson@acme-corp.com", persona: "inventory-analyst" },
-  { email: "lisa.chang@acme-corp.com", persona: "data-engineer" },
+  { email: "sarah.chen@example.com", persona: "admin" },
+  { email: "marcus.johnson@example.com", persona: "data-engineer" },
+  { email: "rachel.thompson@example.com", persona: "inventory-analyst" },
+  { email: "david.park@example.com", persona: "regional-director" },
+  { email: "amanda.lee@example.com", persona: "data-engineer" },
+  { email: "emily.watson@example.com", persona: "inventory-analyst" },
+  { email: "lisa.chang@example.com", persona: "data-engineer" },
 ];
 
 const trinoSchemas = ["retail", "inventory", "finance", "analytics"];
@@ -170,9 +170,9 @@ for (let i = statusPool.length - 1; i > 0; i--) {
 }
 
 const reviewers = [
-  "sarah.chen@acme-corp.com",
-  "marcus.johnson@acme-corp.com",
-  "amanda.lee@acme-corp.com",
+  "sarah.chen@example.com",
+  "marcus.johnson@example.com",
+  "amanda.lee@example.com",
 ];
 
 const reviewNotesPool = [

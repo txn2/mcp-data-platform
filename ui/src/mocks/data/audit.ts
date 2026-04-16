@@ -40,18 +40,18 @@ interface AcmeUser {
 }
 
 const acmeUsers: AcmeUser[] = [
-  { email: "sarah.chen@acme-corp.com", persona: "admin", weight: 8 },
-  { email: "marcus.johnson@acme-corp.com", persona: "data-engineer", weight: 15 },
-  { email: "rachel.thompson@acme-corp.com", persona: "inventory-analyst", weight: 12 },
-  { email: "david.park@acme-corp.com", persona: "regional-director", weight: 6 },
-  { email: "jennifer.martinez@acme-corp.com", persona: "finance-executive", weight: 5 },
-  { email: "kevin.wilson@acme-corp.com", persona: "store-manager", weight: 7 },
-  { email: "amanda.lee@acme-corp.com", persona: "data-engineer", weight: 14 },
-  { email: "carlos.rodriguez@acme-corp.com", persona: "regional-director", weight: 6 },
-  { email: "emily.watson@acme-corp.com", persona: "inventory-analyst", weight: 10 },
-  { email: "brian.taylor@acme-corp.com", persona: "finance-executive", weight: 4 },
-  { email: "lisa.chang@acme-corp.com", persona: "data-engineer", weight: 11 },
-  { email: "mike.davis@acme-corp.com", persona: "store-manager", weight: 3 },
+  { email: "sarah.chen@example.com", persona: "admin", weight: 8 },
+  { email: "marcus.johnson@example.com", persona: "data-engineer", weight: 15 },
+  { email: "rachel.thompson@example.com", persona: "inventory-analyst", weight: 12 },
+  { email: "david.park@example.com", persona: "regional-director", weight: 6 },
+  { email: "jennifer.martinez@example.com", persona: "finance-executive", weight: 5 },
+  { email: "kevin.wilson@example.com", persona: "store-manager", weight: 7 },
+  { email: "amanda.lee@example.com", persona: "data-engineer", weight: 14 },
+  { email: "carlos.rodriguez@example.com", persona: "regional-director", weight: 6 },
+  { email: "emily.watson@example.com", persona: "inventory-analyst", weight: 10 },
+  { email: "brian.taylor@example.com", persona: "finance-executive", weight: 4 },
+  { email: "lisa.chang@example.com", persona: "data-engineer", weight: 11 },
+  { email: "mike.davis@example.com", persona: "store-manager", weight: 3 },
 ];
 
 function weightedUser(): AcmeUser {
@@ -358,18 +358,18 @@ export const mockToolBreakdown: BreakdownEntry[] = [
 ];
 
 export const mockUserBreakdown: BreakdownEntry[] = [
-  { dimension: "marcus.johnson@acme-corp.com", count: 724, success_rate: 0.958, avg_duration_ms: 167.2 },
-  { dimension: "amanda.lee@acme-corp.com", count: 676, success_rate: 0.964, avg_duration_ms: 152.8 },
-  { dimension: "rachel.thompson@acme-corp.com", count: 579, success_rate: 0.971, avg_duration_ms: 98.4 },
-  { dimension: "lisa.chang@acme-corp.com", count: 531, success_rate: 0.952, avg_duration_ms: 178.3 },
-  { dimension: "emily.watson@acme-corp.com", count: 483, success_rate: 0.983, avg_duration_ms: 87.6 },
-  { dimension: "sarah.chen@acme-corp.com", count: 386, success_rate: 0.969, avg_duration_ms: 134.5 },
-  { dimension: "kevin.wilson@acme-corp.com", count: 338, success_rate: 0.976, avg_duration_ms: 72.1 },
-  { dimension: "david.park@acme-corp.com", count: 290, success_rate: 0.962, avg_duration_ms: 95.3 },
-  { dimension: "carlos.rodriguez@acme-corp.com", count: 290, success_rate: 0.955, avg_duration_ms: 103.7 },
-  { dimension: "jennifer.martinez@acme-corp.com", count: 241, success_rate: 0.979, avg_duration_ms: 68.9 },
-  { dimension: "brian.taylor@acme-corp.com", count: 193, success_rate: 0.984, avg_duration_ms: 54.2 },
-  { dimension: "mike.davis@acme-corp.com", count: 96, success_rate: 0.990, avg_duration_ms: 45.8 },
+  { dimension: "marcus.johnson@example.com", count: 724, success_rate: 0.958, avg_duration_ms: 167.2 },
+  { dimension: "amanda.lee@example.com", count: 676, success_rate: 0.964, avg_duration_ms: 152.8 },
+  { dimension: "rachel.thompson@example.com", count: 579, success_rate: 0.971, avg_duration_ms: 98.4 },
+  { dimension: "lisa.chang@example.com", count: 531, success_rate: 0.952, avg_duration_ms: 178.3 },
+  { dimension: "emily.watson@example.com", count: 483, success_rate: 0.983, avg_duration_ms: 87.6 },
+  { dimension: "sarah.chen@example.com", count: 386, success_rate: 0.969, avg_duration_ms: 134.5 },
+  { dimension: "kevin.wilson@example.com", count: 338, success_rate: 0.976, avg_duration_ms: 72.1 },
+  { dimension: "david.park@example.com", count: 290, success_rate: 0.962, avg_duration_ms: 95.3 },
+  { dimension: "carlos.rodriguez@example.com", count: 290, success_rate: 0.955, avg_duration_ms: 103.7 },
+  { dimension: "jennifer.martinez@example.com", count: 241, success_rate: 0.979, avg_duration_ms: 68.9 },
+  { dimension: "brian.taylor@example.com", count: 193, success_rate: 0.984, avg_duration_ms: 54.2 },
+  { dimension: "mike.davis@example.com", count: 96, success_rate: 0.990, avg_duration_ms: 45.8 },
 ];
 
 export const mockPersonaBreakdown: BreakdownEntry[] = [
