@@ -72,7 +72,7 @@ When `portal.enabled: true`, an interactive web dashboard is served at `/portal/
 - **Audit Log**: Searchable event log with detail drawer showing full request metadata and parameters
 - **Knowledge**: Insight statistics, governance workflow with approve/reject actions, and changeset tracking
 
-![Admin Portal Dashboard](../images/screenshots/admin-dashboard.png)
+![Admin Portal Dashboard](../images/screenshots/light/admin-admin-dashboard-light.webp#only-light)![Admin Portal Dashboard](../images/screenshots/dark/admin-admin-dashboard-dark.webp#only-dark)
 
 The portal requires authentication — access it with the same credentials used for admin API requests. In production builds, the service worker (`mockServiceWorker.js`) is stripped automatically.
 

@@ -1,5 +1,5 @@
 ---
-description: Admin Portal web dashboard for monitoring, auditing, tool exploration, and knowledge governance. Visual guide with screenshots.
+description: Admin Portal web dashboard for monitoring, auditing, tool exploration, knowledge governance, and platform configuration. Visual guide with screenshots.
 ---
 
 # Admin Portal
@@ -19,7 +19,7 @@ admin:
   persona: admin
 ```
 
-The portal is served at `/portal/`. Authentication is required — use the same credentials as the [Admin API](admin-api.md).
+The portal is served at `/portal/`. Authentication is required — use the same credentials as the [Admin API](admin-api.md). The sidebar is divided into **User** pages (see [User Portal](portal-user.md)) and **Admin** pages (described here).
 
 ### Branding
 
@@ -58,67 +58,17 @@ The `hide_expiration` and `notice_text` fields are set per-share when creating a
 {"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
 ```
 
-## Collections
-
-Collections let users organize related assets into curated, shareable groups with rich descriptions. A collection contains ordered **sections**, each with a title, markdown description, and an ordered list of asset references.
-
-### Creating Collections
-
-Navigate to **Collections** in the sidebar and click **New Collection**. Provide a name and optional markdown description, then click **Create**. The editor opens where you can:
-
-- **Add sections** — Each section has a title, markdown description, and a list of assets
-- **Reorder sections** — Drag sections by their handle to change order
-- **Add assets to sections** — Search your assets by name and click to add
-- **Reorder assets** — Drag assets within a section to change order
-- **Configure settings** — Set thumbnail size (Large, Medium, Small, None) under Settings
-
-### Viewing Collections
-
-The collection viewer renders:
-
-- **Collection description** — Full markdown with headings, lists, tables, code blocks, and mermaid diagrams
-- **Section descriptions** — Same markdown support per section
-- **Asset cards** — Thumbnail preview, name, description excerpt, and content type badge
-- **Thumbnail sizes** — Configurable per collection: large (4:3), medium (3:2), small (2:1), or no thumbnails
-
-### Sharing Collections
-
-Collections use the same sharing system as individual assets:
-
-- **Public links** — Time-limited anonymous access via token URL. The public viewer renders the full collection with section navigation and asset content in a modal overlay.
-- **User shares** — Share with specific email addresses with viewer or editor permission
-- **Share management** — View active shares, copy public links, revoke access
-
-The public collection viewer at `/portal/view/{token}` renders all content types (HTML, JSX, Markdown, SVG, CSV) in a full-screen modal when an asset is clicked, using the same content viewer as single-asset public shares.
-
-### Collection API
-
-Collections are managed via the Portal API:
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/portal/collections` | Create collection |
-| GET | `/api/v1/portal/collections` | List user's collections |
-| GET | `/api/v1/portal/collections/{id}` | Get collection with sections and items |
-| PUT | `/api/v1/portal/collections/{id}` | Update name and description |
-| PUT | `/api/v1/portal/collections/{id}/config` | Update collection settings |
-| PUT | `/api/v1/portal/collections/{id}/sections` | Replace all sections (full structure) |
-| DELETE | `/api/v1/portal/collections/{id}` | Soft delete |
-| POST | `/api/v1/portal/collections/{id}/shares` | Create share |
-| GET | `/api/v1/portal/collections/{id}/shares` | List shares |
-| GET | `/api/v1/portal/shared-collections` | List collections shared with current user |
-
 ## Dashboard
 
-The home page provides a real-time overview of platform health across configurable time ranges (1h, 6h, 24h, 7d).
+The Dashboard is the admin home page, providing a real-time overview of platform health across configurable time ranges (1h, 6h, 24h, 7d).
 
-![Admin Dashboard](../images/screenshots/admin-dashboard.png)
+![Dashboard](../images/screenshots/light/admin-admin-dashboard-light.webp#only-light)![Dashboard](../images/screenshots/dark/admin-admin-dashboard-dark.webp#only-dark)
 
 The dashboard includes:
 
 - **System info bar** — Platform name, version, transport, config mode, and enabled features (Audit, Knowledge, OAuth)
 - **Summary cards** — Total calls, success rate, average duration, unique users, unique tools, enrichment rate, and error count
-- **Activity timeline** — Tool call volume over time with error overlay
+- **Activity timeline** — Tool call volume over time (green) with error overlay (red)
 - **Top Tools / Top Users** — Horizontal bar charts showing the most active tools and users
 - **Performance** — Response time percentiles (P50, P95, P99) and average response size
 - **Recent Errors** — Clickable error list with detail drawer
@@ -129,82 +79,216 @@ The dashboard includes:
 
 ### Overview
 
-The Tools Overview tab shows all configured connections and a complete tool inventory with descriptions, visibility status, kind, and toolkit assignment.
+The Tools Overview tab shows all configured connections and a complete tool inventory.
 
-![Tools Overview](../images/screenshots/admin-tools-overview.png)
+![Tools Overview](../images/screenshots/light/admin-admin-tools-overview-light.webp#only-light)![Tools Overview](../images/screenshots/dark/admin-admin-tools-overview-dark.webp#only-dark)
 
-Each connection card displays the toolkit type (Trino, DataHub, S3), connection name, and the tools it provides. The Tool Inventory table below lists every registered tool with its description pulled from the MCP schema.
+Each connection card displays the toolkit type (Trino, DataHub, S3), connection name, and the tools it provides. The Tool Inventory table below lists every registered tool with its description pulled from the MCP schema, visibility status, kind, and toolkit assignment.
 
 ### Explore
 
 The Explore tab provides an interactive tool execution environment for testing and debugging.
 
-![Tools Explore](../images/screenshots/admin-tools-explore.png)
+![Tools Explore](../images/screenshots/light/admin-admin-tools-explore-light.webp#only-light)![Tools Explore](../images/screenshots/dark/admin-admin-tools-explore-dark.webp#only-dark)
 
 Features:
 
-- **Tool browser** — Tools grouped by connection with search filtering
-- **Dynamic parameter form** — Auto-generated from each tool's JSON schema with type-appropriate inputs
+- **Tool browser** — Tools grouped by connection (Trino, DataHub, S3) with search filtering
+- **Dynamic parameter form** — Auto-generated from each tool's JSON schema with type-appropriate inputs (text areas for SQL, number fields for limits, dropdowns for enums)
 - **Result display** — Rendered markdown tables for structured data, with a Raw toggle for JSON output
 - **Semantic context** — Cross-injection enrichment shown below results: dataset descriptions, owners, tags, column metadata, glossary terms, and lineage sources
 - **Execution history** — Timestamped log of tool calls with duration, status, and replay capability
 
 ## Audit Log
 
+### Overview
+
+The Audit Overview tab provides platform-wide analytics across configurable time ranges.
+
+![Audit Overview](../images/screenshots/light/admin-admin-audit-overview-light.webp#only-light)![Audit Overview](../images/screenshots/dark/admin-admin-audit-overview-dark.webp#only-dark)
+
+Includes the same summary cards, activity timeline, top tools, and top users charts as the Dashboard — focused specifically on audit data with additional performance percentiles and error tracking.
+
 ### Events
 
-The Events tab provides a searchable, filterable audit log of every tool call. Click any event to open the detail drawer.
+The Events tab provides a searchable, filterable log of every tool call.
 
-![Audit Events](../images/screenshots/admin-audit-events.png)
+![Audit Events](../images/screenshots/light/admin-admin-audit-events-light.webp#only-light)![Audit Events](../images/screenshots/dark/admin-admin-audit-events-dark.webp#only-dark)
 
-The Event Detail drawer shows:
+Features:
 
-- **Identity** — User email, persona, session ID
-- **Execution** — Tool name, toolkit, connection, duration
-- **Status** — Success/failure, enrichment status
-- **Transport** — HTTP or stdio, request/response sizes, content block count
-- **Parameters** — Full request parameters as JSON
+- **Filters** — User, tool, status (success/failure), and time range dropdowns
+- **Sortable columns** — Timestamp, user, tool, toolkit, connection, duration, status, and enrichment
+- **Export** — Export CSV and Export JSON buttons
+- **Event detail drawer** — Click any row to open the full detail:
+    - **Identity** — User email, persona, session ID
+    - **Execution** — Tool name, toolkit, connection, duration
+    - **Status** — Success/failure, enrichment status
+    - **Transport** — HTTP or stdio, request/response sizes, content block count
+    - **Parameters** — Full request parameters as JSON
 
-The Events tab also supports filtering by user, tool, success status, and time range, with sortable columns.
-
-## Knowledge
+## Knowledge & Memory
 
 ### Overview
 
-The Knowledge Overview provides insight statistics, distribution charts, and recent activity.
+The Knowledge & Memory Overview provides insight and memory statistics with distribution charts.
 
-![Knowledge Overview](../images/screenshots/admin-knowledge-overview.png)
+![Knowledge Overview](../images/screenshots/light/admin-admin-knowledge-overview-light.webp#only-light)![Knowledge Overview](../images/screenshots/dark/admin-admin-knowledge-overview-dark.webp#only-dark)
 
 The overview includes:
 
-- **Summary cards** — Total insights, pending review count, approved, rejected, applied, and approval rate
-- **Status Distribution** — Donut chart showing insight lifecycle states
-- **Confidence Levels** — Distribution of low, medium, and high confidence insights
-- **Insights by Category** — Stacked bar chart across six categories: Usage Guidance, Correction, Enhancement, Relationship, Business Context, Data Quality
-- **Top Entities** — Datasets with the most associated insights, with category tags
-- **Recent Pending Insights** — Queue of insights awaiting review
-- **Recent Changesets** — Applied and rolled-back catalog changes
+- **Knowledge Capture cards** — Total insights, pending review, approved, applied, rejected, and approval rate
+- **Insight Status Distribution** — Donut chart showing insight lifecycle states (pending, approved, applied, rejected, rolled back, superseded)
+- **Memory cards** — Total memories, active, stale, and dimensions count
+- **Memory Status Distribution** — Donut chart of memory states
+- **Memory by Dimension** — Distribution across LOCOMO dimensions (knowledge, event, entity, relationship, preference)
 
-### Insights
+### Knowledge Capture
 
-The Insights tab lists all captured insights with filtering by status, category, and confidence. Click any insight to open the detail drawer for review.
+The Knowledge Capture tab lists all captured insights with filtering and admin review actions.
 
-![Knowledge Insights](../images/screenshots/admin-knowledge-insights.png)
+![Knowledge Capture](../images/screenshots/light/admin-admin-knowledge-knowledge-light.webp#only-light)![Knowledge Capture](../images/screenshots/dark/admin-admin-knowledge-knowledge-dark.webp#only-dark)
 
-The Insight Detail drawer shows:
+Features:
 
-- **Metadata** — ID, creation time, captured by, persona, category, confidence, session ID, status
-- **Insight text** — The domain knowledge observation
-- **Entity URNs** — Associated DataHub entities
-- **Suggested Actions** — Proposed catalog changes (add tags, update descriptions, add glossary terms)
-- **Related Columns** — Column-level associations with relevance
-- **Lifecycle** — Reviewer, review timestamp, applied-by, changeset reference
-- **Review Notes** — Editable textarea for review context, available regardless of insight status
-- **Actions** — Approve or Reject buttons to advance the insight through the governance workflow
+- **Summary cards** — Pending review, total insights, top category, and applied count
+- **Filters** — Status, category, and confidence dropdowns
+- **Sortable table** — Created at, captured by, category, confidence, insight text, and status
+- **Status badges** — Color-coded: pending (amber), approved (green), applied (green), rejected (red), rolled back (red), superseded (gray)
+- **Insight detail drawer** — Click any row to see full metadata, entity URNs, suggested actions, related columns, review notes, and approve/reject buttons
+
+### All Memory
+
+The All Memory tab shows every memory record across all users and sessions.
+
+![All Memory](../images/screenshots/light/admin-admin-knowledge-memory-light.webp#only-light)![All Memory](../images/screenshots/dark/admin-admin-knowledge-memory-dark.webp#only-dark)
+
+Features:
+
+- **Summary cards** — Total, active, stale, and archived counts
+- **Filters** — Dimension, category, status, and source dropdowns
+- **Sortable table** — Created, user, persona, dimension, category, content preview, status, and confidence
+- **Memory detail drawer** — Full content (rendered as markdown), entity URNs, metadata, stale reason, and archive action
+
+### Changesets
+
+The Changesets tab tracks catalog changes that resulted from approved knowledge.
+
+![Changesets](../images/screenshots/light/admin-admin-knowledge-changesets-light.webp#only-light)![Changesets](../images/screenshots/dark/admin-admin-knowledge-changesets-dark.webp#only-dark)
+
+Each changeset records what was changed, the target DataHub URN, the change type (e.g., Update Column Description), who applied it, and its status. Changesets support rollback to revert applied catalog changes.
+
+## Assets (Admin)
+
+The admin Assets page shows all platform assets across all users with search and filtering.
+
+![Admin Assets](../images/screenshots/light/admin-admin-assets-light.webp#only-light)![Admin Assets](../images/screenshots/dark/admin-admin-assets-dark.webp#only-dark)
+
+The table displays name, owner email, content type, file size, sharing status, and creation date. Click any asset to open the detail view:
+
+![Admin Asset Detail](../images/screenshots/light/admin-admin-asset-detail-light.webp#only-light)![Admin Asset Detail](../images/screenshots/dark/admin-admin-asset-detail-dark.webp#only-dark)
+
+The admin asset detail renders the asset content in a full-screen viewer with Preview/Source toggle, owner display, and management actions (Delete, Download, Share).
+
+## Resources (Admin)
+
+The admin Resources page shows managed resources across all personas and scopes.
+
+![Admin Resources](../images/screenshots/light/admin-admin-resources-light.webp#only-light)![Admin Resources](../images/screenshots/dark/admin-admin-resources-dark.webp#only-dark)
+
+Features:
+
+- **Scope tabs** — All Resources, Global, and per-persona tabs (admin, data-engineer, finance-executive, etc.)
+- **Search and filter** — Text search and category dropdown
+- **Upload** button — Upload new resources scoped to any persona
+- **Resource table** — Name, scope badge, category, MIME type, tags, file size, uploader email, and last updated date
+
+## Prompts (Admin)
+
+The admin Prompts page provides global prompt management across all scopes and personas.
+
+![Admin Prompts](../images/screenshots/light/admin-admin-prompts-light.webp#only-light)![Admin Prompts](../images/screenshots/dark/admin-admin-prompts-dark.webp#only-dark)
+
+Features:
+
+- **Scope filter** — Dropdown to filter by Global, Persona, Personal, or System scope
+- **Search** — Full-text search across name and description
+- **New Prompt** — Create prompts with scope, persona assignment, and enabled/disabled state
+- **Sortable table** — Name, scope badge, description, owner, category, and actions
+- **Scope badges** — Global (blue), Persona (purple), Personal (gray), System (amber)
+
+## Connections
+
+The Connections page manages toolkit backend instances (Trino, DataHub, S3) using a split-pane layout.
+
+![Connections](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Connections](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
+
+**Left pane** — Connection list grouped by kind (DataHub, S3, Trino), with source badges (**file** or **database**), descriptions, and tool counts.
+
+**Right pane** — Selected connection detail showing:
+
+- **Metadata** — Kind, created by, and last updated
+- **Configuration** — Key-value pairs with "Show sensitive" toggle for passwords and tokens
+- **Actions** — Edit and Delete buttons
+
+**Source tracking:**
+
+| Badge | Meaning |
+|-------|---------|
+| **file** | Defined in the YAML config file. Read-only in the admin UI. |
+| **database** | Created via the admin UI. Fully editable. |
+| **both** | Defined in config with a database override. Database version is active. |
+
+- **File connections** are read-only. Editing creates a database override (source becomes "both").
+- **Deleting a "both" connection** removes the override and reverts to the file version.
+- **+ Add Connection** at the bottom creates database-only connections.
+
+## Personas
+
+The Personas page manages role-based tool access rules and context overrides using the same split-pane layout as Connections.
+
+![Personas](../images/screenshots/light/admin-admin-personas-light.webp#only-light)![Personas](../images/screenshots/dark/admin-admin-personas-dark.webp#only-dark)
+
+**Left pane** — Persona list with display name, slug, role count, and resolved tool count.
+
+**Right pane** — Selected persona detail showing:
+
+- **Metadata** — Priority, resolved tools count, and assigned roles
+- **Tool Access Rules** — Allow patterns (green badges, e.g., `trino_*`, `datahub_*`) and deny patterns (red badges, e.g., `capture_insight`)
+- **Resolved Tools** — Expandable list of the actual tools this persona can access
+- **Context Overrides** — Description prefix and agent instructions suffix that customize AI behavior for this persona
+
+See [Personas](../personas/overview.md) for configuration details.
+
+## API Keys
+
+The Keys page manages API keys for programmatic authentication.
+
+![API Keys](../images/screenshots/light/admin-admin-keys-light.webp#only-light)![API Keys](../images/screenshots/dark/admin-admin-keys-dark.webp#only-dark)
+
+Features:
+
+- **Key table** — Name, source badge (file/database), email, description, roles badge, expiration date, and actions
+- **Expired keys** — Shown with dimmed text and "Expired" badge
+- **+ Add Key** — Create keys with name, email, description, roles, and expiration preset (Never, 24h, 7d, 30d, 90d, 1yr). The plaintext key is shown only once at creation.
+- **Delete** — Available for database-managed keys only; file keys are read-only
+- **Source badges** — Same file/database/both system as Connections
+
+## Change Log
+
+The Change Log page provides an audit trail of all configuration changes made via the admin UI.
+
+![Change Log](../images/screenshots/light/admin-admin-changelog-light.webp#only-light)![Change Log](../images/screenshots/dark/admin-admin-changelog-dark.webp#only-dark)
+
+Each entry shows:
+
+- **Config key** — The configuration path that changed (e.g., `server.description`, `server.agent_instructions`)
+- **Action** — Set (red badge) indicating a value was written
+- **Timestamp** — When the change was made
 
 ## Local Development
 
-Run the Admin Portal locally with demo data using [Mock Service Worker](https://mswjs.io/):
+Run the portal locally with demo data using [Mock Service Worker](https://mswjs.io/):
 
 ```bash
 cd ui
@@ -225,58 +309,14 @@ cd ui && npm run dev                               # Start React dev server
 
 See [`dev/README.md`](https://github.com/txn2/mcp-data-platform/blob/main/dev/README.md) for complete local development instructions.
 
-## Settings
+### Generating Screenshots
 
-The admin sidebar includes settings pages for managing Connections, Personas, API Keys, and Configuration entries. Each resource can originate from the **config file** (YAML) or the **database**, indicated by a source badge in the UI.
+Automated screenshot generation captures every portal page in light and dark modes:
 
-### Source Tracking
+```bash
+cd ui
+npm run screenshots              # Generate PNG screenshots
+npm run screenshots:convert      # Convert to optimized WebP
+```
 
-Every connection, persona, and API key displays a source badge:
-
-| Badge | Meaning |
-|-------|---------|
-| **file** | Defined in the YAML config file. Read-only in the admin UI. |
-| **database** | Created or managed via the admin UI. Fully editable. |
-| **both** | Defined in the config file with a database override. The database version is active; the file version is a fallback. |
-
-### Connections
-
-Connections represent toolkit backend instances (Trino, S3). Multi-connection toolkits (e.g., a Trino instance with cassandra, elasticsearch, and warehouse catalogs) are expanded into individual entries.
-
-- **File connections** are read-only. Edit to create a database override (source changes to "both").
-- **Deleting a "both" connection** removes the database override and reverts to the file version.
-- **Database-only connections** can be created, edited, and deleted freely.
-- The detail view shows a **DataHub Integration** section for connections with `datahub_source_name` or `catalog_mapping` configured.
-
-### Personas
-
-Personas define role-based tool access rules and context overrides for AI agents.
-
-- **File personas** cannot be deleted via the admin UI (they would reappear on restart).
-- **Editing a file persona** creates a database override (source becomes "both"). The file version is preserved as a fallback.
-- **Deleting a "both" persona** removes the database override and immediately reverts to the file version.
-- **Context overrides** (description prefix, agent instructions suffix, etc.) are nested under the "Context Overrides" section and persist correctly across reloads.
-
-### API Keys
-
-API keys provide programmatic authentication. File-based keys use plaintext comparison (fast path); database keys use bcrypt verification.
-
-- **File keys** are defined in the YAML config and cannot be deleted via the admin UI.
-- **Database keys** are created via the admin UI. The plaintext key value is shown only once at creation.
-- Keys with the same name in both file and database are deduplicated with source "both".
-
-### Configuration Entries
-
-A small set of whitelisted configuration keys (`server.description`, `server.agent_instructions`) can be overridden at runtime via the admin UI without a restart.
-
-- **File defaults** are shown when no database override exists.
-- **Database overrides** take precedence and can be reverted to restore the file default.
-
-### Migrating from File to Database Config
-
-To move a resource from file-based management to database management:
-
-1. **Edit** the resource in the admin UI — this creates a database override (source becomes "both").
-2. **Verify** the database version works correctly.
-3. **Remove** the resource definition from the YAML config file.
-4. **Restart** the server — the resource now shows source "database" only.
+Screenshots are saved to `docs/images/screenshots/light/` and `docs/images/screenshots/dark/`. See `ui/e2e/screenshots/README.md` for configuration options including custom branding.

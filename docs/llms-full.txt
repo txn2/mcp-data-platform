@@ -1720,24 +1720,18 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 
 ---
 
-# Admin Portal
+# User Portal
 
-The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.
+The user portal is the day-to-day interface for analysts, engineers, and data consumers.
+
+## Activity
+Personal tool usage analytics with configurable time ranges (1h, 6h, 24h, 7d). Summary cards (total calls, avg duration, tools used), activity timeseries chart, and top tools bar chart.
+
+## Assets
+AI-generated dashboards, reports, and visualizations saved via `save_artifact`. Grid/table view with search, content type filter (HTML, JSX, SVG, Markdown, CSV), and tag filter. Asset viewer renders each type natively: HTML/JSX as interactive components, SVG as vector graphics, Markdown with GFM+mermaid, CSV as sortable tables. Preview/Source toggle, Delete/Download/Share actions.
 
 ## Collections
-
-Collections organize related assets into curated, shareable groups with rich markdown descriptions.
-
-Structure: Collection → Sections (ordered) → Items (ordered asset references). Each level has a title and markdown description.
-
-Features:
-- Drag-and-drop reordering for sections and items within sections
-- Markdown descriptions with full GFM support (tables, code blocks, mermaid diagrams)
-- Configurable thumbnail sizes per collection (large, medium, small, none) via collection config
-- Sharing via public links (token-based, time-limited) and user shares (email, viewer/editor permission)
-- Public collection viewer renders markdown using the same content viewer bundle as single-asset shares
-- Asset content opens in full-screen modal overlay in the public viewer
-- Grid/table view toggle on the collections list page (shared localStorage key with assets)
+Curated groups of assets organized into ordered sections with markdown descriptions. Grid/table list view with search. Collection viewer renders sections with markdown, asset cards with thumbnails. Configurable thumbnail sizes (Large/Medium/Small/None). Sharing via public links (token-based, time-limited) and user shares (email, Viewer/Editor permission).
 
 Collection API endpoints:
 - CRUD: POST/GET/PUT/DELETE `/api/v1/portal/collections[/{id}]`
@@ -1746,11 +1740,26 @@ Collection API endpoints:
 - Sharing: POST/GET `/api/v1/portal/collections/{id}/shares`
 - Shared with me: GET `/api/v1/portal/shared-collections`
 - Public view: GET `/portal/view/{token}` (branches on collection vs asset)
-- Public item content: GET `/portal/view/{token}/items/{assetId}/content`
-- Public item thumbnail: GET `/portal/view/{token}/items/{assetId}/thumbnail`
-- Public item view: GET `/portal/view/{token}/items/{assetId}/view`
 
 Database tables: portal_collections, portal_collection_sections, portal_collection_items. portal_shares extended with collection_id (CHECK constraint: exactly one of asset_id/collection_id set).
+
+## Resources
+Human-uploaded reference materials (SQL templates, runbooks, checklists) accessible to AI via MCP resources/read. Scope tabs (My Resources, admin, Global), search, category filter, upload button. Table shows name, category, MIME type, tags, size, uploader, and date.
+
+## Shared With Me
+Assets and collections shared by other users. Two tabs: Assets (grid/table with content type, tags, sharer, permission badge, size, date) and Collections (table with name, sharer, access level, date).
+
+## Knowledge & Memory
+Personal view of captured insights and memories. Knowledge tab: summary cards, status filters, insight cards with category/status badges, entity URNs. Memory tab: summary cards, status/dimension filters, memory cards with markdown content.
+
+## Prompts
+Personal and available prompt templates. Two tabs: Personal (create/edit/delete own prompts) and Available (global/persona prompts). Search, sortable columns, expandable rows with full content and copy button. Scope badges: Personal, Global, Persona, System.
+
+---
+
+# Admin Portal
+
+The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.
 
 ## Dashboard
 
@@ -1780,25 +1789,57 @@ Interactive tool execution environment:
 
 ## Audit Log
 
-Searchable, filterable event log with detail drawer showing full request metadata:
+### Overview Tab
+Platform-wide analytics with summary cards, activity timeline, top tools/users charts, and performance percentiles. Same metrics as Dashboard focused on audit data.
+
+### Events Tab
+Searchable, filterable event log with export (CSV/JSON). Detail drawer showing:
 - Identity: user email, persona, session ID
 - Execution: tool name, toolkit, connection, duration
 - Status: success/failure, enrichment status
 - Transport: HTTP/stdio, request/response sizes
 - Parameters: full request parameters as JSON
 
-## Knowledge
+## Knowledge & Memory
 
 ### Overview Tab
-Insight statistics, status/confidence distribution charts, category breakdown, top entities by insight count, recent pending insights, and recent changesets.
+Knowledge capture cards (total, pending, approved, applied, rejected, approval rate) with insight status donut chart. Memory cards (total, active, stale, dimensions) with status and dimension distribution charts.
 
-### Insights Tab
-Insight list with filtering by status, category, and confidence. Detail drawer with full metadata, suggested actions, related columns, editable review notes, and approve/reject actions available regardless of insight status.
+### Knowledge Capture Tab
+All captured insights with filters (status, category, confidence). Sortable table with detail drawer: full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions.
+
+### All Memory Tab
+All memory records across users. Filters (dimension, category, status, source). Table with detail drawer: full markdown content, entity URNs, metadata, stale reason, archive action.
+
+### Changesets Tab
+Catalog changes from approved knowledge. Target URN, change type, applied by, status. Rollback support.
+
+## Assets (Admin)
+All platform assets across users. Searchable table with name, owner, type, size, sharing, date. Detail view with full asset viewer.
+
+## Resources (Admin)
+All managed resources across scopes. Scope tabs (All, Global, per-persona). Search, category filter, upload. Table with name, scope badge, category, type, tags, size, uploader, date.
+
+## Prompts (Admin)
+Global prompt management. Scope filter, search, new prompt creation with scope/persona/enabled state. Table with scope badges (Global, Persona, Personal, System).
+
+## Connections
+Split-pane layout. Left: connection list grouped by kind (DataHub, S3, Trino) with source badges (file/database). Right: detail with metadata, configuration (sensitive toggle), edit/delete. Add Connection button for database-only connections.
+
+## Personas
+Split-pane layout. Left: persona list with display name, slug, roles, tool count. Right: detail with priority, resolved tools, roles, tool access rules (allow/deny pattern badges), context overrides (description prefix, agent instructions suffix).
+
+## API Keys
+Key table with name, source badge, email, description, roles, expiration, actions. Add Key form (name, email, roles, expiration preset). Plaintext shown once at creation. Expired keys shown dimmed with badge.
+
+## Change Log
+Audit trail of configuration changes. Config key, action (set), timestamp.
 
 ## Local Development
 
 Run with mock data (no backend): `cd ui && VITE_MSW=true npm run dev`
 Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd ui && npm run dev`
+Screenshots: `cd ui && npm run screenshots && npm run screenshots:convert`
 
 ---
 
