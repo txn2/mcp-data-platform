@@ -35,7 +35,7 @@ type toolSchema struct {
 // @Success      200  {object}  toolSchemaResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /tools/schemas [get]
+// @Router       /admin/tools/schemas [get]
 func (h *Handler) getToolSchemas(w http.ResponseWriter, r *http.Request) {
 	if h.deps.MCPServer == nil {
 		writeJSON(w, http.StatusOK, toolSchemaResponse{Schemas: map[string]toolSchema{}})
@@ -108,7 +108,7 @@ type toolContentBlock struct {
 // @Failure      400   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /tools/call [post]
+// @Router       /admin/tools/call [post]
 func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 	if h.deps.MCPServer == nil {
 		writeError(w, http.StatusServiceUnavailable, "MCP server not available")

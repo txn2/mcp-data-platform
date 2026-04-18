@@ -64,7 +64,7 @@ type memoryUpdateRequest struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records [get]
+// @Router       /admin/memory/records [get]
 func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 	filter := parseMemoryFilter(r)
 	records, total, err := h.store.List(r.Context(), filter)
@@ -105,7 +105,7 @@ func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/stats [get]
+// @Router       /admin/memory/records/stats [get]
 func (h *MemoryHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	// Fetch all matching records across all pages to compute accurate stats.
 	filter := parseMemoryFilter(r)
@@ -152,7 +152,7 @@ func (h *MemoryHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [get]
+// @Router       /admin/memory/records/{id} [get]
 func (h *MemoryHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	record, err := h.store.Get(r.Context(), id)
@@ -179,7 +179,7 @@ func (h *MemoryHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [put]
+// @Router       /admin/memory/records/{id} [put]
 func (h *MemoryHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 
@@ -228,7 +228,7 @@ func (h *MemoryHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [delete]
+// @Router       /admin/memory/records/{id} [delete]
 func (h *MemoryHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 

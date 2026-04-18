@@ -46,7 +46,7 @@ type systemFeatures struct {
 // @Success      200  {object}  systemInfoResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /system/info [get]
+// @Router       /admin/system/info [get]
 func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	cfg := h.deps.Config
 	resp := systemInfoResponse{
@@ -135,7 +135,7 @@ type toolListResponse struct {
 // @Success      200  {object}  toolListResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /tools [get]
+// @Router       /admin/tools [get]
 func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 	// Build a title map from MCP ListTools if possible.
 	titleMap := h.buildToolTitleMap(r)
@@ -219,7 +219,7 @@ type connectionListResponse struct {
 // @Success      200  {object}  connectionListResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connections [get]
+// @Router       /admin/connections [get]
 func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	var allow, deny []string
 	if h.deps.Config != nil {

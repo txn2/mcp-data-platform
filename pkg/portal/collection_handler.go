@@ -20,10 +20,25 @@ const (
 // --- Create Collection ---
 
 type createCollectionRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name        string `json:"name" example:"Q4 Analysis"`
+	Description string `json:"description,omitempty" example:"Quarterly analysis collection"`
 }
 
+// createCollection handles POST /api/v1/portal/collections.
+//
+// @Summary      Create collection
+// @Description  Creates a new collection for the current user.
+// @Tags         Portal - Collections
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createCollectionRequest  true  "Collection details"
+// @Success      201  {object}  Collection
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections [post]
 func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -73,12 +88,27 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 
 type listCollectionsResponse struct {
 	Data           []Collection            `json:"data"`
-	Total          int                     `json:"total"`
-	Limit          int                     `json:"limit"`
-	Offset         int                     `json:"offset"`
+	Total          int                     `json:"total" example:"10"`
+	Limit          int                     `json:"limit" example:"20"`
+	Offset         int                     `json:"offset" example:"0"`
 	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
 }
 
+// listCollections handles GET /api/v1/portal/collections.
+//
+// @Summary      List collections
+// @Description  Returns paginated collections owned by the current user.
+// @Tags         Portal - Collections
+// @Produce      json
+// @Param        search  query  string   false  "Search term"
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  listCollectionsResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections [get]
 func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -131,10 +161,25 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 
 type getCollectionResponse struct {
 	Collection
-	IsOwner         bool            `json:"is_owner"`
-	SharePermission SharePermission `json:"share_permission,omitempty"`
+	IsOwner         bool            `json:"is_owner" example:"true"`
+	SharePermission SharePermission `json:"share_permission,omitempty" example:"viewer"`
 }
 
+// getCollection handles GET /api/v1/portal/collections/{id}.
+//
+// @Summary      Get collection
+// @Description  Returns a single collection by ID. Non-owners need share access.
+// @Tags         Portal - Collections
+// @Produce      json
+// @Param        id  path  string  true  "Collection ID"
+// @Success      200  {object}  getCollectionResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id} [get]
 func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -193,10 +238,28 @@ func (h *Handler) collectionSharePermission(r *http.Request, collectionID string
 // --- Update Collection ---
 
 type updateCollectionRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty" example:"Updated Collection Name"`
+	Description *string `json:"description,omitempty" example:"Updated description"`
 }
 
+// updateCollection handles PUT /api/v1/portal/collections/{id}.
+//
+// @Summary      Update collection
+// @Description  Updates a collection's name and/or description. Only the owner can update.
+// @Tags         Portal - Collections
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                    true  "Collection ID"
+// @Param        body  body  updateCollectionRequest    true  "Fields to update"
+// @Success      200  {object}  Collection
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id} [put]
 func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -264,6 +327,20 @@ func resolveCollectionUpdate(coll *Collection, req updateCollectionRequest) (res
 
 // --- Delete Collection ---
 
+// deleteCollection handles DELETE /api/v1/portal/collections/{id}.
+//
+// @Summary      Delete collection
+// @Description  Soft-deletes a collection. Only the owner can delete.
+// @Tags         Portal - Collections
+// @Param        id  path  string  true  "Collection ID"
+// @Success      204
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id} [delete]
 func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -292,6 +369,24 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 
 // --- Update Config ---
 
+// updateCollectionConfig handles PUT /api/v1/portal/collections/{id}/config.
+//
+// @Summary      Update collection config
+// @Description  Updates the collection's display configuration. Only the owner can update.
+// @Tags         Portal - Collections
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string            true  "Collection ID"
+// @Param        body  body  CollectionConfig  true  "Configuration object"
+// @Success      200  {object}  Collection
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/config [put]
 func (h *Handler) updateCollectionConfig(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -337,15 +432,33 @@ type setSectionsRequest struct {
 }
 
 type sectionInput struct {
-	Title       string      `json:"title"`
-	Description string      `json:"description,omitempty"`
+	Title       string      `json:"title" example:"Key Findings"`
+	Description string      `json:"description,omitempty" example:"Summary of key findings"`
 	Items       []itemInput `json:"items"`
 }
 
 type itemInput struct {
-	AssetID string `json:"asset_id"`
+	AssetID string `json:"asset_id" example:"550e8400-e29b-41d4-a716-446655440000"`
 }
 
+// setCollectionSections handles PUT /api/v1/portal/collections/{id}/sections.
+//
+// @Summary      Set collection sections
+// @Description  Replaces all sections and items in a collection. Only the owner can modify.
+// @Tags         Portal - Collections
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Collection ID"
+// @Param        body  body  setSectionsRequest  true  "Sections with items"
+// @Success      200  {object}  Collection
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/sections [put]
 func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -431,6 +544,25 @@ func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
 
 // --- Collection Thumbnail ---
 
+// uploadCollectionThumbnail handles PUT /api/v1/portal/collections/{id}/thumbnail.
+//
+// @Summary      Upload collection thumbnail
+// @Description  Uploads a PNG thumbnail image for the collection. Only the owner can upload.
+// @Tags         Portal - Collections
+// @Accept       png
+// @Produce      json
+// @Param        id    path  string  true  "Collection ID"
+// @Param        body  body  []byte  true  "PNG image data"
+// @Success      204
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/thumbnail [put]
 func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -478,6 +610,20 @@ func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// getCollectionThumbnail handles GET /api/v1/portal/collections/{id}/thumbnail.
+//
+// @Summary      Get collection thumbnail
+// @Description  Downloads the collection's PNG thumbnail image.
+// @Tags         Portal - Collections
+// @Produce      png
+// @Param        id  path  string  true  "Collection ID"
+// @Success      200  {file}  binary
+// @Failure      401  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/thumbnail [get]
 func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -510,6 +656,24 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 
 // --- Collection Sharing ---
 
+// createCollectionShare handles POST /api/v1/portal/collections/{id}/shares.
+//
+// @Summary      Create collection share
+// @Description  Creates a share link or user-targeted share for a collection. Only the owner can share.
+// @Tags         Portal - Shares
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Collection ID"
+// @Param        body  body  createShareRequest  true  "Share configuration"
+// @Success      201  {object}  shareResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/shares [post]
 func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -553,6 +717,21 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// listCollectionShares handles GET /api/v1/portal/collections/{id}/shares.
+//
+// @Summary      List collection shares
+// @Description  Returns all shares for a collection. Only the owner can view shares.
+// @Tags         Portal - Shares
+// @Produce      json
+// @Param        id  path  string  true  "Collection ID"
+// @Success      200  {array}   Share
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/collections/{id}/shares [get]
 func (h *Handler) listCollectionShares(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -587,11 +766,25 @@ func (h *Handler) listCollectionShares(w http.ResponseWriter, r *http.Request) {
 
 type listSharedCollectionsResponse struct {
 	Data   []SharedCollection `json:"data"`
-	Total  int                `json:"total"`
-	Limit  int                `json:"limit"`
-	Offset int                `json:"offset"`
+	Total  int                `json:"total" example:"5"`
+	Limit  int                `json:"limit" example:"20"`
+	Offset int                `json:"offset" example:"0"`
 }
 
+// listSharedCollections handles GET /api/v1/portal/shared-collections.
+//
+// @Summary      List collections shared with me
+// @Description  Returns paginated collections that other users have shared with the current user.
+// @Tags         Portal - Shares
+// @Produce      json
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  listSharedCollectionsResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/shared-collections [get]
 func (h *Handler) listSharedCollections(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {

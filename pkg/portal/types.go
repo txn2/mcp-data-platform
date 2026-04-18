@@ -16,26 +16,26 @@ const MaxThumbnailUploadBytes = 512 << 10
 
 // AssetCollectionRef is a lightweight reference to a collection that contains an asset.
 type AssetCollectionRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID   string `json:"id" example:"col_01HK7R8Z"`
+	Name string `json:"name" example:"Q4 Performance Review"`
 }
 
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
-	ID             string               `json:"id"`
-	OwnerID        string               `json:"owner_id"`
-	OwnerEmail     string               `json:"owner_email"`
-	Name           string               `json:"name"`
-	Description    string               `json:"description,omitempty"`
-	ContentType    string               `json:"content_type"`
-	S3Bucket       string               `json:"s3_bucket"`
-	S3Key          string               `json:"s3_key"`
-	ThumbnailS3Key string               `json:"thumbnail_s3_key,omitempty"`
-	SizeBytes      int64                `json:"size_bytes"`
+	ID             string               `json:"id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	OwnerID        string               `json:"owner_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	OwnerEmail     string               `json:"owner_email" example:"alice@example.com"`
+	Name           string               `json:"name" example:"Q4 Revenue Dashboard"`
+	Description    string               `json:"description,omitempty" example:"Interactive revenue breakdown by region"`
+	ContentType    string               `json:"content_type" example:"text/html"`
+	S3Bucket       string               `json:"s3_bucket" example:"portal-assets"`
+	S3Key          string               `json:"s3_key" example:"assets/01HK7R8Z/content.html"`
+	ThumbnailS3Key string               `json:"thumbnail_s3_key,omitempty" example:"assets/01HK7R8Z/thumb.png"`
+	SizeBytes      int64                `json:"size_bytes" example:"4200"`
 	Tags           []string             `json:"tags"`
 	Provenance     Provenance           `json:"provenance"`
-	SessionID      string               `json:"session_id,omitempty"`
-	CurrentVersion int                  `json:"current_version"`
+	SessionID      string               `json:"session_id,omitempty" example:"sess_abc123"`
+	CurrentVersion int                  `json:"current_version" example:"1"`
 	Collections    []AssetCollectionRef `json:"collections,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`
 	UpdatedAt      time.Time            `json:"updated_at"`
@@ -44,15 +44,15 @@ type Asset struct {
 
 // AssetVersion records a single version of an asset's content.
 type AssetVersion struct {
-	ID            string    `json:"id"`
-	AssetID       string    `json:"asset_id"`
-	Version       int       `json:"version"`
-	S3Key         string    `json:"s3_key"`
-	S3Bucket      string    `json:"s3_bucket"`
-	ContentType   string    `json:"content_type"`
-	SizeBytes     int64     `json:"size_bytes"`
-	CreatedBy     string    `json:"created_by"`
-	ChangeSummary string    `json:"change_summary"`
+	ID            string    `json:"id" example:"ver_01HK7R9A"`
+	AssetID       string    `json:"asset_id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Version       int       `json:"version" example:"2"`
+	S3Key         string    `json:"s3_key" example:"assets/01HK7R8Z/v2/content.html"`
+	S3Bucket      string    `json:"s3_bucket" example:"portal-assets"`
+	ContentType   string    `json:"content_type" example:"text/html"`
+	SizeBytes     int64     `json:"size_bytes" example:"4500"`
+	CreatedBy     string    `json:"created_by" example:"alice@example.com"`
+	ChangeSummary string    `json:"change_summary" example:"Updated regional breakdown chart"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
@@ -77,14 +77,14 @@ func ExtensionForContentType(ct string) string {
 // Provenance records the tool call history that produced an artifact.
 type Provenance struct {
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`
-	SessionID string               `json:"session_id,omitempty"`
-	UserID    string               `json:"user_id,omitempty"`
+	SessionID string               `json:"session_id,omitempty" example:"sess_abc123"`
+	UserID    string               `json:"user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 }
 
 // ProvenanceToolCall records a single tool invocation in the provenance chain.
 type ProvenanceToolCall struct {
-	ToolName   string         `json:"tool_name"`
-	Timestamp  string         `json:"timestamp"`
+	ToolName   string         `json:"tool_name" example:"trino_query"`
+	Timestamp  string         `json:"timestamp" example:"2026-04-15T14:30:00Z"`
 	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
@@ -106,19 +106,19 @@ func ValidSharePermission(p string) bool {
 // Share represents a share link for an asset or collection.
 // Exactly one of AssetID or CollectionID is set.
 type Share struct {
-	ID               string          `json:"id"`
-	AssetID          string          `json:"asset_id,omitempty"`
+	ID               string          `json:"id" example:"share_01HK7R9B"`
+	AssetID          string          `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
 	CollectionID     string          `json:"collection_id,omitempty"`
-	Token            string          `json:"token"`
-	CreatedBy        string          `json:"created_by"`
+	Token            string          `json:"token" example:"tk_a1b2c3d4e5f6"`
+	CreatedBy        string          `json:"created_by" example:"alice@example.com"`
 	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
-	SharedWithEmail  string          `json:"shared_with_email,omitempty"`
-	Permission       SharePermission `json:"permission"`
+	SharedWithEmail  string          `json:"shared_with_email,omitempty" example:"bob@example.com"`
+	Permission       SharePermission `json:"permission" example:"viewer"`
 	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
-	Revoked          bool            `json:"revoked"`
-	HideExpiration   bool            `json:"hide_expiration"`
-	NoticeText       string          `json:"notice_text"`
-	AccessCount      int             `json:"access_count"`
+	Revoked          bool            `json:"revoked" example:"false"`
+	HideExpiration   bool            `json:"hide_expiration" example:"false"`
+	NoticeText       string          `json:"notice_text" example:"Proprietary & Confidential"`
+	AccessCount      int             `json:"access_count" example:"3"`
 	LastAccessedAt   *time.Time      `json:"last_accessed_at,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 }
@@ -126,16 +126,16 @@ type Share struct {
 // SharedAsset combines an Asset with share metadata for "shared with me" results.
 type SharedAsset struct {
 	Asset      Asset           `json:"asset"`
-	ShareID    string          `json:"share_id"`
-	SharedBy   string          `json:"shared_by"`
+	ShareID    string          `json:"share_id" example:"share_01HK7R9B"`
+	SharedBy   string          `json:"shared_by" example:"alice@example.com"`
 	SharedAt   time.Time       `json:"shared_at"`
-	Permission SharePermission `json:"permission"`
+	Permission SharePermission `json:"permission" example:"viewer"`
 }
 
 // ShareSummary indicates what kinds of active shares exist for an asset.
 type ShareSummary struct {
-	HasUserShare  bool `json:"has_user_share"`
-	HasPublicLink bool `json:"has_public_link"`
+	HasUserShare  bool `json:"has_user_share" example:"true"`
+	HasPublicLink bool `json:"has_public_link" example:"false"`
 }
 
 // AssetFilter defines filtering criteria for listing assets.
@@ -256,16 +256,16 @@ func ValidateChangeSummary(s string) error {
 
 // CollectionConfig holds extensible per-collection settings.
 type CollectionConfig struct {
-	ThumbnailSize string `json:"thumbnail_size,omitempty"` // "large", "medium", "small", "none"
+	ThumbnailSize string `json:"thumbnail_size,omitempty" example:"medium"` // "large", "medium", "small", "none"
 }
 
 // Collection represents a curated, ordered group of assets organized into sections.
 type Collection struct {
-	ID             string              `json:"id"`
-	OwnerID        string              `json:"owner_id"`
-	OwnerEmail     string              `json:"owner_email"`
-	Name           string              `json:"name"`
-	Description    string              `json:"description"`
+	ID             string              `json:"id" example:"col_01HK7R8Z"`
+	OwnerID        string              `json:"owner_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	OwnerEmail     string              `json:"owner_email" example:"alice@example.com"`
+	Name           string              `json:"name" example:"Q4 Performance Review"`
+	Description    string              `json:"description" example:"Executive collection with revenue dashboards"`
 	ThumbnailS3Key string              `json:"thumbnail_s3_key,omitempty"`
 	Config         CollectionConfig    `json:"config"`
 	Sections       []CollectionSection `json:"sections"`
@@ -277,11 +277,11 @@ type Collection struct {
 
 // CollectionSection is an ordered section within a collection.
 type CollectionSection struct {
-	ID           string           `json:"id"`
-	CollectionID string           `json:"collection_id"`
-	Title        string           `json:"title"`
-	Description  string           `json:"description"`
-	Position     int              `json:"position"`
+	ID           string           `json:"id" example:"sec_01HK7R9C"`
+	CollectionID string           `json:"collection_id" example:"col_01HK7R8Z"`
+	Title        string           `json:"title" example:"Overview"`
+	Description  string           `json:"description" example:"High-level revenue and KPI snapshots"`
+	Position     int              `json:"position" example:"0"`
 	Items        []CollectionItem `json:"items"`
 	CreatedAt    time.Time        `json:"created_at"`
 }
@@ -289,14 +289,14 @@ type CollectionSection struct {
 // CollectionItem is an ordered reference to an asset within a section.
 // Asset* fields are populated by the store on read (JOIN with portal_assets).
 type CollectionItem struct {
-	ID               string    `json:"id"`
-	SectionID        string    `json:"section_id"`
-	AssetID          string    `json:"asset_id"`
-	Position         int       `json:"position"`
-	AssetName        string    `json:"asset_name,omitempty"`
-	AssetContentType string    `json:"asset_content_type,omitempty"`
+	ID               string    `json:"id" example:"item_01HK7R9D"`
+	SectionID        string    `json:"section_id" example:"sec_01HK7R9C"`
+	AssetID          string    `json:"asset_id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Position         int       `json:"position" example:"0"`
+	AssetName        string    `json:"asset_name,omitempty" example:"Q4 Revenue Dashboard"`
+	AssetContentType string    `json:"asset_content_type,omitempty" example:"text/html"`
 	AssetThumbnail   string    `json:"asset_thumbnail_s3_key,omitempty"`
-	AssetDescription string    `json:"asset_description,omitempty"`
+	AssetDescription string    `json:"asset_description,omitempty" example:"Interactive revenue breakdown"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -322,10 +322,10 @@ func (f *CollectionFilter) EffectiveLimit() int {
 // SharedCollection combines a Collection with share metadata.
 type SharedCollection struct {
 	Collection Collection      `json:"collection"`
-	ShareID    string          `json:"share_id"`
-	SharedBy   string          `json:"shared_by"`
+	ShareID    string          `json:"share_id" example:"share_01HK7R9E"`
+	SharedBy   string          `json:"shared_by" example:"alice@example.com"`
 	SharedAt   time.Time       `json:"shared_at"`
-	Permission SharePermission `json:"permission"`
+	Permission SharePermission `json:"permission" example:"viewer"`
 }
 
 // maxCollectionDescriptionLength is the maximum length for collection descriptions.

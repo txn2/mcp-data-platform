@@ -195,8 +195,44 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 	}, nil
 }
 
+// errorResponse is the JSON error envelope returned by all error responses.
+// Used by swagger annotations only.
+type errorResponse struct { //nolint:unused // swagger model
+	Error string `json:"error" example:"descriptive error message"`
+}
+
+// listResponse is the JSON envelope returned by the list endpoint.
+// Used by swagger annotations only.
+type listResponse struct { //nolint:unused // swagger model
+	Resources []Resource `json:"resources"`
+	Total     int        `json:"total" example:"42"`
+}
+
 // --- Create ---
 
+// handleCreate handles POST /api/v1/resources.
+//
+// @Summary      Create resource
+// @Description  Upload a new managed resource with metadata and file content.
+// @Tags         Resources
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file         formData  file    true   "File to upload (max 100 MB)"
+// @Param        display_name formData  string  true   "Human-readable display name"
+// @Param        scope        formData  string  true   "Visibility scope"  Enums(global, persona, user)
+// @Param        scope_id     formData  string  false  "Persona name or user sub (required for persona/user scopes)"
+// @Param        category     formData  string  true   "Resource category (e.g. runbooks, templates)"
+// @Param        description  formData  string  false  "Optional description"
+// @Param        tags         formData  []string false  "Optional tags" collectionFormat(multi)
+// @Success      201  {object}  resource.Resource
+// @Failure      400  {object}  resource.errorResponse
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      403  {object}  resource.errorResponse
+// @Failure      409  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources [post]
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
@@ -306,6 +342,24 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 	return narrowed
 }
 
+// handleList handles GET /api/v1/resources.
+//
+// @Summary      List resources
+// @Description  List managed resources visible to the caller, with optional filters.
+// @Tags         Resources
+// @Produce      json
+// @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
+// @Param        scope_id query  string  false  "Filter by scope ID (persona name or user sub)"
+// @Param        category query  string  false  "Filter by category"
+// @Param        tag      query  string  false  "Filter by tag"
+// @Param        q        query  string  false  "Search display_name and description"
+// @Param        offset   query  int     false  "Pagination offset (default 0)"
+// @Success      200  {object}  resource.listResponse
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources [get]
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
@@ -352,6 +406,19 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 // --- Get ---
 
+// handleGet handles GET /api/v1/resources/{id}.
+//
+// @Summary      Get resource
+// @Description  Retrieve metadata for a single managed resource by ID.
+// @Tags         Resources
+// @Produce      json
+// @Param        id   path  string  true  "Resource ID"
+// @Success      200  {object}  resource.Resource
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      404  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id} [get]
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
@@ -385,6 +452,21 @@ func sanitizeContentType(ct string) string {
 	return mediaType
 }
 
+// handleGetContent handles GET /api/v1/resources/{id}/content.
+//
+// @Summary      Download resource content
+// @Description  Download the binary content of a managed resource.
+// @Tags         Resources
+// @Produce      octet-stream
+// @Param        id   path  string  true  "Resource ID"
+// @Success      200  {file}  binary
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      404  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Failure      503  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id}/content [get]
 func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
@@ -458,6 +540,24 @@ func validateUpdate(u Update) error {
 	return nil
 }
 
+// handleUpdate handles PATCH /api/v1/resources/{id}.
+//
+// @Summary      Update resource
+// @Description  Update mutable metadata fields of a managed resource.
+// @Tags         Resources
+// @Accept       json
+// @Produce      json
+// @Param        id   path  string           true  "Resource ID"
+// @Param        body body  resource.Update   true  "Fields to update"
+// @Success      200  {object}  resource.Resource
+// @Failure      400  {object}  resource.errorResponse
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      403  {object}  resource.errorResponse
+// @Failure      404  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id} [patch]
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {
@@ -508,6 +608,20 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 // --- Delete ---
 
+// handleDelete handles DELETE /api/v1/resources/{id}.
+//
+// @Summary      Delete resource
+// @Description  Delete a managed resource, removing both the S3 blob and database metadata.
+// @Tags         Resources
+// @Param        id   path  string  true  "Resource ID"
+// @Success      204  "No Content"
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      403  {object}  resource.errorResponse
+// @Failure      404  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id} [delete]
 func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.extractFn(r)
 	if err != nil {

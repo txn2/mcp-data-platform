@@ -48,7 +48,7 @@ type authKeyListResponse struct {
 // @Success      200  {object}  authKeyListResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /auth/keys [get]
+// @Router       /admin/auth/keys [get]
 func (h *Handler) listAuthKeys(w http.ResponseWriter, _ *http.Request) {
 	keys := h.deps.APIKeyManager.ListKeys()
 	writeJSON(w, http.StatusOK, authKeyListResponse{Keys: keys, Total: len(keys)})
@@ -67,7 +67,7 @@ func (h *Handler) listAuthKeys(w http.ResponseWriter, _ *http.Request) {
 // @Failure      409  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /auth/keys [post]
+// @Router       /admin/auth/keys [post]
 func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 	var req authKeyCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -141,7 +141,7 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /auth/keys/{name} [delete]
+// @Router       /admin/auth/keys/{name} [delete]
 func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 

@@ -138,13 +138,12 @@ type statusResponse struct {
 	Status string `json:"status" example:"ok"`
 }
 
-// @title MCP Data Platform Admin API
+// @title MCP Data Platform API
 // @version 1.0
-// @description Administrative REST API for managing the MCP Data Platform.
-// @description Endpoints cover system info, configuration, personas, auth keys, audit logs, and knowledge management.
+// @description REST API for the MCP Data Platform. Covers admin endpoints (system, config, personas, auth keys, audit, knowledge, memory, connections), portal endpoints (assets, collections, shares, prompts, activity), and resource management.
 //
 // @host localhost:8080
-// @BasePath /api/v1/admin
+// @BasePath /api/v1
 //
 // @securityDefinitions.apikey ApiKeyAuth
 // @in header

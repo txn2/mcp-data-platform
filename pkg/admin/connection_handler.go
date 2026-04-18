@@ -61,7 +61,7 @@ func (h *Handler) registerConnectionRoutes() {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances [get]
+// @Router       /admin/connection-instances [get]
 func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request) {
 	instances, err := h.deps.ConnectionStore.List(r.Context())
 	if err != nil {
@@ -90,7 +90,7 @@ func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request
 // @Failure      500   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [get]
+// @Router       /admin/connection-instances/{kind}/{name} [get]
 func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
@@ -129,7 +129,7 @@ type setConnectionInstanceRequest struct {
 // @Failure      500   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [put]
+// @Router       /admin/connection-instances/{kind}/{name} [put]
 func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
@@ -197,7 +197,7 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [delete]
+// @Router       /admin/connection-instances/{kind}/{name} [delete]
 func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")

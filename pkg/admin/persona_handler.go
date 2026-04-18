@@ -78,7 +78,7 @@ type personaListResponse struct {
 // @Success      200  {object}  personaListResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /personas [get]
+// @Router       /admin/personas [get]
 func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 	all := h.deps.PersonaRegistry.All()
 	summaries := make([]personaSummary, 0, len(all))
@@ -118,7 +118,7 @@ func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /personas/{name} [get]
+// @Router       /admin/personas/{name} [get]
 func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	p, ok := h.deps.PersonaRegistry.Get(name)
@@ -159,7 +159,7 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /personas [post]
+// @Router       /admin/personas [post]
 func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	var req personaCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -218,7 +218,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /personas/{name} [put]
+// @Router       /admin/personas/{name} [put]
 func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
@@ -273,7 +273,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 // @Failure      409  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /personas/{name} [delete]
+// @Router       /admin/personas/{name} [delete]
 func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 

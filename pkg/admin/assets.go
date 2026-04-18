@@ -91,9 +91,9 @@ func (h *Handler) listAllAssets(w http.ResponseWriter, r *http.Request) {
 // adminAssetListResponse is the paginated response for admin asset listing.
 type adminAssetListResponse struct {
 	Data           []portal.Asset                 `json:"data"`
-	Total          int                            `json:"total"`
-	Limit          int                            `json:"limit"`
-	Offset         int                            `json:"offset"`
+	Total          int                            `json:"total" example:"10"`
+	Limit          int                            `json:"limit" example:"20"`
+	Offset         int                            `json:"offset" example:"0"`
 	ShareSummaries map[string]portal.ShareSummary `json:"share_summaries,omitempty"`
 }
 
@@ -366,9 +366,9 @@ func (h *Handler) listAdminVersions(w http.ResponseWriter, r *http.Request) {
 // adminVersionListResponse is the paginated response for version listing.
 type adminVersionListResponse struct {
 	Data   []portal.AssetVersion `json:"data"`
-	Total  int                   `json:"total"`
-	Limit  int                   `json:"limit"`
-	Offset int                   `json:"offset"`
+	Total  int                   `json:"total" example:"3"`
+	Limit  int                   `json:"limit" example:"20"`
+	Offset int                   `json:"offset" example:"0"`
 }
 
 // getAdminVersionContent returns content for a specific version.

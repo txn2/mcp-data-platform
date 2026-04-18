@@ -1,4 +1,4 @@
-basePath: /api/v1/admin
+basePath: /api/v1
 definitions:
   admin.auditEventResponse:
     properties:
@@ -591,60 +591,83 @@ definitions:
   audit.BreakdownEntry:
     properties:
       avg_duration_ms:
+        example: 320
         type: number
       count:
+        example: 65
         type: integer
       dimension:
+        example: trino_query
         type: string
       success_rate:
+        example: 0.95
         type: number
     type: object
   audit.DiscoveryStats:
     properties:
       discovery_before_query:
+        example: 60
         type: integer
       discovery_rate:
+        example: 0.75
         type: number
       discovery_sessions:
+        example: 75
         type: integer
       query_sessions:
+        example: 80
         type: integer
       query_without_discovery:
+        example: 20
         type: integer
       top_discovery_tools:
         items:
           $ref: '#/definitions/audit.BreakdownEntry'
         type: array
       total_sessions:
+        example: 100
         type: integer
     type: object
   audit.EnrichmentStats:
     properties:
       avg_tokens_dedup:
+        example: 100
         type: number
       avg_tokens_full:
+        example: 375
         type: number
       enriched_calls:
+        example: 1200
         type: integer
       enrichment_rate:
+        example: 0.8
         type: number
       full_count:
+        example: 800
         type: integer
       none_count:
+        example: 0
         type: integer
       reference_count:
+        example: 100
         type: integer
       summary_count:
+        example: 300
         type: integer
       tokens_saved:
+        example: 330000
         type: integer
       total_calls:
+        example: 1500
         type: integer
       total_tokens_dedup:
+        example: 120000
         type: integer
       total_tokens_full:
+        example: 450000
         type: integer
       unique_sessions:
+        example: 45
         type: integer
     type: object
   audit.Event:
@@ -727,48 +750,67 @@ definitions:
   audit.Overview:
     properties:
       avg_duration_ms:
+        example: 522
         type: number
       enrichment_rate:
+        example: 0.85
         type: number
       error_count:
+        example: 10
         type: integer
       success_rate:
+        example: 0.949
         type: number
       total_calls:
+        example: 196
         type: integer
       unique_tools:
+        example: 12
         type: integer
       unique_users:
+        example: 12
         type: integer
     type: object
   audit.PerformanceStats:
     properties:
       avg_ms:
+        example: 522
         type: number
       avg_request_chars:
+        example: 120
         type: number
       avg_response_chars:
+        example: 1850
         type: number
       max_ms:
+        example: 5200
         type: number
       p50_ms:
+        example: 320
         type: number
       p95_ms:
+        example: 1450
         type: number
       p99_ms:
+        example: 2400
         type: number
     type: object
   audit.TimeseriesBucket:
     properties:
       avg_duration_ms:
+        example: 245.5
         type: number
       bucket:
+        example: "2026-04-15T14:30:00Z"
         type: string
       count:
+        example: 12
         type: integer
       error_count:
+        example: 1
         type: integer
       success_count:
+        example: 11
         type: integer
     type: object
   auth.APIKeySummary:
@@ -796,6 +838,25 @@ definitions:
       source:
         description: '"file", "database", or "both"'
         example: database
+        type: string
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_portal.itemInput:
+    properties:
+      asset_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_portal.sectionInput:
+    properties:
+      description:
+        example: Summary of key findings
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.itemInput'
+        type: array
+      title:
+        example: Key Findings
         type: string
     type: object
   knowledge.Changeset:
@@ -1048,16 +1109,759 @@ definitions:
         example: "2026-01-15T14:30:00Z"
         type: string
     type: object
+  portal.Asset:
+    properties:
+      collections:
+        items:
+          $ref: '#/definitions/portal.AssetCollectionRef'
+        type: array
+      content_type:
+        example: text/html
+        type: string
+      created_at:
+        type: string
+      current_version:
+        example: 1
+        type: integer
+      deleted_at:
+        type: string
+      description:
+        example: Interactive revenue breakdown by region
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      name:
+        example: Q4 Revenue Dashboard
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      provenance:
+        $ref: '#/definitions/portal.Provenance'
+      s3_bucket:
+        example: portal-assets
+        type: string
+      s3_key:
+        example: assets/01HK7R8Z/content.html
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      size_bytes:
+        example: 4200
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      thumbnail_s3_key:
+        example: assets/01HK7R8Z/thumb.png
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portal.AssetCollectionRef:
+    properties:
+      id:
+        example: col_01HK7R8Z
+        type: string
+      name:
+        example: Q4 Performance Review
+        type: string
+    type: object
+  portal.Collection:
+    properties:
+      asset_tags:
+        items:
+          type: string
+        type: array
+      config:
+        $ref: '#/definitions/portal.CollectionConfig'
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        example: Executive collection with revenue dashboards
+        type: string
+      id:
+        example: col_01HK7R8Z
+        type: string
+      name:
+        example: Q4 Performance Review
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/portal.CollectionSection'
+        type: array
+      thumbnail_s3_key:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portal.CollectionConfig:
+    properties:
+      thumbnail_size:
+        description: '"large", "medium", "small", "none"'
+        example: medium
+        type: string
+    type: object
+  portal.CollectionItem:
+    properties:
+      asset_content_type:
+        example: text/html
+        type: string
+      asset_description:
+        example: Interactive revenue breakdown
+        type: string
+      asset_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      asset_name:
+        example: Q4 Revenue Dashboard
+        type: string
+      asset_thumbnail_s3_key:
+        type: string
+      created_at:
+        type: string
+      id:
+        example: item_01HK7R9D
+        type: string
+      position:
+        example: 0
+        type: integer
+      section_id:
+        example: sec_01HK7R9C
+        type: string
+    type: object
+  portal.CollectionSection:
+    properties:
+      collection_id:
+        example: col_01HK7R8Z
+        type: string
+      created_at:
+        type: string
+      description:
+        example: High-level revenue and KPI snapshots
+        type: string
+      id:
+        example: sec_01HK7R9C
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/portal.CollectionItem'
+        type: array
+      position:
+        example: 0
+        type: integer
+      title:
+        example: Overview
+        type: string
+    type: object
+  portal.Provenance:
+    properties:
+      session_id:
+        example: sess_abc123
+        type: string
+      tool_calls:
+        items:
+          $ref: '#/definitions/portal.ProvenanceToolCall'
+        type: array
+      user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  portal.ProvenanceToolCall:
+    properties:
+      parameters:
+        additionalProperties: {}
+        type: object
+      timestamp:
+        example: "2026-04-15T14:30:00Z"
+        type: string
+      tool_name:
+        example: trino_query
+        type: string
+    type: object
+  portal.Share:
+    properties:
+      access_count:
+        example: 3
+        type: integer
+      asset_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      collection_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: alice@example.com
+        type: string
+      expires_at:
+        type: string
+      hide_expiration:
+        example: false
+        type: boolean
+      id:
+        example: share_01HK7R9B
+        type: string
+      last_accessed_at:
+        type: string
+      notice_text:
+        example: Proprietary & Confidential
+        type: string
+      permission:
+        allOf:
+        - $ref: '#/definitions/portal.SharePermission'
+        example: viewer
+      revoked:
+        example: false
+        type: boolean
+      shared_with_email:
+        example: bob@example.com
+        type: string
+      shared_with_user_id:
+        type: string
+      token:
+        example: tk_a1b2c3d4e5f6
+        type: string
+    type: object
+  portal.SharePermission:
+    enum:
+    - viewer
+    - editor
+    type: string
+    x-enum-varnames:
+    - PermissionViewer
+    - PermissionEditor
+  portal.ShareSummary:
+    properties:
+      has_public_link:
+        example: false
+        type: boolean
+      has_user_share:
+        example: true
+        type: boolean
+    type: object
+  portal.SharedCollection:
+    properties:
+      collection:
+        $ref: '#/definitions/portal.Collection'
+      permission:
+        allOf:
+        - $ref: '#/definitions/portal.SharePermission'
+        example: viewer
+      share_id:
+        example: share_01HK7R9E
+        type: string
+      shared_at:
+        type: string
+      shared_by:
+        example: alice@example.com
+        type: string
+    type: object
+  portal.assetResponse:
+    properties:
+      collections:
+        items:
+          $ref: '#/definitions/portal.AssetCollectionRef'
+        type: array
+      content_type:
+        example: text/html
+        type: string
+      created_at:
+        type: string
+      current_version:
+        example: 1
+        type: integer
+      deleted_at:
+        type: string
+      description:
+        example: Interactive revenue breakdown by region
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      is_owner:
+        example: true
+        type: boolean
+      name:
+        example: Q4 Revenue Dashboard
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      provenance:
+        $ref: '#/definitions/portal.Provenance'
+      s3_bucket:
+        example: portal-assets
+        type: string
+      s3_key:
+        example: assets/01HK7R8Z/content.html
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      share_permission:
+        allOf:
+        - $ref: '#/definitions/portal.SharePermission'
+        example: viewer
+      size_bytes:
+        example: 4200
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      thumbnail_s3_key:
+        example: assets/01HK7R8Z/thumb.png
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portal.createCollectionRequest:
+    properties:
+      description:
+        example: Quarterly analysis collection
+        type: string
+      name:
+        example: Q4 Analysis
+        type: string
+    type: object
+  portal.createShareRequest:
+    properties:
+      expires_in:
+        description: duration string, e.g. "24h"
+        example: 24h
+        type: string
+      hide_expiration:
+        example: false
+        type: boolean
+      notice_text:
+        description: nil = default, "" = hidden, custom = as-is
+        example: Confidential
+        type: string
+      permission:
+        description: '"viewer" (default) or "editor"'
+        example: viewer
+        type: string
+      shared_with_email:
+        example: colleague@example.com
+        type: string
+      shared_with_user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  portal.getCollectionResponse:
+    properties:
+      asset_tags:
+        items:
+          type: string
+        type: array
+      config:
+        $ref: '#/definitions/portal.CollectionConfig'
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        example: Executive collection with revenue dashboards
+        type: string
+      id:
+        example: col_01HK7R8Z
+        type: string
+      is_owner:
+        example: true
+        type: boolean
+      name:
+        example: Q4 Performance Review
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/portal.CollectionSection'
+        type: array
+      share_permission:
+        allOf:
+        - $ref: '#/definitions/portal.SharePermission'
+        example: viewer
+      thumbnail_s3_key:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portal.listCollectionsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portal.Collection'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      share_summaries:
+        additionalProperties:
+          $ref: '#/definitions/portal.ShareSummary'
+        type: object
+      total:
+        example: 10
+        type: integer
+    type: object
+  portal.listSharedCollectionsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portal.SharedCollection'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 5
+        type: integer
+    type: object
+  portal.meResponse:
+    properties:
+      email:
+        example: analyst@example.com
+        type: string
+      is_admin:
+        example: false
+        type: boolean
+      persona:
+        example: analyst
+        type: string
+      roles:
+        example:
+        - analyst
+        - data_engineer
+        items:
+          type: string
+        type: array
+      tools:
+        example:
+        - trino_query
+        - datahub_search
+        items:
+          type: string
+        type: array
+      user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  portal.memoryStatsResponse:
+    properties:
+      by_category:
+        additionalProperties:
+          type: integer
+        type: object
+      by_dimension:
+        additionalProperties:
+          type: integer
+        type: object
+      by_status:
+        additionalProperties:
+          type: integer
+        type: object
+      total:
+        example: 150
+        type: integer
+    type: object
+  portal.paginatedResponse:
+    properties:
+      data: {}
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      share_summaries:
+        additionalProperties:
+          $ref: '#/definitions/portal.ShareSummary'
+        type: object
+      total:
+        example: 42
+        type: integer
+    type: object
+  portal.portalPromptCreateRequest:
+    properties:
+      arguments:
+        items:
+          $ref: '#/definitions/prompt.Argument'
+        type: array
+      category:
+        example: analysis
+        type: string
+      content:
+        example: 'Analyze the following data: {{data}}'
+        type: string
+      description:
+        example: A prompt for data analysis workflows
+        type: string
+      display_name:
+        example: My Analysis Prompt
+        type: string
+      name:
+        example: my-analysis-prompt
+        type: string
+    type: object
+  portal.portalPromptListResponse:
+    properties:
+      available:
+        items:
+          $ref: '#/definitions/prompt.Prompt'
+        type: array
+      personal:
+        items:
+          $ref: '#/definitions/prompt.Prompt'
+        type: array
+    type: object
+  portal.problemDetail:
+    properties:
+      detail:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  portal.setSectionsRequest:
+    properties:
+      sections:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.sectionInput'
+        type: array
+    type: object
+  portal.shareResponse:
+    properties:
+      share:
+        $ref: '#/definitions/portal.Share'
+      share_url:
+        example: https://platform.example.com/portal/view/abc123
+        type: string
+    type: object
+  portal.statusResponse:
+    properties:
+      status:
+        example: updated
+        type: string
+    type: object
+  portal.updateAssetRequest:
+    properties:
+      description:
+        example: Updated quarterly revenue analysis
+        type: string
+      name:
+        example: Q4 Revenue Report
+        type: string
+      tags:
+        example:
+        - finance
+        - quarterly
+        items:
+          type: string
+        type: array
+    type: object
+  portal.updateCollectionRequest:
+    properties:
+      description:
+        example: Updated description
+        type: string
+      name:
+        example: Updated Collection Name
+        type: string
+    type: object
+  prompt.Argument:
+    properties:
+      description:
+        example: The date to analyze (YYYY-MM-DD)
+        type: string
+      name:
+        example: date
+        type: string
+      required:
+        example: true
+        type: boolean
+    type: object
+  prompt.Prompt:
+    properties:
+      arguments:
+        items:
+          $ref: '#/definitions/prompt.Argument'
+        type: array
+      category:
+        example: analysis
+        type: string
+      content:
+        example: Analyze sales data for {date} grouped by region.
+        type: string
+      created_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      description:
+        example: Generate a daily sales summary by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      id:
+        example: prompt_a1b2c3d4
+        type: string
+      name:
+        example: daily-sales-report
+        type: string
+      owner_email:
+        example: admin@example.com
+        type: string
+      personas:
+        example:
+        - analyst
+        - data-engineer
+        items:
+          type: string
+        type: array
+      scope:
+        example: persona
+        type: string
+      source:
+        example: database
+        type: string
+      updated_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+    type: object
+  resource.Resource:
+    properties:
+      category:
+        example: runbooks
+        type: string
+      created_at:
+        type: string
+      description:
+        example: Step-by-step procedures for ETL pipeline operations
+        type: string
+      display_name:
+        example: ETL Runbook
+        type: string
+      filename:
+        example: etl-runbook.md
+        type: string
+      id:
+        example: res_01HK7R9F
+        type: string
+      mime_type:
+        example: text/markdown
+        type: string
+      s3_key:
+        example: resources/res_01HK7R9F/etl-runbook.md
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: persona
+      scope_id:
+        description: persona name or user sub; empty for global
+        example: data-engineer
+        type: string
+      size_bytes:
+        example: 34000
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      uploader_email:
+        example: marcus.johnson@example.com
+        type: string
+      uploader_sub:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      uri:
+        example: mcp://persona/data-engineer/runbooks/etl-runbook.md
+        type: string
+    type: object
+  resource.Scope:
+    enum:
+    - global
+    - persona
+    - user
+    type: string
+    x-enum-varnames:
+    - ScopeGlobal
+    - ScopePersona
+    - ScopeUser
+  resource.Update:
+    properties:
+      category:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  resource.errorResponse:
+    properties:
+      error:
+        example: descriptive error message
+        type: string
+    type: object
+  resource.listResponse:
+    properties:
+      resources:
+        items:
+          $ref: '#/definitions/resource.Resource'
+        type: array
+      total:
+        example: 42
+        type: integer
+    type: object
 host: localhost:8080
 info:
   contact: {}
-  description: |-
-    Administrative REST API for managing the MCP Data Platform.
-    Endpoints cover system info, configuration, personas, auth keys, audit logs, and knowledge management.
-  title: MCP Data Platform Admin API
+  description: REST API for the MCP Data Platform. Covers admin endpoints (system,
+    config, personas, auth keys, audit, knowledge, memory, connections), portal endpoints
+    (assets, collections, shares, prompts, activity), and resource management.
+  title: MCP Data Platform API
   version: "1.0"
 paths:
-  /audit/events:
+  /admin/audit/events:
     get:
       description: Returns paginated audit events with optional filtering.
       parameters:
@@ -1118,7 +1922,7 @@ paths:
       summary: List audit events
       tags:
       - Audit
-  /audit/events/{id}:
+  /admin/audit/events/{id}:
     get:
       description: Returns a single audit event by ID.
       parameters:
@@ -1148,7 +1952,7 @@ paths:
       summary: Get audit event
       tags:
       - Audit
-  /audit/events/filters:
+  /admin/audit/events/filters:
     get:
       description: Returns unique user IDs and tool names seen in the audit log, sorted
         alphabetically.
@@ -1178,7 +1982,7 @@ paths:
       summary: Get audit event filter values
       tags:
       - Audit
-  /audit/metrics/breakdown:
+  /admin/audit/metrics/breakdown:
     get:
       description: Returns audit event counts grouped by a dimension.
       parameters:
@@ -1222,7 +2026,7 @@ paths:
       summary: Get audit breakdown
       tags:
       - Audit Metrics
-  /audit/metrics/discovery:
+  /admin/audit/metrics/discovery:
     get:
       description: Returns discovery-before-query session pattern statistics.
       parameters:
@@ -1251,7 +2055,7 @@ paths:
       summary: Get discovery pattern metrics
       tags:
       - Audit Metrics
-  /audit/metrics/enrichment:
+  /admin/audit/metrics/enrichment:
     get:
       description: Returns aggregate enrichment statistics including mode breakdown
         and token savings.
@@ -1281,7 +2085,7 @@ paths:
       summary: Get enrichment metrics
       tags:
       - Audit Metrics
-  /audit/metrics/overview:
+  /admin/audit/metrics/overview:
     get:
       description: Returns aggregate audit statistics for the given time range.
       parameters:
@@ -1310,7 +2114,7 @@ paths:
       summary: Get audit overview
       tags:
       - Audit Metrics
-  /audit/metrics/performance:
+  /admin/audit/metrics/performance:
     get:
       description: Returns latency percentile statistics for the given time range.
       parameters:
@@ -1339,7 +2143,7 @@ paths:
       summary: Get audit performance
       tags:
       - Audit Metrics
-  /audit/metrics/timeseries:
+  /admin/audit/metrics/timeseries:
     get:
       description: Returns audit event counts bucketed by time resolution.
       parameters:
@@ -1378,7 +2182,7 @@ paths:
       summary: Get audit timeseries
       tags:
       - Audit Metrics
-  /audit/stats:
+  /admin/audit/stats:
     get:
       description: Returns aggregate counts for total, successful, and failed events.
         Supports time and filter parameters.
@@ -1416,7 +2220,7 @@ paths:
       summary: Get audit stats
       tags:
       - Audit
-  /auth/keys:
+  /admin/auth/keys:
     get:
       description: Returns all API keys (key values are never exposed, only names
         and roles).
@@ -1465,7 +2269,7 @@ paths:
       summary: Create auth key
       tags:
       - Auth Keys
-  /auth/keys/{name}:
+  /admin/auth/keys/{name}:
     delete:
       description: Deletes an API key.
       parameters:
@@ -1491,7 +2295,7 @@ paths:
       summary: Delete auth key
       tags:
       - Auth Keys
-  /config:
+  /admin/config:
     get:
       description: Returns the current configuration as JSON with sensitive values
         redacted.
@@ -1513,7 +2317,7 @@ paths:
       summary: Get config
       tags:
       - Config
-  /config/export:
+  /admin/config/export:
     get:
       description: Returns the current configuration as downloadable YAML. Sensitive
         values are redacted by default.
@@ -1539,7 +2343,7 @@ paths:
       summary: Export config
       tags:
       - Config
-  /config/mode:
+  /admin/config/mode:
     get:
       description: Returns the current config store mode (file or database).
       produces:
@@ -1555,7 +2359,7 @@ paths:
       summary: Get config mode
       tags:
       - Config
-  /connection-instances:
+  /admin/connection-instances:
     get:
       description: Returns all database-managed connection instances.
       produces:
@@ -1577,7 +2381,7 @@ paths:
       summary: List connection instances
       tags:
       - Connections
-  /connection-instances/{kind}/{name}:
+  /admin/connection-instances/{kind}/{name}:
     delete:
       description: Deletes a database-managed connection instance.
       parameters:
@@ -1685,7 +2489,7 @@ paths:
       summary: Create or update connection instance
       tags:
       - Connections
-  /connections:
+  /admin/connections:
     get:
       description: Returns all toolkit connections with their tools.
       produces:
@@ -1701,7 +2505,7 @@ paths:
       summary: List connections
       tags:
       - System
-  /knowledge/changesets:
+  /admin/knowledge/changesets:
     get:
       description: Returns paginated changesets with optional filtering.
       parameters:
@@ -1750,7 +2554,7 @@ paths:
       summary: List changesets
       tags:
       - Knowledge
-  /knowledge/changesets/{id}:
+  /admin/knowledge/changesets/{id}:
     get:
       description: Returns a single changeset by ID.
       parameters:
@@ -1776,7 +2580,7 @@ paths:
       summary: Get changeset
       tags:
       - Knowledge
-  /knowledge/changesets/{id}/rollback:
+  /admin/knowledge/changesets/{id}/rollback:
     post:
       description: Rolls back a changeset, restoring previous values to DataHub.
       parameters:
@@ -1810,7 +2614,7 @@ paths:
       summary: Rollback changeset
       tags:
       - Knowledge
-  /knowledge/insights:
+  /admin/knowledge/insights:
     get:
       description: Returns paginated insights with optional filtering.
       parameters:
@@ -1867,7 +2671,7 @@ paths:
       summary: List insights
       tags:
       - Knowledge
-  /knowledge/insights/{id}:
+  /admin/knowledge/insights/{id}:
     get:
       description: Returns a single insight by ID.
       parameters:
@@ -1939,7 +2743,7 @@ paths:
       summary: Update insight
       tags:
       - Knowledge
-  /knowledge/insights/{id}/status:
+  /admin/knowledge/insights/{id}/status:
     put:
       consumes:
       - application/json
@@ -1985,7 +2789,7 @@ paths:
       summary: Update insight status
       tags:
       - Knowledge
-  /knowledge/insights/stats:
+  /admin/knowledge/insights/stats:
     get:
       description: Returns aggregated insight statistics by entity, category, confidence,
         and status.
@@ -2035,7 +2839,7 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
-  /memory/records:
+  /admin/memory/records:
     get:
       description: Returns paginated memory records with optional filtering.
       parameters:
@@ -2100,7 +2904,7 @@ paths:
       summary: List memory records
       tags:
       - Memory
-  /memory/records/{id}:
+  /admin/memory/records/{id}:
     delete:
       description: Soft-deletes a memory record by setting its status to archived.
       parameters:
@@ -2201,7 +3005,7 @@ paths:
       summary: Update memory record
       tags:
       - Memory
-  /memory/records/stats:
+  /admin/memory/records/stats:
     get:
       description: Returns aggregated memory record statistics by dimension, category,
         and status.
@@ -2259,7 +3063,7 @@ paths:
       summary: Get memory record stats
       tags:
       - Memory
-  /personas:
+  /admin/personas:
     get:
       description: Returns all configured personas with tool counts.
       produces:
@@ -2311,7 +3115,7 @@ paths:
       summary: Create persona
       tags:
       - Personas
-  /personas/{name}:
+  /admin/personas/{name}:
     delete:
       description: Deletes a persona. Only available in database config mode. Cannot
         delete the admin persona.
@@ -2405,7 +3209,7 @@ paths:
       summary: Update persona
       tags:
       - Personas
-  /system/info:
+  /admin/system/info:
     get:
       description: Returns platform identity, version, runtime feature availability,
         and config mode.
@@ -2422,7 +3226,7 @@ paths:
       summary: Get system info
       tags:
       - System
-  /tools:
+  /admin/tools:
     get:
       description: Returns all registered tools across all toolkits and platform-level
         tools.
@@ -2439,7 +3243,7 @@ paths:
       summary: List tools
       tags:
       - System
-  /tools/call:
+  /admin/tools/call:
     post:
       consumes:
       - application/json
@@ -2468,7 +3272,7 @@ paths:
       summary: Call a tool
       tags:
       - Tools
-  /tools/schemas:
+  /admin/tools/schemas:
     get:
       description: Returns JSON schemas for all registered tools including parameter
         definitions.
@@ -2485,6 +3289,1993 @@ paths:
       summary: Get tool schemas
       tags:
       - Tools
+  /portal/activity/breakdown:
+    get:
+      description: Returns activity breakdown grouped by a dimension (tool_name, user_id,
+        persona, toolkit_kind, or connection).
+      parameters:
+      - description: 'Grouping dimension (default: tool_name)'
+        in: query
+        name: group_by
+        type: string
+      - description: Maximum entries to return
+        in: query
+        name: limit
+        type: integer
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/audit.BreakdownEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get activity breakdown
+      tags:
+      - Portal - Activity
+  /portal/activity/overview:
+    get:
+      description: Returns aggregate activity metrics for the current user within
+        an optional time range.
+      parameters:
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.Overview'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get activity overview
+      tags:
+      - Portal - Activity
+  /portal/activity/timeseries:
+    get:
+      description: Returns time-bucketed activity data for the current user.
+      parameters:
+      - description: 'Bucket resolution: minute, hour, day (default: hour)'
+        in: query
+        name: resolution
+        type: string
+      - description: Start time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/audit.TimeseriesBucket'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get activity timeseries
+      tags:
+      - Portal - Activity
+  /portal/assets:
+    get:
+      description: Returns paginated assets owned by the current user with optional
+        filtering.
+      parameters:
+      - description: Filter by content type
+        in: query
+        name: content_type
+        type: string
+      - description: Filter by tag
+        in: query
+        name: tag
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List assets
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}:
+    delete:
+      description: Soft-deletes an asset. Only the owner can delete.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete asset
+      tags:
+      - Portal - Assets
+    get:
+      description: Returns a single asset by ID. Non-owners need share access.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.assetResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset
+      tags:
+      - Portal - Assets
+    put:
+      consumes:
+      - application/json
+      description: Updates the asset's name, description, or tags. Only the owner
+        can update.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.updateAssetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update asset metadata
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/content:
+    get:
+      description: Downloads the asset's binary content from S3.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset content
+      tags:
+      - Portal - Assets
+    put:
+      consumes:
+      - application/octet-stream
+      description: Uploads new binary content for the asset, creating a new version.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Change summary for the new version
+        in: header
+        name: X-Change-Summary
+        type: string
+      - description: Raw file content
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update asset content
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/copy:
+    post:
+      description: Creates an independent copy of a shared asset in the current user's
+        My Assets.
+      parameters:
+      - description: Asset ID to copy
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.Asset'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Copy asset
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/shares:
+    get:
+      description: Returns all shares for an asset. Only the owner can view shares.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/portal.Share'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List asset shares
+      tags:
+      - Portal - Shares
+    post:
+      consumes:
+      - application/json
+      description: Creates a share link or user-targeted share for an asset. Only
+        the owner can share.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Share configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createShareRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.shareResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create asset share
+      tags:
+      - Portal - Shares
+  /portal/assets/{id}/thumbnail:
+    get:
+      description: Downloads the asset's PNG thumbnail image.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset thumbnail
+      tags:
+      - Portal - Assets
+    put:
+      consumes:
+      - image/png
+      description: Uploads a PNG thumbnail image for the asset.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: PNG image data
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upload asset thumbnail
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/versions:
+    get:
+      description: Returns paginated version history for an asset.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List asset versions
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/versions/{version}/content:
+    get:
+      description: Downloads the binary content of a specific asset version.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get version content
+      tags:
+      - Portal - Assets
+  /portal/assets/{id}/versions/{version}/revert:
+    post:
+      description: Reverts the asset content to a specific version by creating a new
+        version with that content.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number to revert to
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Revert to version
+      tags:
+      - Portal - Assets
+  /portal/collections:
+    get:
+      description: Returns paginated collections owned by the current user.
+      parameters:
+      - description: Search term
+        in: query
+        name: search
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.listCollectionsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List collections
+      tags:
+      - Portal - Collections
+    post:
+      consumes:
+      - application/json
+      description: Creates a new collection for the current user.
+      parameters:
+      - description: Collection details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create collection
+      tags:
+      - Portal - Collections
+  /portal/collections/{id}:
+    delete:
+      description: Soft-deletes a collection. Only the owner can delete.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete collection
+      tags:
+      - Portal - Collections
+    get:
+      description: Returns a single collection by ID. Non-owners need share access.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.getCollectionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get collection
+      tags:
+      - Portal - Collections
+    put:
+      consumes:
+      - application/json
+      description: Updates a collection's name and/or description. Only the owner
+        can update.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.updateCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update collection
+      tags:
+      - Portal - Collections
+  /portal/collections/{id}/config:
+    put:
+      consumes:
+      - application/json
+      description: Updates the collection's display configuration. Only the owner
+        can update.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Configuration object
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.CollectionConfig'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update collection config
+      tags:
+      - Portal - Collections
+  /portal/collections/{id}/sections:
+    put:
+      consumes:
+      - application/json
+      description: Replaces all sections and items in a collection. Only the owner
+        can modify.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Sections with items
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.setSectionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set collection sections
+      tags:
+      - Portal - Collections
+  /portal/collections/{id}/shares:
+    get:
+      description: Returns all shares for a collection. Only the owner can view shares.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/portal.Share'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List collection shares
+      tags:
+      - Portal - Shares
+    post:
+      consumes:
+      - application/json
+      description: Creates a share link or user-targeted share for a collection. Only
+        the owner can share.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Share configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createShareRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.shareResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create collection share
+      tags:
+      - Portal - Shares
+  /portal/collections/{id}/thumbnail:
+    get:
+      description: Downloads the collection's PNG thumbnail image.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get collection thumbnail
+      tags:
+      - Portal - Collections
+    put:
+      consumes:
+      - image/png
+      description: Uploads a PNG thumbnail image for the collection. Only the owner
+        can upload.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: PNG image data
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upload collection thumbnail
+      tags:
+      - Portal - Collections
+  /portal/knowledge/insights:
+    get:
+      description: Returns paginated insights captured by the current user.
+      parameters:
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my insights
+      tags:
+      - Portal - Knowledge
+  /portal/knowledge/insights/stats:
+    get:
+      description: Returns aggregate statistics for the current user's insights.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.InsightStats'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get my insight stats
+      tags:
+      - Portal - Knowledge
+  /portal/me:
+    get:
+      description: Returns the authenticated user's profile including roles, persona,
+        and available tools.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.meResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get current user info
+      tags:
+      - Portal - User
+  /portal/memory/records:
+    get:
+      description: Returns paginated memory records for the current user with optional
+        filtering.
+      parameters:
+      - description: Filter by dimension
+        in: query
+        name: dimension
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by source
+        in: query
+        name: source
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my memory records
+      tags:
+      - Portal - Memory
+  /portal/memory/records/stats:
+    get:
+      description: Returns aggregated memory statistics grouped by dimension, category,
+        and status.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.memoryStatsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get my memory stats
+      tags:
+      - Portal - Memory
+  /portal/prompts:
+    get:
+      description: Returns the user's personal prompts plus available global, persona,
+        and system prompts.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.portalPromptListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my prompts
+      tags:
+      - Portal - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Creates a new personal prompt for the current user.
+      parameters:
+      - description: Prompt details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.portalPromptCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create personal prompt
+      tags:
+      - Portal - Prompts
+  /portal/prompts/{id}:
+    delete:
+      description: Deletes a personal prompt owned by the current user. Admins can
+        delete any prompt.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete personal prompt
+      tags:
+      - Portal - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Updates a personal prompt owned by the current user. Admins can
+        update any prompt.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated prompt fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.portalPromptCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update personal prompt
+      tags:
+      - Portal - Prompts
+  /portal/shared-collections:
+    get:
+      description: Returns paginated collections that other users have shared with
+        the current user.
+      parameters:
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.listSharedCollectionsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List collections shared with me
+      tags:
+      - Portal - Shares
+  /portal/shared-with-me:
+    get:
+      description: Returns paginated assets that other users have shared with the
+        current user.
+      parameters:
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List assets shared with me
+      tags:
+      - Portal - Shares
+  /portal/shares/{id}:
+    delete:
+      description: Revokes a share by its ID. Only the asset owner can revoke.
+      parameters:
+      - description: Share ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Revoke share
+      tags:
+      - Portal - Shares
+  /resources:
+    get:
+      description: List managed resources visible to the caller, with optional filters.
+      parameters:
+      - description: Filter by scope
+        enum:
+        - global
+        - persona
+        - user
+        in: query
+        name: scope
+        type: string
+      - description: Filter by scope ID (persona name or user sub)
+        in: query
+        name: scope_id
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by tag
+        in: query
+        name: tag
+        type: string
+      - description: Search display_name and description
+        in: query
+        name: q
+        type: string
+      - description: Pagination offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List resources
+      tags:
+      - Resources
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload a new managed resource with metadata and file content.
+      parameters:
+      - description: File to upload (max 100 MB)
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Human-readable display name
+        in: formData
+        name: display_name
+        required: true
+        type: string
+      - description: Visibility scope
+        enum:
+        - global
+        - persona
+        - user
+        in: formData
+        name: scope
+        required: true
+        type: string
+      - description: Persona name or user sub (required for persona/user scopes)
+        in: formData
+        name: scope_id
+        type: string
+      - description: Resource category (e.g. runbooks, templates)
+        in: formData
+        name: category
+        required: true
+        type: string
+      - description: Optional description
+        in: formData
+        name: description
+        type: string
+      - collectionFormat: multi
+        description: Optional tags
+        in: formData
+        items:
+          type: string
+        name: tags
+        type: array
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/resource.Resource'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create resource
+      tags:
+      - Resources
+  /resources/{id}:
+    delete:
+      description: Delete a managed resource, removing both the S3 blob and database
+        metadata.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete resource
+      tags:
+      - Resources
+    get:
+      description: Retrieve metadata for a single managed resource by ID.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.Resource'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get resource
+      tags:
+      - Resources
+    patch:
+      consumes:
+      - application/json
+      description: Update mutable metadata fields of a managed resource.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resource.Update'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.Resource'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update resource
+      tags:
+      - Resources
+  /resources/{id}/content:
+    get:
+      description: Download the binary content of a managed resource.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Download resource content
+      tags:
+      - Resources
 securityDefinitions:
   ApiKeyAuth:
     in: header

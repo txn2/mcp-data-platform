@@ -39,7 +39,7 @@ func (h *Handler) registerAuditMetricsRoutes() {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/timeseries [get]
+// @Router       /admin/audit/metrics/timeseries [get]
 func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -82,7 +82,7 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/breakdown [get]
+// @Router       /admin/audit/metrics/breakdown [get]
 func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -128,7 +128,7 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/overview [get]
+// @Router       /admin/audit/metrics/overview [get]
 func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -159,7 +159,7 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/performance [get]
+// @Router       /admin/audit/metrics/performance [get]
 func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -190,7 +190,7 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/enrichment [get]
+// @Router       /admin/audit/metrics/enrichment [get]
 func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -219,7 +219,7 @@ func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/metrics/discovery [get]
+// @Router       /admin/audit/metrics/discovery [get]
 func (h *Handler) getAuditDiscovery(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 

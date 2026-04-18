@@ -58,7 +58,7 @@ func configToMap(v any) (map[string]any, error) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /config [get]
+// @Router       /admin/config [get]
 func (h *Handler) getConfig(w http.ResponseWriter, _ *http.Request) {
 	configMap, err := configToMap(h.deps.Config)
 	if err != nil {
@@ -84,7 +84,7 @@ type configModeResponse struct {
 // @Success      200  {object}  configModeResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /config/mode [get]
+// @Router       /admin/config/mode [get]
 func (h *Handler) configMode(w http.ResponseWriter, _ *http.Request) {
 	mode := configModeFile
 	if h.deps.ConfigStore != nil {
@@ -107,7 +107,7 @@ func (h *Handler) configMode(w http.ResponseWriter, _ *http.Request) {
 // @Failure      500      {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /config/export [get]
+// @Router       /admin/config/export [get]
 func (h *Handler) exportConfig(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Config == nil {
 		writeError(w, http.StatusInternalServerError, "no config available")

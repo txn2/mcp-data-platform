@@ -54,7 +54,7 @@ const (
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/events [get]
+// @Router       /admin/audit/events [get]
 func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := audit.QueryFilter{
@@ -125,7 +125,7 @@ func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/events/filters [get]
+// @Router       /admin/audit/events/filters [get]
 func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	startTime := parseTimeParam(q, "start_time")
@@ -176,7 +176,7 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/events/{id} [get]
+// @Router       /admin/audit/events/{id} [get]
 func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	filter := audit.QueryFilter{ID: id, Limit: 1}
@@ -206,7 +206,7 @@ func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /audit/stats [get]
+// @Router       /admin/audit/stats [get]
 func (h *Handler) getAuditStats(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	baseFilter := audit.QueryFilter{
