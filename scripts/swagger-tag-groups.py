@@ -6,6 +6,79 @@ import re
 import sys
 from pathlib import Path
 
+TAG_DESCRIPTIONS = {
+    "User": (
+        "Current user identity, roles, persona, and available tools."
+    ),
+    "Activity": (
+        "Personal analytics for the authenticated user's tool usage. "
+        "Timeseries, breakdowns, and summary statistics scoped to the calling user."
+    ),
+    "Assets": (
+        "AI-generated artifacts — dashboards, reports, visualizations, and data exports. "
+        "Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, "
+        "thumbnails, and sharing."
+    ),
+    "Collections": (
+        "Curated groups of assets organized into ordered sections with markdown descriptions. "
+        "Collections support sharing via public links and user-level permissions."
+    ),
+    "Knowledge": (
+        "Domain knowledge captured during AI sessions. Insights go through an admin review "
+        "workflow before being written back to the data catalog. Includes insight statistics "
+        "and governance lifecycle tracking."
+    ),
+    "Memory": (
+        "Persistent memory records accumulated across sessions — corrections, preferences, "
+        "business context, and data quality observations. Backed by PostgreSQL with pgvector "
+        "for semantic search."
+    ),
+    "Prompts": (
+        "Reusable prompt templates with argument placeholders. Users manage personal prompts "
+        "and browse available global, persona, and system prompts."
+    ),
+    "Resources": (
+        "Human-uploaded reference materials — SQL templates, runbooks, checklists, and brand "
+        "assets. Scoped by visibility (global, persona, user) and accessible to AI agents "
+        "via the MCP resources protocol."
+    ),
+    "Shares": (
+        "Asset and collection sharing via public links (token-based, time-limited) "
+        "and user shares (email-based with viewer/editor permissions)."
+    ),
+    "Audit": (
+        "Platform-wide audit log of every tool call. Paginated event queries with filtering, "
+        "aggregate statistics, performance percentiles, enrichment metrics, and discovery "
+        "pattern analytics."
+    ),
+    "Auth Keys": (
+        "API key management for programmatic access. Create, list, and revoke keys with "
+        "role assignment and expiration. Keys from the config file are read-only."
+    ),
+    "Config": (
+        "Platform configuration management. Read the active config, export as YAML, "
+        "and manage per-key database overrides for whitelisted settings with hot-reload."
+    ),
+    "Connections": (
+        "Toolkit connection management for Trino, DataHub, and S3 backends. "
+        "View file-configured connections, create database-managed instances, and inspect "
+        "connection details."
+    ),
+    "Personas": (
+        "Role-based access control profiles that determine which tools and connections "
+        "a user can access. Each persona defines allow/deny patterns, context overrides, "
+        "and priority-based role mapping."
+    ),
+    "System": (
+        "Platform identity, version, runtime feature availability, registered tools, "
+        "and toolkit connections."
+    ),
+    "Tools": (
+        "Tool schema introspection and interactive execution. Browse JSON schemas for all "
+        "registered tools and execute tool calls with parameter validation."
+    ),
+}
+
 TAG_GROUPS = [
     {
         "name": "User API",
@@ -36,45 +109,50 @@ TAG_GROUPS = [
 ]
 
 
+def build_tags_array() -> list[dict]:
+    return [{"name": name, "description": desc} for name, desc in TAG_DESCRIPTIONS.items()]
+
+
 def patch_json(path: Path) -> None:
     spec = json.loads(path.read_text())
+    spec["tags"] = build_tags_array()
     spec["x-tagGroups"] = TAG_GROUPS
     path.write_text(json.dumps(spec, indent=4) + "\n")
 
 
 def patch_yaml(path: Path) -> None:
-    lines = path.read_text()
-    # Append x-tagGroups at the end
-    yaml_block = "\nx-tagGroups:\n"
+    text = path.read_text()
+    # Build tags block
+    tags_block = "\ntags:\n"
+    for name, desc in TAG_DESCRIPTIONS.items():
+        tags_block += f'  - name: "{name}"\n'
+        tags_block += f'    description: "{desc}"\n'
+    # Build x-tagGroups block
+    groups_block = "\nx-tagGroups:\n"
     for group in TAG_GROUPS:
-        yaml_block += f'  - name: "{group["name"]}"\n'
-        yaml_block += "    tags:\n"
+        groups_block += f'  - name: "{group["name"]}"\n'
+        groups_block += "    tags:\n"
         for tag in group["tags"]:
-            yaml_block += f'      - "{tag}"\n'
-    path.write_text(lines.rstrip() + "\n" + yaml_block)
+            groups_block += f'      - "{tag}"\n'
+    path.write_text(text.rstrip() + "\n" + tags_block + groups_block)
 
 
 def patch_docs_go(path: Path) -> None:
     content = path.read_text()
-    # The docs.go file has the spec as a JSON string in SwaggerInfo.SwaggerTemplate.
-    # We need to inject x-tagGroups into that JSON string.
-    # Find the closing brace of the top-level JSON object in the template.
-    tag_groups_json = json.dumps(TAG_GROUPS)
-    # Replace the last } in the swagger template with ,"x-tagGroups":[...]}
-    # The template is a raw string literal assigned to SwaggerTemplate.
-    old = '"securityDefinitions"'
-    if old not in content:
+    if '"securityDefinitions"' not in content:
         print("  docs.go: securityDefinitions not found, skipping")
         return
-    # Insert x-tagGroups after the info block by finding the JSON and re-serializing
-    # Actually, the simplest approach: find `}` at end of the JSON template and insert before it
-    # The template ends with `}`
-    insertion = f',"x-tagGroups":{tag_groups_json}'
-    # Find the last occurrence of `}` followed by `"` (end of JSON in Go string)
-    content = re.sub(r'}\s*"\s*$', insertion + '}"', content, count=1)
-    # Fallback: if the above didn't match, try multiline
-    if insertion not in content:
-        content = re.sub(r'}\s*`\s*$', insertion + '}`', content, count=1, flags=re.MULTILINE)
+    tags_json = json.dumps(build_tags_array())
+    tag_groups_json = json.dumps(TAG_GROUPS)
+    insertion = f',"tags":{tags_json},"x-tagGroups":{tag_groups_json}'
+    # The Go template is a backtick raw string: const docTemplate = `{...}`
+    # Find the closing `}` + backtick that ends the template (on its own line).
+    marker = "}`"
+    idx = content.rfind(marker)
+    if idx == -1:
+        print("  docs.go: could not find template end, skipping")
+        return
+    content = content[:idx] + insertion + content[idx:]
     path.write_text(content)
 
 

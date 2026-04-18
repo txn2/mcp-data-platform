@@ -221,8 +221,9 @@ release-check:
 ## swagger: Generate OpenAPI/Swagger documentation from annotations
 swagger:
 	@echo "Generating Swagger docs..."
+	@rm -f internal/apidocs/docs.go internal/apidocs/swagger.json internal/apidocs/swagger.yaml
 	swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
-	@echo "Injecting x-tagGroups..."
+	@echo "Injecting tag descriptions and x-tagGroups..."
 	@python3 scripts/swagger-tag-groups.py internal/apidocs
 	@echo "Swagger docs generated in internal/apidocs/"
 
