@@ -21,9 +21,9 @@ func NewMemoryHandler(store memory.Store) *MemoryHandler {
 // memoryListResponse wraps a paginated list of memory records.
 type memoryListResponse struct {
 	Data    []memory.Record `json:"data"`
-	Total   int             `json:"total"`
-	Page    int             `json:"page"`
-	PerPage int             `json:"per_page"`
+	Total   int             `json:"total" example:"20"`
+	Page    int             `json:"page" example:"1"`
+	PerPage int             `json:"per_page" example:"20"`
 }
 
 // memoryStatsResponse contains aggregated statistics for memory records.
@@ -31,15 +31,15 @@ type memoryStatsResponse struct {
 	ByDimension map[string]int `json:"by_dimension"`
 	ByCategory  map[string]int `json:"by_category"`
 	ByStatus    map[string]int `json:"by_status"`
-	Total       int            `json:"total"`
+	Total       int            `json:"total" example:"20"`
 }
 
 // memoryUpdateRequest represents the body of PUT /memory/records/{id}.
 type memoryUpdateRequest struct {
-	Content    string         `json:"content,omitempty"`
-	Category   string         `json:"category,omitempty"`
-	Confidence string         `json:"confidence,omitempty"`
-	Dimension  string         `json:"dimension,omitempty"`
+	Content    string         `json:"content,omitempty" example:"The daily_sales table in the retail schema is partitioned by date."`
+	Category   string         `json:"category,omitempty" example:"business_context"`
+	Confidence string         `json:"confidence,omitempty" example:"high"`
+	Dimension  string         `json:"dimension,omitempty" example:"knowledge"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 

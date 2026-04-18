@@ -15,28 +15,28 @@ import (
 
 // authKeyCreateRequest is the request body for creating an API key.
 type authKeyCreateRequest struct {
-	Name        string   `json:"name"`
-	Email       string   `json:"email,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Roles       []string `json:"roles"`
-	ExpiresIn   string   `json:"expires_in,omitempty"` // e.g. "24h", "720h", "8760h"
+	Name        string   `json:"name" example:"ci-pipeline"`
+	Email       string   `json:"email,omitempty" example:"ci@example.com"`
+	Description string   `json:"description,omitempty" example:"CI/CD pipeline integration"`
+	Roles       []string `json:"roles" example:"analyst"`
+	ExpiresIn   string   `json:"expires_in,omitempty" example:"720h"` // e.g. "24h", "720h", "8760h"
 }
 
 // authKeyCreateResponse is the response after creating an API key.
 type authKeyCreateResponse struct {
-	Name        string     `json:"name"`
-	Email       string     `json:"email,omitempty"`
-	Description string     `json:"description,omitempty"`
-	Key         string     `json:"key"`
-	Roles       []string   `json:"roles"`
+	Name        string     `json:"name" example:"ci-pipeline"`
+	Email       string     `json:"email,omitempty" example:"ci@example.com"`
+	Description string     `json:"description,omitempty" example:"CI/CD pipeline integration"`
+	Key         string     `json:"key" example:"mdp_a1b2c3d4e5f6g7h8i9j0"`
+	Roles       []string   `json:"roles" example:"analyst"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Warning     string     `json:"warning"`
+	Warning     string     `json:"warning" example:"Store this key securely. It will not be shown again."`
 }
 
 // authKeyListResponse wraps a list of API keys.
 type authKeyListResponse struct {
 	Keys  []auth.APIKeySummary `json:"keys"`
-	Total int                  `json:"total"`
+	Total int                  `json:"total" example:"3"`
 }
 
 // listAuthKeys handles GET /api/v1/admin/auth/keys.

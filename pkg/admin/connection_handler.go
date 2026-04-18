@@ -111,7 +111,7 @@ func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // setConnectionInstanceRequest is the JSON body for creating/updating a connection instance.
 type setConnectionInstanceRequest struct {
 	Config      map[string]any `json:"config"`
-	Description string         `json:"description"`
+	Description string         `json:"description" example:"Production data warehouse"`
 }
 
 // setConnectionInstance handles PUT /api/v1/admin/connection-instances/{kind}/{name}.
@@ -224,14 +224,14 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 
 // effectiveConnection merges a live toolkit connection with its DB instance (if any).
 type effectiveConnection struct {
-	Kind        string         `json:"kind"`
-	Name        string         `json:"name"`
-	Connection  string         `json:"connection"`
-	Description string         `json:"description,omitempty"`
-	Source      string         `json:"source"` // "file", "database", or "both"
-	Tools       []string       `json:"tools"`
+	Kind        string         `json:"kind" example:"trino"`
+	Name        string         `json:"name" example:"acme-warehouse"`
+	Connection  string         `json:"connection" example:"acme-warehouse"`
+	Description string         `json:"description,omitempty" example:"Production data warehouse"`
+	Source      string         `json:"source" example:"file"` // "file", "database", or "both"
+	Tools       []string       `json:"tools" example:"trino_query,trino_describe_table"`
 	Config      map[string]any `json:"config,omitempty"`
-	CreatedBy   string         `json:"created_by,omitempty"`
+	CreatedBy   string         `json:"created_by,omitempty" example:"admin@example.com"`
 	UpdatedAt   *time.Time     `json:"updated_at,omitempty"`
 }
 

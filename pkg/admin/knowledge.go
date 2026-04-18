@@ -35,9 +35,9 @@ func NewKnowledgeHandler(
 // insightListResponse wraps a paginated list of insights.
 type insightListResponse struct {
 	Data    []knowledge.Insight `json:"data"`
-	Total   int                 `json:"total"`
-	Page    int                 `json:"page"`
-	PerPage int                 `json:"per_page"`
+	Total   int                 `json:"total" example:"50"`
+	Page    int                 `json:"page" example:"1"`
+	PerPage int                 `json:"per_page" example:"20"`
 }
 
 // ListInsights handles GET /api/v1/admin/knowledge/insights.
@@ -104,8 +104,8 @@ func (h *KnowledgeHandler) GetInsight(w http.ResponseWriter, r *http.Request) {
 
 // statusUpdateRequest represents the body of PUT /insights/:id/status.
 type statusUpdateRequest struct {
-	Status      string `json:"status"`
-	ReviewNotes string `json:"review_notes"`
+	Status      string `json:"status" example:"approved"`
+	ReviewNotes string `json:"review_notes" example:"Verified with data engineering team"`
 }
 
 // UpdateInsightStatus handles PUT /api/v1/admin/knowledge/insights/{id}/status.
@@ -167,9 +167,9 @@ func (h *KnowledgeHandler) UpdateInsightStatus(w http.ResponseWriter, r *http.Re
 
 // insightUpdateRequest represents the body of PUT /insights/:id.
 type insightUpdateRequest struct {
-	InsightText string `json:"insight_text,omitempty"`
-	Category    string `json:"category,omitempty"`
-	Confidence  string `json:"confidence,omitempty"`
+	InsightText string `json:"insight_text,omitempty" example:"The amount column represents gross margin before returns."`
+	Category    string `json:"category,omitempty" example:"correction"`
+	Confidence  string `json:"confidence,omitempty" example:"high"`
 }
 
 // UpdateInsight handles PUT /api/v1/admin/knowledge/insights/{id}.
@@ -253,9 +253,9 @@ func (h *KnowledgeHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 // changesetListResponse wraps a paginated list of changesets.
 type changesetListResponse struct {
 	Data    []knowledge.Changeset `json:"data"`
-	Total   int                   `json:"total"`
-	Page    int                   `json:"page"`
-	PerPage int                   `json:"per_page"`
+	Total   int                   `json:"total" example:"8"`
+	Page    int                   `json:"page" example:"1"`
+	PerPage int                   `json:"per_page" example:"20"`
 }
 
 // ListChangesets handles GET /api/v1/admin/knowledge/changesets.

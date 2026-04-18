@@ -7,15 +7,22 @@ definitions:
           $ref: '#/definitions/audit.Event'
         type: array
       page:
+        example: 1
         type: integer
       per_page:
+        example: 50
         type: integer
       total:
+        example: 196
         type: integer
     type: object
   admin.auditFiltersResponse:
     properties:
       tools:
+        example:
+        - trino_query
+        - datahub_search
+        - s3_list_objects
         items:
           type: string
         type: array
@@ -24,6 +31,9 @@ definitions:
           type: string
         type: object
       users:
+        example:
+        - marcus.johnson@example.com
+        - lisa.chang@example.com
         items:
           type: string
         type: array
@@ -31,24 +41,33 @@ definitions:
   admin.auditStatsResponse:
     properties:
       failures:
+        example: 77
         type: integer
       success:
+        example: 1423
         type: integer
       total:
+        example: 1500
         type: integer
     type: object
   admin.authKeyCreateRequest:
     properties:
       description:
+        example: CI/CD pipeline integration
         type: string
       email:
+        example: ci@example.com
         type: string
       expires_in:
         description: e.g. "24h", "720h", "8760h"
+        example: 720h
         type: string
       name:
+        example: ci-pipeline
         type: string
       roles:
+        example:
+        - analyst
         items:
           type: string
         type: array
@@ -56,20 +75,27 @@ definitions:
   admin.authKeyCreateResponse:
     properties:
       description:
+        example: CI/CD pipeline integration
         type: string
       email:
+        example: ci@example.com
         type: string
       expires_at:
         type: string
       key:
+        example: mdp_a1b2c3d4e5f6g7h8i9j0
         type: string
       name:
+        example: ci-pipeline
         type: string
       roles:
+        example:
+        - analyst
         items:
           type: string
         type: array
       warning:
+        example: Store this key securely. It will not be shown again.
         type: string
     type: object
   admin.authKeyListResponse:
@@ -79,6 +105,7 @@ definitions:
           $ref: '#/definitions/auth.APIKeySummary'
         type: array
       total:
+        example: 3
         type: integer
     type: object
   admin.changesetListResponse:
@@ -88,32 +115,44 @@ definitions:
           $ref: '#/definitions/knowledge.Changeset'
         type: array
       page:
+        example: 1
         type: integer
       per_page:
+        example: 20
         type: integer
       total:
+        example: 8
         type: integer
     type: object
   admin.configModeResponse:
     properties:
       mode:
+        example: database
         type: string
       read_only:
+        example: false
         type: boolean
     type: object
   admin.connectionInfo:
     properties:
       connection:
+        example: acme-warehouse
         type: string
       hidden_tools:
         items:
           type: string
         type: array
       kind:
+        example: trino
         type: string
       name:
+        example: acme-warehouse
         type: string
       tools:
+        example:
+        - trino_query
+        - trino_describe_table
+        - trino_browse
         items:
           type: string
         type: array
@@ -125,6 +164,7 @@ definitions:
           $ref: '#/definitions/admin.connectionInfo'
         type: array
       total:
+        example: 5
         type: integer
     type: object
   admin.insightListResponse:
@@ -134,19 +174,25 @@ definitions:
           $ref: '#/definitions/knowledge.Insight'
         type: array
       page:
+        example: 1
         type: integer
       per_page:
+        example: 20
         type: integer
       total:
+        example: 50
         type: integer
     type: object
   admin.insightUpdateRequest:
     properties:
       category:
+        example: correction
         type: string
       confidence:
+        example: high
         type: string
       insight_text:
+        example: The amount column represents gross margin before returns.
         type: string
     type: object
   admin.memoryListResponse:
@@ -156,10 +202,13 @@ definitions:
           $ref: '#/definitions/memory.Record'
         type: array
       page:
+        example: 1
         type: integer
       per_page:
+        example: 20
         type: integer
       total:
+        example: 20
         type: integer
     type: object
   admin.memoryStatsResponse:
@@ -177,17 +226,22 @@ definitions:
           type: integer
         type: object
       total:
+        example: 20
         type: integer
     type: object
   admin.memoryUpdateRequest:
     properties:
       category:
+        example: business_context
         type: string
       confidence:
+        example: high
         type: string
       content:
+        example: The daily_sales table in the retail schema is partitioned by date.
         type: string
       dimension:
+        example: knowledge
         type: string
       metadata:
         additionalProperties: {}
@@ -198,10 +252,12 @@ definitions:
       agent_instructions_override:
         type: string
       agent_instructions_suffix:
+        example: Focus on schema details, data lineage, and query optimization.
         type: string
       description_override:
         type: string
       description_prefix:
+        example: This user is a data engineer responsible for ETL pipelines.
         type: string
     type: object
   admin.personaCreateRequest:
@@ -215,6 +271,8 @@ definitions:
           type: string
         type: array
       allow_tools:
+        example:
+        - datahub_*
         items:
           type: string
         type: array
@@ -227,18 +285,24 @@ definitions:
           type: string
         type: array
       description:
+        example: Read-only access to DataHub
         type: string
       description_override:
         type: string
       description_prefix:
         type: string
       display_name:
+        example: Data Viewer
         type: string
       name:
+        example: viewer
         type: string
       priority:
+        example: 0
         type: integer
       roles:
+        example:
+        - viewer
         items:
           type: string
         type: array
@@ -250,6 +314,10 @@ definitions:
           type: string
         type: array
       allow_tools:
+        example:
+        - trino_*
+        - datahub_*
+        - s3_*
         items:
           type: string
         type: array
@@ -260,25 +328,38 @@ definitions:
           type: string
         type: array
       deny_tools:
+        example:
+        - capture_insight
         items:
           type: string
         type: array
       description:
+        example: ETL pipeline development and schema management
         type: string
       display_name:
+        example: Data Engineer
         type: string
       name:
+        example: data-engineer
         type: string
       priority:
+        example: 10
         type: integer
       roles:
+        example:
+        - data_engineer
         items:
           type: string
         type: array
       source:
         description: '"file", "database", or "both"'
+        example: file
         type: string
       tools:
+        example:
+        - trino_query
+        - trino_describe_table
+        - datahub_search
         items:
           type: string
         type: array
@@ -290,35 +371,47 @@ definitions:
           $ref: '#/definitions/admin.personaSummary'
         type: array
       total:
+        example: 6
         type: integer
     type: object
   admin.personaSummary:
     properties:
       description:
+        example: ETL pipeline development and schema management
         type: string
       display_name:
+        example: Data Engineer
         type: string
       name:
+        example: data-engineer
         type: string
       roles:
+        example:
+        - data_engineer
         items:
           type: string
         type: array
       source:
         description: '"file", "database", or "both"'
+        example: file
         type: string
       tool_count:
+        example: 19
         type: integer
     type: object
   admin.problemDetail:
     properties:
       detail:
+        example: resource not found
         type: string
       status:
+        example: 404
         type: integer
       title:
+        example: Not Found
         type: string
       type:
+        example: about:blank
         type: string
     type: object
   admin.setConnectionInstanceRequest:
@@ -327,72 +420,96 @@ definitions:
         additionalProperties: {}
         type: object
       description:
+        example: Production data warehouse
         type: string
     type: object
   admin.statusResponse:
     properties:
       status:
+        example: ok
         type: string
     type: object
   admin.statusUpdateRequest:
     properties:
       review_notes:
+        example: Verified with data engineering team
         type: string
       status:
+        example: approved
         type: string
     type: object
   admin.systemFeatures:
     properties:
       admin:
+        example: true
         type: boolean
       audit:
+        example: true
         type: boolean
       database:
+        example: true
         type: boolean
       knowledge:
+        example: true
         type: boolean
       oauth:
+        example: false
         type: boolean
     type: object
   admin.systemInfoResponse:
     properties:
       build_date:
+        example: "2026-04-15T00:00:00Z"
         type: string
       commit:
+        example: b5d2a78
         type: string
       config_mode:
+        example: database
         type: string
       description:
+        example: Semantic data platform
         type: string
       features:
         $ref: '#/definitions/admin.systemFeatures'
       name:
+        example: acme-data-platform
         type: string
       persona_count:
+        example: 3
         type: integer
       portal_logo:
+        example: https://example.com/logo.svg
         type: string
       portal_logo_dark:
+        example: https://example.com/logo-dark.svg
         type: string
       portal_logo_light:
+        example: https://example.com/logo-light.svg
         type: string
       portal_title:
+        example: ACME Data Platform
         type: string
       toolkit_count:
+        example: 5
         type: integer
       transport:
+        example: http
         type: string
       version:
+        example: 1.55.11
         type: string
     type: object
   admin.toolCallRequest:
     properties:
       connection:
+        example: acme-warehouse
         type: string
       parameters:
         additionalProperties: {}
         type: object
       tool_name:
+        example: trino_query
         type: string
     type: object
   admin.toolCallResponse:
@@ -402,28 +519,40 @@ definitions:
           $ref: '#/definitions/admin.toolContentBlock'
         type: array
       duration_ms:
+        example: 245
         type: integer
       is_error:
+        example: false
         type: boolean
     type: object
   admin.toolContentBlock:
     properties:
       text:
+        example: |-
+          | col1 | col2 |
+          |------|------|
+          | val1 | val2 |
         type: string
       type:
+        example: text
         type: string
     type: object
   admin.toolInfo:
     properties:
       connection:
+        example: acme-warehouse
         type: string
       kind:
+        example: trino
         type: string
       name:
+        example: trino_query
         type: string
       title:
+        example: Trino Query
         type: string
       toolkit:
+        example: acme-warehouse
         type: string
     type: object
   admin.toolListResponse:
@@ -433,18 +562,23 @@ definitions:
           $ref: '#/definitions/admin.toolInfo'
         type: array
       total:
+        example: 12
         type: integer
     type: object
   admin.toolSchema:
     properties:
       description:
+        example: Execute a SQL query against Trino and return results.
         type: string
       kind:
+        example: trino
         type: string
       name:
+        example: trino_query
         type: string
       parameters: {}
       title:
+        example: Trino Query
         type: string
     type: object
   admin.toolSchemaResponse:
@@ -516,55 +650,78 @@ definitions:
   audit.Event:
     properties:
       authorized:
+        example: true
         type: boolean
       connection:
+        example: acme-catalog
         type: string
       content_blocks:
+        example: 2
         type: integer
       duration_ms:
+        example: 143
         type: integer
       enrichment_applied:
+        example: true
         type: boolean
       enrichment_mode:
+        example: summary
         type: string
       enrichment_tokens_dedup:
+        example: 350
         type: integer
       enrichment_tokens_full:
+        example: 850
         type: integer
       error_message:
         type: string
       id:
+        example: evt_a1b2c3d4e5f6
         type: string
       parameters:
         additionalProperties: {}
         type: object
       persona:
+        example: data-engineer
         type: string
       request_chars:
+        example: 120
         type: integer
       request_id:
+        example: req_x9y8z7
         type: string
       response_chars:
+        example: 2450
         type: integer
       session_id:
+        example: sess_abc123
         type: string
       source:
+        example: mcp
         type: string
       success:
+        example: true
         type: boolean
       timestamp:
+        example: "2026-04-15T10:41:18Z"
         type: string
       tool_name:
+        example: datahub_get_schema
         type: string
       toolkit_kind:
+        example: datahub
         type: string
       toolkit_name:
+        example: acme-catalog
         type: string
       transport:
+        example: http
         type: string
       user_email:
+        example: marcus.johnson@example.com
         type: string
       user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
         type: string
     type: object
   audit.Overview:
@@ -617,34 +774,46 @@ definitions:
   auth.APIKeySummary:
     properties:
       description:
+        example: CI/CD pipeline integration
         type: string
       email:
+        example: ci@example.com
         type: string
       expired:
+        example: false
         type: boolean
       expires_at:
         type: string
       name:
+        example: ci-pipeline
         type: string
       roles:
+        example:
+        - analyst
         items:
           type: string
         type: array
       source:
         description: '"file", "database", or "both"'
+        example: database
         type: string
     type: object
   knowledge.Changeset:
     properties:
       applied_by:
+        example: admin@example.com
         type: string
       approved_by:
+        example: admin@example.com
         type: string
       change_type:
+        example: update_description
         type: string
       created_at:
+        example: "2026-01-15T16:00:00Z"
         type: string
       id:
+        example: cs_x1y2z3a4b5c6d7e8
         type: string
       new_value:
         additionalProperties: {}
@@ -653,6 +822,7 @@ definitions:
         additionalProperties: {}
         type: object
       rolled_back:
+        example: false
         type: boolean
       rolled_back_at:
         type: string
@@ -663,6 +833,7 @@ definitions:
           type: string
         type: array
       target_urn:
+        example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
         type: string
     type: object
   knowledge.EntityInsightSummary:
@@ -685,41 +856,53 @@ definitions:
       applied_by:
         type: string
       captured_by:
+        example: analyst@example.com
         type: string
       category:
+        example: correction
         type: string
       changeset_ref:
         type: string
       confidence:
+        example: high
         type: string
       created_at:
+        example: "2026-01-15T14:30:00Z"
         type: string
       entity_urns:
         items:
           type: string
         type: array
       id:
+        example: a1b2c3d4e5f67890a1b2c3d4e5f67890
         type: string
       insight_text:
+        example: The amount column represents gross margin before returns, not revenue.
         type: string
       persona:
+        example: analyst
         type: string
       related_columns:
         items:
           $ref: '#/definitions/knowledge.RelatedColumn'
         type: array
       review_notes:
+        example: Verified with data engineering team
         type: string
       reviewed_at:
         type: string
       reviewed_by:
         description: Lifecycle fields (populated by migrations 000007 and 000008)
+        example: admin@example.com
         type: string
       session_id:
+        example: sess_abc123
         type: string
       source:
+        example: user
         type: string
       status:
+        example: pending
         type: string
       suggested_actions:
         items:
@@ -750,38 +933,50 @@ definitions:
   knowledge.RelatedColumn:
     properties:
       column:
+        example: amount
         type: string
       relevance:
+        example: direct
         type: string
       urn:
+        example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
         type: string
     type: object
   knowledge.SuggestedAction:
     properties:
       action_type:
+        example: update_description
         type: string
       detail:
+        example: Gross margin before returns
         type: string
       query_description:
         type: string
       query_sql:
         type: string
       target:
+        example: amount
         type: string
     type: object
   memory.Record:
     properties:
       category:
+        example: business_context
         type: string
       confidence:
+        example: high
         type: string
       content:
+        example: The daily_sales table in the retail schema is partitioned by date.
         type: string
       created_at:
+        example: "2026-03-18T08:11:08Z"
         type: string
       created_by:
+        example: sarah.chen@example.com
         type: string
       dimension:
+        example: knowledge
         type: string
       embedding:
         items:
@@ -792,6 +987,7 @@ definitions:
           type: string
         type: array
       id:
+        example: mem_a1b2c3d4e5f6
         type: string
       last_verified:
         type: string
@@ -799,29 +995,36 @@ definitions:
         additionalProperties: {}
         type: object
       persona:
+        example: admin
         type: string
       related_columns:
         items:
           $ref: '#/definitions/memory.RelatedColumn'
         type: array
       source:
+        example: user
         type: string
       stale_at:
         type: string
       stale_reason:
         type: string
       status:
+        example: active
         type: string
       updated_at:
+        example: "2026-03-18T08:11:08Z"
         type: string
     type: object
   memory.RelatedColumn:
     properties:
       column:
+        example: amount
         type: string
       relevance:
+        example: direct
         type: string
       urn:
+        example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
         type: string
     type: object
   platform.ConnectionInstance:
@@ -830,14 +1033,19 @@ definitions:
         additionalProperties: {}
         type: object
       created_by:
+        example: admin@example.com
         type: string
       description:
+        example: Production data warehouse
         type: string
       kind:
+        example: trino
         type: string
       name:
+        example: acme-warehouse
         type: string
       updated_at:
+        example: "2026-01-15T14:30:00Z"
         type: string
     type: object
 host: localhost:8080

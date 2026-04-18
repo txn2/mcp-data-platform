@@ -71,8 +71,8 @@ func (h *Handler) getConfig(w http.ResponseWriter, _ *http.Request) {
 
 // configModeResponse describes the current config store mode.
 type configModeResponse struct {
-	Mode     string `json:"mode"`
-	ReadOnly bool   `json:"read_only"`
+	Mode     string `json:"mode" example:"database"`
+	ReadOnly bool   `json:"read_only" example:"false"`
 }
 
 // configMode handles GET /api/v1/admin/config/mode.
@@ -139,11 +139,11 @@ func (h *Handler) exportConfig(w http.ResponseWriter, r *http.Request) {
 
 // effectiveConfigEntry is an entry with its source indicated.
 type effectiveConfigEntry struct {
-	Key       string  `json:"key"`
-	Value     string  `json:"value"`
-	Source    string  `json:"source"` // "file" or "database"
-	UpdatedBy *string `json:"updated_by,omitempty"`
-	UpdatedAt *string `json:"updated_at,omitempty"`
+	Key       string  `json:"key" example:"server.description"`
+	Value     string  `json:"value" example:"ACME Corp analytics platform"`
+	Source    string  `json:"source" example:"database"` // "file" or "database"
+	UpdatedBy *string `json:"updated_by,omitempty" example:"admin@example.com"`
+	UpdatedAt *string `json:"updated_at,omitempty" example:"2026-01-15T14:30:00Z"`
 }
 
 // listEffectiveConfig handles GET /api/v1/admin/config/effective.
@@ -222,7 +222,7 @@ func (h *Handler) getConfigEntry(w http.ResponseWriter, r *http.Request) {
 
 // setConfigEntryRequest is the body for PUT /api/v1/admin/config/entries/{key}.
 type setConfigEntryRequest struct {
-	Value string `json:"value"`
+	Value string `json:"value" example:"ACME Corp analytics platform"`
 }
 
 // setConfigEntry handles PUT /api/v1/admin/config/entries/{key}.

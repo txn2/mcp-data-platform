@@ -2319,13 +2319,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 50
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 196
                 }
             }
         },
@@ -2336,7 +2339,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "datahub_search",
+                        "s3_list_objects"
+                    ]
                 },
                 "user_labels": {
                     "type": "object",
@@ -2348,7 +2356,11 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "marcus.johnson@example.com",
+                        "lisa.chang@example.com"
+                    ]
                 }
             }
         },
@@ -2356,13 +2368,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "failures": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 77
                 },
                 "success": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1423
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1500
                 }
             }
         },
@@ -2370,23 +2385,30 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expires_in": {
                     "description": "e.g. \"24h\", \"720h\", \"8760h\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "720h"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 }
             }
         },
@@ -2394,28 +2416,36 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expires_at": {
                     "type": "string"
                 },
                 "key": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mdp_a1b2c3d4e5f6g7h8i9j0"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 },
                 "warning": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Store this key securely. It will not be shown again."
                 }
             }
         },
@@ -2429,7 +2459,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -2443,13 +2474,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 8
                 }
             }
         },
@@ -2457,10 +2491,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
                 },
                 "read_only": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2468,7 +2504,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "hidden_tools": {
                     "type": "array",
@@ -2477,16 +2514,23 @@ const docTemplate = `{
                     }
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "trino_describe_table",
+                        "trino_browse"
+                    ]
                 }
             }
         },
@@ -2500,7 +2544,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 5
                 }
             }
         },
@@ -2514,13 +2559,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 50
                 }
             }
         },
@@ -2528,13 +2576,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "correction"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "insight_text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The amount column represents gross margin before returns."
                 }
             }
         },
@@ -2548,13 +2599,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
@@ -2580,7 +2634,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
@@ -2588,16 +2643,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "business_context"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "content": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The daily_sales table in the retail schema is partitioned by date."
                 },
                 "dimension": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "knowledge"
                 },
                 "metadata": {
                     "type": "object",
@@ -2612,13 +2671,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "agent_instructions_suffix": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Focus on schema details, data lineage, and query optimization."
                 },
                 "description_override": {
                     "type": "string"
                 },
                 "description_prefix": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "This user is a data engineer responsible for ETL pipelines."
                 }
             }
         },
@@ -2641,7 +2702,10 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "datahub_*"
+                    ]
                 },
                 "deny_connections": {
                     "type": "array",
@@ -2656,7 +2720,8 @@ const docTemplate = `{
                     }
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Read-only access to DataHub"
                 },
                 "description_override": {
                     "type": "string"
@@ -2665,19 +2730,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Viewer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "viewer"
                 },
                 "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 0
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "viewer"
+                    ]
                 }
             }
         },
@@ -2694,7 +2765,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_*",
+                        "datahub_*",
+                        "s3_*"
+                    ]
                 },
                 "context": {
                     "$ref": "#/definitions/admin.personaContextDetail"
@@ -2709,35 +2785,51 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "capture_insight"
+                    ]
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ETL pipeline development and schema management"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Engineer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 10
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "data_engineer"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "file"
                 },
                 "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "trino_describe_table",
+                        "datahub_search"
+                    ]
                 }
             }
         },
@@ -2751,7 +2843,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 6
                 }
             }
         },
@@ -2759,26 +2852,34 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ETL pipeline development and schema management"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Engineer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "data_engineer"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "file"
                 },
                 "tool_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 19
                 }
             }
         },
@@ -2786,16 +2887,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "detail": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "resource not found"
                 },
                 "status": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 404
                 },
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Not Found"
                 },
                 "type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "about:blank"
                 }
             }
         },
@@ -2807,7 +2912,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Production data warehouse"
                 }
             }
         },
@@ -2815,7 +2921,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },
@@ -2823,10 +2930,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "review_notes": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Verified with data engineering team"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "approved"
                 }
             }
         },
@@ -2834,19 +2943,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "admin": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "audit": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "database": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "knowledge": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "oauth": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2854,46 +2968,59 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "build_date": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-04-15T00:00:00Z"
                 },
                 "commit": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "b5d2a78"
                 },
                 "config_mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Semantic data platform"
                 },
                 "features": {
                     "$ref": "#/definitions/admin.systemFeatures"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-data-platform"
                 },
                 "persona_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 3
                 },
                 "portal_logo": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo.svg"
                 },
                 "portal_logo_dark": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo-dark.svg"
                 },
                 "portal_logo_light": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo-light.svg"
                 },
                 "portal_title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ACME Data Platform"
                 },
                 "toolkit_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 5
                 },
                 "transport": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "http"
                 },
                 "version": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "1.55.11"
                 }
             }
         },
@@ -2901,14 +3028,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "parameters": {
                     "type": "object",
                     "additionalProperties": {}
                 },
                 "tool_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 }
             }
         },
@@ -2922,10 +3051,12 @@ const docTemplate = `{
                     }
                 },
                 "duration_ms": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 245
                 },
                 "is_error": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2933,10 +3064,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "| col1 | col2 |\n|------|------|\n| val1 | val2 |"
                 },
                 "type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "text"
                 }
             }
         },
@@ -2944,19 +3077,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 },
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Trino Query"
                 },
                 "toolkit": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 }
             }
         },
@@ -2970,7 +3108,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 12
                 }
             }
         },
@@ -2978,17 +3117,21 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Execute a SQL query against Trino and return results."
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 },
                 "parameters": {},
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Trino Query"
                 }
             }
         },
@@ -3097,80 +3240,103 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "authorized": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-catalog"
                 },
                 "content_blocks": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 2
                 },
                 "duration_ms": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 143
                 },
                 "enrichment_applied": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "enrichment_mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "summary"
                 },
                 "enrichment_tokens_dedup": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 350
                 },
                 "enrichment_tokens_full": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 850
                 },
                 "error_message": {
                     "type": "string"
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "evt_a1b2c3d4e5f6"
                 },
                 "parameters": {
                     "type": "object",
                     "additionalProperties": {}
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "request_chars": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 120
                 },
                 "request_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "req_x9y8z7"
                 },
                 "response_chars": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 2450
                 },
                 "session_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sess_abc123"
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mcp"
                 },
                 "success": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "timestamp": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-04-15T10:41:18Z"
                 },
                 "tool_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "datahub_get_schema"
                 },
                 "toolkit_kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "datahub"
                 },
                 "toolkit_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-catalog"
                 },
                 "transport": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "http"
                 },
                 "user_email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
                 },
                 "user_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
                 }
             }
         },
@@ -3250,29 +3416,37 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expired": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 },
                 "expires_at": {
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
                 }
             }
         },
@@ -3280,19 +3454,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "applied_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "approved_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "change_type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "update_description"
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-01-15T16:00:00Z"
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "cs_x1y2z3a4b5c6d7e8"
                 },
                 "new_value": {
                     "type": "object",
@@ -3303,7 +3482,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "rolled_back": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 },
                 "rolled_back_at": {
                     "type": "string"
@@ -3318,7 +3498,8 @@ const docTemplate = `{
                     }
                 },
                 "target_urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3352,19 +3533,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "captured_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "analyst@example.com"
                 },
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "correction"
                 },
                 "changeset_ref": {
                     "type": "string"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
                 },
                 "entity_urns": {
                     "type": "array",
@@ -3373,13 +3558,16 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "a1b2c3d4e5f67890a1b2c3d4e5f67890"
                 },
                 "insight_text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The amount column represents gross margin before returns, not revenue."
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "analyst"
                 },
                 "related_columns": {
                     "type": "array",
@@ -3388,23 +3576,28 @@ const docTemplate = `{
                     }
                 },
                 "review_notes": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Verified with data engineering team"
                 },
                 "reviewed_at": {
                     "type": "string"
                 },
                 "reviewed_by": {
                     "description": "Lifecycle fields (populated by migrations 000007 and 000008)",
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "session_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sess_abc123"
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "user"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "pending"
                 },
                 "suggested_actions": {
                     "type": "array",
@@ -3450,13 +3643,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "column": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 },
                 "relevance": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "direct"
                 },
                 "urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3464,10 +3660,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "action_type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "update_description"
                 },
                 "detail": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Gross margin before returns"
                 },
                 "query_description": {
                     "type": "string"
@@ -3476,7 +3674,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "target": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 }
             }
         },
@@ -3484,22 +3683,28 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "business_context"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "content": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The daily_sales table in the retail schema is partitioned by date."
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
                 },
                 "created_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sarah.chen@example.com"
                 },
                 "dimension": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "knowledge"
                 },
                 "embedding": {
                     "type": "array",
@@ -3514,7 +3719,8 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mem_a1b2c3d4e5f6"
                 },
                 "last_verified": {
                     "type": "string"
@@ -3524,7 +3730,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin"
                 },
                 "related_columns": {
                     "type": "array",
@@ -3533,7 +3740,8 @@ const docTemplate = `{
                     }
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "user"
                 },
                 "stale_at": {
                     "type": "string"
@@ -3542,10 +3750,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "active"
                 },
                 "updated_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
                 }
             }
         },
@@ -3553,13 +3763,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "column": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 },
                 "relevance": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "direct"
                 },
                 "urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3571,19 +3784,24 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "created_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Production data warehouse"
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "updated_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
                 }
             }
         }

@@ -14,49 +14,49 @@ import (
 
 // personaSummary is a lightweight persona representation for list responses.
 type personaSummary struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description,omitempty"`
-	Roles       []string `json:"roles"`
-	ToolCount   int      `json:"tool_count"`
-	Source      string   `json:"source,omitempty"` // "file", "database", or "both"
+	Name        string   `json:"name" example:"data-engineer"`
+	DisplayName string   `json:"display_name" example:"Data Engineer"`
+	Description string   `json:"description,omitempty" example:"ETL pipeline development and schema management"`
+	Roles       []string `json:"roles" example:"data_engineer"`
+	ToolCount   int      `json:"tool_count" example:"19"`
+	Source      string   `json:"source,omitempty" example:"file"` // "file", "database", or "both"
 }
 
 // personaContextDetail holds context override fields nested under "context" in JSON.
 type personaContextDetail struct {
-	DescriptionPrefix         string `json:"description_prefix,omitempty"`
+	DescriptionPrefix         string `json:"description_prefix,omitempty" example:"This user is a data engineer responsible for ETL pipelines."`
 	DescriptionOverride       string `json:"description_override,omitempty"`
-	AgentInstructionsSuffix   string `json:"agent_instructions_suffix,omitempty"`
+	AgentInstructionsSuffix   string `json:"agent_instructions_suffix,omitempty" example:"Focus on schema details, data lineage, and query optimization."`
 	AgentInstructionsOverride string `json:"agent_instructions_override,omitempty"`
 }
 
 // personaDetail includes resolved tool lists.
 type personaDetail struct {
-	Name             string                `json:"name"`
-	DisplayName      string                `json:"display_name"`
-	Description      string                `json:"description,omitempty"`
-	Roles            []string              `json:"roles"`
-	Priority         int                   `json:"priority"`
-	AllowTools       []string              `json:"allow_tools"`
-	DenyTools        []string              `json:"deny_tools"`
+	Name             string                `json:"name" example:"data-engineer"`
+	DisplayName      string                `json:"display_name" example:"Data Engineer"`
+	Description      string                `json:"description,omitempty" example:"ETL pipeline development and schema management"`
+	Roles            []string              `json:"roles" example:"data_engineer"`
+	Priority         int                   `json:"priority" example:"10"`
+	AllowTools       []string              `json:"allow_tools" example:"trino_*,datahub_*,s3_*"`
+	DenyTools        []string              `json:"deny_tools" example:"capture_insight"`
 	AllowConnections []string              `json:"allow_connections,omitempty"`
 	DenyConnections  []string              `json:"deny_connections,omitempty"`
-	Tools            []string              `json:"tools"`
+	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,datahub_search"`
 	Context          *personaContextDetail `json:"context,omitempty"`
-	Source           string                `json:"source,omitempty"` // "file", "database", or "both"
+	Source           string                `json:"source,omitempty" example:"file"` // "file", "database", or "both"
 }
 
 // personaCreateRequest is the request body for creating/updating a persona.
 type personaCreateRequest struct {
-	Name                      string   `json:"name"`
-	DisplayName               string   `json:"display_name"`
-	Description               string   `json:"description,omitempty"`
-	Roles                     []string `json:"roles"`
-	AllowTools                []string `json:"allow_tools"`
+	Name                      string   `json:"name" example:"viewer"`
+	DisplayName               string   `json:"display_name" example:"Data Viewer"`
+	Description               string   `json:"description,omitempty" example:"Read-only access to DataHub"`
+	Roles                     []string `json:"roles" example:"viewer"`
+	AllowTools                []string `json:"allow_tools" example:"datahub_*"`
 	DenyTools                 []string `json:"deny_tools,omitempty"`
 	AllowConnections          []string `json:"allow_connections,omitempty"`
 	DenyConnections           []string `json:"deny_connections,omitempty"`
-	Priority                  int      `json:"priority,omitempty"`
+	Priority                  int      `json:"priority,omitempty" example:"0"`
 	DescriptionPrefix         string   `json:"description_prefix,omitempty"`
 	DescriptionOverride       string   `json:"description_override,omitempty"`
 	AgentInstructionsSuffix   string   `json:"agent_instructions_suffix,omitempty"`
@@ -66,7 +66,7 @@ type personaCreateRequest struct {
 // personaListResponse wraps a list of personas.
 type personaListResponse struct {
 	Personas []personaSummary `json:"personas"`
-	Total    int              `json:"total"`
+	Total    int              `json:"total" example:"6"`
 }
 
 // listPersonas handles GET /api/v1/admin/personas.

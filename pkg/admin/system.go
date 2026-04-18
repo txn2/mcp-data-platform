@@ -12,29 +12,29 @@ import (
 
 // systemInfoResponse is returned by GET /system/info.
 type systemInfoResponse struct {
-	Name            string         `json:"name"`
-	Version         string         `json:"version"`
-	Commit          string         `json:"commit"`
-	BuildDate       string         `json:"build_date"`
-	Description     string         `json:"description"`
-	Transport       string         `json:"transport"`
-	ConfigMode      string         `json:"config_mode"`
-	PortalTitle     string         `json:"portal_title"`
-	PortalLogo      string         `json:"portal_logo"`
-	PortalLogoLight string         `json:"portal_logo_light"`
-	PortalLogoDark  string         `json:"portal_logo_dark"`
+	Name            string         `json:"name" example:"acme-data-platform"`
+	Version         string         `json:"version" example:"1.55.11"`
+	Commit          string         `json:"commit" example:"b5d2a78"`
+	BuildDate       string         `json:"build_date" example:"2026-04-15T00:00:00Z"`
+	Description     string         `json:"description" example:"Semantic data platform"`
+	Transport       string         `json:"transport" example:"http"`
+	ConfigMode      string         `json:"config_mode" example:"database"`
+	PortalTitle     string         `json:"portal_title" example:"ACME Data Platform"`
+	PortalLogo      string         `json:"portal_logo" example:"https://example.com/logo.svg"`
+	PortalLogoLight string         `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
+	PortalLogoDark  string         `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
 	Features        systemFeatures `json:"features"`
-	ToolkitCount    int            `json:"toolkit_count"`
-	PersonaCount    int            `json:"persona_count"`
+	ToolkitCount    int            `json:"toolkit_count" example:"5"`
+	PersonaCount    int            `json:"persona_count" example:"3"`
 }
 
 // systemFeatures lists platform features based on runtime availability.
 type systemFeatures struct {
-	Audit     bool `json:"audit"`
-	OAuth     bool `json:"oauth"`
-	Knowledge bool `json:"knowledge"`
-	Admin     bool `json:"admin"`
-	Database  bool `json:"database"`
+	Audit     bool `json:"audit" example:"true"`
+	OAuth     bool `json:"oauth" example:"false"`
+	Knowledge bool `json:"knowledge" example:"true"`
+	Admin     bool `json:"admin" example:"true"`
+	Database  bool `json:"database" example:"true"`
 }
 
 // getSystemInfo handles GET /api/v1/admin/system/info.
@@ -85,13 +85,13 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 
 // publicBrandingResponse is returned by the unauthenticated branding endpoint.
 type publicBrandingResponse struct {
-	Name            string `json:"name"`
-	Version         string `json:"version"`
-	PortalTitle     string `json:"portal_title"`
-	PortalLogo      string `json:"portal_logo"`
-	PortalLogoLight string `json:"portal_logo_light"`
-	PortalLogoDark  string `json:"portal_logo_dark"`
-	OIDCEnabled     bool   `json:"oidc_enabled"`
+	Name            string `json:"name" example:"acme-data-platform"`
+	Version         string `json:"version" example:"1.55.11"`
+	PortalTitle     string `json:"portal_title" example:"ACME Data Platform"`
+	PortalLogo      string `json:"portal_logo" example:"https://example.com/logo.svg"`
+	PortalLogoLight string `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
+	PortalLogoDark  string `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
+	OIDCEnabled     bool   `json:"oidc_enabled" example:"false"`
 }
 
 // getPublicBranding handles GET /api/v1/admin/public/branding.
@@ -113,17 +113,17 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 
 // toolInfo describes a single tool and its owning toolkit.
 type toolInfo struct {
-	Name       string `json:"name"`
-	Title      string `json:"title,omitempty"`
-	Toolkit    string `json:"toolkit"`
-	Kind       string `json:"kind"`
-	Connection string `json:"connection"`
+	Name       string `json:"name" example:"trino_query"`
+	Title      string `json:"title,omitempty" example:"Trino Query"`
+	Toolkit    string `json:"toolkit" example:"acme-warehouse"`
+	Kind       string `json:"kind" example:"trino"`
+	Connection string `json:"connection" example:"acme-warehouse"`
 }
 
 // toolListResponse wraps a list of tools.
 type toolListResponse struct {
 	Tools []toolInfo `json:"tools"`
-	Total int        `json:"total"`
+	Total int        `json:"total" example:"12"`
 }
 
 // listTools handles GET /api/v1/admin/tools.
@@ -197,17 +197,17 @@ func (h *Handler) buildToolTitleMap(r *http.Request) map[string]string {
 
 // connectionInfo describes a toolkit connection.
 type connectionInfo struct {
-	Kind        string   `json:"kind"`
-	Name        string   `json:"name"`
-	Connection  string   `json:"connection"`
-	Tools       []string `json:"tools"`
+	Kind        string   `json:"kind" example:"trino"`
+	Name        string   `json:"name" example:"acme-warehouse"`
+	Connection  string   `json:"connection" example:"acme-warehouse"`
+	Tools       []string `json:"tools" example:"trino_query,trino_describe_table,trino_browse"`
 	HiddenTools []string `json:"hidden_tools"`
 }
 
 // connectionListResponse wraps a list of connections.
 type connectionListResponse struct {
 	Connections []connectionInfo `json:"connections"`
-	Total       int              `json:"total"`
+	Total       int              `json:"total" example:"5"`
 }
 
 // listConnections handles GET /api/v1/admin/connections.

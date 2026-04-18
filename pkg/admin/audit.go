@@ -10,23 +10,23 @@ import (
 // auditEventResponse wraps a paginated list of audit events.
 type auditEventResponse struct {
 	Data    []audit.Event `json:"data"`
-	Total   int           `json:"total"`
-	Page    int           `json:"page"`
-	PerPage int           `json:"per_page"`
+	Total   int           `json:"total" example:"196"`
+	Page    int           `json:"page" example:"1"`
+	PerPage int           `json:"per_page" example:"50"`
 }
 
 // auditFiltersResponse holds unique values for dropdown filters.
 type auditFiltersResponse struct {
-	Users      []string          `json:"users"`
-	Tools      []string          `json:"tools"`
+	Users      []string          `json:"users" example:"marcus.johnson@example.com,lisa.chang@example.com"`
+	Tools      []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
 	UserLabels map[string]string `json:"user_labels,omitempty"`
 }
 
 // auditStatsResponse holds aggregate audit statistics.
 type auditStatsResponse struct {
-	Total    int `json:"total"`
-	Success  int `json:"success"`
-	Failures int `json:"failures"`
+	Total    int `json:"total" example:"1500"`
+	Success  int `json:"success" example:"1423"`
+	Failures int `json:"failures" example:"77"`
 }
 
 const (

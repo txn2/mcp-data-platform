@@ -194,9 +194,9 @@ var validActionTypes = map[actionType]bool{
 
 // SuggestedAction represents a proposed catalog change.
 type SuggestedAction struct {
-	ActionType       string `json:"action_type"`
-	Target           string `json:"target"`
-	Detail           string `json:"detail"`
+	ActionType       string `json:"action_type" example:"update_description"`
+	Target           string `json:"target" example:"amount"`
+	Detail           string `json:"detail" example:"Gross margin before returns"`
 	QuerySQL         string `json:"query_sql,omitempty"`
 	QueryDescription string `json:"query_description,omitempty"`
 }
@@ -219,9 +219,9 @@ func ValidateSuggestedActions(actions []SuggestedAction) error {
 
 // RelatedColumn represents a column related to an insight.
 type RelatedColumn struct {
-	URN       string `json:"urn"`
-	Column    string `json:"column"`
-	Relevance string `json:"relevance"`
+	URN       string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	Column    string `json:"column" example:"amount"`
+	Relevance string `json:"relevance" example:"direct"`
 }
 
 // ValidateEntityURNs validates the entity URN slice.
@@ -242,24 +242,24 @@ func ValidateRelatedColumns(cols []RelatedColumn) error {
 
 // Insight represents a captured domain knowledge insight.
 type Insight struct {
-	ID               string            `json:"id"`
-	CreatedAt        time.Time         `json:"created_at"`
-	SessionID        string            `json:"session_id"`
-	CapturedBy       string            `json:"captured_by"`
-	Persona          string            `json:"persona"`
-	Source           string            `json:"source"`
-	Category         string            `json:"category"`
-	InsightText      string            `json:"insight_text"`
-	Confidence       string            `json:"confidence"`
+	ID               string            `json:"id" example:"a1b2c3d4e5f67890a1b2c3d4e5f67890"`
+	CreatedAt        time.Time         `json:"created_at" example:"2026-01-15T14:30:00Z"`
+	SessionID        string            `json:"session_id" example:"sess_abc123"`
+	CapturedBy       string            `json:"captured_by" example:"analyst@example.com"`
+	Persona          string            `json:"persona" example:"analyst"`
+	Source           string            `json:"source" example:"user"`
+	Category         string            `json:"category" example:"correction"`
+	InsightText      string            `json:"insight_text" example:"The amount column represents gross margin before returns, not revenue."`
+	Confidence       string            `json:"confidence" example:"high"`
 	EntityURNs       []string          `json:"entity_urns"`
 	RelatedColumns   []RelatedColumn   `json:"related_columns"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions"`
-	Status           string            `json:"status"`
+	Status           string            `json:"status" example:"pending"`
 
 	// Lifecycle fields (populated by migrations 000007 and 000008)
-	ReviewedBy   string     `json:"reviewed_by,omitempty"`
+	ReviewedBy   string     `json:"reviewed_by,omitempty" example:"admin@example.com"`
 	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
-	ReviewNotes  string     `json:"review_notes,omitempty"`
+	ReviewNotes  string     `json:"review_notes,omitempty" example:"Verified with data engineering team"`
 	AppliedBy    string     `json:"applied_by,omitempty"`
 	AppliedAt    *time.Time `json:"applied_at,omitempty"`
 	ChangesetRef string     `json:"changeset_ref,omitempty"`
@@ -357,16 +357,16 @@ type InsightUpdate struct {
 
 // Changeset records a set of changes applied to DataHub from insights.
 type Changeset struct {
-	ID               string         `json:"id"`
-	CreatedAt        time.Time      `json:"created_at"`
-	TargetURN        string         `json:"target_urn"`
-	ChangeType       string         `json:"change_type"`
+	ID               string         `json:"id" example:"cs_x1y2z3a4b5c6d7e8"`
+	CreatedAt        time.Time      `json:"created_at" example:"2026-01-15T16:00:00Z"`
+	TargetURN        string         `json:"target_urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	ChangeType       string         `json:"change_type" example:"update_description"`
 	PreviousValue    map[string]any `json:"previous_value"`
 	NewValue         map[string]any `json:"new_value"`
 	SourceInsightIDs []string       `json:"source_insight_ids"`
-	ApprovedBy       string         `json:"approved_by"`
-	AppliedBy        string         `json:"applied_by"`
-	RolledBack       bool           `json:"rolled_back"`
+	ApprovedBy       string         `json:"approved_by" example:"admin@example.com"`
+	AppliedBy        string         `json:"applied_by" example:"admin@example.com"`
+	RolledBack       bool           `json:"rolled_back" example:"false"`
 	RolledBackBy     string         `json:"rolled_back_by,omitempty"`
 	RolledBackAt     *time.Time     `json:"rolled_back_at,omitempty"`
 }

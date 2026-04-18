@@ -41,13 +41,13 @@ func (k *APIKey) IsExpired() bool {
 
 // APIKeySummary is a safe representation of a key (never exposes the key value).
 type APIKeySummary struct {
-	Name        string     `json:"name"`
-	Email       string     `json:"email,omitempty"`
-	Description string     `json:"description,omitempty"`
-	Roles       []string   `json:"roles"`
+	Name        string     `json:"name" example:"ci-pipeline"`
+	Email       string     `json:"email,omitempty" example:"ci@example.com"`
+	Description string     `json:"description,omitempty" example:"CI/CD pipeline integration"`
+	Roles       []string   `json:"roles" example:"analyst"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Expired     bool       `json:"expired,omitempty"`
-	Source      string     `json:"source,omitempty"` // "file", "database", or "both"
+	Expired     bool       `json:"expired,omitempty" example:"false"`
+	Source      string     `json:"source,omitempty" example:"database"` // "file", "database", or "both"
 }
 
 // APIKeyAuthenticator authenticates using API keys.

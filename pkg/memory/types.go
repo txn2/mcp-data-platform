@@ -107,21 +107,21 @@ const (
 
 // Record represents a single memory record.
 type Record struct {
-	ID             string          `json:"id"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	CreatedBy      string          `json:"created_by"`
-	Persona        string          `json:"persona"`
-	Dimension      string          `json:"dimension"`
-	Content        string          `json:"content"`
-	Category       string          `json:"category"`
-	Confidence     string          `json:"confidence"`
-	Source         string          `json:"source"`
+	ID             string          `json:"id" example:"mem_a1b2c3d4e5f6"`
+	CreatedAt      time.Time       `json:"created_at" example:"2026-03-18T08:11:08Z"`
+	UpdatedAt      time.Time       `json:"updated_at" example:"2026-03-18T08:11:08Z"`
+	CreatedBy      string          `json:"created_by" example:"sarah.chen@example.com"`
+	Persona        string          `json:"persona" example:"admin"`
+	Dimension      string          `json:"dimension" example:"knowledge"`
+	Content        string          `json:"content" example:"The daily_sales table in the retail schema is partitioned by date."`
+	Category       string          `json:"category" example:"business_context"`
+	Confidence     string          `json:"confidence" example:"high"`
+	Source         string          `json:"source" example:"user"`
 	EntityURNs     []string        `json:"entity_urns"`
 	RelatedColumns []RelatedColumn `json:"related_columns"`
 	Embedding      []float32       `json:"embedding,omitempty"`
 	Metadata       map[string]any  `json:"metadata"`
-	Status         string          `json:"status"`
+	Status         string          `json:"status" example:"active"`
 	StaleReason    string          `json:"stale_reason,omitempty"`
 	StaleAt        *time.Time      `json:"stale_at,omitempty"`
 	LastVerified   *time.Time      `json:"last_verified,omitempty"`
@@ -129,9 +129,9 @@ type Record struct {
 
 // RelatedColumn represents a column related to a memory record.
 type RelatedColumn struct {
-	URN       string `json:"urn"`
-	Column    string `json:"column"`
-	Relevance string `json:"relevance"`
+	URN       string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	Column    string `json:"column" example:"amount"`
+	Relevance string `json:"relevance" example:"direct"`
 }
 
 // Filter defines criteria for listing memory records.

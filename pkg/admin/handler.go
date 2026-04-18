@@ -135,7 +135,7 @@ type Handler struct {
 
 // statusResponse is a generic status response.
 type statusResponse struct {
-	Status string `json:"status"`
+	Status string `json:"status" example:"ok"`
 }
 
 // @title MCP Data Platform Admin API
@@ -332,10 +332,10 @@ func (*Handler) featureUnavailable(feature, requires string) http.HandlerFunc {
 
 // problemDetail represents an RFC 9457 Problem Details response.
 type problemDetail struct {
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail,omitempty"`
+	Type   string `json:"type" example:"about:blank"`
+	Title  string `json:"title" example:"Not Found"`
+	Status int    `json:"status" example:"404"`
+	Detail string `json:"detail,omitempty" example:"resource not found"`
 }
 
 // writeJSON writes a JSON response.

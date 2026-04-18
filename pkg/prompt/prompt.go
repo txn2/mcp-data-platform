@@ -61,27 +61,27 @@ const (
 
 // Argument describes a prompt argument.
 type Argument struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Required    bool   `json:"required"`
+	Name        string `json:"name" example:"date"`
+	Description string `json:"description" example:"The date to analyze (YYYY-MM-DD)"`
+	Required    bool   `json:"required" example:"true"`
 }
 
 // Prompt represents a user-managed MCP prompt.
 type Prompt struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	DisplayName string     `json:"display_name"`
-	Description string     `json:"description"`
-	Content     string     `json:"content"`
+	ID          string     `json:"id" example:"prompt_a1b2c3d4"`
+	Name        string     `json:"name" example:"daily-sales-report"`
+	DisplayName string     `json:"display_name" example:"Daily Sales Report"`
+	Description string     `json:"description" example:"Generate a daily sales summary by region"`
+	Content     string     `json:"content" example:"Analyze sales data for {date} grouped by region."`
 	Arguments   []Argument `json:"arguments"`
-	Category    string     `json:"category"`
-	Scope       string     `json:"scope"`
-	Personas    []string   `json:"personas"`
-	OwnerEmail  string     `json:"owner_email"`
-	Source      string     `json:"source"`
-	Enabled     bool       `json:"enabled"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Category    string     `json:"category" example:"analysis"`
+	Scope       string     `json:"scope" example:"persona"`
+	Personas    []string   `json:"personas" example:"analyst,data-engineer"`
+	OwnerEmail  string     `json:"owner_email" example:"admin@example.com"`
+	Source      string     `json:"source" example:"database"`
+	Enabled     bool       `json:"enabled" example:"true"`
+	CreatedAt   time.Time  `json:"created_at" example:"2026-01-15T14:30:00Z"`
+	UpdatedAt   time.Time  `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ListFilter controls which prompts are returned by List.
