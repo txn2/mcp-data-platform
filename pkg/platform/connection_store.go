@@ -14,12 +14,12 @@ var ErrConnectionNotFound = errors.New("connection instance not found")
 
 // ConnectionInstance represents a database-managed toolkit backend connection.
 type ConnectionInstance struct {
-	Kind        string         `json:"kind"`
-	Name        string         `json:"name"`
+	Kind        string         `json:"kind" example:"trino"`
+	Name        string         `json:"name" example:"acme-warehouse"`
 	Config      map[string]any `json:"config"`
-	Description string         `json:"description"`
-	CreatedBy   string         `json:"created_by"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	Description string         `json:"description" example:"Production data warehouse"`
+	CreatedBy   string         `json:"created_by" example:"admin@example.com"`
+	UpdatedAt   time.Time      `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ConnectionStore manages connection instance persistence.

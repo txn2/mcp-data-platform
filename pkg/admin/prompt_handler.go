@@ -26,22 +26,22 @@ func (h *Handler) registerPromptRoutes() {
 // adminPromptListResponse is the paginated response for prompt listing.
 type adminPromptListResponse struct {
 	Data  []prompt.Prompt `json:"data"`
-	Total int             `json:"total"`
+	Total int             `json:"total" example:"12"`
 }
 
 // adminPromptCreateRequest is the request body for creating a prompt.
 type adminPromptCreateRequest struct {
-	Name        string            `json:"name"`
-	DisplayName string            `json:"display_name"`
-	Description string            `json:"description"`
-	Content     string            `json:"content"`
+	Name        string            `json:"name" example:"daily-sales-report"`
+	DisplayName string            `json:"display_name" example:"Daily Sales Report"`
+	Description string            `json:"description" example:"Generate a daily sales summary by region"`
+	Content     string            `json:"content" example:"Analyze sales data for {date} grouped by region."`
 	Arguments   []prompt.Argument `json:"arguments"`
-	Category    string            `json:"category"`
-	Scope       string            `json:"scope"`
-	Personas    []string          `json:"personas"`
-	OwnerEmail  string            `json:"owner_email"`
-	Source      string            `json:"source"`
-	Enabled     *bool             `json:"enabled"`
+	Category    string            `json:"category" example:"analysis"`
+	Scope       string            `json:"scope" example:"persona"`
+	Personas    []string          `json:"personas" example:"analyst,data-engineer"`
+	OwnerEmail  string            `json:"owner_email" example:"admin@example.com"`
+	Source      string            `json:"source" example:"database"`
+	Enabled     *bool             `json:"enabled" example:"true"`
 }
 
 // adminPromptUpdateRequest is the request body for updating a prompt.

@@ -15,7 +15,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/audit/events": {
+        "/admin/audit/events": {
             "get": {
                 "security": [
                     {
@@ -111,7 +111,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/events/filters": {
+        "/admin/audit/events/filters": {
             "get": {
                 "security": [
                     {
@@ -159,7 +159,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/events/{id}": {
+        "/admin/audit/events/{id}": {
             "get": {
                 "security": [
                     {
@@ -208,7 +208,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/breakdown": {
+        "/admin/audit/metrics/breakdown": {
             "get": {
                 "security": [
                     {
@@ -223,7 +223,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit breakdown",
                 "parameters": [
@@ -278,7 +278,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/discovery": {
+        "/admin/audit/metrics/discovery": {
             "get": {
                 "security": [
                     {
@@ -293,7 +293,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get discovery pattern metrics",
                 "parameters": [
@@ -326,7 +326,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/enrichment": {
+        "/admin/audit/metrics/enrichment": {
             "get": {
                 "security": [
                     {
@@ -341,7 +341,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get enrichment metrics",
                 "parameters": [
@@ -374,7 +374,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/overview": {
+        "/admin/audit/metrics/overview": {
             "get": {
                 "security": [
                     {
@@ -389,7 +389,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit overview",
                 "parameters": [
@@ -422,7 +422,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/performance": {
+        "/admin/audit/metrics/performance": {
             "get": {
                 "security": [
                     {
@@ -437,7 +437,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit performance",
                 "parameters": [
@@ -470,7 +470,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/metrics/timeseries": {
+        "/admin/audit/metrics/timeseries": {
             "get": {
                 "security": [
                     {
@@ -485,7 +485,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit timeseries",
                 "parameters": [
@@ -533,7 +533,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/audit/stats": {
+        "/admin/audit/stats": {
             "get": {
                 "security": [
                     {
@@ -593,7 +593,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/auth/keys": {
+        "/admin/auth/keys": {
             "get": {
                 "security": [
                     {
@@ -673,7 +673,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/auth/keys/{name}": {
+        "/admin/auth/keys/{name}": {
             "delete": {
                 "security": [
                     {
@@ -716,7 +716,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/config": {
+        "/admin/config": {
             "get": {
                 "security": [
                     {
@@ -751,7 +751,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/config/export": {
+        "/admin/config/export": {
             "get": {
                 "security": [
                     {
@@ -793,7 +793,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/config/mode": {
+        "/admin/config/mode": {
             "get": {
                 "security": [
                     {
@@ -821,7 +821,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/connection-instances": {
+        "/admin/connection-instances": {
             "get": {
                 "security": [
                     {
@@ -858,7 +858,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/connection-instances/{kind}/{name}": {
+        "/admin/connection-instances/{kind}/{name}": {
             "get": {
                 "security": [
                     {
@@ -1028,7 +1028,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/connections": {
+        "/admin/connections": {
             "get": {
                 "security": [
                     {
@@ -1056,7 +1056,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/changesets": {
+        "/admin/knowledge/changesets": {
             "get": {
                 "security": [
                     {
@@ -1134,7 +1134,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/changesets/{id}": {
+        "/admin/knowledge/changesets/{id}": {
             "get": {
                 "security": [
                     {
@@ -1177,7 +1177,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/changesets/{id}/rollback": {
+        "/admin/knowledge/changesets/{id}/rollback": {
             "post": {
                 "security": [
                     {
@@ -1232,7 +1232,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/insights": {
+        "/admin/knowledge/insights": {
             "get": {
                 "security": [
                     {
@@ -1322,7 +1322,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/insights/stats": {
+        "/admin/knowledge/insights/stats": {
             "get": {
                 "security": [
                     {
@@ -1400,7 +1400,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/insights/{id}": {
+        "/admin/knowledge/insights/{id}": {
             "get": {
                 "security": [
                     {
@@ -1514,7 +1514,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/knowledge/insights/{id}/status": {
+        "/admin/knowledge/insights/{id}/status": {
             "put": {
                 "security": [
                     {
@@ -1587,7 +1587,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/memory/records": {
+        "/admin/memory/records": {
             "get": {
                 "security": [
                     {
@@ -1689,7 +1689,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/memory/records/stats": {
+        "/admin/memory/records/stats": {
             "get": {
                 "security": [
                     {
@@ -1779,7 +1779,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/memory/records/{id}": {
+        "/admin/memory/records/{id}": {
             "get": {
                 "security": [
                     {
@@ -1940,7 +1940,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/personas": {
+        "/admin/personas": {
             "get": {
                 "security": [
                     {
@@ -2026,7 +2026,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/personas/{name}": {
+        "/admin/personas/{name}": {
             "get": {
                 "security": [
                     {
@@ -2175,7 +2175,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/system/info": {
+        "/admin/system/info": {
             "get": {
                 "security": [
                     {
@@ -2203,7 +2203,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/tools": {
+        "/admin/tools": {
             "get": {
                 "security": [
                     {
@@ -2231,7 +2231,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/tools/call": {
+        "/admin/tools/call": {
             "post": {
                 "security": [
                     {
@@ -2279,7 +2279,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/tools/schemas": {
+        "/admin/tools/schemas": {
             "get": {
                 "security": [
                     {
@@ -2306,6 +2306,3132 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/portal/activity/breakdown": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns activity breakdown grouped by a dimension (tool_name, user_id, persona, toolkit_kind, or connection).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Activity"
+                ],
+                "summary": "Get activity breakdown",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Grouping dimension (default: tool_name)",
+                        "name": "group_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum entries to return",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/audit.BreakdownEntry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/activity/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate activity metrics for the current user within an optional time range.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Activity"
+                ],
+                "summary": "Get activity overview",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.Overview"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/activity/timeseries": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns time-bucketed activity data for the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Activity"
+                ],
+                "summary": "Get activity timeseries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bucket resolution: minute, hour, day (default: hour)",
+                        "name": "resolution",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/audit.TimeseriesBucket"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated assets owned by the current user with optional filtering.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "List assets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by content type",
+                        "name": "content_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by tag",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single asset by ID. Non-owners need share access.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Get asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.assetResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the asset's name, description, or tags. Only the owner can update.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Update asset metadata",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.updateAssetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes an asset. Only the owner can delete.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Delete asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/content": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Downloads the asset's binary content from S3.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Get asset content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads new binary content for the asset, creating a new version.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Update asset content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Change summary for the new version",
+                        "name": "X-Change-Summary",
+                        "in": "header"
+                    },
+                    {
+                        "description": "Raw file content",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/copy": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an independent copy of a shared asset in the current user's My Assets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Copy asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID to copy",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Asset"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/shares": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all shares for an asset. Only the owner can view shares.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "List asset shares",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/portal.Share"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a share link or user-targeted share for an asset. Only the owner can share.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Create asset share",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Share configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.createShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.shareResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/thumbnail": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Downloads the asset's PNG thumbnail image.",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Get asset thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads a PNG thumbnail image for the asset.",
+                "consumes": [
+                    "image/png"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Upload asset thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "PNG image data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated version history for an asset.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "List asset versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/versions/{version}/content": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Downloads the binary content of a specific asset version.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Get version content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/versions/{version}/revert": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reverts the asset content to a specific version by creating a new version with that content.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Revert to version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number to revert to",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated collections owned by the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "List collections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search term",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.listCollectionsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new collection for the current user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Create collection",
+                "parameters": [
+                    {
+                        "description": "Collection details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.createCollectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Collection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single collection by ID. Non-owners need share access.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Get collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.getCollectionResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates a collection's name and/or description. Only the owner can update.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Update collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.updateCollectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Collection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a collection. Only the owner can delete.",
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Delete collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/config": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the collection's display configuration. Only the owner can update.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Update collection config",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Configuration object",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.CollectionConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Collection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/sections": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces all sections and items in a collection. Only the owner can modify.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Set collection sections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Sections with items",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.setSectionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Collection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/shares": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all shares for a collection. Only the owner can view shares.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "List collection shares",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/portal.Share"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a share link or user-targeted share for a collection. Only the owner can share.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Create collection share",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Share configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.createShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.shareResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/thumbnail": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Downloads the collection's PNG thumbnail image.",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Get collection thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads a PNG thumbnail image for the collection. Only the owner can upload.",
+                "consumes": [
+                    "image/png"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Upload collection thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "PNG image data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/knowledge/insights": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated insights captured by the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List my insights",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/knowledge/insights/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate statistics for the current user's insights.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Get my insight stats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.InsightStats"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/me": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the authenticated user's profile including roles, persona, and available tools.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "User"
+                ],
+                "summary": "Get current user info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.meResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/memory/records": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated memory records for the current user with optional filtering.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "List my memory records",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by dimension",
+                        "name": "dimension",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source",
+                        "name": "source",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/memory/records/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregated memory statistics grouped by dimension, category, and status.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Get my memory stats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.memoryStatsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/prompts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the user's personal prompts plus available global, persona, and system prompts.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List my prompts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.portalPromptListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new personal prompt for the current user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Create personal prompt",
+                "parameters": [
+                    {
+                        "description": "Prompt details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.portalPromptCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/prompts/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates a personal prompt owned by the current user. Admins can update any prompt.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Update personal prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated prompt fields",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.portalPromptCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes a personal prompt owned by the current user. Admins can delete any prompt.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Delete personal prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/shared-collections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated collections that other users have shared with the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "List collections shared with me",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.listSharedCollectionsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/shared-with-me": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated assets that other users have shared with the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "List assets shared with me",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/shares/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes a share by its ID. Only the asset owner can revoke.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Revoke share",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Share ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List managed resources visible to the caller, with optional filters.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List resources",
+                "parameters": [
+                    {
+                        "enum": [
+                            "global",
+                            "persona",
+                            "user"
+                        ],
+                        "type": "string",
+                        "description": "Filter by scope",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by scope ID (persona name or user sub)",
+                        "name": "scope_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by tag",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search display_name and description",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pagination offset (default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload a new managed resource with metadata and file content.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Create resource",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "File to upload (max 100 MB)",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Human-readable display name",
+                        "name": "display_name",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "global",
+                            "persona",
+                            "user"
+                        ],
+                        "type": "string",
+                        "description": "Visibility scope",
+                        "name": "scope",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Persona name or user sub (required for persona/user scopes)",
+                        "name": "scope_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Resource category (e.g. runbooks, templates)",
+                        "name": "category",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional description",
+                        "name": "description",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Optional tags",
+                        "name": "tags",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/resource.Resource"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve metadata for a single managed resource by ID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Get resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.Resource"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a managed resource, removing both the S3 blob and database metadata.",
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Delete resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update mutable metadata fields of a managed resource.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Update resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resource.Update"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.Resource"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/content": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download the binary content of a managed resource.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Download resource content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -2319,13 +5445,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 50
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 196
                 }
             }
         },
@@ -2336,7 +5465,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "datahub_search",
+                        "s3_list_objects"
+                    ]
                 },
                 "user_labels": {
                     "type": "object",
@@ -2348,7 +5482,11 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "marcus.johnson@example.com",
+                        "lisa.chang@example.com"
+                    ]
                 }
             }
         },
@@ -2356,13 +5494,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "failures": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 77
                 },
                 "success": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1423
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1500
                 }
             }
         },
@@ -2370,23 +5511,30 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expires_in": {
                     "description": "e.g. \"24h\", \"720h\", \"8760h\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "720h"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 }
             }
         },
@@ -2394,28 +5542,36 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expires_at": {
                     "type": "string"
                 },
                 "key": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mdp_a1b2c3d4e5f6g7h8i9j0"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 },
                 "warning": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Store this key securely. It will not be shown again."
                 }
             }
         },
@@ -2429,7 +5585,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -2443,13 +5600,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 8
                 }
             }
         },
@@ -2457,10 +5617,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
                 },
                 "read_only": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2468,7 +5630,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "hidden_tools": {
                     "type": "array",
@@ -2477,16 +5640,23 @@ const docTemplate = `{
                     }
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "trino_describe_table",
+                        "trino_browse"
+                    ]
                 }
             }
         },
@@ -2500,7 +5670,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 5
                 }
             }
         },
@@ -2514,13 +5685,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 50
                 }
             }
         },
@@ -2528,13 +5702,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "correction"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "insight_text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The amount column represents gross margin before returns."
                 }
             }
         },
@@ -2548,13 +5725,16 @@ const docTemplate = `{
                     }
                 },
                 "page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "per_page": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
@@ -2580,7 +5760,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
@@ -2588,16 +5769,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "business_context"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "content": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The daily_sales table in the retail schema is partitioned by date."
                 },
                 "dimension": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "knowledge"
                 },
                 "metadata": {
                     "type": "object",
@@ -2612,13 +5797,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "agent_instructions_suffix": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Focus on schema details, data lineage, and query optimization."
                 },
                 "description_override": {
                     "type": "string"
                 },
                 "description_prefix": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "This user is a data engineer responsible for ETL pipelines."
                 }
             }
         },
@@ -2641,7 +5828,10 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "datahub_*"
+                    ]
                 },
                 "deny_connections": {
                     "type": "array",
@@ -2656,7 +5846,8 @@ const docTemplate = `{
                     }
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Read-only access to DataHub"
                 },
                 "description_override": {
                     "type": "string"
@@ -2665,19 +5856,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Viewer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "viewer"
                 },
                 "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 0
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "viewer"
+                    ]
                 }
             }
         },
@@ -2694,7 +5891,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_*",
+                        "datahub_*",
+                        "s3_*"
+                    ]
                 },
                 "context": {
                     "$ref": "#/definitions/admin.personaContextDetail"
@@ -2709,35 +5911,51 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "capture_insight"
+                    ]
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ETL pipeline development and schema management"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Engineer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 10
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "data_engineer"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "file"
                 },
                 "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "trino_query",
+                        "trino_describe_table",
+                        "datahub_search"
+                    ]
                 }
             }
         },
@@ -2751,7 +5969,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 6
                 }
             }
         },
@@ -2759,26 +5978,34 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ETL pipeline development and schema management"
                 },
                 "display_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Data Engineer"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "data_engineer"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "file"
                 },
                 "tool_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 19
                 }
             }
         },
@@ -2786,16 +6013,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "detail": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "resource not found"
                 },
                 "status": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 404
                 },
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Not Found"
                 },
                 "type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "about:blank"
                 }
             }
         },
@@ -2807,7 +6038,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Production data warehouse"
                 }
             }
         },
@@ -2815,7 +6047,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },
@@ -2823,10 +6056,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "review_notes": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Verified with data engineering team"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "approved"
                 }
             }
         },
@@ -2834,19 +6069,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "admin": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "audit": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "database": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "knowledge": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "oauth": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2854,46 +6094,59 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "build_date": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-04-15T00:00:00Z"
                 },
                 "commit": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "b5d2a78"
                 },
                 "config_mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
                 },
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Semantic data platform"
                 },
                 "features": {
                     "$ref": "#/definitions/admin.systemFeatures"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-data-platform"
                 },
                 "persona_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 3
                 },
                 "portal_logo": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo.svg"
                 },
                 "portal_logo_dark": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo-dark.svg"
                 },
                 "portal_logo_light": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://example.com/logo-light.svg"
                 },
                 "portal_title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ACME Data Platform"
                 },
                 "toolkit_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 5
                 },
                 "transport": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "http"
                 },
                 "version": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "1.55.11"
                 }
             }
         },
@@ -2901,14 +6154,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "parameters": {
                     "type": "object",
                     "additionalProperties": {}
                 },
                 "tool_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 }
             }
         },
@@ -2922,10 +6177,12 @@ const docTemplate = `{
                     }
                 },
                 "duration_ms": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 245
                 },
                 "is_error": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -2933,10 +6190,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "| col1 | col2 |\n|------|------|\n| val1 | val2 |"
                 },
                 "type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "text"
                 }
             }
         },
@@ -2944,19 +6203,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 },
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Trino Query"
                 },
                 "toolkit": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-warehouse"
                 }
             }
         },
@@ -2970,7 +6234,8 @@ const docTemplate = `{
                     }
                 },
                 "total": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 12
                 }
             }
         },
@@ -2978,17 +6243,21 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Execute a SQL query against Trino and return results."
                 },
                 "kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 },
                 "parameters": {},
                 "title": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Trino Query"
                 }
             }
         },
@@ -3007,16 +6276,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avg_duration_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 320
                 },
                 "count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 65
                 },
                 "dimension": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "trino_query"
                 },
                 "success_rate": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 0.95
                 }
             }
         },
@@ -3024,19 +6297,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "discovery_before_query": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 60
                 },
                 "discovery_rate": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 0.75
                 },
                 "discovery_sessions": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 75
                 },
                 "query_sessions": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 80
                 },
                 "query_without_discovery": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20
                 },
                 "top_discovery_tools": {
                     "type": "array",
@@ -3045,7 +6323,8 @@ const docTemplate = `{
                     }
                 },
                 "total_sessions": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 100
                 }
             }
         },
@@ -3053,43 +6332,56 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avg_tokens_dedup": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 100
                 },
                 "avg_tokens_full": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 375
                 },
                 "enriched_calls": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1200
                 },
                 "enrichment_rate": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 0.8
                 },
                 "full_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 800
                 },
                 "none_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 0
                 },
                 "reference_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 100
                 },
                 "summary_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 300
                 },
                 "tokens_saved": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 330000
                 },
                 "total_calls": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1500
                 },
                 "total_tokens_dedup": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 120000
                 },
                 "total_tokens_full": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 450000
                 },
                 "unique_sessions": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 45
                 }
             }
         },
@@ -3097,80 +6389,103 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "authorized": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "connection": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-catalog"
                 },
                 "content_blocks": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 2
                 },
                 "duration_ms": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 143
                 },
                 "enrichment_applied": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "enrichment_mode": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "summary"
                 },
                 "enrichment_tokens_dedup": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 350
                 },
                 "enrichment_tokens_full": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 850
                 },
                 "error_message": {
                     "type": "string"
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "evt_a1b2c3d4e5f6"
                 },
                 "parameters": {
                     "type": "object",
                     "additionalProperties": {}
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "data-engineer"
                 },
                 "request_chars": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 120
                 },
                 "request_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "req_x9y8z7"
                 },
                 "response_chars": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 2450
                 },
                 "session_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sess_abc123"
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mcp"
                 },
                 "success": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
                 },
                 "timestamp": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-04-15T10:41:18Z"
                 },
                 "tool_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "datahub_get_schema"
                 },
                 "toolkit_kind": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "datahub"
                 },
                 "toolkit_name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "acme-catalog"
                 },
                 "transport": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "http"
                 },
                 "user_email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
                 },
                 "user_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
                 }
             }
         },
@@ -3178,25 +6493,32 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avg_duration_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 522
                 },
                 "enrichment_rate": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 0.85
                 },
                 "error_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 10
                 },
                 "success_rate": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 0.949
                 },
                 "total_calls": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 196
                 },
                 "unique_tools": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 12
                 },
                 "unique_users": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 12
                 }
             }
         },
@@ -3204,25 +6526,32 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avg_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 522
                 },
                 "avg_request_chars": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 120
                 },
                 "avg_response_chars": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 1850
                 },
                 "max_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 5200
                 },
                 "p50_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 320
                 },
                 "p95_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 1450
                 },
                 "p99_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 2400
                 }
             }
         },
@@ -3230,19 +6559,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avg_duration_ms": {
-                    "type": "number"
+                    "type": "number",
+                    "example": 245.5
                 },
                 "bucket": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-04-15T14:30:00Z"
                 },
                 "count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 12
                 },
                 "error_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 1
                 },
                 "success_count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 11
                 }
             }
         },
@@ -3250,29 +6584,65 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
                 },
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci@example.com"
                 },
                 "expired": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 },
                 "expires_at": {
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "ci-pipeline"
                 },
                 "roles": {
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
+                    },
+                    "example": [
+                        "analyst"
+                    ]
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string"
+                    "type": "string",
+                    "example": "database"
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_portal.itemInput": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_portal.sectionInput": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Summary of key findings"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.itemInput"
+                    }
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Key Findings"
                 }
             }
         },
@@ -3280,19 +6650,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "applied_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "approved_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "change_type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "update_description"
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-01-15T16:00:00Z"
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "cs_x1y2z3a4b5c6d7e8"
                 },
                 "new_value": {
                     "type": "object",
@@ -3303,7 +6678,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "rolled_back": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": false
                 },
                 "rolled_back_at": {
                     "type": "string"
@@ -3318,7 +6694,8 @@ const docTemplate = `{
                     }
                 },
                 "target_urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3352,19 +6729,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "captured_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "analyst@example.com"
                 },
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "correction"
                 },
                 "changeset_ref": {
                     "type": "string"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
                 },
                 "entity_urns": {
                     "type": "array",
@@ -3373,13 +6754,16 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "a1b2c3d4e5f67890a1b2c3d4e5f67890"
                 },
                 "insight_text": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The amount column represents gross margin before returns, not revenue."
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "analyst"
                 },
                 "related_columns": {
                     "type": "array",
@@ -3388,23 +6772,28 @@ const docTemplate = `{
                     }
                 },
                 "review_notes": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Verified with data engineering team"
                 },
                 "reviewed_at": {
                     "type": "string"
                 },
                 "reviewed_by": {
                     "description": "Lifecycle fields (populated by migrations 000007 and 000008)",
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin@example.com"
                 },
                 "session_id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sess_abc123"
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "user"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "pending"
                 },
                 "suggested_actions": {
                     "type": "array",
@@ -3450,13 +6839,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "column": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 },
                 "relevance": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "direct"
                 },
                 "urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3464,10 +6856,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "action_type": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "update_description"
                 },
                 "detail": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Gross margin before returns"
                 },
                 "query_description": {
                     "type": "string"
@@ -3476,7 +6870,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "target": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 }
             }
         },
@@ -3484,22 +6879,28 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "category": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "business_context"
                 },
                 "confidence": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "high"
                 },
                 "content": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "The daily_sales table in the retail schema is partitioned by date."
                 },
                 "created_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
                 },
                 "created_by": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "sarah.chen@example.com"
                 },
                 "dimension": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "knowledge"
                 },
                 "embedding": {
                     "type": "array",
@@ -3514,7 +6915,8 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "mem_a1b2c3d4e5f6"
                 },
                 "last_verified": {
                     "type": "string"
@@ -3524,7 +6926,8 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "persona": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "admin"
                 },
                 "related_columns": {
                     "type": "array",
@@ -3533,7 +6936,8 @@ const docTemplate = `{
                     }
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "user"
                 },
                 "stale_at": {
                     "type": "string"
@@ -3542,10 +6946,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "active"
                 },
                 "updated_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
                 }
             }
         },
@@ -3553,13 +6959,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "column": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "amount"
                 },
                 "relevance": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "direct"
                 },
                 "urn": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
         },
@@ -3571,19 +6980,1092 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "created_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Production data warehouse"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "trino"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "acme-warehouse"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
+                }
+            }
+        },
+        "portal.Asset": {
+            "type": "object",
+            "properties": {
+                "collections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                    }
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "current_version": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown by region"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/portal.Provenance"
+                },
+                "s3_bucket": {
+                    "type": "string",
+                    "example": "portal-assets"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/content.html"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 4200
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "thumbnail_s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.AssetCollectionRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                }
+            }
+        },
+        "portal.Collection": {
+            "type": "object",
+            "properties": {
+                "asset_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "config": {
+                    "$ref": "#/definitions/portal.CollectionConfig"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Executive collection with revenue dashboards"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.CollectionSection"
+                    }
+                },
+                "thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.CollectionConfig": {
+            "type": "object",
+            "properties": {
+                "thumbnail_size": {
+                    "description": "\"large\", \"medium\", \"small\", \"none\"",
+                    "type": "string",
+                    "example": "medium"
+                }
+            }
+        },
+        "portal.CollectionItem": {
+            "type": "object",
+            "properties": {
+                "asset_content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "asset_description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown"
+                },
+                "asset_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "asset_name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "asset_thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "item_01HK7R9D"
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "section_id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                }
+            }
+        },
+        "portal.CollectionSection": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "High-level revenue and KPI snapshots"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.CollectionItem"
+                    }
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Overview"
+                }
+            }
+        },
+        "portal.Provenance": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "tool_calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.ProvenanceToolCall"
+                    }
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portal.ProvenanceToolCall": {
+            "type": "object",
+            "properties": {
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-04-15T14:30:00Z"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                }
+            }
+        },
+        "portal.Share": {
+            "type": "object",
+            "properties": {
+                "access_count": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "asset_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "hide_expiration": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "id": {
+                    "type": "string",
+                    "example": "share_01HK7R9B"
+                },
+                "last_accessed_at": {
+                    "type": "string"
+                },
+                "notice_text": {
+                    "type": "string",
+                    "example": "Proprietary \u0026 Confidential"
+                },
+                "permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "revoked": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "shared_with_email": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "shared_with_user_id": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string",
+                    "example": "tk_a1b2c3d4e5f6"
+                }
+            }
+        },
+        "portal.SharePermission": {
+            "type": "string",
+            "enum": [
+                "viewer",
+                "editor"
+            ],
+            "x-enum-varnames": [
+                "PermissionViewer",
+                "PermissionEditor"
+            ]
+        },
+        "portal.ShareSummary": {
+            "type": "object",
+            "properties": {
+                "has_public_link": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "has_user_share": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "portal.SharedCollection": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "$ref": "#/definitions/portal.Collection"
+                },
+                "permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "share_id": {
+                    "type": "string",
+                    "example": "share_01HK7R9E"
+                },
+                "shared_at": {
+                    "type": "string"
+                },
+                "shared_by": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                }
+            }
+        },
+        "portal.assetResponse": {
+            "type": "object",
+            "properties": {
+                "collections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                    }
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "current_version": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown by region"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "is_owner": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/portal.Provenance"
+                },
+                "s3_bucket": {
+                    "type": "string",
+                    "example": "portal-assets"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/content.html"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "share_permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 4200
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "thumbnail_s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.createCollectionRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Quarterly analysis collection"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Analysis"
+                }
+            }
+        },
+        "portal.createShareRequest": {
+            "type": "object",
+            "properties": {
+                "expires_in": {
+                    "description": "duration string, e.g. \"24h\"",
+                    "type": "string",
+                    "example": "24h"
+                },
+                "hide_expiration": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "notice_text": {
+                    "description": "nil = default, \"\" = hidden, custom = as-is",
+                    "type": "string",
+                    "example": "Confidential"
+                },
+                "permission": {
+                    "description": "\"viewer\" (default) or \"editor\"",
+                    "type": "string",
+                    "example": "viewer"
+                },
+                "shared_with_email": {
+                    "type": "string",
+                    "example": "colleague@example.com"
+                },
+                "shared_with_user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portal.getCollectionResponse": {
+            "type": "object",
+            "properties": {
+                "asset_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "config": {
+                    "$ref": "#/definitions/portal.CollectionConfig"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Executive collection with revenue dashboards"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "is_owner": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.CollectionSection"
+                    }
+                },
+                "share_permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.listCollectionsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.Collection"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "share_summaries": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portal.ShareSummary"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 10
+                }
+            }
+        },
+        "portal.listSharedCollectionsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SharedCollection"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "portal.meResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "analyst@example.com"
+                },
+                "is_admin": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "analyst"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst",
+                        "data_engineer"
+                    ]
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "trino_query",
+                        "datahub_search"
+                    ]
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portal.memoryStatsResponse": {
+            "type": "object",
+            "properties": {
+                "by_category": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "by_dimension": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "by_status": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 150
+                }
+            }
+        },
+        "portal.paginatedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "share_summaries": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portal.ShareSummary"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
+        "portal.portalPromptCreateRequest": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Argument"
+                    }
+                },
+                "category": {
+                    "type": "string",
+                    "example": "analysis"
+                },
+                "content": {
+                    "type": "string",
+                    "example": "Analyze the following data: {{data}}"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "A prompt for data analysis workflows"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "My Analysis Prompt"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "my-analysis-prompt"
+                }
+            }
+        },
+        "portal.portalPromptListResponse": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Prompt"
+                    }
+                },
+                "personal": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Prompt"
+                    }
+                }
+            }
+        },
+        "portal.problemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.setSectionsRequest": {
+            "type": "object",
+            "properties": {
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.sectionInput"
+                    }
+                }
+            }
+        },
+        "portal.shareResponse": {
+            "type": "object",
+            "properties": {
+                "share": {
+                    "$ref": "#/definitions/portal.Share"
+                },
+                "share_url": {
+                    "type": "string",
+                    "example": "https://platform.example.com/portal/view/abc123"
+                }
+            }
+        },
+        "portal.statusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "updated"
+                }
+            }
+        },
+        "portal.updateAssetRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Updated quarterly revenue analysis"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Report"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "finance",
+                        "quarterly"
+                    ]
+                }
+            }
+        },
+        "portal.updateCollectionRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Updated description"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Updated Collection Name"
+                }
+            }
+        },
+        "prompt.Argument": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "The date to analyze (YYYY-MM-DD)"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "date"
+                },
+                "required": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "prompt.Prompt": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Argument"
+                    }
+                },
+                "category": {
+                    "type": "string",
+                    "example": "analysis"
+                },
+                "content": {
+                    "type": "string",
+                    "example": "Analyze sales data for {date} grouped by region."
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Generate a daily sales summary by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "id": {
+                    "type": "string",
+                    "example": "prompt_a1b2c3d4"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "daily-sales-report"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst",
+                        "data-engineer"
+                    ]
+                },
+                "scope": {
+                    "type": "string",
+                    "example": "persona"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "database"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
+                }
+            }
+        },
+        "resource.Resource": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "example": "runbooks"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Step-by-step procedures for ETL pipeline operations"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "ETL Runbook"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "etl-runbook.md"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "res_01HK7R9F"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "resources/res_01HK7R9F/etl-runbook.md"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "persona"
+                },
+                "scope_id": {
+                    "description": "persona name or user sub; empty for global",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 34000
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "uploader_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "uploader_sub": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "uri": {
+                    "type": "string",
+                    "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
+                }
+            }
+        },
+        "resource.Scope": {
+            "type": "string",
+            "enum": [
+                "global",
+                "persona",
+                "user"
+            ],
+            "x-enum-varnames": [
+                "ScopeGlobal",
+                "ScopePersona",
+                "ScopeUser"
+            ]
+        },
+        "resource.Update": {
+            "type": "object",
+            "properties": {
+                "category": {
                     "type": "string"
                 },
                 "description": {
                     "type": "string"
                 },
-                "kind": {
+                "display_name": {
                     "type": "string"
                 },
-                "name": {
-                    "type": "string"
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "resource.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "descriptive error message"
+                }
+            }
+        },
+        "resource.listResponse": {
+            "type": "object",
+            "properties": {
+                "resources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resource.Resource"
+                    }
                 },
-                "updated_at": {
-                    "type": "string"
+                "total": {
+                    "type": "integer",
+                    "example": 42
                 }
             }
         }
@@ -3600,16 +8082,16 @@ const docTemplate = `{
             "in": "header"
         }
     }
-}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated artifacts \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "System", "Tools"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "localhost:8080",
-	BasePath:         "/api/v1/admin",
+	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "MCP Data Platform Admin API",
-	Description:      "Administrative REST API for managing the MCP Data Platform.\nEndpoints cover system info, configuration, personas, auth keys, audit logs, and knowledge management.",
+	Title:            "MCP Data Platform API",
+	Description:      "REST API for the MCP Data Platform. Covers admin endpoints (system, config, personas, auth keys, audit, knowledge, memory, connections), portal endpoints (assets, collections, shares, prompts, activity), and resource management.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

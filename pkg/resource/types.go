@@ -22,20 +22,20 @@ const (
 
 // Resource represents a human-uploaded reference material entry.
 type Resource struct {
-	ID            string    `json:"id"`
-	Scope         Scope     `json:"scope"`
-	ScopeID       string    `json:"scope_id,omitempty"` // persona name or user sub; empty for global
-	Category      string    `json:"category"`
-	Filename      string    `json:"filename"`
-	DisplayName   string    `json:"display_name"`
-	Description   string    `json:"description"`
-	MIMEType      string    `json:"mime_type"`
-	SizeBytes     int64     `json:"size_bytes"`
-	S3Key         string    `json:"s3_key"`
-	URI           string    `json:"uri"`
+	ID            string    `json:"id" example:"res_01HK7R9F"`
+	Scope         Scope     `json:"scope" example:"persona"`
+	ScopeID       string    `json:"scope_id,omitempty" example:"data-engineer"` // persona name or user sub; empty for global
+	Category      string    `json:"category" example:"runbooks"`
+	Filename      string    `json:"filename" example:"etl-runbook.md"`
+	DisplayName   string    `json:"display_name" example:"ETL Runbook"`
+	Description   string    `json:"description" example:"Step-by-step procedures for ETL pipeline operations"`
+	MIMEType      string    `json:"mime_type" example:"text/markdown"`
+	SizeBytes     int64     `json:"size_bytes" example:"34000"`
+	S3Key         string    `json:"s3_key" example:"resources/res_01HK7R9F/etl-runbook.md"`
+	URI           string    `json:"uri" example:"mcp://persona/data-engineer/runbooks/etl-runbook.md"`
 	Tags          []string  `json:"tags"`
-	UploaderSub   string    `json:"uploader_sub"`
-	UploaderEmail string    `json:"uploader_email"`
+	UploaderSub   string    `json:"uploader_sub" example:"550e8400-e29b-41d4-a716-446655440000"`
+	UploaderEmail string    `json:"uploader_email" example:"marcus.johnson@example.com"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

@@ -21,9 +21,9 @@ func NewMemoryHandler(store memory.Store) *MemoryHandler {
 // memoryListResponse wraps a paginated list of memory records.
 type memoryListResponse struct {
 	Data    []memory.Record `json:"data"`
-	Total   int             `json:"total"`
-	Page    int             `json:"page"`
-	PerPage int             `json:"per_page"`
+	Total   int             `json:"total" example:"20"`
+	Page    int             `json:"page" example:"1"`
+	PerPage int             `json:"per_page" example:"20"`
 }
 
 // memoryStatsResponse contains aggregated statistics for memory records.
@@ -31,15 +31,15 @@ type memoryStatsResponse struct {
 	ByDimension map[string]int `json:"by_dimension"`
 	ByCategory  map[string]int `json:"by_category"`
 	ByStatus    map[string]int `json:"by_status"`
-	Total       int            `json:"total"`
+	Total       int            `json:"total" example:"20"`
 }
 
 // memoryUpdateRequest represents the body of PUT /memory/records/{id}.
 type memoryUpdateRequest struct {
-	Content    string         `json:"content,omitempty"`
-	Category   string         `json:"category,omitempty"`
-	Confidence string         `json:"confidence,omitempty"`
-	Dimension  string         `json:"dimension,omitempty"`
+	Content    string         `json:"content,omitempty" example:"The daily_sales table in the retail schema is partitioned by date."`
+	Category   string         `json:"category,omitempty" example:"business_context"`
+	Confidence string         `json:"confidence,omitempty" example:"high"`
+	Dimension  string         `json:"dimension,omitempty" example:"knowledge"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type memoryUpdateRequest struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records [get]
+// @Router       /admin/memory/records [get]
 func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 	filter := parseMemoryFilter(r)
 	records, total, err := h.store.List(r.Context(), filter)
@@ -105,7 +105,7 @@ func (h *MemoryHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/stats [get]
+// @Router       /admin/memory/records/stats [get]
 func (h *MemoryHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	// Fetch all matching records across all pages to compute accurate stats.
 	filter := parseMemoryFilter(r)
@@ -152,7 +152,7 @@ func (h *MemoryHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [get]
+// @Router       /admin/memory/records/{id} [get]
 func (h *MemoryHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	record, err := h.store.Get(r.Context(), id)
@@ -179,7 +179,7 @@ func (h *MemoryHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [put]
+// @Router       /admin/memory/records/{id} [put]
 func (h *MemoryHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 
@@ -228,7 +228,7 @@ func (h *MemoryHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /memory/records/{id} [delete]
+// @Router       /admin/memory/records/{id} [delete]
 func (h *MemoryHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 

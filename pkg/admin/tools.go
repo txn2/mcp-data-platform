@@ -19,10 +19,10 @@ type toolSchemaResponse struct {
 
 // toolSchema describes a single tool's schema for the admin UI.
 type toolSchema struct {
-	Name        string `json:"name"`
-	Title       string `json:"title,omitempty"`
-	Kind        string `json:"kind"`
-	Description string `json:"description"`
+	Name        string `json:"name" example:"trino_query"`
+	Title       string `json:"title,omitempty" example:"Trino Query"`
+	Kind        string `json:"kind" example:"trino"`
+	Description string `json:"description" example:"Execute a SQL query against Trino and return results."`
 	Parameters  any    `json:"parameters"`
 }
 
@@ -35,7 +35,7 @@ type toolSchema struct {
 // @Success      200  {object}  toolSchemaResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /tools/schemas [get]
+// @Router       /admin/tools/schemas [get]
 func (h *Handler) getToolSchemas(w http.ResponseWriter, r *http.Request) {
 	if h.deps.MCPServer == nil {
 		writeJSON(w, http.StatusOK, toolSchemaResponse{Schemas: map[string]toolSchema{}})
@@ -78,22 +78,22 @@ func (h *Handler) getToolSchemas(w http.ResponseWriter, r *http.Request) {
 
 // toolCallRequest is the request body for POST /tools/call.
 type toolCallRequest struct {
-	ToolName   string         `json:"tool_name"`
-	Connection string         `json:"connection"`
+	ToolName   string         `json:"tool_name" example:"trino_query"`
+	Connection string         `json:"connection" example:"acme-warehouse"`
 	Parameters map[string]any `json:"parameters"`
 }
 
 // toolCallResponse is the response from POST /tools/call.
 type toolCallResponse struct {
 	Content    []toolContentBlock `json:"content"`
-	IsError    bool               `json:"is_error"`
-	DurationMs int64              `json:"duration_ms"`
+	IsError    bool               `json:"is_error" example:"false"`
+	DurationMs int64              `json:"duration_ms" example:"245"`
 }
 
 // toolContentBlock represents a content block in the MCP response.
 type toolContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type string `json:"type" example:"text"`
+	Text string `json:"text" example:"| col1 | col2 |\n|------|------|\n| val1 | val2 |"`
 }
 
 // callTool handles POST /api/v1/admin/tools/call.
@@ -108,7 +108,7 @@ type toolContentBlock struct {
 // @Failure      400   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /tools/call [post]
+// @Router       /admin/tools/call [post]
 func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 	if h.deps.MCPServer == nil {
 		writeError(w, http.StatusServiceUnavailable, "MCP server not available")

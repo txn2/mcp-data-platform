@@ -208,14 +208,25 @@ func (h *Handler) registerRoutes() {
 
 // meResponse is returned by GET /api/v1/portal/me.
 type meResponse struct {
-	UserID  string   `json:"user_id"`
-	Email   string   `json:"email,omitempty"`
-	Roles   []string `json:"roles"`
-	IsAdmin bool     `json:"is_admin"`
-	Persona string   `json:"persona,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
+	UserID  string   `json:"user_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Email   string   `json:"email,omitempty" example:"analyst@example.com"`
+	Roles   []string `json:"roles" example:"analyst,data_engineer"`
+	IsAdmin bool     `json:"is_admin" example:"false"`
+	Persona string   `json:"persona,omitempty" example:"analyst"`
+	Tools   []string `json:"tools,omitempty" example:"trino_query,datahub_search"`
 }
 
+// getMe handles GET /api/v1/portal/me.
+//
+// @Summary      Get current user info
+// @Description  Returns the authenticated user's profile including roles, persona, and available tools.
+// @Tags         User
+// @Produce      json
+// @Success      200  {object}  meResponse
+// @Failure      401  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/me [get]
 func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -245,12 +256,28 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 // paginatedResponse wraps paginated results.
 type paginatedResponse struct {
 	Data           any                     `json:"data"`
-	Total          int                     `json:"total"`
-	Limit          int                     `json:"limit"`
-	Offset         int                     `json:"offset"`
+	Total          int                     `json:"total" example:"42"`
+	Limit          int                     `json:"limit" example:"20"`
+	Offset         int                     `json:"offset" example:"0"`
 	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
 }
 
+// listAssets handles GET /api/v1/portal/assets.
+//
+// @Summary      List assets
+// @Description  Returns paginated assets owned by the current user with optional filtering.
+// @Tags         Assets
+// @Produce      json
+// @Param        content_type  query  string   false  "Filter by content type"
+// @Param        tag           query  string   false  "Filter by tag"
+// @Param        limit         query  integer  false  "Results per page (default: 20)"
+// @Param        offset        query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets [get]
 func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -297,10 +324,25 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 // It extends the Asset with optional share context when the viewer is not the owner.
 type assetResponse struct {
 	Asset
-	SharePermission SharePermission `json:"share_permission,omitempty"`
-	IsOwner         bool            `json:"is_owner"`
+	SharePermission SharePermission `json:"share_permission,omitempty" example:"viewer"`
+	IsOwner         bool            `json:"is_owner" example:"true"`
 }
 
+// getAsset handles GET /api/v1/portal/assets/{id}.
+//
+// @Summary      Get asset
+// @Description  Returns a single asset by ID. Non-owners need share access.
+// @Tags         Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {object}  assetResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id} [get]
 func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -338,6 +380,23 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// getAssetContent handles GET /api/v1/portal/assets/{id}/content.
+//
+// @Summary      Get asset content
+// @Description  Downloads the asset's binary content from S3.
+// @Tags         Assets
+// @Produce      octet-stream
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {file}  binary
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/content [get]
 func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -381,6 +440,27 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type, not rendered as HTML
 }
 
+// updateAssetContent handles PUT /api/v1/portal/assets/{id}/content.
+//
+// @Summary      Update asset content
+// @Description  Uploads new binary content for the asset, creating a new version.
+// @Tags         Assets
+// @Accept       octet-stream
+// @Produce      json
+// @Param        id                path    string  true   "Asset ID"
+// @Param        X-Change-Summary  header  string  false  "Change summary for the new version"
+// @Param        body              body    []byte  true   "Raw file content"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/content [put]
 func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -448,6 +528,26 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
 
+// uploadThumbnail handles PUT /api/v1/portal/assets/{id}/thumbnail.
+//
+// @Summary      Upload asset thumbnail
+// @Description  Uploads a PNG thumbnail image for the asset.
+// @Tags         Assets
+// @Accept       png
+// @Produce      json
+// @Param        id    path  string  true  "Asset ID"
+// @Param        body  body  []byte  true  "PNG image data"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/thumbnail [put]
 func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	asset, ok := h.requireOwnedAsset(w, r)
 	if !ok {
@@ -521,6 +621,23 @@ func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*As
 	return asset, true
 }
 
+// getThumbnail handles GET /api/v1/portal/assets/{id}/thumbnail.
+//
+// @Summary      Get asset thumbnail
+// @Description  Downloads the asset's PNG thumbnail image.
+// @Tags         Assets
+// @Produce      png
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {file}  binary
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/thumbnail [get]
 func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -578,11 +695,29 @@ func DeriveThumbnailKey(s3Key string) string {
 
 // updateAssetRequest is the request body for updating an asset.
 type updateAssetRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+	Name        *string  `json:"name,omitempty" example:"Q4 Revenue Report"`
+	Description *string  `json:"description,omitempty" example:"Updated quarterly revenue analysis"`
+	Tags        []string `json:"tags,omitempty" example:"finance,quarterly"`
 }
 
+// updateAsset handles PUT /api/v1/portal/assets/{id}.
+//
+// @Summary      Update asset metadata
+// @Description  Updates the asset's name, description, or tags. Only the owner can update.
+// @Tags         Assets
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Asset ID"
+// @Param        body  body  updateAssetRequest  true  "Fields to update"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id} [put]
 func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -626,6 +761,21 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
 }
 
+// deleteAsset handles DELETE /api/v1/portal/assets/{id}.
+//
+// @Summary      Delete asset
+// @Description  Soft-deletes an asset. Only the owner can delete.
+// @Tags         Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {object}  statusResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id} [delete]
 func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -671,6 +821,24 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 
 // --- Version handlers ---
 
+// listVersions handles GET /api/v1/portal/assets/{id}/versions.
+//
+// @Summary      List asset versions
+// @Description  Returns paginated version history for an asset.
+// @Tags         Assets
+// @Produce      json
+// @Param        id      path   string   true   "Asset ID"
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/versions [get]
 func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -709,6 +877,25 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, paginatedResponse{Data: versions, Total: total, Limit: limit, Offset: offset})
 }
 
+// getVersionContent handles GET /api/v1/portal/assets/{id}/versions/{version}/content.
+//
+// @Summary      Get version content
+// @Description  Downloads the binary content of a specific asset version.
+// @Tags         Assets
+// @Produce      octet-stream
+// @Param        id       path  string   true  "Asset ID"
+// @Param        version  path  integer  true  "Version number"
+// @Success      200  {file}  binary
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/versions/{version}/content [get]
 func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -757,6 +944,25 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
 }
 
+// revertToVersion handles POST /api/v1/portal/assets/{id}/versions/{version}/revert.
+//
+// @Summary      Revert to version
+// @Description  Reverts the asset content to a specific version by creating a new version with that content.
+// @Tags         Assets
+// @Produce      json
+// @Param        id       path  string   true  "Asset ID"
+// @Param        version  path  integer  true  "Version number to revert to"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/versions/{version}/revert [post]
 func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -847,20 +1053,38 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 
 // createShareRequest is the request body for creating a share.
 type createShareRequest struct {
-	ExpiresIn        string  `json:"expires_in,omitempty"` // duration string, e.g. "24h"
-	SharedWithUserID string  `json:"shared_with_user_id,omitempty"`
-	SharedWithEmail  string  `json:"shared_with_email,omitempty"`
-	HideExpiration   bool    `json:"hide_expiration,omitempty"`
-	NoticeText       *string `json:"notice_text,omitempty"` // nil = default, "" = hidden, custom = as-is
-	Permission       string  `json:"permission,omitempty"`  // "viewer" (default) or "editor"
+	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"` // duration string, e.g. "24h"
+	SharedWithUserID string  `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
+	SharedWithEmail  string  `json:"shared_with_email,omitempty" example:"colleague@example.com"`
+	HideExpiration   bool    `json:"hide_expiration,omitempty" example:"false"`
+	NoticeText       *string `json:"notice_text,omitempty" example:"Confidential"` // nil = default, "" = hidden, custom = as-is
+	Permission       string  `json:"permission,omitempty" example:"viewer"`        // "viewer" (default) or "editor"
 }
 
 // shareResponse is the response for a created share.
 type shareResponse struct {
 	Share    Share  `json:"share"`
-	ShareURL string `json:"share_url,omitempty"`
+	ShareURL string `json:"share_url,omitempty" example:"https://platform.example.com/portal/view/abc123"`
 }
 
+// createShare handles POST /api/v1/portal/assets/{id}/shares.
+//
+// @Summary      Create asset share
+// @Description  Creates a share link or user-targeted share for an asset. Only the owner can share.
+// @Tags         Shares
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Asset ID"
+// @Param        body  body  createShareRequest  true  "Share configuration"
+// @Success      201  {object}  shareResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/shares [post]
 func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -962,6 +1186,21 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 	return share, nil
 }
 
+// listShares handles GET /api/v1/portal/assets/{id}/shares.
+//
+// @Summary      List asset shares
+// @Description  Returns all shares for an asset. Only the owner can view shares.
+// @Tags         Shares
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {array}   Share
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/shares [get]
 func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -992,6 +1231,21 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shares)
 }
 
+// revokeShare handles DELETE /api/v1/portal/shares/{id}.
+//
+// @Summary      Revoke share
+// @Description  Revokes a share by its ID. Only the asset owner can revoke.
+// @Tags         Shares
+// @Produce      json
+// @Param        id  path  string  true  "Share ID"
+// @Success      200  {object}  statusResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/shares/{id} [delete]
 func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1025,6 +1279,20 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "revoked"})
 }
 
+// listSharedWithMe handles GET /api/v1/portal/shared-with-me.
+//
+// @Summary      List assets shared with me
+// @Description  Returns paginated assets that other users have shared with the current user.
+// @Tags         Shares
+// @Produce      json
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/shared-with-me [get]
 func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1051,6 +1319,20 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 
 // --- Activity handlers ---
 
+// getActivityOverview handles GET /api/v1/portal/activity/overview.
+//
+// @Summary      Get activity overview
+// @Description  Returns aggregate activity metrics for the current user within an optional time range.
+// @Tags         Activity
+// @Produce      json
+// @Param        start_time  query  string  false  "Start time (RFC 3339)"
+// @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Success      200  {object}  audit.Overview
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/activity/overview [get]
 func (h *Handler) getActivityOverview(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1072,6 +1354,22 @@ func (h *Handler) getActivityOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, overview)
 }
 
+// getActivityTimeseries handles GET /api/v1/portal/activity/timeseries.
+//
+// @Summary      Get activity timeseries
+// @Description  Returns time-bucketed activity data for the current user.
+// @Tags         Activity
+// @Produce      json
+// @Param        resolution  query  string  false  "Bucket resolution: minute, hour, day (default: hour)"
+// @Param        start_time  query  string  false  "Start time (RFC 3339)"
+// @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Success      200  {array}   audit.TimeseriesBucket
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/activity/timeseries [get]
 func (h *Handler) getActivityTimeseries(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1103,6 +1401,23 @@ func (h *Handler) getActivityTimeseries(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, buckets)
 }
 
+// getActivityBreakdown handles GET /api/v1/portal/activity/breakdown.
+//
+// @Summary      Get activity breakdown
+// @Description  Returns activity breakdown grouped by a dimension (tool_name, user_id, persona, toolkit_kind, or connection).
+// @Tags         Activity
+// @Produce      json
+// @Param        group_by    query  string   false  "Grouping dimension (default: tool_name)"
+// @Param        limit       query  integer  false  "Maximum entries to return"
+// @Param        start_time  query  string   false  "Start time (RFC 3339)"
+// @Param        end_time    query  string   false  "End time (RFC 3339)"
+// @Success      200  {array}   audit.BreakdownEntry
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/activity/breakdown [get]
 func (h *Handler) getActivityBreakdown(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1158,6 +1473,22 @@ func parseTimeParam(q url.Values, key string) *time.Time {
 
 // --- Knowledge handlers ---
 
+// listMyInsights handles GET /api/v1/portal/knowledge/insights.
+//
+// @Summary      List my insights
+// @Description  Returns paginated insights captured by the current user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        status    query  string   false  "Filter by status"
+// @Param        category  query  string   false  "Filter by category"
+// @Param        limit     query  integer  false  "Results per page (default: 20)"
+// @Param        offset    query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge/insights [get]
 func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1189,6 +1520,18 @@ func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getMyInsightStats handles GET /api/v1/portal/knowledge/insights/stats.
+//
+// @Summary      Get my insight stats
+// @Description  Returns aggregate statistics for the current user's insights.
+// @Tags         Knowledge
+// @Produce      json
+// @Success      200  {object}  knowledge.InsightStats
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge/insights/stats [get]
 func (h *Handler) getMyInsightStats(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1211,12 +1554,30 @@ func (h *Handler) getMyInsightStats(w http.ResponseWriter, r *http.Request) {
 
 // memoryStatsResponse holds aggregated memory statistics for a user.
 type memoryStatsResponse struct {
-	Total       int            `json:"total"`
+	Total       int            `json:"total" example:"150"`
 	ByDimension map[string]int `json:"by_dimension"`
 	ByCategory  map[string]int `json:"by_category"`
 	ByStatus    map[string]int `json:"by_status"`
 }
 
+// listMyMemories handles GET /api/v1/portal/memory/records.
+//
+// @Summary      List my memory records
+// @Description  Returns paginated memory records for the current user with optional filtering.
+// @Tags         Memory
+// @Produce      json
+// @Param        dimension  query  string   false  "Filter by dimension"
+// @Param        category   query  string   false  "Filter by category"
+// @Param        status     query  string   false  "Filter by status"
+// @Param        source     query  string   false  "Filter by source"
+// @Param        limit      query  integer  false  "Results per page (default: 20)"
+// @Param        offset     query  integer  false  "Offset for pagination (default: 0)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/memory/records [get]
 func (h *Handler) listMyMemories(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1250,6 +1611,18 @@ func (h *Handler) listMyMemories(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getMyMemoryStats handles GET /api/v1/portal/memory/records/stats.
+//
+// @Summary      Get my memory stats
+// @Description  Returns aggregated memory statistics grouped by dimension, category, and status.
+// @Tags         Memory
+// @Produce      json
+// @Success      200  {object}  memoryStatsResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/memory/records/stats [get]
 func (h *Handler) getMyMemoryStats(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -1296,7 +1669,7 @@ func (h *Handler) getMyMemoryStats(w http.ResponseWriter, r *http.Request) {
 
 // statusResponse is a generic status response.
 type statusResponse struct {
-	Status string `json:"status"`
+	Status string `json:"status" example:"updated"`
 }
 
 // validateUpdateRequest validates the fields in an update request.
@@ -1450,7 +1823,24 @@ func resolveSharePermission(req createShareRequest, email string) (SharePermissi
 	return perm, nil
 }
 
-// copyAsset creates an independent copy of a shared asset in the current user's My Assets.
+// copyAsset handles POST /api/v1/portal/assets/{id}/copy.
+//
+// @Summary      Copy asset
+// @Description  Creates an independent copy of a shared asset in the current user's My Assets.
+// @Tags         Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID to copy"
+// @Success      201  {object}  Asset
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/copy [post]
 func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {

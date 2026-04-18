@@ -203,6 +203,41 @@ GET /api/v1/admin/config
 
 Returns the current configuration as JSON with sensitive values redacted.
 
+**Response:**
+
+```json
+{
+  "server": {
+    "name": "mcp-data-platform",
+    "transport": "http",
+    "address": ":8080"
+  },
+  "auth": {
+    "api_keys": {
+      "enabled": true,
+      "keys": [
+        {
+          "name": "admin",
+          "key": "***REDACTED***",
+          "roles": ["admin"]
+        }
+      ]
+    }
+  },
+  "toolkits": [
+    {
+      "kind": "trino",
+      "name": "prod",
+      "config": {
+        "host": "trino.example.com",
+        "port": 8080,
+        "password": "***REDACTED***"
+      }
+    }
+  ]
+}
+```
+
 ### Get Config Mode
 
 ```
@@ -233,6 +268,22 @@ Returns the current configuration as downloadable YAML. Sensitive values are red
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `secrets` | string | Set to `true` to include sensitive values |
+
+**Response** (`Content-Type: application/x-yaml`):
+
+```yaml
+server:
+  name: mcp-data-platform
+  transport: http
+  address: ":8080"
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - name: admin
+        key: "***REDACTED***"
+        roles: [admin]
+```
 
 ### Effective Config
 
@@ -340,7 +391,7 @@ DELETE /api/v1/admin/config/entries/{key}
 
 Removes a database override for a key, restoring the file default. Returns `404 Not Found` if no override exists.
 
-**Status Codes:** `204 No Content`, `404 Not Found`
+**Response:** `204 No Content` (no body)
 
 ### Config Changelog
 
@@ -447,7 +498,21 @@ Creates a new persona. Only available in `database` config mode.
 | `deny_tools` | array | no | Tool deny patterns |
 | `priority` | int | no | Resolution priority (higher wins) |
 
-**Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict` (name exists or file mode)
+**Response** (`201 Created`):
+
+```json
+{
+  "name": "viewer",
+  "display_name": "Data Viewer",
+  "description": "Read-only access to DataHub",
+  "roles": ["viewer"],
+  "priority": 0,
+  "allow_tools": ["datahub_*"],
+  "deny_tools": [],
+  "tools": ["datahub_search", "datahub_get_entity", "datahub_get_schema", "datahub_get_lineage", "datahub_browse"],
+  "source": "database"
+}
+```
 
 ### Update Persona
 
@@ -459,7 +524,7 @@ Updates an existing persona. Only available in `database` config mode.
 
 **Request Body:** Same as Create (except `name` is taken from the URL path).
 
-**Status Codes:** `200 OK`, `400 Bad Request`
+**Response** (`200 OK`): Returns the updated persona detail (same structure as Create response).
 
 ### Delete Persona
 
@@ -468,6 +533,15 @@ DELETE /api/v1/admin/personas/{name}
 ```
 
 Deletes a persona. Only available in `database` config mode. Cannot delete the admin persona.
+
+**Response** (`200 OK`):
+
+```json
+{
+  "message": "persona deleted",
+  "name": "viewer"
+}
+```
 
 **Status Codes:** `200 OK`, `404 Not Found`, `409 Conflict` (admin persona)
 
@@ -489,10 +563,27 @@ Returns all API keys (key values are never exposed, only names and roles).
     {
       "name": "admin",
       "roles": ["admin"],
-      "created_at": "2025-01-01T00:00:00Z"
+      "source": "file"
+    },
+    {
+      "name": "ci-pipeline",
+      "email": "ci@example.com",
+      "description": "CI/CD pipeline integration",
+      "roles": ["analyst"],
+      "expires_at": "2026-07-15T00:00:00Z",
+      "source": "database"
+    },
+    {
+      "name": "expired-key",
+      "email": "legacy@example.com",
+      "description": "Decommissioned service key",
+      "roles": ["viewer"],
+      "expires_at": "2026-03-31T00:00:00Z",
+      "expired": true,
+      "source": "database"
     }
   ],
-  "total": 1
+  "total": 3
 }
 ```
 
@@ -509,17 +600,31 @@ Generates a new API key. Only available in `database` config mode. The key value
 ```json
 {
   "name": "ci-pipeline",
-  "roles": ["analyst"]
+  "email": "ci@example.com",
+  "description": "CI/CD pipeline integration",
+  "roles": ["analyst"],
+  "expires_in": "720h"
 }
 ```
 
-**Response:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Unique key name |
+| `email` | string | no | Owner email |
+| `description` | string | no | Description |
+| `roles` | array | yes | Roles to assign |
+| `expires_in` | string | no | Duration until expiry (e.g., `24h`, `720h`, `8760h`). Omit for no expiration. |
+
+**Response** (`201 Created`):
 
 ```json
 {
   "name": "ci-pipeline",
+  "email": "ci@example.com",
+  "description": "CI/CD pipeline integration",
   "key": "mdp_a1b2c3d4e5f6...",
   "roles": ["analyst"],
+  "expires_at": "2026-05-18T14:30:00Z",
   "warning": "Store this key securely. It will not be shown again."
 }
 ```
@@ -534,7 +639,14 @@ DELETE /api/v1/admin/auth/keys/{name}
 
 Deletes an API key. Only available in `database` config mode.
 
-**Status Codes:** `200 OK`, `404 Not Found`
+**Response** (`200 OK`):
+
+```json
+{
+  "message": "key deleted",
+  "name": "ci-pipeline"
+}
+```
 
 ## Audit Endpoints
 
@@ -561,6 +673,46 @@ Returns paginated audit events with optional filtering.
 | `page` | integer | Page number, 1-based (default: 1) |
 | `per_page` | integer | Results per page (default: 50) |
 
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "evt_a1b2c3d4e5f6",
+      "timestamp": "2026-04-15T10:41:18Z",
+      "duration_ms": 143,
+      "request_id": "req_x9y8z7",
+      "session_id": "sess_abc123",
+      "user_id": "user-uuid-1234",
+      "user_email": "marcus.johnson@example.com",
+      "persona": "data-engineer",
+      "tool_name": "datahub_get_schema",
+      "toolkit_kind": "datahub",
+      "toolkit_name": "acme-catalog",
+      "connection": "acme-catalog",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+      },
+      "success": true,
+      "response_chars": 2450,
+      "request_chars": 120,
+      "content_blocks": 2,
+      "transport": "http",
+      "source": "mcp",
+      "enrichment_applied": true,
+      "enrichment_tokens_full": 850,
+      "enrichment_tokens_dedup": 350,
+      "enrichment_mode": "summary",
+      "authorized": true
+    }
+  ],
+  "total": 196,
+  "page": 1,
+  "per_page": 50
+}
+```
+
 ### Get Audit Event
 
 ```
@@ -568,6 +720,39 @@ GET /api/v1/admin/audit/events/{id}
 ```
 
 Returns a single audit event by ID.
+
+**Response:** Same structure as a single item from the list response (the event object without the pagination wrapper).
+
+```json
+{
+  "id": "evt_a1b2c3d4e5f6",
+  "timestamp": "2026-04-15T10:41:18Z",
+  "duration_ms": 143,
+  "request_id": "req_x9y8z7",
+  "session_id": "sess_abc123",
+  "user_id": "user-uuid-1234",
+  "user_email": "marcus.johnson@example.com",
+  "persona": "data-engineer",
+  "tool_name": "datahub_get_schema",
+  "toolkit_kind": "datahub",
+  "toolkit_name": "acme-catalog",
+  "connection": "acme-catalog",
+  "parameters": {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+  },
+  "success": true,
+  "response_chars": 2450,
+  "request_chars": 120,
+  "content_blocks": 2,
+  "transport": "http",
+  "source": "mcp",
+  "enrichment_applied": true,
+  "enrichment_tokens_full": 850,
+  "enrichment_tokens_dedup": 350,
+  "enrichment_mode": "summary",
+  "authorized": true
+}
+```
 
 ### Get Audit Stats
 
@@ -601,6 +786,48 @@ Returns aggregated audit metrics including tool, user, and toolkit breakdowns, t
 |-----------|------|-------------|
 | `start_time` | RFC 3339 | Start of time range |
 | `end_time` | RFC 3339 | End of time range |
+
+**Response:**
+
+```json
+{
+  "total_calls": 196,
+  "success_count": 186,
+  "failure_count": 10,
+  "success_rate": 0.949,
+  "unique_users": 12,
+  "unique_tools": 12,
+  "enrichment_rate": 0.85,
+  "avg_duration_ms": 522,
+  "p50_duration_ms": 320,
+  "p95_duration_ms": 1450,
+  "p99_duration_ms": 2400,
+  "avg_response_chars": 1850,
+  "by_tool": [
+    {"name": "trino_query", "count": 65},
+    {"name": "datahub_search", "count": 48},
+    {"name": "trino_describe_table", "count": 32}
+  ],
+  "by_user": [
+    {"name": "marcus.johnson@example.com", "count": 45},
+    {"name": "lisa.chang@example.com", "count": 38}
+  ],
+  "timeseries": [
+    {"timestamp": "2026-04-15T08:00:00Z", "total": 12, "errors": 1},
+    {"timestamp": "2026-04-15T09:00:00Z", "total": 28, "errors": 2}
+  ],
+  "recent_errors": [
+    {
+      "id": "evt_err001",
+      "timestamp": "2026-04-15T10:41:18Z",
+      "user_email": "marcus.johnson@example.com",
+      "tool_name": "trino_query",
+      "error_message": "Query exceeded timeout of 30 seconds",
+      "duration_ms": 30012
+    }
+  ]
+}
+```
 
 ### Audit Metrics: Enrichment
 
@@ -730,7 +957,18 @@ GET /api/v1/admin/connection-instances/{kind}/{name}
 
 Returns a single connection instance by toolkit kind and instance name.
 
-**Status Codes:** `200 OK`, `404 Not Found`
+**Response:**
+
+```json
+{
+  "kind": "trino",
+  "name": "prod",
+  "config": {"host": "trino.example.com", "port": 8080, "catalog": "hive"},
+  "description": "Production Trino cluster",
+  "created_by": "admin@example.com",
+  "updated_at": "2026-01-15T14:30:00Z"
+}
+```
 
 ### Create or Update Connection Instance
 
@@ -756,7 +994,18 @@ Creates or updates a database-managed connection instance. Only available in dat
 }
 ```
 
-**Status Codes:** `200 OK`, `400 Bad Request` (unknown kind or invalid body)
+**Response** (`200 OK`):
+
+```json
+{
+  "kind": "trino",
+  "name": "prod",
+  "config": {"host": "trino.example.com", "port": 8080},
+  "description": "Production Trino cluster",
+  "created_by": "admin@example.com",
+  "updated_at": "2026-04-15T14:30:00Z"
+}
+```
 
 ### Delete Connection Instance
 
@@ -766,7 +1015,7 @@ DELETE /api/v1/admin/connection-instances/{kind}/{name}
 
 Deletes a database-managed connection instance. Only available in database config mode.
 
-**Status Codes:** `204 No Content`, `404 Not Found`
+**Response:** `204 No Content` (no body)
 
 ## Knowledge Endpoints
 

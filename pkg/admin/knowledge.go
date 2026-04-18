@@ -35,9 +35,9 @@ func NewKnowledgeHandler(
 // insightListResponse wraps a paginated list of insights.
 type insightListResponse struct {
 	Data    []knowledge.Insight `json:"data"`
-	Total   int                 `json:"total"`
-	Page    int                 `json:"page"`
-	PerPage int                 `json:"per_page"`
+	Total   int                 `json:"total" example:"50"`
+	Page    int                 `json:"page" example:"1"`
+	PerPage int                 `json:"per_page" example:"20"`
 }
 
 // ListInsights handles GET /api/v1/admin/knowledge/insights.
@@ -59,7 +59,7 @@ type insightListResponse struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/insights [get]
+// @Router       /admin/knowledge/insights [get]
 func (h *KnowledgeHandler) ListInsights(w http.ResponseWriter, r *http.Request) {
 	filter := parseInsightFilter(r)
 	insights, total, err := h.insightStore.List(r.Context(), filter)
@@ -91,7 +91,7 @@ func (h *KnowledgeHandler) ListInsights(w http.ResponseWriter, r *http.Request) 
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/insights/{id} [get]
+// @Router       /admin/knowledge/insights/{id} [get]
 func (h *KnowledgeHandler) GetInsight(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	insight, err := h.insightStore.Get(r.Context(), id)
@@ -104,8 +104,8 @@ func (h *KnowledgeHandler) GetInsight(w http.ResponseWriter, r *http.Request) {
 
 // statusUpdateRequest represents the body of PUT /insights/:id/status.
 type statusUpdateRequest struct {
-	Status      string `json:"status"`
-	ReviewNotes string `json:"review_notes"`
+	Status      string `json:"status" example:"approved"`
+	ReviewNotes string `json:"review_notes" example:"Verified with data engineering team"`
 }
 
 // UpdateInsightStatus handles PUT /api/v1/admin/knowledge/insights/{id}/status.
@@ -124,7 +124,7 @@ type statusUpdateRequest struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/insights/{id}/status [put]
+// @Router       /admin/knowledge/insights/{id}/status [put]
 func (h *KnowledgeHandler) UpdateInsightStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 
@@ -167,9 +167,9 @@ func (h *KnowledgeHandler) UpdateInsightStatus(w http.ResponseWriter, r *http.Re
 
 // insightUpdateRequest represents the body of PUT /insights/:id.
 type insightUpdateRequest struct {
-	InsightText string `json:"insight_text,omitempty"`
-	Category    string `json:"category,omitempty"`
-	Confidence  string `json:"confidence,omitempty"`
+	InsightText string `json:"insight_text,omitempty" example:"The amount column represents gross margin before returns."`
+	Category    string `json:"category,omitempty" example:"correction"`
+	Confidence  string `json:"confidence,omitempty" example:"high"`
 }
 
 // UpdateInsight handles PUT /api/v1/admin/knowledge/insights/{id}.
@@ -188,7 +188,7 @@ type insightUpdateRequest struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/insights/{id} [put]
+// @Router       /admin/knowledge/insights/{id} [put]
 func (h *KnowledgeHandler) UpdateInsight(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 
@@ -239,7 +239,7 @@ func (h *KnowledgeHandler) UpdateInsight(w http.ResponseWriter, r *http.Request)
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/insights/stats [get]
+// @Router       /admin/knowledge/insights/stats [get]
 func (h *KnowledgeHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	filter := parseInsightFilter(r)
 	stats, err := h.insightStore.Stats(r.Context(), filter)
@@ -253,9 +253,9 @@ func (h *KnowledgeHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 // changesetListResponse wraps a paginated list of changesets.
 type changesetListResponse struct {
 	Data    []knowledge.Changeset `json:"data"`
-	Total   int                   `json:"total"`
-	Page    int                   `json:"page"`
-	PerPage int                   `json:"per_page"`
+	Total   int                   `json:"total" example:"8"`
+	Page    int                   `json:"page" example:"1"`
+	PerPage int                   `json:"per_page" example:"20"`
 }
 
 // ListChangesets handles GET /api/v1/admin/knowledge/changesets.
@@ -275,7 +275,7 @@ type changesetListResponse struct {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/changesets [get]
+// @Router       /admin/knowledge/changesets [get]
 func (h *KnowledgeHandler) ListChangesets(w http.ResponseWriter, r *http.Request) {
 	filter := parseChangesetFilter(r)
 	changesets, total, err := h.changesetStore.ListChangesets(r.Context(), filter)
@@ -307,7 +307,7 @@ func (h *KnowledgeHandler) ListChangesets(w http.ResponseWriter, r *http.Request
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/changesets/{id} [get]
+// @Router       /admin/knowledge/changesets/{id} [get]
 func (h *KnowledgeHandler) GetChangeset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	cs, err := h.changesetStore.GetChangeset(r.Context(), id)
@@ -331,7 +331,7 @@ func (h *KnowledgeHandler) GetChangeset(w http.ResponseWriter, r *http.Request) 
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /knowledge/changesets/{id}/rollback [post]
+// @Router       /admin/knowledge/changesets/{id}/rollback [post]
 func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 

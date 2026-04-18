@@ -61,7 +61,7 @@ func (h *Handler) registerConnectionRoutes() {
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances [get]
+// @Router       /admin/connection-instances [get]
 func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request) {
 	instances, err := h.deps.ConnectionStore.List(r.Context())
 	if err != nil {
@@ -90,7 +90,7 @@ func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request
 // @Failure      500   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [get]
+// @Router       /admin/connection-instances/{kind}/{name} [get]
 func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
@@ -111,7 +111,7 @@ func (h *Handler) getConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // setConnectionInstanceRequest is the JSON body for creating/updating a connection instance.
 type setConnectionInstanceRequest struct {
 	Config      map[string]any `json:"config"`
-	Description string         `json:"description"`
+	Description string         `json:"description" example:"Production data warehouse"`
 }
 
 // setConnectionInstance handles PUT /api/v1/admin/connection-instances/{kind}/{name}.
@@ -129,7 +129,7 @@ type setConnectionInstanceRequest struct {
 // @Failure      500   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [put]
+// @Router       /admin/connection-instances/{kind}/{name} [put]
 func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
@@ -197,7 +197,7 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /connection-instances/{kind}/{name} [delete]
+// @Router       /admin/connection-instances/{kind}/{name} [delete]
 func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
@@ -224,14 +224,14 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 
 // effectiveConnection merges a live toolkit connection with its DB instance (if any).
 type effectiveConnection struct {
-	Kind        string         `json:"kind"`
-	Name        string         `json:"name"`
-	Connection  string         `json:"connection"`
-	Description string         `json:"description,omitempty"`
-	Source      string         `json:"source"` // "file", "database", or "both"
-	Tools       []string       `json:"tools"`
+	Kind        string         `json:"kind" example:"trino"`
+	Name        string         `json:"name" example:"acme-warehouse"`
+	Connection  string         `json:"connection" example:"acme-warehouse"`
+	Description string         `json:"description,omitempty" example:"Production data warehouse"`
+	Source      string         `json:"source" example:"file"` // "file", "database", or "both"
+	Tools       []string       `json:"tools" example:"trino_query,trino_describe_table"`
 	Config      map[string]any `json:"config,omitempty"`
-	CreatedBy   string         `json:"created_by,omitempty"`
+	CreatedBy   string         `json:"created_by,omitempty" example:"admin@example.com"`
 	UpdatedAt   *time.Time     `json:"updated_at,omitempty"`
 }
 

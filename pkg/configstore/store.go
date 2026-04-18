@@ -17,20 +17,20 @@ var ErrNotFound = errors.New("config entry not found")
 
 // Entry represents a single config key/value pair.
 type Entry struct {
-	Key       string    `json:"key"`
-	Value     string    `json:"value"`
-	UpdatedBy string    `json:"updated_by"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Key       string    `json:"key" example:"server.description"`
+	Value     string    `json:"value" example:"ACME Corp analytics platform"`
+	UpdatedBy string    `json:"updated_by" example:"admin@example.com"`
+	UpdatedAt time.Time `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ChangelogEntry records a single config change for audit purposes.
 type ChangelogEntry struct {
-	ID        int       `json:"id"`
-	Key       string    `json:"key"`
-	Action    string    `json:"action"`
+	ID        int       `json:"id" example:"1"`
+	Key       string    `json:"key" example:"server.description"`
+	Action    string    `json:"action" example:"set"`
 	Value     *string   `json:"value,omitempty"`
-	ChangedBy string    `json:"changed_by"`
-	ChangedAt time.Time `json:"changed_at"`
+	ChangedBy string    `json:"changed_by" example:"admin@example.com"`
+	ChangedAt time.Time `json:"changed_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // Store provides granular key/value config storage with audit logging.

@@ -54,15 +54,26 @@ type portalPromptListResponse struct {
 
 // portalPromptCreateRequest is the request body for creating a personal prompt.
 type portalPromptCreateRequest struct {
-	Name        string            `json:"name"`
-	DisplayName string            `json:"display_name"`
-	Description string            `json:"description"`
-	Content     string            `json:"content"`
+	Name        string            `json:"name" example:"my-analysis-prompt"`
+	DisplayName string            `json:"display_name" example:"My Analysis Prompt"`
+	Description string            `json:"description" example:"A prompt for data analysis workflows"`
+	Content     string            `json:"content" example:"Analyze the following data: {{data}}"`
 	Arguments   []prompt.Argument `json:"arguments"`
-	Category    string            `json:"category"`
+	Category    string            `json:"category" example:"analysis"`
 }
 
-// listMyPrompts returns the user's personal prompts plus available global/persona prompts.
+// listMyPrompts handles GET /api/v1/portal/prompts.
+//
+// @Summary      List my prompts
+// @Description  Returns the user's personal prompts plus available global, persona, and system prompts.
+// @Tags         Prompts
+// @Produce      json
+// @Success      200  {object}  portalPromptListResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts [get]
 func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -116,7 +127,21 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// createMyPrompt creates a personal prompt for the current user.
+// createMyPrompt handles POST /api/v1/portal/prompts.
+//
+// @Summary      Create personal prompt
+// @Description  Creates a new personal prompt for the current user.
+// @Tags         Prompts
+// @Accept       json
+// @Produce      json
+// @Param        body  body  portalPromptCreateRequest  true  "Prompt details"
+// @Success      201  {object}  prompt.Prompt
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts [post]
 func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -168,7 +193,25 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 	writePortalJSON(w, http.StatusCreated, p)
 }
 
-// updateMyPrompt updates a personal prompt owned by the current user.
+// updateMyPrompt handles PUT /api/v1/portal/prompts/{id}.
+//
+// @Summary      Update personal prompt
+// @Description  Updates a personal prompt owned by the current user. Admins can update any prompt.
+// @Tags         Prompts
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                     true  "Prompt ID"
+// @Param        body  body  portalPromptCreateRequest  true  "Updated prompt fields"
+// @Success      200  {object}  prompt.Prompt
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts/{id} [put]
 func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -287,7 +330,21 @@ func applyPortalPromptFields(existing *prompt.Prompt, req portalPromptCreateRequ
 	return ""
 }
 
-// deleteMyPrompt deletes a personal prompt owned by the current user.
+// deleteMyPrompt handles DELETE /api/v1/portal/prompts/{id}.
+//
+// @Summary      Delete personal prompt
+// @Description  Deletes a personal prompt owned by the current user. Admins can delete any prompt.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {object}  map[string]string
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts/{id} [delete]
 func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {

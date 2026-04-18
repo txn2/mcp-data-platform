@@ -97,6 +97,40 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f6789
   -H "Authorization: Bearer $ADMIN_API_KEY" | jq
 ```
 
+**Response:**
+
+```json
+{
+  "id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "created_at": "2026-01-15T14:30:00Z",
+  "session_id": "sess_abc123",
+  "captured_by": "analyst@example.com",
+  "persona": "analyst",
+  "source": "user",
+  "category": "correction",
+  "insight_text": "The amount column represents gross margin before returns, not revenue.",
+  "confidence": "high",
+  "entity_urns": [
+    "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+  ],
+  "related_columns": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "column": "amount",
+      "relevance": "direct"
+    }
+  ],
+  "suggested_actions": [
+    {
+      "action_type": "update_description",
+      "target": "amount",
+      "detail": "Gross margin before returns"
+    }
+  ],
+  "status": "pending"
+}
+```
+
 ### Update Insight
 
 ```
@@ -125,6 +159,8 @@ curl -X PUT "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f
   -H "Content-Type: application/json" \
   -d '{"confidence": "high"}'
 ```
+
+**Response:** Returns the updated insight (same structure as Get Insight).
 
 ### Update Insight Status
 
@@ -163,6 +199,18 @@ curl -X PUT "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "approved", "review_notes": "Confirmed by data team"}'
+```
+
+**Response:**
+
+```json
+{
+  "id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "status": "approved",
+  "reviewed_by": "admin@example.com",
+  "reviewed_at": "2026-04-15T16:00:00Z",
+  "review_notes": "Confirmed by data team"
+}
 ```
 
 ### Get Insight Statistics
@@ -288,6 +336,34 @@ Returns a single changeset by ID.
 ```bash
 curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z3a4b5c6" \
   -H "Authorization: Bearer $ADMIN_API_KEY" | jq
+```
+
+**Response:** Same structure as a single item from the list response.
+
+```json
+{
+  "id": "cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6",
+  "created_at": "2026-01-15T16:00:00Z",
+  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "change_type": "update_description",
+  "previous_value": {
+    "description": "Order records",
+    "tags": ["financial"],
+    "glossary_terms": [],
+    "owners": ["Data Platform Team"]
+  },
+  "new_value": {
+    "change_0": {
+      "change_type": "update_description",
+      "target": "entity",
+      "detail": "Order records with gross margin amounts (before returns)"
+    }
+  },
+  "source_insight_ids": ["a1b2c3d4e5f67890"],
+  "approved_by": "admin@example.com",
+  "applied_by": "admin@example.com",
+  "rolled_back": false
+}
 ```
 
 ### Rollback Changeset
