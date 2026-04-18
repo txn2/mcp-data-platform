@@ -52,6 +52,8 @@ NOTES_*
 # E2E test artifacts
 e2e-test-output.log
 test/e2e/**/*.log
+ui/e2e/screenshots/output/
+ui/test-results/
 
 # SAST artifacts
 codeql-results.sarif

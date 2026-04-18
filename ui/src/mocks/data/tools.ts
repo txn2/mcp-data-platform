@@ -369,7 +369,7 @@ function trinoSemanticEnrichment(table: string): string {
     semantic_context: {
       description: `Daily aggregated sales figures for ACME Corporation — ${table}`,
       owners: [
-        { owner: "marcus.johnson@acme-corp.com", type: "DATAOWNER" },
+        { owner: "marcus.johnson@example.com", type: "DATAOWNER" },
         { owner: "data-engineering", type: "DATAOWNER", group: true },
       ],
       tags: ["certified", "pii-free", "tier-1"],
@@ -451,7 +451,7 @@ function s3SemanticEnrichment(bucket: string, prefix: string): string {
           urn: `urn:li:dataset:(urn:li:dataPlatform:s3,${bucket}/${prefix}daily_sales,PROD)`,
           name: "daily_sales",
           description: "Daily aggregated sales by store and region — raw Parquet files",
-          owners: ["marcus.johnson@acme-corp.com"],
+          owners: ["marcus.johnson@example.com"],
           tags: ["certified", "raw-data"],
           domain: "Retail Analytics",
           quality_score: 0.91,
@@ -460,7 +460,7 @@ function s3SemanticEnrichment(bucket: string, prefix: string): string {
           urn: `urn:li:dataset:(urn:li:dataPlatform:s3,${bucket}/${prefix}store_transactions,PROD)`,
           name: "store_transactions",
           description: "Raw POS transaction records from all ACME stores",
-          owners: ["amanda.lee@acme-corp.com"],
+          owners: ["amanda.lee@example.com"],
           tags: ["pii", "raw-data"],
           domain: "Retail Analytics",
           quality_score: 0.87,
@@ -635,7 +635,7 @@ function datahubSearchResult(
       platform: "trino",
       type: "DATASET",
       description: "Daily aggregated sales by store and region",
-      owners: ["marcus.johnson@acme-corp.com"],
+      owners: ["marcus.johnson@example.com"],
       tags: ["certified", "pii-free"],
     },
     {
@@ -644,7 +644,7 @@ function datahubSearchResult(
       platform: "trino",
       type: "DATASET",
       description: "Raw POS transaction records from all ACME stores",
-      owners: ["amanda.lee@acme-corp.com"],
+      owners: ["amanda.lee@example.com"],
       tags: ["pii", "raw"],
     },
     {
@@ -653,7 +653,7 @@ function datahubSearchResult(
       platform: "trino",
       type: "DATASET",
       description: "Current inventory levels by warehouse and SKU",
-      owners: ["rachel.thompson@acme-corp.com"],
+      owners: ["rachel.thompson@example.com"],
       tags: ["certified", "real-time"],
     },
     {
@@ -662,7 +662,7 @@ function datahubSearchResult(
       platform: "trino",
       type: "DATASET",
       description: "Revenue and margin analysis by region and quarter",
-      owners: ["jennifer.martinez@acme-corp.com"],
+      owners: ["jennifer.martinez@example.com"],
       tags: ["certified", "executive"],
     },
   ];
@@ -693,7 +693,7 @@ function datahubEntityResult(
     platform: "trino",
     description: "Daily aggregated sales figures by store, region, and product category for ACME Corporation retail locations",
     owners: [
-      { owner: "marcus.johnson@acme-corp.com", type: "DATAOWNER" },
+      { owner: "marcus.johnson@example.com", type: "DATAOWNER" },
       { owner: "data-engineering", type: "DATAOWNER", group: true },
     ],
     tags: ["certified", "pii-free", "tier-1"],

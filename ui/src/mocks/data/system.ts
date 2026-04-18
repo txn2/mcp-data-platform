@@ -6,7 +6,7 @@ import type {
 
 export const mockSystemInfo: SystemInfo = {
   name: "acme-data-platform",
-  version: "1.4.2",
+  version: "1.55.11",
   commit: "a1b2c3d",
   build_date: "2025-01-15T10:30:00Z",
   description: "ACME Corporation Retail Data Platform",
@@ -23,7 +23,7 @@ export const mockSystemInfo: SystemInfo = {
     admin: true,
     database: true,
   },
-  toolkit_count: 6,
+  toolkit_count: 7,
   persona_count: 6,
 };
 
@@ -52,6 +52,9 @@ export const mockTools: ToolInfo[] = [
   // acme-reports (s3) — generated reports
   { name: "s3_list_objects", toolkit: "acme-reports", kind: "s3", connection: "acme-reports" },
   { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports" },
+  // acme-platform (platform) — platform utilities
+  { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform" },
+  { name: "capture_insight", toolkit: "acme-platform", kind: "platform", connection: "acme-platform" },
 ];
 
 export const mockConnections: ConnectionInfo[] = [
@@ -95,6 +98,13 @@ export const mockConnections: ConnectionInfo[] = [
     name: "acme-reports",
     connection: "acme-reports",
     tools: ["s3_list_objects", "s3_get_object"],
+    hidden_tools: [],
+  },
+  {
+    kind: "platform",
+    name: "acme-platform",
+    connection: "acme-platform",
+    tools: ["save_artifact", "capture_insight"],
     hidden_tools: [],
   },
 ];

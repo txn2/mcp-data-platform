@@ -68,6 +68,7 @@ nav:
       - Governance Workflow: knowledge/governance.md
       - Admin API: knowledge/admin-api.md
     - Administration:
+      - User Portal: server/portal-user.md
       - Admin Portal: server/admin-portal.md
       - Admin API: server/admin-api.md
     - Operations:
