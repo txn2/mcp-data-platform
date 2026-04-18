@@ -217,7 +217,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit breakdown",
                 "parameters": [
@@ -287,7 +287,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get discovery pattern metrics",
                 "parameters": [
@@ -335,7 +335,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get enrichment metrics",
                 "parameters": [
@@ -383,7 +383,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit overview",
                 "parameters": [
@@ -431,7 +431,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit performance",
                 "parameters": [
@@ -479,7 +479,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit timeseries",
                 "parameters": [
@@ -2316,7 +2316,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity breakdown",
                 "parameters": [
@@ -2391,7 +2391,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity overview",
                 "parameters": [
@@ -2445,7 +2445,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity timeseries",
                 "parameters": [
@@ -2514,7 +2514,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "List assets",
                 "parameters": [
@@ -2580,7 +2580,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset",
                 "parameters": [
@@ -2642,7 +2642,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Update asset metadata",
                 "parameters": [
@@ -2716,7 +2716,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Delete asset",
                 "parameters": [
@@ -2777,7 +2777,7 @@
                     "application/octet-stream"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset content",
                 "parameters": [
@@ -2851,7 +2851,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Update asset content",
                 "parameters": [
@@ -2948,7 +2948,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Copy asset",
                 "parameters": [
@@ -3027,7 +3027,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List asset shares",
                 "parameters": [
@@ -3092,7 +3092,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Create asset share",
                 "parameters": [
@@ -3168,7 +3168,7 @@
                     "image/png"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset thumbnail",
                 "parameters": [
@@ -3242,7 +3242,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Upload asset thumbnail",
                 "parameters": [
@@ -3333,7 +3333,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "List asset versions",
                 "parameters": [
@@ -3412,7 +3412,7 @@
                     "application/octet-stream"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get version content",
                 "parameters": [
@@ -3498,7 +3498,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Revert to version",
                 "parameters": [
@@ -3585,7 +3585,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "List collections",
                 "parameters": [
@@ -3646,7 +3646,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Create collection",
                 "parameters": [
@@ -3703,7 +3703,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Get collection",
                 "parameters": [
@@ -3765,7 +3765,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Update collection",
                 "parameters": [
@@ -3836,7 +3836,7 @@
                 ],
                 "description": "Soft-deletes a collection. Only the owner can delete.",
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Delete collection",
                 "parameters": [
@@ -3897,7 +3897,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Update collection config",
                 "parameters": [
@@ -3976,7 +3976,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Set collection sections",
                 "parameters": [
@@ -4052,7 +4052,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List collection shares",
                 "parameters": [
@@ -4117,7 +4117,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Create collection share",
                 "parameters": [
@@ -4193,7 +4193,7 @@
                     "image/png"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Get collection thumbnail",
                 "parameters": [
@@ -4249,7 +4249,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Upload collection thumbnail",
                 "parameters": [
@@ -4331,7 +4331,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Knowledge"
+                    "Knowledge"
                 ],
                 "summary": "List my insights",
                 "parameters": [
@@ -4397,7 +4397,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Knowledge"
+                    "Knowledge"
                 ],
                 "summary": "Get my insight stats",
                 "responses": {
@@ -4437,7 +4437,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - User"
+                    "User"
                 ],
                 "summary": "Get current user info",
                 "responses": {
@@ -4471,7 +4471,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Memory"
+                    "Memory"
                 ],
                 "summary": "List my memory records",
                 "parameters": [
@@ -4549,7 +4549,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Memory"
+                    "Memory"
                 ],
                 "summary": "Get my memory stats",
                 "responses": {
@@ -4589,7 +4589,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "List my prompts",
                 "responses": {
@@ -4630,7 +4630,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Create personal prompt",
                 "parameters": [
@@ -4690,7 +4690,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Update personal prompt",
                 "parameters": [
@@ -4770,7 +4770,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Delete personal prompt",
                 "parameters": [
@@ -4834,7 +4834,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List collections shared with me",
                 "parameters": [
@@ -4888,7 +4888,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List assets shared with me",
                 "parameters": [
@@ -4942,7 +4942,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Revoke share",
                 "parameters": [
@@ -7293,7 +7293,7 @@
                 },
                 "notice_text": {
                     "type": "string",
-                    "example": "Proprietary \u0026 Confidential"
+                    "example": "Proprietary & Confidential"
                 },
                 "permission": {
                     "allOf": [
@@ -8075,5 +8075,33 @@
             "name": "Authorization",
             "in": "header"
         }
-    }
+    },
+    "x-tagGroups": [
+        {
+            "name": "User API",
+            "tags": [
+                "User",
+                "Activity",
+                "Assets",
+                "Collections",
+                "Knowledge",
+                "Memory",
+                "Prompts",
+                "Resources",
+                "Shares"
+            ]
+        },
+        {
+            "name": "Admin API",
+            "tags": [
+                "Audit",
+                "Auth Keys",
+                "Config",
+                "Connections",
+                "Personas",
+                "System",
+                "Tools"
+            ]
+        }
+    ]
 }

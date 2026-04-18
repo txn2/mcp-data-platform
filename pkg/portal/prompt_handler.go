@@ -66,7 +66,7 @@ type portalPromptCreateRequest struct {
 //
 // @Summary      List my prompts
 // @Description  Returns the user's personal prompts plus available global, persona, and system prompts.
-// @Tags         Portal - Prompts
+// @Tags         Prompts
 // @Produce      json
 // @Success      200  {object}  portalPromptListResponse
 // @Failure      401  {object}  problemDetail
@@ -131,7 +131,7 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Create personal prompt
 // @Description  Creates a new personal prompt for the current user.
-// @Tags         Portal - Prompts
+// @Tags         Prompts
 // @Accept       json
 // @Produce      json
 // @Param        body  body  portalPromptCreateRequest  true  "Prompt details"
@@ -197,7 +197,7 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Update personal prompt
 // @Description  Updates a personal prompt owned by the current user. Admins can update any prompt.
-// @Tags         Portal - Prompts
+// @Tags         Prompts
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string                     true  "Prompt ID"
@@ -334,7 +334,7 @@ func applyPortalPromptFields(existing *prompt.Prompt, req portalPromptCreateRequ
 //
 // @Summary      Delete personal prompt
 // @Description  Deletes a personal prompt owned by the current user. Admins can delete any prompt.
-// @Tags         Portal - Prompts
+// @Tags         Prompts
 // @Produce      json
 // @Param        id  path  string  true  "Prompt ID"
 // @Success      200  {object}  map[string]string

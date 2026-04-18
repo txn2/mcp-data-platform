@@ -28,7 +28,7 @@ type createCollectionRequest struct {
 //
 // @Summary      Create collection
 // @Description  Creates a new collection for the current user.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCollectionRequest  true  "Collection details"
@@ -98,7 +98,7 @@ type listCollectionsResponse struct {
 //
 // @Summary      List collections
 // @Description  Returns paginated collections owned by the current user.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Produce      json
 // @Param        search  query  string   false  "Search term"
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
@@ -169,7 +169,7 @@ type getCollectionResponse struct {
 //
 // @Summary      Get collection
 // @Description  Returns a single collection by ID. Non-owners need share access.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Produce      json
 // @Param        id  path  string  true  "Collection ID"
 // @Success      200  {object}  getCollectionResponse
@@ -246,7 +246,7 @@ type updateCollectionRequest struct {
 //
 // @Summary      Update collection
 // @Description  Updates a collection's name and/or description. Only the owner can update.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string                    true  "Collection ID"
@@ -331,7 +331,7 @@ func resolveCollectionUpdate(coll *Collection, req updateCollectionRequest) (res
 //
 // @Summary      Delete collection
 // @Description  Soft-deletes a collection. Only the owner can delete.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Param        id  path  string  true  "Collection ID"
 // @Success      204
 // @Failure      401  {object}  problemDetail
@@ -373,7 +373,7 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Update collection config
 // @Description  Updates the collection's display configuration. Only the owner can update.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string            true  "Collection ID"
@@ -445,7 +445,7 @@ type itemInput struct {
 //
 // @Summary      Set collection sections
 // @Description  Replaces all sections and items in a collection. Only the owner can modify.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string              true  "Collection ID"
@@ -548,7 +548,7 @@ func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
 //
 // @Summary      Upload collection thumbnail
 // @Description  Uploads a PNG thumbnail image for the collection. Only the owner can upload.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Accept       png
 // @Produce      json
 // @Param        id    path  string  true  "Collection ID"
@@ -614,7 +614,7 @@ func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Reque
 //
 // @Summary      Get collection thumbnail
 // @Description  Downloads the collection's PNG thumbnail image.
-// @Tags         Portal - Collections
+// @Tags         Collections
 // @Produce      png
 // @Param        id  path  string  true  "Collection ID"
 // @Success      200  {file}  binary
@@ -660,7 +660,7 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 //
 // @Summary      Create collection share
 // @Description  Creates a share link or user-targeted share for a collection. Only the owner can share.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string              true  "Collection ID"
@@ -721,7 +721,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 //
 // @Summary      List collection shares
 // @Description  Returns all shares for a collection. Only the owner can view shares.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Collection ID"
 // @Success      200  {array}   Share
@@ -775,7 +775,7 @@ type listSharedCollectionsResponse struct {
 //
 // @Summary      List collections shared with me
 // @Description  Returns paginated collections that other users have shared with the current user.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Produce      json
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
 // @Param        offset  query  integer  false  "Offset for pagination (default: 0)"

@@ -220,7 +220,7 @@ type meResponse struct {
 //
 // @Summary      Get current user info
 // @Description  Returns the authenticated user's profile including roles, persona, and available tools.
-// @Tags         Portal - User
+// @Tags         User
 // @Produce      json
 // @Success      200  {object}  meResponse
 // @Failure      401  {object}  problemDetail
@@ -266,7 +266,7 @@ type paginatedResponse struct {
 //
 // @Summary      List assets
 // @Description  Returns paginated assets owned by the current user with optional filtering.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        content_type  query  string   false  "Filter by content type"
 // @Param        tag           query  string   false  "Filter by tag"
@@ -332,7 +332,7 @@ type assetResponse struct {
 //
 // @Summary      Get asset
 // @Description  Returns a single asset by ID. Non-owners need share access.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
 // @Success      200  {object}  assetResponse
@@ -384,7 +384,7 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get asset content
 // @Description  Downloads the asset's binary content from S3.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      octet-stream
 // @Param        id  path  string  true  "Asset ID"
 // @Success      200  {file}  binary
@@ -444,7 +444,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Update asset content
 // @Description  Uploads new binary content for the asset, creating a new version.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Accept       octet-stream
 // @Produce      json
 // @Param        id                path    string  true   "Asset ID"
@@ -532,7 +532,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Upload asset thumbnail
 // @Description  Uploads a PNG thumbnail image for the asset.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Accept       png
 // @Produce      json
 // @Param        id    path  string  true  "Asset ID"
@@ -625,7 +625,7 @@ func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*As
 //
 // @Summary      Get asset thumbnail
 // @Description  Downloads the asset's PNG thumbnail image.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      png
 // @Param        id  path  string  true  "Asset ID"
 // @Success      200  {file}  binary
@@ -704,7 +704,7 @@ type updateAssetRequest struct {
 //
 // @Summary      Update asset metadata
 // @Description  Updates the asset's name, description, or tags. Only the owner can update.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string              true  "Asset ID"
@@ -765,7 +765,7 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Delete asset
 // @Description  Soft-deletes an asset. Only the owner can delete.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
 // @Success      200  {object}  statusResponse
@@ -825,7 +825,7 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 //
 // @Summary      List asset versions
 // @Description  Returns paginated version history for an asset.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        id      path   string   true   "Asset ID"
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
@@ -881,7 +881,7 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get version content
 // @Description  Downloads the binary content of a specific asset version.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      octet-stream
 // @Param        id       path  string   true  "Asset ID"
 // @Param        version  path  integer  true  "Version number"
@@ -948,7 +948,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Revert to version
 // @Description  Reverts the asset content to a specific version by creating a new version with that content.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        id       path  string   true  "Asset ID"
 // @Param        version  path  integer  true  "Version number to revert to"
@@ -1071,7 +1071,7 @@ type shareResponse struct {
 //
 // @Summary      Create asset share
 // @Description  Creates a share link or user-targeted share for an asset. Only the owner can share.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string              true  "Asset ID"
@@ -1190,7 +1190,7 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 //
 // @Summary      List asset shares
 // @Description  Returns all shares for an asset. Only the owner can view shares.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
 // @Success      200  {array}   Share
@@ -1235,7 +1235,7 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Revoke share
 // @Description  Revokes a share by its ID. Only the asset owner can revoke.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Share ID"
 // @Success      200  {object}  statusResponse
@@ -1283,7 +1283,7 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      List assets shared with me
 // @Description  Returns paginated assets that other users have shared with the current user.
-// @Tags         Portal - Shares
+// @Tags         Shares
 // @Produce      json
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
 // @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
@@ -1323,7 +1323,7 @@ func (h *Handler) listSharedWithMe(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get activity overview
 // @Description  Returns aggregate activity metrics for the current user within an optional time range.
-// @Tags         Portal - Activity
+// @Tags         Activity
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -1358,7 +1358,7 @@ func (h *Handler) getActivityOverview(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get activity timeseries
 // @Description  Returns time-bucketed activity data for the current user.
-// @Tags         Portal - Activity
+// @Tags         Activity
 // @Produce      json
 // @Param        resolution  query  string  false  "Bucket resolution: minute, hour, day (default: hour)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
@@ -1405,7 +1405,7 @@ func (h *Handler) getActivityTimeseries(w http.ResponseWriter, r *http.Request) 
 //
 // @Summary      Get activity breakdown
 // @Description  Returns activity breakdown grouped by a dimension (tool_name, user_id, persona, toolkit_kind, or connection).
-// @Tags         Portal - Activity
+// @Tags         Activity
 // @Produce      json
 // @Param        group_by    query  string   false  "Grouping dimension (default: tool_name)"
 // @Param        limit       query  integer  false  "Maximum entries to return"
@@ -1477,7 +1477,7 @@ func parseTimeParam(q url.Values, key string) *time.Time {
 //
 // @Summary      List my insights
 // @Description  Returns paginated insights captured by the current user.
-// @Tags         Portal - Knowledge
+// @Tags         Knowledge
 // @Produce      json
 // @Param        status    query  string   false  "Filter by status"
 // @Param        category  query  string   false  "Filter by category"
@@ -1524,7 +1524,7 @@ func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get my insight stats
 // @Description  Returns aggregate statistics for the current user's insights.
-// @Tags         Portal - Knowledge
+// @Tags         Knowledge
 // @Produce      json
 // @Success      200  {object}  knowledge.InsightStats
 // @Failure      401  {object}  problemDetail
@@ -1564,7 +1564,7 @@ type memoryStatsResponse struct {
 //
 // @Summary      List my memory records
 // @Description  Returns paginated memory records for the current user with optional filtering.
-// @Tags         Portal - Memory
+// @Tags         Memory
 // @Produce      json
 // @Param        dimension  query  string   false  "Filter by dimension"
 // @Param        category   query  string   false  "Filter by category"
@@ -1615,7 +1615,7 @@ func (h *Handler) listMyMemories(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get my memory stats
 // @Description  Returns aggregated memory statistics grouped by dimension, category, and status.
-// @Tags         Portal - Memory
+// @Tags         Memory
 // @Produce      json
 // @Success      200  {object}  memoryStatsResponse
 // @Failure      401  {object}  problemDetail
@@ -1827,7 +1827,7 @@ func resolveSharePermission(req createShareRequest, email string) (SharePermissi
 //
 // @Summary      Copy asset
 // @Description  Creates an independent copy of a shared asset in the current user's My Assets.
-// @Tags         Portal - Assets
+// @Tags         Assets
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID to copy"
 // @Success      201  {object}  Asset

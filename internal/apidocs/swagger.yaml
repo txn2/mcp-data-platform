@@ -2025,7 +2025,7 @@ paths:
       - BearerAuth: []
       summary: Get audit breakdown
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/metrics/discovery:
     get:
       description: Returns discovery-before-query session pattern statistics.
@@ -2054,7 +2054,7 @@ paths:
       - BearerAuth: []
       summary: Get discovery pattern metrics
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/metrics/enrichment:
     get:
       description: Returns aggregate enrichment statistics including mode breakdown
@@ -2084,7 +2084,7 @@ paths:
       - BearerAuth: []
       summary: Get enrichment metrics
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/metrics/overview:
     get:
       description: Returns aggregate audit statistics for the given time range.
@@ -2113,7 +2113,7 @@ paths:
       - BearerAuth: []
       summary: Get audit overview
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/metrics/performance:
     get:
       description: Returns latency percentile statistics for the given time range.
@@ -2142,7 +2142,7 @@ paths:
       - BearerAuth: []
       summary: Get audit performance
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/metrics/timeseries:
     get:
       description: Returns audit event counts bucketed by time resolution.
@@ -2181,7 +2181,7 @@ paths:
       - BearerAuth: []
       summary: Get audit timeseries
       tags:
-      - Audit Metrics
+      - Audit
   /admin/audit/stats:
     get:
       description: Returns aggregate counts for total, successful, and failed events.
@@ -3336,7 +3336,7 @@ paths:
       - BearerAuth: []
       summary: Get activity breakdown
       tags:
-      - Portal - Activity
+      - Activity
   /portal/activity/overview:
     get:
       description: Returns aggregate activity metrics for the current user within
@@ -3370,7 +3370,7 @@ paths:
       - BearerAuth: []
       summary: Get activity overview
       tags:
-      - Portal - Activity
+      - Activity
   /portal/activity/timeseries:
     get:
       description: Returns time-bucketed activity data for the current user.
@@ -3413,7 +3413,7 @@ paths:
       - BearerAuth: []
       summary: Get activity timeseries
       tags:
-      - Portal - Activity
+      - Activity
   /portal/assets:
     get:
       description: Returns paginated assets owned by the current user with optional
@@ -3455,7 +3455,7 @@ paths:
       - BearerAuth: []
       summary: List assets
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}:
     delete:
       description: Soft-deletes an asset. Only the owner can delete.
@@ -3493,7 +3493,7 @@ paths:
       - BearerAuth: []
       summary: Delete asset
       tags:
-      - Portal - Assets
+      - Assets
     get:
       description: Returns a single asset by ID. Non-owners need share access.
       parameters:
@@ -3530,7 +3530,7 @@ paths:
       - BearerAuth: []
       summary: Get asset
       tags:
-      - Portal - Assets
+      - Assets
     put:
       consumes:
       - application/json
@@ -3580,7 +3580,7 @@ paths:
       - BearerAuth: []
       summary: Update asset metadata
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/content:
     get:
       description: Downloads the asset's binary content from S3.
@@ -3626,7 +3626,7 @@ paths:
       - BearerAuth: []
       summary: Get asset content
       tags:
-      - Portal - Assets
+      - Assets
     put:
       consumes:
       - application/octet-stream
@@ -3689,7 +3689,7 @@ paths:
       - BearerAuth: []
       summary: Update asset content
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/copy:
     post:
       description: Creates an independent copy of a shared asset in the current user's
@@ -3740,7 +3740,7 @@ paths:
       - BearerAuth: []
       summary: Copy asset
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/shares:
     get:
       description: Returns all shares for an asset. Only the owner can view shares.
@@ -3780,7 +3780,7 @@ paths:
       - BearerAuth: []
       summary: List asset shares
       tags:
-      - Portal - Shares
+      - Shares
     post:
       consumes:
       - application/json
@@ -3830,7 +3830,7 @@ paths:
       - BearerAuth: []
       summary: Create asset share
       tags:
-      - Portal - Shares
+      - Shares
   /portal/assets/{id}/thumbnail:
     get:
       description: Downloads the asset's PNG thumbnail image.
@@ -3876,7 +3876,7 @@ paths:
       - BearerAuth: []
       summary: Get asset thumbnail
       tags:
-      - Portal - Assets
+      - Assets
     put:
       consumes:
       - image/png
@@ -3935,7 +3935,7 @@ paths:
       - BearerAuth: []
       summary: Upload asset thumbnail
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/versions:
     get:
       description: Returns paginated version history for an asset.
@@ -3985,7 +3985,7 @@ paths:
       - BearerAuth: []
       summary: List asset versions
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/versions/{version}/content:
     get:
       description: Downloads the binary content of a specific asset version.
@@ -4040,7 +4040,7 @@ paths:
       - BearerAuth: []
       summary: Get version content
       tags:
-      - Portal - Assets
+      - Assets
   /portal/assets/{id}/versions/{version}/revert:
     post:
       description: Reverts the asset content to a specific version by creating a new
@@ -4097,7 +4097,7 @@ paths:
       - BearerAuth: []
       summary: Revert to version
       tags:
-      - Portal - Assets
+      - Assets
   /portal/collections:
     get:
       description: Returns paginated collections owned by the current user.
@@ -4134,7 +4134,7 @@ paths:
       - BearerAuth: []
       summary: List collections
       tags:
-      - Portal - Collections
+      - Collections
     post:
       consumes:
       - application/json
@@ -4170,7 +4170,7 @@ paths:
       - BearerAuth: []
       summary: Create collection
       tags:
-      - Portal - Collections
+      - Collections
   /portal/collections/{id}:
     delete:
       description: Soft-deletes a collection. Only the owner can delete.
@@ -4204,7 +4204,7 @@ paths:
       - BearerAuth: []
       summary: Delete collection
       tags:
-      - Portal - Collections
+      - Collections
     get:
       description: Returns a single collection by ID. Non-owners need share access.
       parameters:
@@ -4241,7 +4241,7 @@ paths:
       - BearerAuth: []
       summary: Get collection
       tags:
-      - Portal - Collections
+      - Collections
     put:
       consumes:
       - application/json
@@ -4291,7 +4291,7 @@ paths:
       - BearerAuth: []
       summary: Update collection
       tags:
-      - Portal - Collections
+      - Collections
   /portal/collections/{id}/config:
     put:
       consumes:
@@ -4342,7 +4342,7 @@ paths:
       - BearerAuth: []
       summary: Update collection config
       tags:
-      - Portal - Collections
+      - Collections
   /portal/collections/{id}/sections:
     put:
       consumes:
@@ -4393,7 +4393,7 @@ paths:
       - BearerAuth: []
       summary: Set collection sections
       tags:
-      - Portal - Collections
+      - Collections
   /portal/collections/{id}/shares:
     get:
       description: Returns all shares for a collection. Only the owner can view shares.
@@ -4433,7 +4433,7 @@ paths:
       - BearerAuth: []
       summary: List collection shares
       tags:
-      - Portal - Shares
+      - Shares
     post:
       consumes:
       - application/json
@@ -4483,7 +4483,7 @@ paths:
       - BearerAuth: []
       summary: Create collection share
       tags:
-      - Portal - Shares
+      - Shares
   /portal/collections/{id}/thumbnail:
     get:
       description: Downloads the collection's PNG thumbnail image.
@@ -4517,7 +4517,7 @@ paths:
       - BearerAuth: []
       summary: Get collection thumbnail
       tags:
-      - Portal - Collections
+      - Collections
     put:
       consumes:
       - image/png
@@ -4571,7 +4571,7 @@ paths:
       - BearerAuth: []
       summary: Upload collection thumbnail
       tags:
-      - Portal - Collections
+      - Collections
   /portal/knowledge/insights:
     get:
       description: Returns paginated insights captured by the current user.
@@ -4612,7 +4612,7 @@ paths:
       - BearerAuth: []
       summary: List my insights
       tags:
-      - Portal - Knowledge
+      - Knowledge
   /portal/knowledge/insights/stats:
     get:
       description: Returns aggregate statistics for the current user's insights.
@@ -4636,7 +4636,7 @@ paths:
       - BearerAuth: []
       summary: Get my insight stats
       tags:
-      - Portal - Knowledge
+      - Knowledge
   /portal/me:
     get:
       description: Returns the authenticated user's profile including roles, persona,
@@ -4657,7 +4657,7 @@ paths:
       - BearerAuth: []
       summary: Get current user info
       tags:
-      - Portal - User
+      - User
   /portal/memory/records:
     get:
       description: Returns paginated memory records for the current user with optional
@@ -4707,7 +4707,7 @@ paths:
       - BearerAuth: []
       summary: List my memory records
       tags:
-      - Portal - Memory
+      - Memory
   /portal/memory/records/stats:
     get:
       description: Returns aggregated memory statistics grouped by dimension, category,
@@ -4732,7 +4732,7 @@ paths:
       - BearerAuth: []
       summary: Get my memory stats
       tags:
-      - Portal - Memory
+      - Memory
   /portal/prompts:
     get:
       description: Returns the user's personal prompts plus available global, persona,
@@ -4757,7 +4757,7 @@ paths:
       - BearerAuth: []
       summary: List my prompts
       tags:
-      - Portal - Prompts
+      - Prompts
     post:
       consumes:
       - application/json
@@ -4793,7 +4793,7 @@ paths:
       - BearerAuth: []
       summary: Create personal prompt
       tags:
-      - Portal - Prompts
+      - Prompts
   /portal/prompts/{id}:
     delete:
       description: Deletes a personal prompt owned by the current user. Admins can
@@ -4834,7 +4834,7 @@ paths:
       - BearerAuth: []
       summary: Delete personal prompt
       tags:
-      - Portal - Prompts
+      - Prompts
     put:
       consumes:
       - application/json
@@ -4888,7 +4888,7 @@ paths:
       - BearerAuth: []
       summary: Update personal prompt
       tags:
-      - Portal - Prompts
+      - Prompts
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with
@@ -4922,7 +4922,7 @@ paths:
       - BearerAuth: []
       summary: List collections shared with me
       tags:
-      - Portal - Shares
+      - Shares
   /portal/shared-with-me:
     get:
       description: Returns paginated assets that other users have shared with the
@@ -4956,7 +4956,7 @@ paths:
       - BearerAuth: []
       summary: List assets shared with me
       tags:
-      - Portal - Shares
+      - Shares
   /portal/shares/{id}:
     delete:
       description: Revokes a share by its ID. Only the asset owner can revoke.
@@ -4994,7 +4994,7 @@ paths:
       - BearerAuth: []
       summary: Revoke share
       tags:
-      - Portal - Shares
+      - Shares
   /resources:
     get:
       description: List managed resources visible to the caller, with optional filters.
@@ -5286,3 +5286,25 @@ securityDefinitions:
     name: Authorization
     type: apiKey
 swagger: "2.0"
+
+x-tagGroups:
+  - name: "User API"
+    tags:
+      - "User"
+      - "Activity"
+      - "Assets"
+      - "Collections"
+      - "Knowledge"
+      - "Memory"
+      - "Prompts"
+      - "Resources"
+      - "Shares"
+  - name: "Admin API"
+    tags:
+      - "Audit"
+      - "Auth Keys"
+      - "Config"
+      - "Connections"
+      - "Personas"
+      - "System"
+      - "Tools"

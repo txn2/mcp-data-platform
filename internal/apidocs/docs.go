@@ -223,7 +223,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit breakdown",
                 "parameters": [
@@ -293,7 +293,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get discovery pattern metrics",
                 "parameters": [
@@ -341,7 +341,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get enrichment metrics",
                 "parameters": [
@@ -389,7 +389,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit overview",
                 "parameters": [
@@ -437,7 +437,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit performance",
                 "parameters": [
@@ -485,7 +485,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Audit Metrics"
+                    "Audit"
                 ],
                 "summary": "Get audit timeseries",
                 "parameters": [
@@ -2322,7 +2322,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity breakdown",
                 "parameters": [
@@ -2397,7 +2397,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity overview",
                 "parameters": [
@@ -2451,7 +2451,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Activity"
+                    "Activity"
                 ],
                 "summary": "Get activity timeseries",
                 "parameters": [
@@ -2520,7 +2520,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "List assets",
                 "parameters": [
@@ -2586,7 +2586,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset",
                 "parameters": [
@@ -2648,7 +2648,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Update asset metadata",
                 "parameters": [
@@ -2722,7 +2722,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Delete asset",
                 "parameters": [
@@ -2783,7 +2783,7 @@ const docTemplate = `{
                     "application/octet-stream"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset content",
                 "parameters": [
@@ -2857,7 +2857,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Update asset content",
                 "parameters": [
@@ -2954,7 +2954,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Copy asset",
                 "parameters": [
@@ -3033,7 +3033,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List asset shares",
                 "parameters": [
@@ -3098,7 +3098,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Create asset share",
                 "parameters": [
@@ -3174,7 +3174,7 @@ const docTemplate = `{
                     "image/png"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get asset thumbnail",
                 "parameters": [
@@ -3248,7 +3248,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Upload asset thumbnail",
                 "parameters": [
@@ -3339,7 +3339,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "List asset versions",
                 "parameters": [
@@ -3418,7 +3418,7 @@ const docTemplate = `{
                     "application/octet-stream"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Get version content",
                 "parameters": [
@@ -3504,7 +3504,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Assets"
+                    "Assets"
                 ],
                 "summary": "Revert to version",
                 "parameters": [
@@ -3591,7 +3591,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "List collections",
                 "parameters": [
@@ -3652,7 +3652,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Create collection",
                 "parameters": [
@@ -3709,7 +3709,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Get collection",
                 "parameters": [
@@ -3771,7 +3771,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Update collection",
                 "parameters": [
@@ -3842,7 +3842,7 @@ const docTemplate = `{
                 ],
                 "description": "Soft-deletes a collection. Only the owner can delete.",
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Delete collection",
                 "parameters": [
@@ -3903,7 +3903,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Update collection config",
                 "parameters": [
@@ -3982,7 +3982,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Set collection sections",
                 "parameters": [
@@ -4058,7 +4058,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List collection shares",
                 "parameters": [
@@ -4123,7 +4123,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Create collection share",
                 "parameters": [
@@ -4199,7 +4199,7 @@ const docTemplate = `{
                     "image/png"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Get collection thumbnail",
                 "parameters": [
@@ -4255,7 +4255,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Collections"
+                    "Collections"
                 ],
                 "summary": "Upload collection thumbnail",
                 "parameters": [
@@ -4337,7 +4337,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Knowledge"
+                    "Knowledge"
                 ],
                 "summary": "List my insights",
                 "parameters": [
@@ -4403,7 +4403,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Knowledge"
+                    "Knowledge"
                 ],
                 "summary": "Get my insight stats",
                 "responses": {
@@ -4443,7 +4443,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - User"
+                    "User"
                 ],
                 "summary": "Get current user info",
                 "responses": {
@@ -4477,7 +4477,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Memory"
+                    "Memory"
                 ],
                 "summary": "List my memory records",
                 "parameters": [
@@ -4555,7 +4555,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Memory"
+                    "Memory"
                 ],
                 "summary": "Get my memory stats",
                 "responses": {
@@ -4595,7 +4595,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "List my prompts",
                 "responses": {
@@ -4636,7 +4636,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Create personal prompt",
                 "parameters": [
@@ -4696,7 +4696,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Update personal prompt",
                 "parameters": [
@@ -4776,7 +4776,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Prompts"
+                    "Prompts"
                 ],
                 "summary": "Delete personal prompt",
                 "parameters": [
@@ -4840,7 +4840,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List collections shared with me",
                 "parameters": [
@@ -4894,7 +4894,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "List assets shared with me",
                 "parameters": [
@@ -4948,7 +4948,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Portal - Shares"
+                    "Shares"
                 ],
                 "summary": "Revoke share",
                 "parameters": [
@@ -8082,7 +8082,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-}`
+,"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "System", "Tools"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

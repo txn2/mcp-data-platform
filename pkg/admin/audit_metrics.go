@@ -29,7 +29,7 @@ func (h *Handler) registerAuditMetricsRoutes() {
 //
 // @Summary      Get audit timeseries
 // @Description  Returns audit event counts bucketed by time resolution.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        resolution  query  string  false  "Time bucket resolution: minute, hour, day (default: hour)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
@@ -71,7 +71,7 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get audit breakdown
 // @Description  Returns audit event counts grouped by a dimension.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        group_by    query  string  true   "Dimension: tool_name, user_id, persona, toolkit_kind, connection"
 // @Param        limit       query  integer false  "Max entries (default: 10, max: 100)"
@@ -120,7 +120,7 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get audit overview
 // @Description  Returns aggregate audit statistics for the given time range.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -151,7 +151,7 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get audit performance
 // @Description  Returns latency percentile statistics for the given time range.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -182,7 +182,7 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get enrichment metrics
 // @Description  Returns aggregate enrichment statistics including mode breakdown and token savings.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -211,7 +211,7 @@ func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary      Get discovery pattern metrics
 // @Description  Returns discovery-before-query session pattern statistics.
-// @Tags         Audit Metrics
+// @Tags         Audit
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"

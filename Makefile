@@ -222,6 +222,8 @@ release-check:
 swagger:
 	@echo "Generating Swagger docs..."
 	swag init --generalInfo pkg/admin/handler.go --dir . --output internal/apidocs --parseDependency
+	@echo "Injecting x-tagGroups..."
+	@python3 scripts/swagger-tag-groups.py internal/apidocs
 	@echo "Swagger docs generated in internal/apidocs/"
 
 ## swagger-check: Verify Swagger docs are up to date
