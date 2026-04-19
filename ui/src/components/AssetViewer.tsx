@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, lazy, Suspense, type ReactNode } from "react";
-import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code, Copy, RotateCcw } from "lucide-react";
+import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft, AlertTriangle, Save, Eye, Code, Copy, RotateCcw, FileWarning } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
@@ -10,6 +10,7 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ThumbnailGenerator } from "@/components/ThumbnailGenerator";
 import { isThumbnailSupported } from "@/lib/thumbnail";
 import { formatBytes } from "@/lib/format";
+import { LARGE_ASSET_THRESHOLD } from "@/api/portal/hooks";
 
 const SourceEditor = lazy(() =>
   import("@/components/SourceEditor").then((m) => ({ default: m.SourceEditor })),
@@ -373,6 +374,24 @@ export function AssetViewer({
           ) : (
             <ContentRenderer contentType={asset.content_type} content={versionContent ?? ""} fileName={asset.name} />
           )
+        ) : asset.size_bytes > LARGE_ASSET_THRESHOLD && content === undefined ? (
+          <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+            <FileWarning className="h-12 w-12 text-muted-foreground" />
+            <div>
+              <p className="text-lg font-medium">Asset too large to preview</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                This file is {formatBytes(asset.size_bytes)} which exceeds the {formatBytes(LARGE_ASSET_THRESHOLD)} preview limit.
+              </p>
+            </div>
+            <a
+              href={contentUrl}
+              download={asset.name}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Download className="h-4 w-4" />
+              Download
+            </a>
+          </div>
         ) : content !== undefined ? (
           <>
             {canEditSource && (

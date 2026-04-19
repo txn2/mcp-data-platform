@@ -71,7 +71,7 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset, data, err := h.fetchPublicAsset(r, share.AssetID)
+	pad, err := h.fetchPublicAsset(r, share.AssetID)
 	if err != nil {
 		writePublicError(w, err)
 		return
@@ -87,23 +87,34 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	h.renderAssetViewer(w, r, asset, data, share)
+	h.renderAssetViewer(w, r, pad, share)
 }
 
 // renderAssetViewer renders the public_viewer.html template for an asset.
 // Used by both single-asset public shares and collection item views.
 // When the request includes ?embedded=1, chrome (header, notice, info modal)
 // is suppressed so the viewer can be loaded in an iframe without double headers.
-func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, asset *Asset, data []byte, share *Share) {
-	contentJSON, _ := json.Marshal(map[string]any{ // #nosec G104 -- string/[]string map marshaling cannot fail
+// publicAssetData holds asset content and metadata for the public viewer.
+type publicAssetData struct {
+	Asset    *Asset
+	Content  []byte
+	TooLarge bool
+}
+
+func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad publicAssetData, share *Share) { //nolint:revive // clear param naming
+	asset := pad.Asset
+	contentData := map[string]any{
 		"contentType": asset.ContentType,
-		"content":     string(data),
+		"content":     string(pad.Content),
 		"name":        asset.Name,
 		"description": asset.Description,
 		"tags":        asset.Tags,
+		"sizeBytes":   asset.SizeBytes,
+		"tooLarge":    pad.TooLarge,
 		"createdAt":   asset.CreatedAt.UTC().Format(time.RFC3339),
 		"updatedAt":   asset.UpdatedAt.UTC().Format(time.RFC3339),
-	})
+	}
+	contentJSON, _ := json.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
 
 	csp := publicCSP()
 	w.Header().Set("Content-Security-Policy", csp)
@@ -167,27 +178,37 @@ type publicAssetError struct {
 
 func (e *publicAssetError) Error() string { return e.Message }
 
-// fetchPublicAsset retrieves an asset and its S3 content for public viewing.
-func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (*Asset, []byte, error) {
+// largeAssetPreviewThreshold is the maximum asset size that the public viewer
+// will load inline. Assets larger than this show a download prompt instead.
+const largeAssetPreviewThreshold int64 = 2 * 1024 * 1024 // 2 MB
+
+// fetchPublicAsset retrieves an asset and optionally its S3 content for public viewing.
+// For assets exceeding largeAssetPreviewThreshold, content is not fetched and TooLarge is set.
+func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAssetData, error) {
 	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
 	if err != nil {
-		return nil, nil, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
+		return publicAssetData{}, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
 	}
 	if asset.DeletedAt != nil {
-		return nil, nil, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
+		return publicAssetData{}, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
 	}
 
 	if h.deps.S3Client == nil {
-		return nil, nil, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+		return publicAssetData{}, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+	}
+
+	// Skip content fetch for large assets — they'll show a download prompt instead.
+	if asset.SizeBytes > largeAssetPreviewThreshold {
+		return publicAssetData{Asset: asset, TooLarge: true}, nil
 	}
 
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
 		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log, not user-facing
-		return nil, nil, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
+		return publicAssetData{}, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
 	}
 
-	return asset, data, nil
+	return publicAssetData{Asset: asset, Content: data}, nil
 }
 
 // writePublicError writes the appropriate HTTP error for a publicAssetError.
@@ -329,15 +350,15 @@ func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
+	pad, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
 	if fetchErr != nil {
 		writePublicError(w, fetchErr)
 		return
 	}
 
-	w.Header().Set(headerContentType, asset.ContentType)
+	w.Header().Set(headerContentType, pad.Asset.ContentType)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
+	_, _ = w.Write(pad.Content) // #nosec G705 -- content served from S3, content-type set by uploader
 }
 
 // publicCollectionItemView renders the full public asset viewer for an item in a collection.
@@ -348,14 +369,14 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	asset, data, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
+	pad, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
 	if fetchErr != nil {
 		writePublicError(w, fetchErr)
 		return
 	}
 
 	// Render with the exact same template and data as a single-asset public view.
-	h.renderAssetViewer(w, r, asset, data, share)
+	h.renderAssetViewer(w, r, pad, share)
 }
 
 // publicCollectionItemThumbnail serves an asset's thumbnail within a public collection share.
