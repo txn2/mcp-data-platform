@@ -196,6 +196,8 @@ func (h *Handler) registerRoutes() {
 	// Public routes (rate limited)
 	h.publicMux.Handle("GET /portal/view/{token}",
 		h.rateLimiter.Middleware(http.HandlerFunc(h.publicView)))
+	h.publicMux.Handle("GET /portal/view/{token}/content",
+		h.rateLimiter.Middleware(http.HandlerFunc(h.publicAssetContent)))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content",
 		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemContent)))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail",

@@ -429,7 +429,11 @@ export function useAdminAsset(id: string | null) {
   });
 }
 
-export function useAdminAssetContent(id: string | null) {
+/** Maximum asset size for auto-loading content in the admin viewer (matches portal threshold). */
+const ADMIN_LARGE_ASSET_THRESHOLD = 2 * 1024 * 1024; // 2 MB
+
+export function useAdminAssetContent(id: string | null, sizeBytes?: number) {
+  const tooLarge = sizeBytes != null && sizeBytes > ADMIN_LARGE_ASSET_THRESHOLD;
   return useQuery({
     queryKey: ["admin", "asset-content", id],
     queryFn: async () => {
@@ -439,7 +443,7 @@ export function useAdminAssetContent(id: string | null) {
       if (!res.ok) throw new Error("Failed to fetch content");
       return res.text();
     },
-    enabled: !!id,
+    enabled: !!id && !tooLarge,
   });
 }
 

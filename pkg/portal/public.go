@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -103,6 +104,12 @@ type publicAssetData struct {
 
 func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad publicAssetData, share *Share) { //nolint:revive // clear param naming
 	asset := pad.Asset
+
+	// Build download URL for the public viewer.
+	// Single-asset shares: /portal/view/{token}/content
+	// Collection items: /portal/view/{token}/items/{assetId}/content
+	downloadURL := fmt.Sprintf("/portal/view/%s/content", share.Token)
+
 	contentData := map[string]any{
 		"contentType": asset.ContentType,
 		"content":     string(pad.Content),
@@ -111,6 +118,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"tags":        asset.Tags,
 		"sizeBytes":   asset.SizeBytes,
 		"tooLarge":    pad.TooLarge,
+		"downloadURL": downloadURL,
 		"createdAt":   asset.CreatedAt.UTC().Format(time.RFC3339),
 		"updatedAt":   asset.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -170,6 +178,43 @@ func validateShareAccess(share *Share) string {
 	return ""
 }
 
+// publicAssetContent serves the raw content for a single-asset public share.
+// Always fetches from S3 regardless of size — this is a download endpoint.
+func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	if token == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if msg := validateShareAccess(share); msg != "" {
+		http.Error(w, msg, http.StatusGone)
+		return
+	}
+
+	if share.AssetID == "" {
+		http.Error(w, "Not an asset share.", http.StatusBadRequest)
+		return
+	}
+
+	asset, data, fetchErr := h.fetchAssetContent(r, share.AssetID)
+	if fetchErr != nil {
+		writePublicError(w, fetchErr)
+		return
+	}
+
+	w.Header().Set(headerContentType, asset.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", asset.Name))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- content served from S3
+}
+
 // publicAssetError categorizes errors from fetchPublicAsset.
 type publicAssetError struct {
 	Message string
@@ -181,6 +226,27 @@ func (e *publicAssetError) Error() string { return e.Message }
 // largeAssetPreviewThreshold is the maximum asset size that the public viewer
 // will load inline. Assets larger than this show a download prompt instead.
 const largeAssetPreviewThreshold int64 = 2 * 1024 * 1024 // 2 MB
+
+// fetchAssetContent retrieves an asset and always fetches its S3 content.
+// Used by download/raw-content endpoints that must serve full content regardless of size.
+func (h *Handler) fetchAssetContent(r *http.Request, assetID string) (*Asset, []byte, error) {
+	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	if err != nil {
+		return nil, nil, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
+	}
+	if asset.DeletedAt != nil {
+		return nil, nil, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
+	}
+	if h.deps.S3Client == nil {
+		return nil, nil, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+	}
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
+	if err != nil {
+		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log
+		return nil, nil, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
+	}
+	return asset, data, nil
+}
 
 // fetchPublicAsset retrieves an asset and optionally its S3 content for public viewing.
 // For assets exceeding largeAssetPreviewThreshold, content is not fetched and TooLarge is set.
@@ -345,20 +411,21 @@ func (h *Handler) validateCollectionItemAccess(w http.ResponseWriter, r *http.Re
 }
 
 // publicCollectionItemContent serves individual asset content within a public collection share.
+// This is a download/raw-content endpoint, so it always fetches from S3 regardless of size.
 func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Request) {
 	if h.validateCollectionItemAccess(w, r) == nil {
 		return
 	}
 
-	pad, fetchErr := h.fetchPublicAsset(r, r.PathValue(pathKeyAssetID))
-	if fetchErr != nil {
-		writePublicError(w, fetchErr)
+	asset, data, err := h.fetchAssetContent(r, r.PathValue(pathKeyAssetID))
+	if err != nil {
+		writePublicError(w, err)
 		return
 	}
 
-	w.Header().Set(headerContentType, pad.Asset.ContentType)
+	w.Header().Set(headerContentType, asset.ContentType)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(pad.Content) // #nosec G705 -- content served from S3, content-type set by uploader
+	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
 }
 
 // publicCollectionItemView renders the full public asset viewer for an item in a collection.

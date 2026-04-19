@@ -1283,10 +1283,11 @@ func (a *exportShareCreatorAdapter) CreatePublicShare(ctx context.Context, asset
 	}
 
 	share := portal.Share{
-		ID:        generateUUID(),
-		AssetID:   assetID,
-		Token:     token,
-		CreatedBy: createdBy,
+		ID:         generateUUID(),
+		AssetID:    assetID,
+		Token:      token,
+		CreatedBy:  createdBy,
+		NoticeText: "Proprietary & Confidential. Only share with authorized viewers.",
 	}
 
 	if err := a.shareStore.Insert(ctx, share); err != nil {

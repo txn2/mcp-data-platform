@@ -31,7 +31,7 @@ function formatBytesSimple(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function TooLargeMessage({ sizeBytes }: { sizeBytes: number }) {
+function TooLargeMessage({ sizeBytes, downloadURL, name }: { sizeBytes: number; downloadURL?: string; name?: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "5rem 1rem", textAlign: "center" }}>
       <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
@@ -40,9 +40,24 @@ function TooLargeMessage({ sizeBytes }: { sizeBytes: number }) {
       <div>
         <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Asset too large to preview</p>
         <p style={{ fontSize: "0.875rem", opacity: 0.6, marginTop: "0.25rem" }}>
-          This file is {formatBytesSimple(sizeBytes)}. Use the download button to save it locally.
+          This file is {formatBytesSimple(sizeBytes)}.
         </p>
       </div>
+      {downloadURL && (
+        <a
+          href={downloadURL}
+          download={name || true}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: "0.5rem",
+            padding: "0.5rem 1rem", borderRadius: "0.375rem",
+            backgroundColor: "var(--accent, #3b82f6)", color: "#fff",
+            fontSize: "0.875rem", fontWeight: 500, textDecoration: "none",
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        </a>
+      )}
     </div>
   );
 }
@@ -50,11 +65,11 @@ function TooLargeMessage({ sizeBytes }: { sizeBytes: number }) {
 // Read content from embedded JSON (injected by Go template).
 const dataEl = document.getElementById("content-data");
 if (dataEl) {
-  const { contentType, content, name, tooLarge, sizeBytes } = JSON.parse(dataEl.textContent!);
+  const { contentType, content, name, tooLarge, sizeBytes, downloadURL } = JSON.parse(dataEl.textContent!);
   const root = document.getElementById("content-root");
   if (root) {
     if (tooLarge) {
-      createRoot(root).render(<TooLargeMessage sizeBytes={sizeBytes || 0} />);
+      createRoot(root).render(<TooLargeMessage sizeBytes={sizeBytes || 0} downloadURL={downloadURL} name={name} />);
     } else {
       const ct = (contentType as string).toLowerCase();
       const isMarkdown = ct.includes("markdown");

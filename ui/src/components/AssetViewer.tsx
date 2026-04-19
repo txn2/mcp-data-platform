@@ -371,9 +371,30 @@ export function AssetViewer({
         {viewingOldVersion ? (
           versionContentLoading ? (
             <LoadingIndicator />
-          ) : (
-            <ContentRenderer contentType={asset.content_type} content={versionContent ?? ""} fileName={asset.name} />
-          )
+          ) : (() => {
+            const versionSize = versions?.find(v => v.version === selectedVersion)?.size_bytes ?? 0;
+            return versionSize > LARGE_ASSET_THRESHOLD && !versionContent ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+                <FileWarning className="h-12 w-12 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-medium">Version too large to preview</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    This version is {formatBytes(versionSize)} which exceeds the {formatBytes(LARGE_ASSET_THRESHOLD)} preview limit.
+                  </p>
+                </div>
+                <a
+                  href={contentUrl}
+                  download={asset.name}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Current Version
+                </a>
+              </div>
+            ) : (
+              <ContentRenderer contentType={asset.content_type} content={versionContent ?? ""} fileName={asset.name} />
+            );
+          })()
         ) : asset.size_bytes > LARGE_ASSET_THRESHOLD && content === undefined ? (
           <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
             <FileWarning className="h-12 w-12 text-muted-foreground" />
