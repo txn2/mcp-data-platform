@@ -644,6 +644,121 @@ func TestBuildExportProvenance(t *testing.T) {
 	assert.Equal(t, "SELECT 1", prov.ToolCalls[1].Parameters["export_query"])
 }
 
+func TestInsertAssetWithRace_Success(t *testing.T) {
+	tk := &Toolkit{}
+	store := &mockExportAssetStore{}
+	deps := &ExportDeps{AssetStore: store, BaseURL: "https://example.com"}
+	uc := &ExportUserContext{UserID: "u1"}
+	asset := ExportAsset{ID: "a1"}
+	input := exportInput{Format: "csv"}
+
+	result := tk.insertAssetWithRace(context.Background(), deps, asset, input, uc)
+	assert.Nil(t, result)
+	assert.NotNil(t, store.inserted)
+}
+
+func TestInsertAssetWithRace_FailNoIdempotency(t *testing.T) {
+	tk := &Toolkit{}
+	store := &mockExportAssetStore{insertErr: fmt.Errorf("db error")}
+	deps := &ExportDeps{AssetStore: store}
+	uc := &ExportUserContext{UserID: "u1"}
+
+	result := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv"}, uc)
+	assert.NotNil(t, result)
+	assert.True(t, result.IsError)
+}
+
+func TestInsertAssetWithRace_RaceRecovery(t *testing.T) {
+	tk := &Toolkit{}
+	store := &mockExportAssetStore{
+		insertErr:      fmt.Errorf("unique constraint violation"),
+		idempotencyHit: &ExportAssetRef{ID: "existing-1", SizeBytes: 999},
+	}
+	deps := &ExportDeps{AssetStore: store, BaseURL: "https://example.com"}
+	uc := &ExportUserContext{UserID: "u1"}
+
+	result := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv", IdempotencyKey: "key1"}, uc)
+	assert.NotNil(t, result)
+	assert.False(t, result.IsError)
+	assertResultContains(t, result, "existing-1")
+}
+
+func TestCreateExportVersion(t *testing.T) {
+	tk := &Toolkit{}
+	versionStore := &mockExportVersionStore{}
+	deps := &ExportDeps{VersionStore: versionStore, S3Bucket: "bucket"}
+
+	tk.createExportVersion(context.Background(), deps, ExportVersion{
+		AssetID:     "a1",
+		S3Key:       "key",
+		ContentType: "text/csv",
+		SizeBytes:   100,
+		CreatedBy:   "alice@example.com",
+	})
+
+	require.NotNil(t, versionStore.created)
+	assert.Equal(t, "a1", versionStore.created.AssetID)
+	assert.Equal(t, "bucket", versionStore.created.S3Bucket)
+	assert.NotEmpty(t, versionStore.created.ID)
+}
+
+func TestCreateExportVersion_Error(t *testing.T) { //nolint:revive // t used for test registration
+	tk := &Toolkit{}
+	versionStore := &mockExportVersionStore{createErr: fmt.Errorf("db down")}
+	deps := &ExportDeps{VersionStore: versionStore, S3Bucket: "bucket"}
+
+	// Should not panic — errors are logged, not returned
+	tk.createExportVersion(context.Background(), deps, ExportVersion{AssetID: "a1"})
+}
+
+func TestGenerateExportID(t *testing.T) {
+	id, err := generateExportID()
+	require.NoError(t, err)
+	assert.Len(t, id, 32) // 16 bytes = 32 hex chars
+
+	// IDs should be unique
+	id2, err := generateExportID()
+	require.NoError(t, err)
+	assert.NotEqual(t, id, id2)
+}
+
+func TestRegisterExportTool(t *testing.T) {
+	tk := &Toolkit{name: "test"}
+	tk.SetExportDeps(ExportDeps{
+		AssetStore:   &mockExportAssetStore{},
+		VersionStore: &mockExportVersionStore{},
+		S3Client:     &mockExportS3Client{},
+	})
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1"}, nil)
+	tk.registerExportTool(server)
+	// Verify tool is registered by checking Tools() includes it
+	assert.Contains(t, tk.Tools(), exportToolName)
+}
+
+func TestExecuteExportQuery_NoClient(t *testing.T) {
+	tk := &Toolkit{} // no client, no manager
+	_, err := tk.executeExportQuery(context.Background(), "SELECT 1", "", 100)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no Trino client")
+}
+
+func TestParseExportInput_NilParams(t *testing.T) {
+	req := mcp.CallToolRequest{}
+	_, err := parseExportInput(req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing arguments")
+}
+
+func TestExportInputSchema_HasCreatePublicLink(t *testing.T) {
+	schema := exportInputSchema()
+	props, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+	cpl, ok := props["create_public_link"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "boolean", cpl[schemaKeyType])
+}
+
 // assertResultContains checks that the result text contains the expected substring.
 func assertResultContains(t *testing.T, result *mcp.CallToolResult, substr string) {
 	t.Helper()

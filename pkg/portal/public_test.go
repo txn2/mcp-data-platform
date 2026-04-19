@@ -1392,3 +1392,98 @@ func TestPublicCollectionItemViewFetchError(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestPublicAssetContentDownload(t *testing.T) {
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "export.csv", ContentType: "text/csv",
+		SizeBytes: 5000, Tags: []string{}, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("a,b\n1,2"), getCT: "text/csv"},
+		S3Bucket:   "test",
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/csv")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "export.csv")
+	assert.Equal(t, "a,b\n1,2", w.Body.String())
+}
+
+func TestPublicAssetContentTokenNotFound(t *testing.T) {
+	h := NewHandler(Deps{
+		ShareStore: &mockShareStore{getByTokenErr: fmt.Errorf("not found")},
+		S3Client:   &mockS3Client{},
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/bad/content", http.NoBody)
+	req.SetPathValue("token", "bad")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicViewLargeAssetShowsTooLarge(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "big-export.csv", ContentType: "text/csv",
+		SizeBytes: 10 * 1024 * 1024, // 10 MB — exceeds 2 MB threshold
+		Tags:      []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("should not be fetched"), getCT: "text/csv"},
+		S3Bucket:   "test",
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, `"tooLarge":true`)
+	assert.Contains(t, body, `"downloadURL"`)
+}
+
+func TestPublicAssetContentLargeStillDownloads(t *testing.T) {
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "big.csv", ContentType: "text/csv",
+		SizeBytes: 10 * 1024 * 1024, // 10 MB
+		Tags:      []string{}, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("big content"), getCT: "text/csv"},
+		S3Bucket:   "test",
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	// The content download endpoint must serve full content even for large assets
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/content", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "big content", w.Body.String())
+}
