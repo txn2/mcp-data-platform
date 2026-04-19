@@ -1,25 +1,31 @@
 import { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Download, FileWarning } from "lucide-react";
 import { apiFetchRaw } from "@/api/portal/client";
+import { LARGE_ASSET_THRESHOLD } from "@/api/portal/hooks";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
+import { formatBytes } from "@/lib/format";
 
 interface Props {
   assetId: string;
   assetName: string;
   contentType: string;
+  sizeBytes?: number;
   onClose: () => void;
 }
 
 /**
  * Modal overlay that fetches and renders an asset's content for quick preview.
+ * Skips loading for assets exceeding LARGE_ASSET_THRESHOLD.
  * Press Escape or click the backdrop to close.
  */
-export function AssetPreviewModal({ assetId, assetName, contentType, onClose }: Props) {
+export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, onClose }: Props) {
+  const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
   const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!tooLarge);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (tooLarge) return;
     let cancelled = false;
     apiFetchRaw(`/assets/${assetId}/content`)
       .then(async (res) => {
@@ -37,7 +43,7 @@ export function AssetPreviewModal({ assetId, assetName, contentType, onClose }: 
         }
       });
     return () => { cancelled = true; };
-  }, [assetId]);
+  }, [assetId, tooLarge]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -71,7 +77,22 @@ export function AssetPreviewModal({ assetId, assetName, contentType, onClose }: 
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
-          {loading ? (
+          {tooLarge ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <FileWarning className="h-10 w-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Too large to preview ({formatBytes(sizeBytes!)})
+              </p>
+              <a
+                href={`/api/v1/portal/assets/${assetId}/content`}
+                download={assetName}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </a>
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
               Loading...
             </div>

@@ -35,6 +35,7 @@ type Asset struct {
 	Tags           []string             `json:"tags"`
 	Provenance     Provenance           `json:"provenance"`
 	SessionID      string               `json:"session_id,omitempty" example:"sess_abc123"`
+	IdempotencyKey string               `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
 	CurrentVersion int                  `json:"current_version" example:"1"`
 	Collections    []AssetCollectionRef `json:"collections,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`

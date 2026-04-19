@@ -249,6 +249,7 @@ function AssetBrowserModal({
           assetId={previewing.id}
           assetName={previewing.name}
           contentType={previewing.content_type}
+          sizeBytes={previewing.size_bytes}
           onClose={() => setPreviewing(null)}
         />
       )}

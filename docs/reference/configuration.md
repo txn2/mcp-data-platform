@@ -656,6 +656,12 @@ portal:
     name: "ACME Corp"
     logo: "https://acme.com/logo.svg"
     url: "https://acme.com"
+  export:                                        # trino_export configuration
+    enabled: true                                # auto-enabled when portal + trino are configured
+    max_rows: 100000                             # hard row cap per export
+    max_bytes: 104857600                         # hard byte cap (100 MB)
+    default_timeout: "5m"                        # default query timeout
+    max_timeout: "10m"                           # maximum allowed timeout
 ```
 
 | Option | Type | Default | Description |
@@ -673,6 +679,11 @@ portal:
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
 | `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
+| `portal.export.enabled` | bool | auto | Enable `trino_export` tool. Auto-enabled when portal and Trino are both configured. Set `false` to disable. |
+| `portal.export.max_rows` | int | `100000` | Hard row cap for exports |
+| `portal.export.max_bytes` | int | `104857600` | Hard byte cap for formatted output (100 MB) |
+| `portal.export.default_timeout` | string | `"5m"` | Default query timeout for exports |
+| `portal.export.max_timeout` | string | `"10m"` | Maximum allowed query timeout for exports |
 
 ### Share Creation API
 

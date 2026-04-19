@@ -10,7 +10,7 @@ interface Props {
 
 export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
   const { data: asset, isLoading } = useAdminAsset(assetId);
-  const { data: content } = useAdminAssetContent(assetId);
+  const { data: content } = useAdminAssetContent(assetId, asset?.size_bytes);
   const updateMutation = useAdminUpdateAsset();
   const deleteMutation = useAdminDeleteAsset();
   const contentUpdateMutation = useAdminUpdateAssetContent();

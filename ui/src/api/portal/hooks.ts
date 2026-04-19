@@ -77,7 +77,15 @@ export function useAsset(id: string) {
   });
 }
 
-export function useAssetContent(id: string) {
+/**
+ * Maximum size in bytes before the viewer skips auto-loading content.
+ * Assets larger than this show a "too large to preview" message with a download button.
+ * The content can still be fetched explicitly by the user.
+ */
+export const LARGE_ASSET_THRESHOLD = 2 * 1024 * 1024; // 2 MB
+
+export function useAssetContent(id: string, sizeBytes?: number) {
+  const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
   return useQuery({
     queryKey: ["asset-content", id],
     queryFn: async () => {
@@ -85,7 +93,7 @@ export function useAssetContent(id: string) {
       if (!res.ok) throw new Error("Failed to fetch content");
       return res.text();
     },
-    enabled: !!id,
+    enabled: !!id && !tooLarge,
   });
 }
 

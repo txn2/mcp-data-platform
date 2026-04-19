@@ -42,7 +42,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
-  const [previewing, setPreviewing] = useState<{ id: string; name: string; contentType: string } | null>(null);
+  const [previewing, setPreviewing] = useState<{ id: string; name: string; contentType: string; sizeBytes: number } | null>(null);
 
   function toggleViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -307,7 +307,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     </td>
                     <td className="px-2 py-2.5">
                       <button
-                        onClick={(e) => { e.stopPropagation(); setPreviewing({ id: asset.id, name: asset.name, contentType: asset.content_type }); }}
+                        onClick={(e) => { e.stopPropagation(); setPreviewing({ id: asset.id, name: asset.name, contentType: asset.content_type, sizeBytes: asset.size_bytes }); }}
                         className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
                         title="Quick preview"
                       >
@@ -335,6 +335,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
           assetId={previewing.id}
           assetName={previewing.name}
           contentType={previewing.contentType}
+          sizeBytes={previewing.sizeBytes}
           onClose={() => setPreviewing(null)}
         />
       )}

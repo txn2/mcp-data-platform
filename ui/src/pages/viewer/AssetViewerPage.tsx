@@ -10,7 +10,7 @@ interface Props {
 
 export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const { data: asset, isLoading } = useAsset(assetId);
-  const { data: content } = useAssetContent(assetId);
+  const { data: content } = useAssetContent(assetId, asset?.size_bytes);
   const updateMutation = useUpdateAsset();
   const deleteMutation = useDeleteAsset();
   const contentUpdateMutation = useUpdateAssetContent();

@@ -150,6 +150,16 @@ type PortalConfig struct {
 	MaxContentSize int                   `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
 	Implementor    ImplementorConfig     `yaml:"implementor"`      // optional implementor brand (far-left header zone)
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
+	Export         PortalExportConfig    `yaml:"export"` // trino_export configuration
+}
+
+// PortalExportConfig configures the trino_export tool.
+type PortalExportConfig struct {
+	Enabled        *bool  `yaml:"enabled"`         // auto-enabled when portal+trino are configured
+	MaxRows        int    `yaml:"max_rows"`        // hard row cap (default: 100000)
+	MaxBytes       int64  `yaml:"max_bytes"`       // hard byte cap (default: 100MB)
+	DefaultTimeout string `yaml:"default_timeout"` // default query timeout (default: "5m")
+	MaxTimeout     string `yaml:"max_timeout"`     // max query timeout (default: "10m")
 }
 
 // ImplementorConfig configures the optional implementor brand shown in the
