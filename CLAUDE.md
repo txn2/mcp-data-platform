@@ -335,6 +335,17 @@ resources:
     s3_bucket: "resources"    # S3 bucket for uploaded files
 ```
 
+### Export to Asset
+```yaml
+portal:
+  export:
+    enabled: true             # auto-enabled when portal + trino are configured
+    max_rows: 100000          # hard row cap per export
+    max_bytes: 104857600      # hard byte cap (100 MB)
+    default_timeout: "5m"     # default query timeout
+    max_timeout: "10m"        # maximum allowed timeout
+```
+
 ### Audit Logging
 ```yaml
 audit:

@@ -1131,6 +1131,9 @@ definitions:
       id:
         example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
         type: string
+      idempotency_key:
+        example: export-2026-04-18-abc123
+        type: string
       name:
         example: Q4 Revenue Dashboard
         type: string
@@ -1392,6 +1395,9 @@ definitions:
         type: string
       id:
         example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      idempotency_key:
+        example: export-2026-04-18-abc123
         type: string
       is_owner:
         example: true

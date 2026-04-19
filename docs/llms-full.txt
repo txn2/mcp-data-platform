@@ -359,6 +359,11 @@ When `workflow.require_discovery_before_query` is disabled (default), the platfo
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
 | `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
+| `portal.export.enabled` | bool | auto | Enable trino_export tool (auto-enabled when portal + trino configured) |
+| `portal.export.max_rows` | int | `100000` | Hard row cap for exports |
+| `portal.export.max_bytes` | int | `104857600` | Hard byte cap for formatted output (100 MB) |
+| `portal.export.default_timeout` | string | `"5m"` | Default query timeout for exports |
+| `portal.export.max_timeout` | string | `"10m"` | Maximum allowed query timeout for exports |
 
 Portal requires `database.dsn` for metadata storage and at least one S3 toolkit instance for artifact content.
 
@@ -1109,6 +1114,24 @@ Get table schema and metadata.
 |-----------|------|----------|---------|-------------|
 | `table` | string | Yes | - | Table name (can be `catalog.schema.table`) |
 | `connection` | string | No | first configured | Trino connection name |
+
+### trino_export
+
+Export query results directly to a portal asset (CSV, JSON, Markdown, text), bypassing the LLM token budget. Use after validating the query shape with `trino_query`. Only metadata is returned to the agent. Requires portal + trino configured. SQL runs through the read-only interceptor. CSV escaping prevents formula injection. Sensitivity tags inherited from source datasets.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `sql` | string | Yes | - | SQL query (read-only enforced) |
+| `format` | string | Yes | - | csv, json, markdown, or text |
+| `name` | string | Yes | - | Display name for the asset |
+| `connection` | string | No | default | Trino connection name |
+| `description` | string | No | - | Asset description |
+| `tags` | array | No | [] | Lowercase kebab-case tags (max 50 chars, max 20; `_sys-` reserved) |
+| `limit` | integer | No | deployment max | Row limit (subject to deployment cap) |
+| `idempotency_key` | string | No | - | Dedup key to prevent duplicate assets on retry |
+| `timeout_seconds` | integer | No | deployment default | Query execution timeout |
+
+Configuration: `portal.export.enabled` (auto), `portal.export.max_rows` (100000), `portal.export.max_bytes` (100MB), `portal.export.default_timeout` (5m), `portal.export.max_timeout` (10m).
 
 ### trino_list_connections
 

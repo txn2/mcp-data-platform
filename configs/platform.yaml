@@ -332,6 +332,12 @@ tuning:
 #     name: "ACME Corp"
 #     logo: "https://acme.com/logo.svg"
 #     url: "https://acme.com"
+#   export:                                                     # trino_export configuration
+#     enabled: true                                             # auto-enabled when portal + trino are configured
+#     max_rows: 100000                                          # hard row cap per export (default: 100000)
+#     max_bytes: 104857600                                      # hard byte cap in bytes (default: 100 MB)
+#     default_timeout: "5m"                                     # default query timeout (default: 5m)
+#     max_timeout: "10m"                                        # maximum allowed timeout (default: 10m)
 
 # Admin REST API
 # admin:

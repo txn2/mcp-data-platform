@@ -55,6 +55,7 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
+	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -1077,6 +1078,10 @@ func (p *Platform) initPortal() error {
 		"s3_connection", p.config.Portal.S3Connection,
 		"s3_bucket", p.config.Portal.S3Bucket,
 	)
+
+	// Wire trino_export if portal + trino are both configured
+	p.wireTrinoExport()
+
 	return nil
 }
 
@@ -1104,6 +1109,161 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 
 	slog.Info("portal: using s3 connection", "connection", connName)
 	return portal.NewS3ClientAdapter(c), nil
+}
+
+// wireTrinoExport injects portal dependencies into Trino toolkits for trino_export.
+func (p *Platform) wireTrinoExport() {
+	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
+		return
+	}
+	if p.portalS3Client == nil || p.portalAssetStore == nil {
+		return
+	}
+
+	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
+	if len(trinoToolkits) == 0 {
+		return
+	}
+
+	exportCfg := p.parseExportConfig()
+
+	for _, tk := range trinoToolkits {
+		trinoTk, ok := tk.(*trinokit.Toolkit)
+		if !ok {
+			continue
+		}
+		trinoTk.SetExportDeps(trinokit.ExportDeps{
+			AssetStore:   &exportAssetStoreAdapter{store: p.portalAssetStore},
+			VersionStore: &exportVersionStoreAdapter{store: p.portalVersionStore},
+			S3Client:     p.portalS3Client,
+			S3Bucket:     p.config.Portal.S3Bucket,
+			S3Prefix:     p.config.Portal.S3Prefix,
+			BaseURL:      p.config.Portal.PublicBaseURL,
+			Config:       exportCfg,
+			GetUserContext: func(ctx context.Context) *trinokit.ExportUserContext {
+				pc := middleware.GetPlatformContext(ctx)
+				if pc == nil {
+					return nil
+				}
+				return &trinokit.ExportUserContext{
+					UserID:    pc.UserID,
+					UserEmail: pc.UserEmail,
+					SessionID: pc.SessionID,
+				}
+			},
+			GetProvenanceCalls: func(ctx context.Context) []trinokit.ExportProvenanceCall {
+				calls := middleware.GetProvenanceToolCalls(ctx)
+				result := make([]trinokit.ExportProvenanceCall, len(calls))
+				for i, c := range calls {
+					result[i] = trinokit.ExportProvenanceCall{
+						ToolName:   c.ToolName,
+						Timestamp:  c.Timestamp,
+						Parameters: c.Parameters,
+					}
+				}
+				return result
+			},
+		})
+	}
+
+	slog.Info("trino_export wired",
+		"max_rows", exportCfg.MaxRows,
+		"max_bytes", exportCfg.MaxBytes,
+	)
+}
+
+// parseExportConfig converts the portal export config to the trino toolkit's ExportConfig.
+func (p *Platform) parseExportConfig() trinokit.ExportConfig {
+	cfg := trinokit.ExportConfig{
+		MaxRows:  p.config.Portal.Export.MaxRows,
+		MaxBytes: p.config.Portal.Export.MaxBytes,
+	}
+	if p.config.Portal.Export.DefaultTimeout != "" {
+		if d, err := time.ParseDuration(p.config.Portal.Export.DefaultTimeout); err == nil {
+			cfg.DefaultTimeout = d
+		}
+	}
+	if p.config.Portal.Export.MaxTimeout != "" {
+		if d, err := time.ParseDuration(p.config.Portal.Export.MaxTimeout); err == nil {
+			cfg.MaxTimeout = d
+		}
+	}
+	return cfg
+}
+
+// exportAssetStoreAdapter adapts portal.AssetStore to trino.ExportAssetStore.
+type exportAssetStoreAdapter struct {
+	store portal.AssetStore
+}
+
+func (a *exportAssetStoreAdapter) InsertExportAsset(ctx context.Context, asset trinokit.ExportAsset) error { //nolint:revive // implements trino.ExportAssetStore
+	if err := a.store.Insert(ctx, portal.Asset{
+		ID:          asset.ID,
+		OwnerID:     asset.OwnerID,
+		OwnerEmail:  asset.OwnerEmail,
+		Name:        asset.Name,
+		Description: asset.Description,
+		ContentType: asset.ContentType,
+		S3Bucket:    asset.S3Bucket,
+		S3Key:       asset.S3Key,
+		SizeBytes:   asset.SizeBytes,
+		Tags:        asset.Tags,
+		Provenance: portal.Provenance{
+			UserID:    asset.Provenance.UserID,
+			SessionID: asset.Provenance.SessionID,
+			ToolCalls: convertProvenanceCalls(asset.Provenance.ToolCalls),
+		},
+		SessionID:      asset.SessionID,
+		IdempotencyKey: asset.IdempotencyKey,
+	}); err != nil {
+		return fmt.Errorf("inserting export asset: %w", err)
+	}
+	return nil
+}
+
+func (a *exportAssetStoreAdapter) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*trinokit.ExportAssetRef, error) { //nolint:revive // implements trino.ExportAssetStore
+	asset, err := a.store.GetByIdempotencyKey(ctx, ownerID, key)
+	if err != nil {
+		return nil, fmt.Errorf("looking up idempotency key: %w", err)
+	}
+	return &trinokit.ExportAssetRef{
+		ID:        asset.ID,
+		SizeBytes: asset.SizeBytes,
+	}, nil
+}
+
+func convertProvenanceCalls(calls []trinokit.ExportProvenanceCall) []portal.ProvenanceToolCall {
+	result := make([]portal.ProvenanceToolCall, len(calls))
+	for i, c := range calls {
+		result[i] = portal.ProvenanceToolCall{
+			ToolName:   c.ToolName,
+			Timestamp:  c.Timestamp,
+			Parameters: c.Parameters,
+		}
+	}
+	return result
+}
+
+// exportVersionStoreAdapter adapts portal.VersionStore to trino.ExportVersionStore.
+type exportVersionStoreAdapter struct {
+	store portal.VersionStore
+}
+
+func (a *exportVersionStoreAdapter) CreateExportVersion(ctx context.Context, ver trinokit.ExportVersion) (int, error) { //nolint:revive // implements trino.ExportVersionStore
+	n, err := a.store.CreateVersion(ctx, portal.AssetVersion{
+		ID:            ver.ID,
+		AssetID:       ver.AssetID,
+		S3Key:         ver.S3Key,
+		S3Bucket:      ver.S3Bucket,
+		ContentType:   ver.ContentType,
+		SizeBytes:     ver.SizeBytes,
+		CreatedBy:     ver.CreatedBy,
+		ChangeSummary: ver.ChangeSummary,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("creating export version: %w", err)
+	}
+	return n, nil
 }
 
 // initManagedResources initializes the managed resources subsystem (human-uploaded
@@ -1641,10 +1801,26 @@ func personasForRolesFunc(pr *persona.Registry) middleware.PersonasForRoles {
 // addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
 func (p *Platform) addProvenanceMiddleware() {
 	if p.provenanceTracker != nil {
+		harvestTools := []string{"save_artifact"}
+		if p.hasTrinoExport() {
+			harvestTools = append(harvestTools, "trino_export")
+		}
 		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPProvenanceMiddleware(p.provenanceTracker, "save_artifact"),
+			middleware.MCPProvenanceMiddleware(p.provenanceTracker, harvestTools...),
 		)
 	}
+}
+
+// hasTrinoExport returns true if trino_export is configured.
+func (p *Platform) hasTrinoExport() bool {
+	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
+		return false
+	}
+	if p.portalS3Client == nil || p.portalAssetStore == nil {
+		return false
+	}
+	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
+	return len(trinoToolkits) > 0
 }
 
 // addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.

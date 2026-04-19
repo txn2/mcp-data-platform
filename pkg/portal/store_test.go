@@ -40,7 +40,7 @@ func TestPostgresAssetStoreInsert(t *testing.T) {
 		WithArgs(
 			asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
 			asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID, 0,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), asset.SessionID, 0, nil,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -62,10 +62,10 @@ func TestPostgresAssetStoreGet(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 	}).AddRow(
 		"abc123", "user1", "user1@example.com", "Test", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", 1, now, now, nil,
+		"", int64(512), tags, prov, "sess1", 1, now, now, nil, "",
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
@@ -115,10 +115,10 @@ func TestPostgresAssetStoreList(t *testing.T) {
 	// Select query
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "", "text/html", "portal", "key1",
-		"", int64(100), tags, prov, "", 1, now, now, nil,
+		"", int64(100), tags, prov, "", 1, now, now, nil, "",
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
@@ -645,10 +645,10 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "", "text/html", "portal", "key1",
-		"", int64(100), tags, prov, "", 1, time.Now(), time.Now(), nil,
+		"", int64(100), tags, prov, "", 1, time.Now(), time.Now(), nil, "",
 	)
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(dataRows)
 
@@ -676,7 +676,7 @@ func TestPostgresAssetStoreListFilterByTag(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 		}),
 	)
 
@@ -697,7 +697,7 @@ func TestPostgresAssetStoreListFilterByContentType(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 		}),
 	)
 
@@ -718,7 +718,7 @@ func TestPostgresAssetStoreListFilterBySearch(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 		}),
 	)
 
@@ -884,11 +884,11 @@ func TestPostgresShareStoreListSharedWithUser(t *testing.T) {
 	// Select query
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 		"share_id", "created_by", "share_created_at", "permission",
 	}).AddRow(
 		"abc123", "user1", "user1@example.com", "Shared Asset", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", 1, now, now, nil,
+		"", int64(512), tags, prov, "sess1", 1, now, now, nil, "",
 		"share1", "user1", now, "viewer",
 	)
 
@@ -962,7 +962,7 @@ func TestPostgresShareStoreListSharedWithUserDefaults(t *testing.T) {
 		WithArgs("user2", "", defaultLimit, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 			"share_id", "created_by", "share_created_at", "permission",
 		}))
 
@@ -988,7 +988,7 @@ func TestPostgresShareStoreListSharedWithUserMaxLimit(t *testing.T) {
 		WithArgs("user2", "", maxLimit, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+			"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 			"share_id", "created_by", "share_created_at", "permission",
 		}))
 
@@ -1077,10 +1077,10 @@ func TestPostgresAssetStoreGetWithDeletedAt(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 	}).AddRow(
 		"abc123", "user1", "", "Test", "desc", "text/html", "portal", "key1",
-		"", int64(512), tags, prov, "sess1", 1, now, now, deletedAt,
+		"", int64(512), tags, prov, "sess1", 1, now, now, deletedAt, "",
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").

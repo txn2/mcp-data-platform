@@ -18,6 +18,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Trino | `trino_explain` | Get query execution plans |
 | Trino | `trino_browse` | Browse the catalog hierarchy: list catalogs, schemas, or tables |
 | Trino | `trino_describe_table` | Get table schema and metadata |
+| Trino | `trino_export` | Export query results directly to a portal asset (CSV, JSON, Markdown, text) |
 | Trino | `trino_list_connections` | List configured Trino connections |
 | DataHub | `datahub_search` | Search for datasets, dashboards, etc. |
 | DataHub | `datahub_get_entity` | Get detailed entity information |
@@ -144,6 +145,42 @@ Get detailed information about a table including columns, types, and statistics.
 - Nullable constraints
 - Partition information
 - **Semantic context** (if enabled): description, owners, tags, quality score
+
+---
+
+### trino_export
+
+Export query results directly to a portal asset file, bypassing the LLM token budget. Use this after validating the query shape with `trino_query` using a small `LIMIT`. The full result set is formatted and written to S3 as an immutable portal asset. Only metadata (asset ID, URL, row count, size) is returned to the agent — not the data.
+
+Requires portal to be enabled with S3 storage configured. Requires explicit persona authorization (not inherited from `trino_query` access by default).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `sql` | string | Yes | - | SQL query to execute (read-only enforced) |
+| `format` | string | Yes | - | Output format: `csv`, `json`, `markdown`, or `text` |
+| `name` | string | Yes | - | Display name for the exported asset (max 255 chars) |
+| `connection` | string | No | default | Trino connection name |
+| `description` | string | No | - | Description of the exported asset (max 2000 chars) |
+| `tags` | array | No | [] | Tags for categorization. Lowercase kebab-case, max 50 chars each, max 20 tags. Tags starting with `_sys-` are reserved for system use. |
+| `limit` | integer | No | deployment max | Maximum rows to export (subject to deployment cap) |
+| `idempotency_key` | string | No | - | Client-supplied key to prevent duplicate assets on retry |
+| `timeout_seconds` | integer | No | deployment default | Query execution timeout in seconds |
+
+**Response includes:**
+
+- Asset ID and portal URL
+- Format, row count, and file size in bytes
+- No query data (data is written to S3, not returned through the LLM)
+
+**Security features:**
+
+- SQL runs through the same read-only interceptor as `trino_query`
+- CSV formula injection escaping enabled by default (cells starting with `=`, `+`, `-`, `@` are escaped)
+- Sensitivity tags inherited from source datasets (PII, confidential, etc.) are automatically applied as `_sys-classification:*` tags
+- Hard row and byte caps enforced per deployment
+- No asset record created unless the S3 write fully succeeds
 
 ---
 

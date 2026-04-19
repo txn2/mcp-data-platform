@@ -48,6 +48,10 @@ func (m *mockAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*
 	return result, m.getErr
 }
 
+func (*mockAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*Asset, error) {
+	return nil, fmt.Errorf("asset not found")
+}
+
 func (m *mockAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) {
 	return m.listRes, m.listTotal, m.listErr
 }

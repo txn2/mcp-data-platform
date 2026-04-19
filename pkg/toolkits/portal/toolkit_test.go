@@ -430,6 +430,16 @@ func (s *inMemoryAssetStore) GetByIDs(_ context.Context, ids []string) (map[stri
 	return result, nil
 }
 
+func (s *inMemoryAssetStore) GetByIdempotencyKey(_ context.Context, ownerID, key string) (*portal.Asset, error) {
+	for _, a := range s.assets {
+		if a.OwnerID == ownerID && a.IdempotencyKey == key && a.DeletedAt == nil {
+			asset := a
+			return &asset, nil
+		}
+	}
+	return nil, notFoundError{}
+}
+
 func TestRegisterTools(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 

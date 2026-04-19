@@ -57,6 +57,10 @@ func (m *mockAdminAssetStore) GetByIDs(_ context.Context, ids []string) (map[str
 	return result, m.getErr
 }
 
+func (*mockAdminAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*portal.Asset, error) {
+	return nil, fmt.Errorf("asset not found")
+}
+
 type mockAdminShareStore struct {
 	summaries    map[string]portal.ShareSummary
 	summariesErr error

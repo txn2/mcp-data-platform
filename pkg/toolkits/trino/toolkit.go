@@ -100,6 +100,9 @@ type Toolkit struct {
 
 	// connectionDescriptions maps connection name → description (multi-connection mode).
 	connectionDescriptions map[string]string
+
+	// exportDeps holds portal dependencies for trino_export (nil = export disabled).
+	exportDeps *ExportDeps
 }
 
 // New creates a new Trino toolkit.
@@ -439,17 +442,24 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			trinotools.ToolDescribeTable,
 		)
 	}
+	if t.exportDeps != nil {
+		t.registerExportTool(s)
+	}
 }
 
 // Tools returns the list of tool names that would be provided by this toolkit.
-func (*Toolkit) Tools() []string {
-	return []string{
+func (t *Toolkit) Tools() []string {
+	tools := []string{
 		"trino_query",
 		"trino_execute",
 		"trino_explain",
 		"trino_browse",
 		"trino_describe_table",
 	}
+	if t.exportDeps != nil {
+		tools = append(tools, exportToolName)
+	}
+	return tools
 }
 
 // SetSemanticProvider sets the semantic metadata provider for enrichment.

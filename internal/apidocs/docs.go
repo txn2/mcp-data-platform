@@ -7032,6 +7032,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
                 },
+                "idempotency_key": {
+                    "type": "string",
+                    "example": "export-2026-04-18-abc123"
+                },
                 "name": {
                     "type": "string",
                     "example": "Q4 Revenue Dashboard"
@@ -7407,6 +7411,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string",
                     "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "example": "export-2026-04-18-abc123"
                 },
                 "is_owner": {
                     "type": "boolean",

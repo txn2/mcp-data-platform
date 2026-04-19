@@ -40,7 +40,7 @@ graph TD
 | Pattern | Matches |
 |---------|---------|
 | `*` | Everything |
-| `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, etc. |
+| `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, trino_export, etc. |
 | `*_list_*` | s3_list_buckets, s3_list_objects, trino_list_connections, etc. (does **not** match `trino_browse` or `datahub_browse`) |
 | `datahub_get_*` | datahub_get_entity, datahub_get_schema, etc. |
 | `s3_*` | All S3 tools |
@@ -130,6 +130,7 @@ Use these exact names in your patterns:
 - `trino_explain`
 - `trino_browse`
 - `trino_describe_table`
+- `trino_export` (requires portal; exports query results to asset)
 - `trino_list_connections`
 
 **DataHub Tools:**

@@ -19,6 +19,7 @@ type AssetStore interface {
 	Insert(ctx context.Context, asset Asset) error
 	Get(ctx context.Context, id string) (*Asset, error)
 	GetByIDs(ctx context.Context, ids []string) (map[string]*Asset, error)
+	GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*Asset, error)
 	List(ctx context.Context, filter AssetFilter) ([]Asset, int, error)
 	Update(ctx context.Context, id string, updates AssetUpdate) error
 	SoftDelete(ctx context.Context, id string) error
@@ -76,15 +77,21 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 	// Zero is the correct initial value — CreateVersion increments it to 1.
 	currentVersion := asset.CurrentVersion
 
+	// Use NULL for empty idempotency keys so the partial unique index works correctly.
+	var idempotencyKey *string
+	if asset.IdempotencyKey != "" {
+		idempotencyKey = &asset.IdempotencyKey
+	}
+
 	query := `
 		INSERT INTO portal_assets
-		(id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key, size_bytes, tags, provenance, session_id, current_version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		(id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key, size_bytes, tags, provenance, session_id, current_version, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	_, err = s.db.ExecContext(ctx, query,
 		asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
 		asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
-		tags, prov, asset.SessionID, currentVersion,
+		tags, prov, asset.SessionID, currentVersion, idempotencyKey,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting asset: %w", err)
@@ -96,7 +103,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
 		FROM portal_assets WHERE id = $1
 	`
 	var asset Asset
@@ -107,9 +114,43 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
 		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+		&asset.IdempotencyKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying asset: %w", err)
+	}
+
+	if deletedAt.Valid {
+		asset.DeletedAt = &deletedAt.Time
+	}
+
+	if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+		return nil, err
+	}
+
+	return &asset, nil
+}
+
+func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*Asset, error) { //nolint:revive // interface impl
+	query := `
+		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
+		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
+		FROM portal_assets
+		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
+	`
+	var asset Asset
+	var tags, prov []byte
+	var deletedAt sql.NullTime
+
+	err := s.db.QueryRowContext(ctx, query, ownerID, key).Scan(
+		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
+		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+		&asset.IdempotencyKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying asset by idempotency key: %w", err)
 	}
 
 	if deletedAt.Valid {
@@ -131,7 +172,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
 	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
@@ -150,6 +191,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 			&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
 			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
 			&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+			&asset.IdempotencyKey,
 		); err != nil {
 			return nil, fmt.Errorf("scanning asset row: %w", err)
 		}
@@ -210,7 +252,7 @@ func (s *postgresAssetStore) queryAssets(ctx context.Context, filter AssetFilter
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version",
-		"created_at", "updated_at", "deleted_at",
+		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
 		OrderBy("created_at DESC")
@@ -543,6 +585,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
 		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
+		       COALESCE(pa.idempotency_key, ''),
 		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
@@ -568,7 +611,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
 			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
-			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt,
+			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scanning shared asset row: %w", err)
@@ -817,6 +860,10 @@ func (*noopAssetStore) GetByIDs(_ context.Context, _ []string) (map[string]*Asse
 	return map[string]*Asset{}, nil
 }
 
+func (*noopAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*Asset, error) { //nolint:revive // interface impl
+	return nil, fmt.Errorf("asset not found")
+}
+
 func (*noopAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
 }
@@ -919,6 +966,7 @@ func scanAssetRow(rows *sql.Rows) (Asset, error) {
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
 		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
+		&asset.IdempotencyKey,
 	); err != nil {
 		return asset, fmt.Errorf("scanning asset row: %w", err)
 	}

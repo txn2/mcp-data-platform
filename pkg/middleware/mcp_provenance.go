@@ -109,8 +109,15 @@ func harvestProvenance(_ context.Context, tracker *ProvenanceTracker, sessionID 
 }
 
 // MCPProvenanceMiddleware tracks tool calls per session and injects
-// accumulated provenance into the context when save_artifact is called.
-func MCPProvenanceMiddleware(tracker *ProvenanceTracker, saveToolName string) mcp.Middleware {
+// accumulated provenance into the context when a harvest tool is called.
+// harvestToolNames are the tools that trigger provenance harvesting
+// (e.g., "save_artifact", "trino_export").
+func MCPProvenanceMiddleware(tracker *ProvenanceTracker, harvestToolNames ...string) mcp.Middleware {
+	harvestSet := make(map[string]bool, len(harvestToolNames))
+	for _, name := range harvestToolNames {
+		harvestSet[name] = true
+	}
+
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method != methodToolsCall {
@@ -130,7 +137,7 @@ func MCPProvenanceMiddleware(tracker *ProvenanceTracker, saveToolName string) mc
 				slog.Warn("provenance: PlatformContext missing, cannot track tool call", "tool", toolName)
 			}
 
-			if toolName == saveToolName {
+			if harvestSet[toolName] {
 				calls := harvestProvenance(ctx, tracker, sessionID)
 				ctx = WithProvenanceToolCalls(ctx, calls)
 				return next(ctx, method, req)
