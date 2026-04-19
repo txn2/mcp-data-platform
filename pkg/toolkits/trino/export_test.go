@@ -2,11 +2,13 @@ package trino
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -758,6 +760,195 @@ func TestExportInputSchema_HasCreatePublicLink(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "boolean", cpl[schemaKeyType])
 }
+
+func TestHandleExport_FullFlow(t *testing.T) {
+	// Create a real trinoclient backed by sqlmock
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	client := trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+
+	// sqlmock: expect the query and return 2 rows
+	mock.ExpectQuery("SELECT").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).
+			AddRow(1, "Alice").
+			AddRow(2, "Bob"))
+
+	assetStore := &mockExportAssetStore{}
+	versionStore := &mockExportVersionStore{}
+	s3Client := &mockExportS3Client{}
+
+	tk := &Toolkit{
+		name:   "test",
+		client: client,
+		config: Config{ReadOnly: true},
+	}
+	tk.SetExportDeps(ExportDeps{
+		AssetStore:   assetStore,
+		VersionStore: versionStore,
+		S3Client:     s3Client,
+		S3Bucket:     "test-bucket",
+		S3Prefix:     "exports",
+		BaseURL:      "https://example.com",
+		Config: ExportConfig{
+			MaxRows:        10000,
+			MaxBytes:       1024 * 1024,
+			DefaultTimeout: time.Minute,
+			MaxTimeout:     time.Minute,
+		},
+		GetUserContext: func(_ context.Context) *ExportUserContext {
+			return &ExportUserContext{
+				UserID:    "user-123",
+				UserEmail: "alice@example.com",
+				SessionID: "sess-abc",
+			}
+		},
+		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall {
+			return []ExportProvenanceCall{
+				{ToolName: "trino_query", Timestamp: "2026-01-01T00:00:00Z"},
+			}
+		},
+	})
+
+	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+		"sql": "SELECT id, name FROM users", "format": "csv", "name": "User Export",
+		"tags": []string{"export"}, "description": "test export",
+	}))
+	require.NoError(t, err)
+	if result.IsError {
+		tc, ok := result.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		t.Fatalf("expected success, got error: %s", tc.Text)
+	}
+
+	// Verify S3 upload happened
+	assert.Equal(t, "test-bucket", s3Client.lastBucket)
+	assert.Contains(t, string(s3Client.lastData), "id,name")
+	assert.Contains(t, string(s3Client.lastData), "Alice")
+
+	// Verify asset was inserted
+	require.NotNil(t, assetStore.inserted)
+	assert.Equal(t, "User Export", assetStore.inserted.Name)
+	assert.Equal(t, "text/csv", assetStore.inserted.ContentType)
+	assert.Contains(t, assetStore.inserted.Tags, "export")
+	assert.Equal(t, "user-123", assetStore.inserted.OwnerID)
+	assert.Equal(t, "test export", assetStore.inserted.Description)
+
+	// Verify version was created
+	require.NotNil(t, versionStore.created)
+
+	// Verify response contains asset ID and row count
+	assertResultContains(t, result, "Exported 2 rows as csv")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestHandleExport_S3FailureNoAsset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	client := trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+	mock.ExpectQuery("SELECT").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	assetStore := &mockExportAssetStore{}
+	s3Client := &mockExportS3Client{putErr: fmt.Errorf("s3 down")}
+
+	tk := &Toolkit{name: "test", client: client, config: Config{ReadOnly: true}}
+	tk.SetExportDeps(ExportDeps{
+		AssetStore:   assetStore,
+		VersionStore: &mockExportVersionStore{},
+		S3Client:     s3Client,
+		S3Bucket:     "b",
+		S3Prefix:     "p",
+		Config:       ExportConfig{DefaultTimeout: time.Minute, MaxTimeout: time.Minute},
+		GetUserContext: func(_ context.Context) *ExportUserContext {
+			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
+		},
+		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
+	})
+
+	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+		"sql": "SELECT id FROM t", "format": "json", "name": "test",
+	}))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assertResultContains(t, result, "S3 upload failed")
+
+	// No asset should be created
+	assert.Nil(t, assetStore.inserted)
+}
+
+func TestHandleExport_WithCreatePublicLink(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	client := trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+	mock.ExpectQuery("SELECT").
+		WillReturnRows(sqlmock.NewRows([]string{"val"}).AddRow("x"))
+
+	shareMock := &mockExportShareCreator{shareURL: "https://example.com/portal/view/tok"}
+	tk := &Toolkit{name: "test", client: client}
+	tk.SetExportDeps(ExportDeps{
+		AssetStore:   &mockExportAssetStore{},
+		VersionStore: &mockExportVersionStore{},
+		S3Client:     &mockExportS3Client{},
+		ShareCreator: shareMock,
+		S3Bucket:     "b",
+		S3Prefix:     "p",
+		BaseURL:      "https://example.com",
+		Config:       ExportConfig{DefaultTimeout: time.Minute, MaxTimeout: time.Minute},
+		GetUserContext: func(_ context.Context) *ExportUserContext {
+			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
+		},
+		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
+	})
+
+	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+		"sql": "SELECT val FROM t", "format": "text", "name": "test", "create_public_link": true,
+	}))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	assertResultContains(t, result, "portal/view/tok")
+	assert.NotEmpty(t, shareMock.lastAssetID)
+}
+
+func TestHandleExport_ByteCapExceeded_WithClient(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	client := trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+	mock.ExpectQuery("SELECT").
+		WillReturnRows(sqlmock.NewRows([]string{"big"}).AddRow("xxxxxxxxxx"))
+
+	tk := &Toolkit{name: "test", client: client}
+	tk.SetExportDeps(ExportDeps{
+		AssetStore:   &mockExportAssetStore{},
+		VersionStore: &mockExportVersionStore{},
+		S3Client:     &mockExportS3Client{},
+		S3Bucket:     "b",
+		S3Prefix:     "p",
+		Config:       ExportConfig{MaxBytes: 5, DefaultTimeout: time.Minute, MaxTimeout: time.Minute}, // very small byte cap
+		GetUserContext: func(_ context.Context) *ExportUserContext {
+			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
+		},
+		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
+	})
+
+	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+		"sql": "SELECT big FROM t", "format": "csv", "name": "test",
+	}))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assertResultContains(t, result, "exceeds deployment maximum")
+}
+
+// Suppress unused import warning for sql package (used by sqlmock).
+var _ = sql.ErrNoRows
 
 // assertResultContains checks that the result text contains the expected substring.
 func assertResultContains(t *testing.T, result *mcp.CallToolResult, substr string) {
