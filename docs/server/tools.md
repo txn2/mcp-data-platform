@@ -167,10 +167,12 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 | `limit` | integer | No | deployment max | Maximum rows to export (subject to deployment cap) |
 | `idempotency_key` | string | No | - | Client-supplied key to prevent duplicate assets on retry |
 | `timeout_seconds` | integer | No | deployment default | Query execution timeout in seconds |
+| `create_public_link` | boolean | No | false | Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL. |
 
 **Response includes:**
 
 - Asset ID and portal URL
+- Public share URL (if `create_public_link` is true)
 - Format, row count, and file size in bytes
 - No query data (data is written to S3, not returned through the LLM)
 

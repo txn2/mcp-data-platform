@@ -1130,6 +1130,7 @@ Export query results directly to a portal asset (CSV, JSON, Markdown, text), byp
 | `limit` | integer | No | deployment max | Row limit (subject to deployment cap) |
 | `idempotency_key` | string | No | - | Dedup key to prevent duplicate assets on retry |
 | `timeout_seconds` | integer | No | deployment default | Query execution timeout |
+| `create_public_link` | boolean | No | false | Generate a public share link for automation |
 
 Configuration: `portal.export.enabled` (auto), `portal.export.max_rows` (100000), `portal.export.max_bytes` (100MB), `portal.export.default_timeout` (5m), `portal.export.max_timeout` (10m).
 

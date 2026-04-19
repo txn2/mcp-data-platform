@@ -1136,10 +1136,14 @@ func (p *Platform) wireTrinoExport() {
 			AssetStore:   &exportAssetStoreAdapter{store: p.portalAssetStore},
 			VersionStore: &exportVersionStoreAdapter{store: p.portalVersionStore},
 			S3Client:     p.portalS3Client,
-			S3Bucket:     p.config.Portal.S3Bucket,
-			S3Prefix:     p.config.Portal.S3Prefix,
-			BaseURL:      p.config.Portal.PublicBaseURL,
-			Config:       exportCfg,
+			ShareCreator: &exportShareCreatorAdapter{
+				shareStore: p.portalShareStore,
+				baseURL:    p.config.Portal.PublicBaseURL,
+			},
+			S3Bucket: p.config.Portal.S3Bucket,
+			S3Prefix: p.config.Portal.S3Prefix,
+			BaseURL:  p.config.Portal.PublicBaseURL,
+			Config:   exportCfg,
 			GetUserContext: func(ctx context.Context) *trinokit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {
@@ -1264,6 +1268,54 @@ func (a *exportVersionStoreAdapter) CreateExportVersion(ctx context.Context, ver
 		return 0, fmt.Errorf("creating export version: %w", err)
 	}
 	return n, nil
+}
+
+// exportShareCreatorAdapter creates public share links for exported assets.
+type exportShareCreatorAdapter struct {
+	shareStore portal.ShareStore
+	baseURL    string
+}
+
+func (a *exportShareCreatorAdapter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements trino.ExportShareCreator
+	token, err := generateShareToken()
+	if err != nil {
+		return "", fmt.Errorf("generating share token: %w", err)
+	}
+
+	share := portal.Share{
+		ID:        generateUUID(),
+		AssetID:   assetID,
+		Token:     token,
+		CreatedBy: createdBy,
+	}
+
+	if err := a.shareStore.Insert(ctx, share); err != nil {
+		return "", fmt.Errorf("inserting share: %w", err)
+	}
+
+	if a.baseURL != "" {
+		return fmt.Sprintf("%s/portal/view/%s", a.baseURL, token), nil
+	}
+	return token, nil
+}
+
+// generateShareToken generates a cryptographically random hex token for share links.
+func generateShareToken() (string, error) {
+	b := make([]byte, 32) //nolint:mnd // 256-bit token
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating random token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// generateUUID returns a new UUID v4 string.
+func generateUUID() string {
+	b := make([]byte, 16) //nolint:mnd // UUID is 128 bits
+	_, _ = rand.Read(b)   //nolint:errcheck // best-effort, crypto/rand failure is fatal
+	// Set version 4 and variant bits per RFC 4122
+	b[6] = (b[6] & 0x0f) | 0x40 //nolint:revive // UUID v4 version bits per RFC 4122
+	b[8] = (b[8] & 0x3f) | 0x80 //nolint:revive // UUID variant bits per RFC 4122
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // initManagedResources initializes the managed resources subsystem (human-uploaded

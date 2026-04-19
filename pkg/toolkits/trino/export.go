@@ -46,6 +46,9 @@ const (
 	// Asset field limits (mirrors portal constants to avoid import).
 	maxExportNameLength        = 255
 	maxExportDescriptionLength = 2000
+
+	// logKeyAssetID is the structured log key for asset IDs.
+	logKeyAssetID = "asset_id"
 )
 
 // exportTagPattern validates lowercase kebab-case tags.
@@ -66,6 +69,11 @@ type ExportVersionStore interface {
 // ExportS3Client is the subset of portal.S3Client needed by trino_export.
 type ExportS3Client interface {
 	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+}
+
+// ExportShareCreator creates public share links for exported assets.
+type ExportShareCreator interface {
+	CreatePublicShare(ctx context.Context, assetID, createdBy string) (shareURL string, err error)
 }
 
 // ExportAsset is the asset data needed for insert.
@@ -155,6 +163,7 @@ type ExportDeps struct {
 	AssetStore   ExportAssetStore
 	VersionStore ExportVersionStore
 	S3Client     ExportS3Client
+	ShareCreator ExportShareCreator // nil = public link creation disabled
 	S3Bucket     string
 	S3Prefix     string
 	BaseURL      string
@@ -171,21 +180,23 @@ type ExportDeps struct {
 
 // exportInput is the parsed input for trino_export.
 type exportInput struct {
-	SQL            string   `json:"sql"`
-	Connection     string   `json:"connection"`
-	Format         string   `json:"format"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Tags           []string `json:"tags"`
-	Limit          int      `json:"limit"`
-	IdempotencyKey string   `json:"idempotency_key"`
-	TimeoutSeconds int      `json:"timeout_seconds"`
+	SQL              string   `json:"sql"`
+	Connection       string   `json:"connection"`
+	Format           string   `json:"format"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	Tags             []string `json:"tags"`
+	Limit            int      `json:"limit"`
+	IdempotencyKey   string   `json:"idempotency_key"`
+	TimeoutSeconds   int      `json:"timeout_seconds"`
+	CreatePublicLink bool     `json:"create_public_link"`
 }
 
 // exportOutput is the response returned to the agent.
 type exportOutput struct {
 	AssetID   string `json:"asset_id"`
 	PortalURL string `json:"portal_url,omitempty"`
+	ShareURL  string `json:"share_url,omitempty"`
 	Format    string `json:"format"`
 	RowCount  int    `json:"row_count"`
 	SizeBytes int64  `json:"size_bytes"`
@@ -236,7 +247,7 @@ func (t *Toolkit) handleExport(ctx context.Context, req *mcp.CallToolRequest) (*
 }
 
 // validateAndPrepare parses input, validates it, enforces read-only, and extracts user context.
-func (t *Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolRequest, deps *ExportDeps) (exportInput, *ExportUserContext, *mcp.CallToolResult) {
+func (*Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolRequest, deps *ExportDeps) (exportInput, *ExportUserContext, *mcp.CallToolResult) {
 	input, err := parseExportInput(*req)
 	if err != nil {
 		return exportInput{}, nil, exportError(err.Error())
@@ -244,11 +255,11 @@ func (t *Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolReque
 	if err := validateExportInput(input, deps.Config); err != nil {
 		return exportInput{}, nil, exportError(err.Error())
 	}
-	if t.config.ReadOnly {
-		interceptor := NewReadOnlyInterceptor()
-		if _, interceptErr := interceptor.Intercept(ctx, input.SQL, ""); interceptErr != nil {
-			return exportInput{}, nil, exportError(interceptErr.Error())
-		}
+	// trino_export always enforces read-only regardless of deployment config.
+	// Even when read_only: false (allowing trino_execute writes), exports must be SELECT-only.
+	interceptor := NewReadOnlyInterceptor()
+	if _, interceptErr := interceptor.Intercept(ctx, input.SQL, ""); interceptErr != nil {
+		return exportInput{}, nil, exportError(interceptErr.Error())
 	}
 	var uc *ExportUserContext
 	if deps.GetUserContext != nil {
@@ -278,10 +289,7 @@ func (*Toolkit) checkIdempotency(ctx context.Context, deps *ExportDeps, uc *Expo
 
 // executeAndPersist runs the query, formats, uploads to S3, and saves the asset record.
 func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input exportInput, uc *ExportUserContext) (*mcp.CallToolResult, error) {
-	timeout, limit, errResult := resolveExportLimits(input, deps.Config)
-	if errResult != nil {
-		return errResult, nil
-	}
+	timeout, limit := resolveExportLimits(input, deps.Config)
 
 	queryCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -340,8 +348,8 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		IdempotencyKey: input.IdempotencyKey,
 	}
 
-	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
-		return exportError(fmt.Sprintf("saving asset record: %v", err)), nil
+	if errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); errResult != nil {
+		return errResult, nil
 	}
 
 	t.createExportVersion(ctx, deps, ExportVersion{
@@ -352,9 +360,12 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		CreatedBy:   uc.UserEmail,
 	})
 
+	shareURL := t.maybeCreateShare(ctx, deps, input, assetID, uc.UserEmail)
+
 	return exportSuccess(exportOutput{
 		AssetID:   assetID,
 		PortalURL: buildPortalURL(deps.BaseURL, assetID),
+		ShareURL:  shareURL,
 		Format:    input.Format,
 		RowCount:  len(rows),
 		SizeBytes: int64(len(formatted)),
@@ -362,24 +373,54 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	}), nil
 }
 
-// resolveExportLimits resolves timeout and row limit from input and config.
-func resolveExportLimits(input exportInput, cfg ExportConfig) (time.Duration, int, *mcp.CallToolResult) {
-	timeout := cfg.DefaultTimeout
-	if input.TimeoutSeconds > 0 {
-		requested := time.Duration(input.TimeoutSeconds) * time.Second
-		if requested > cfg.MaxTimeout {
-			return 0, 0, exportError(fmt.Sprintf("timeout_seconds exceeds maximum of %d", int(cfg.MaxTimeout.Seconds())))
+// insertAssetWithRace inserts the asset record, handling idempotency race conditions.
+func (*Toolkit) insertAssetWithRace(ctx context.Context, deps *ExportDeps, asset ExportAsset, input exportInput, uc *ExportUserContext) *mcp.CallToolResult {
+	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
+		// Handle idempotency race: if a concurrent request inserted with the same key,
+		// re-fetch and return the existing asset instead of failing.
+		if input.IdempotencyKey != "" {
+			if existing, lookupErr := deps.AssetStore.GetByIdempotencyKey(ctx, uc.UserID, input.IdempotencyKey); lookupErr == nil && existing != nil {
+				return exportSuccess(exportOutput{
+					AssetID:   existing.ID,
+					PortalURL: buildPortalURL(deps.BaseURL, existing.ID),
+					Format:    input.Format,
+					SizeBytes: existing.SizeBytes,
+					Message:   "Asset already exists (idempotency key matched).",
+				})
+			}
 		}
-		timeout = requested
+		return exportError(fmt.Sprintf("saving asset record: %v", err))
 	}
-	limit := cfg.MaxRows
+	return nil
+}
+
+// maybeCreateShare creates a public share link if requested and returns the URL.
+func (*Toolkit) maybeCreateShare(ctx context.Context, deps *ExportDeps, input exportInput, assetID, email string) string {
+	if !input.CreatePublicLink || deps.ShareCreator == nil {
+		return ""
+	}
+	url, err := deps.ShareCreator.CreatePublicShare(ctx, assetID, email)
+	if err != nil {
+		slog.Warn("trino_export: failed to create public share link",
+			logKeyError, err, logKeyAssetID, assetID)
+		return ""
+	}
+	return url
+}
+
+// resolveExportLimits resolves timeout and row limit from input and config.
+// Validation of max bounds is already done in validateExportInput; this
+// applies the values or falls back to defaults.
+func resolveExportLimits(input exportInput, cfg ExportConfig) (timeout time.Duration, limit int) { //nolint:gocritic // named returns for clarity
+	timeout = cfg.DefaultTimeout
+	if input.TimeoutSeconds > 0 {
+		timeout = time.Duration(input.TimeoutSeconds) * time.Second
+	}
+	limit = cfg.MaxRows
 	if input.Limit > 0 {
-		if input.Limit > cfg.MaxRows {
-			return 0, 0, exportError(fmt.Sprintf("limit exceeds deployment maximum of %d rows", cfg.MaxRows))
-		}
 		limit = input.Limit
 	}
-	return timeout, limit, nil
+	return timeout, limit
 }
 
 // convertQueryResult converts a trinoclient.QueryResult into columns and rows.
@@ -422,14 +463,14 @@ func formatExportResult(format string, columns []string, rows [][]any, maxBytes 
 func (*Toolkit) createExportVersion(ctx context.Context, deps *ExportDeps, ver ExportVersion) {
 	versionID, err := generateExportID()
 	if err != nil {
-		slog.Warn("trino_export: failed to generate version ID", "error", err, "asset_id", ver.AssetID)
+		slog.Warn("trino_export: failed to generate version ID", logKeyError, err, logKeyAssetID, ver.AssetID)
 		return
 	}
 	ver.ID = versionID
 	ver.S3Bucket = deps.S3Bucket
 	ver.ChangeSummary = "Exported from Trino query"
 	if _, err := deps.VersionStore.CreateExportVersion(ctx, ver); err != nil {
-		slog.Warn("trino_export: failed to create version record", "error", err, "asset_id", ver.AssetID)
+		slog.Warn("trino_export: failed to create version record", logKeyError, err, logKeyAssetID, ver.AssetID)
 	}
 }
 
@@ -440,10 +481,16 @@ func (t *Toolkit) executeExportQuery(ctx context.Context, sql, connection string
 	}
 
 	// In multi-connection mode, resolve the correct client
-	if t.manager != nil && connection != "" {
-		client, err := t.manager.Client(connection)
+	if t.manager != nil {
+		var client *trinoclient.Client
+		var err error
+		if connection != "" {
+			client, err = t.manager.Client(connection)
+		} else {
+			client, err = t.manager.DefaultClient()
+		}
 		if err != nil {
-			return nil, fmt.Errorf("resolving connection %q: %w", connection, err)
+			return nil, fmt.Errorf("resolving trino connection: %w", err)
 		}
 		result, err := client.Query(ctx, sql, opts)
 		if err != nil {
@@ -481,7 +528,7 @@ func (t *Toolkit) inheritSensitivityTags(ctx context.Context, sql string) []stri
 		tableCtx, err := t.semanticProvider.GetTableContext(ctx, table)
 		if err != nil {
 			slog.Debug("trino_export: failed to get table context for sensitivity check",
-				"table", table.String(), "error", err)
+				"table", table.String(), logKeyError, err)
 			continue
 		}
 		if tableCtx == nil {
@@ -706,6 +753,10 @@ func exportInputSchema() map[string]any {
 			"timeout_seconds": map[string]any{
 				schemaKeyType: schemaTypeInteger,
 				schemaKeyDesc: "Query execution timeout in seconds.",
+			},
+			"create_public_link": map[string]any{
+				schemaKeyType: "boolean",
+				schemaKeyDesc: "Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL.",
 			},
 		},
 		"required": []string{"sql", "format", "name"},
