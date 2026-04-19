@@ -1114,14 +1114,17 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 // wireTrinoExport injects portal dependencies into Trino toolkits for trino_export.
 func (p *Platform) wireTrinoExport() {
 	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
+		slog.Debug("trino_export: disabled by config")
 		return
 	}
 	if p.portalS3Client == nil || p.portalAssetStore == nil {
+		slog.Debug("trino_export: portal S3 or asset store not configured, skipping")
 		return
 	}
 
 	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
 	if len(trinoToolkits) == 0 {
+		slog.Debug("trino_export: no trino toolkits registered, skipping")
 		return
 	}
 
@@ -1951,7 +1954,7 @@ func convertIconDefs(defs map[string]IconDef) map[string]middleware.IconConfig {
 func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	caps := &mcp.ServerCapabilities{
 		// Tools are always available — every platform deployment has at least platform_info.
-		Tools: &mcp.ToolCapabilities{},
+		Tools: &mcp.ToolCapabilities{ListChanged: true},
 		// Logging is always available for client logging support.
 		Logging: &mcp.LoggingCapabilities{},
 	}
