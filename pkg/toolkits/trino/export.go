@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
@@ -53,6 +55,33 @@ const (
 
 // exportTagPattern validates lowercase kebab-case tags.
 var exportTagPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// userIDPathSafe matches characters allowed in a path segment without escaping.
+var userIDPathSafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+
+// repeatedWhitespace collapses consecutive whitespace.
+var repeatedWhitespace = regexp.MustCompile(`\s+`)
+
+// nameCharReplacements maps Unicode punctuation that breaks downstream consumers
+// (Content-Disposition headers, filename heuristics, some object stores) to
+// portable ASCII equivalents.
+var nameCharReplacements = map[rune]string{
+	'—': "-",   // em dash
+	'–': "-",   // en dash
+	'‒': "-",   // figure dash
+	'―': "-",   // horizontal bar
+	'−': "-",   // minus sign
+	'‘': "'",   // left single quote
+	'’': "'",   // right single quote
+	'‚': "'",   // single low-9 quote
+	'‛': "'",   // single high-reversed-9 quote
+	'“': `"`,   // left double quote
+	'”': `"`,   // right double quote
+	'„': `"`,   // double low-9 quote
+	'‟': `"`,   // double high-reversed-9 quote
+	'…': "...", // ellipsis
+	' ': " ",   // non-breaking space
+}
 
 // ExportAssetStore is the subset of portal.AssetStore needed by trino_export.
 // Defined here to avoid import cycles (portal → registry → trino).
@@ -216,7 +245,10 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
 			"Do NOT use this for data exploration. " +
-			"Returns asset metadata (ID, URL, row count, size) — the data is NOT returned through this response.",
+			"Returns asset metadata (ID, URL, row count, size) — the data is NOT returned through this response. " +
+			"NAMING: keep `name` short and portable — ASCII letters, digits, spaces, hyphens, and dots. " +
+			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
+			"The name doubles as the download filename.",
 		InputSchema: exportInputSchema(),
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: false,
@@ -252,6 +284,7 @@ func (*Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return exportInput{}, nil, exportError(err.Error())
 	}
+	input.Name = sanitizeExportName(input.Name)
 	if err := validateExportInput(input, deps.Config); err != nil {
 		return exportInput{}, nil, exportError(err.Error())
 	}
@@ -316,7 +349,7 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		return exportError(fmt.Sprintf("generating asset ID: %v", err)), nil
 	}
 
-	s3Key := fmt.Sprintf("%s/%s/%s/content%s", deps.S3Prefix, uc.UserID, assetID, formatter.FileExtension())
+	s3Key := buildExportS3Key(deps.S3Prefix, uc.UserID, assetID, formatter.FileExtension())
 
 	if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, s3Key, formatted, formatter.ContentType()); err != nil {
 		return exportError(fmt.Sprintf("S3 upload failed: %v", err)), nil
@@ -668,6 +701,68 @@ func validateExportTags(tags []string) error {
 	return nil
 }
 
+// sanitizeExportName normalizes a user-supplied asset name into a portable
+// display string. It replaces Unicode punctuation that breaks
+// Content-Disposition headers and downstream filename heuristics with ASCII
+// equivalents, strips control and zero-width characters, and collapses
+// runs of whitespace. The result preserves readability — letters, digits,
+// spaces, and ASCII punctuation are kept as-is.
+func sanitizeExportName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		if replacement, ok := nameCharReplacements[r]; ok {
+			b.WriteString(replacement)
+			continue
+		}
+		if unicode.IsControl(r) || isZeroWidth(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+
+	return strings.TrimSpace(repeatedWhitespace.ReplaceAllString(b.String(), " "))
+}
+
+// isZeroWidth reports whether r is a zero-width or invisible formatting rune
+// that should be stripped from display names.
+func isZeroWidth(r rune) bool {
+	switch r {
+	case '\u200B', // zero-width space
+		'\u200C', // zero-width non-joiner
+		'\u200D', // zero-width joiner
+		'\u2060', // word joiner
+		'\uFEFF': // BOM / zero-width no-break space
+		return true
+	}
+	return false
+}
+
+// sanitizeUserIDPath returns a path-safe representation of a user ID for use
+// as an S3 object key segment. Subjects from OIDC or API keys may contain
+// ':', '@', '/', or other characters that produce non-portable keys (rejected
+// by stricter object stores like MinIO). All non-[A-Za-z0-9._-] characters
+// are replaced with '_'.
+func sanitizeUserIDPath(userID string) string {
+	if userID == "" {
+		return "_"
+	}
+	return userIDPathSafe.ReplaceAllString(userID, "_")
+}
+
+// buildExportS3Key composes the S3 object key for an exported asset, ensuring
+// the result is portable across S3-compatible backends. path.Join collapses
+// redundant slashes (e.g., when prefix has a trailing '/'), and the user ID
+// segment is sanitized to remove characters that some backends reject.
+func buildExportS3Key(prefix, userID, assetID, extension string) string {
+	return path.Join(prefix, sanitizeUserIDPath(userID), assetID, "content"+extension)
+}
+
 // generateExportID generates a cryptographically random hex ID.
 func generateExportID() (string, error) {
 	b := make([]byte, exportIDLength)
@@ -729,8 +824,10 @@ func exportInputSchema() map[string]any {
 			},
 			"name": map[string]any{
 				schemaKeyType: schemaTypeString,
-				schemaKeyDesc: "Display name for the exported asset.",
-				"maxLength":   maxExportNameLength,
+				schemaKeyDesc: "Display name for the exported asset; also used as the download filename. " +
+					"Use ASCII letters, digits, spaces, hyphens, and dots. " +
+					"Em/en dashes, smart quotes, ellipses, and other Unicode punctuation are auto-normalized to ASCII.",
+				"maxLength": maxExportNameLength,
 			},
 			"description": map[string]any{
 				schemaKeyType: schemaTypeString,
