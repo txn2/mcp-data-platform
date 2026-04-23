@@ -245,8 +245,8 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
 			"Do NOT use this for data exploration. " +
-			"Returns asset metadata (ID, URL, row count, size) — the data is NOT returned through this response. " +
-			"NAMING: keep `name` short and portable — ASCII letters, digits, spaces, hyphens, and dots. " +
+			"Returns asset metadata (ID, URL, row count, size); the data is NOT returned through this response. " +
+			"NAMING: keep `name` short and portable, using only ASCII letters, digits, spaces, hyphens, and dots. " +
 			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
 			"The name doubles as the download filename.",
 		InputSchema: exportInputSchema(),
@@ -730,14 +730,30 @@ func sanitizeExportName(name string) string {
 }
 
 // isZeroWidth reports whether r is a zero-width or invisible formatting rune
-// that should be stripped from display names.
+// that should be stripped from display names. Covers zero-width spacing
+// chars, directional marks and embedding controls, invisible math operators,
+// and Unicode variation selectors.
 func isZeroWidth(r rune) bool {
 	switch r {
 	case '\u200B', // zero-width space
 		'\u200C', // zero-width non-joiner
 		'\u200D', // zero-width joiner
+		'\u200E', // left-to-right mark
+		'\u200F', // right-to-left mark
 		'\u2060', // word joiner
+		'\u2061', // function application
+		'\u2062', // invisible times
+		'\u2063', // invisible separator
+		'\u2064', // invisible plus
 		'\uFEFF': // BOM / zero-width no-break space
+		return true
+	}
+	// Bidi embedding/override controls (U+202A..U+202E).
+	if r >= '\u202A' && r <= '\u202E' {
+		return true
+	}
+	// Variation selectors (U+FE00..U+FE0F).
+	if r >= '\uFE00' && r <= '\uFE0F' {
 		return true
 	}
 	return false
@@ -747,20 +763,28 @@ func isZeroWidth(r rune) bool {
 // as an S3 object key segment. Subjects from OIDC or API keys may contain
 // ':', '@', '/', or other characters that produce non-portable keys (rejected
 // by stricter object stores like MinIO). All non-[A-Za-z0-9._-] characters
-// are replaced with '_'.
+// are replaced with '_'. An all-dots result ('.', '..', '...', etc.) is
+// replaced with '_' so path.Clean cannot interpret the segment as path
+// navigation and escape the configured prefix.
 func sanitizeUserIDPath(userID string) string {
 	if userID == "" {
 		return "_"
 	}
-	return userIDPathSafe.ReplaceAllString(userID, "_")
+	cleaned := userIDPathSafe.ReplaceAllString(userID, "_")
+	if strings.Trim(cleaned, ".") == "" {
+		return "_"
+	}
+	return cleaned
 }
 
 // buildExportS3Key composes the S3 object key for an exported asset, ensuring
 // the result is portable across S3-compatible backends. path.Join collapses
-// redundant slashes (e.g., when prefix has a trailing '/'), and the user ID
-// segment is sanitized to remove characters that some backends reject.
+// redundant slashes (e.g., when prefix has a trailing '/'), the user ID
+// segment is sanitized to remove characters that some backends reject, and
+// any leading '/' is trimmed because MinIO rejects keys that start with '/'.
 func buildExportS3Key(prefix, userID, assetID, extension string) string {
-	return path.Join(prefix, sanitizeUserIDPath(userID), assetID, "content"+extension)
+	key := path.Join(prefix, sanitizeUserIDPath(userID), assetID, "content"+extension)
+	return strings.TrimPrefix(key, "/")
 }
 
 // generateExportID generates a cryptographically random hex ID.

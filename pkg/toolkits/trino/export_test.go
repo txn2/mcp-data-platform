@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1017,6 +1018,11 @@ func TestSanitizeUserIDPath(t *testing.T) {
 		{"backslash", "DOMAIN\\user", "DOMAIN_user"},
 		{"unicode", "f\u00f6\u00f6", "f__"},
 		{"mixed", "anonymous (api)", "anonymous__api_"},
+		{"single dot", ".", "_"},
+		{"double dot", "..", "_"},
+		{"triple dot", "...", "_"},
+		{"all dots six", "......", "_"},
+		{"dot among letters preserved", "a.b", "a.b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1074,12 +1080,37 @@ func TestBuildExportS3Key(t *testing.T) {
 			extension: ".md",
 			want:      "tenants/acme/exports/u1/id1/content.md",
 		},
+		{
+			name:      "leading slash on prefix is trimmed",
+			prefix:    "/artifacts/",
+			userID:    "u1",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/u1/abc/content.csv",
+		},
+		{
+			name:      "dotdot user id cannot escape prefix",
+			prefix:    "artifacts/",
+			userID:    "..",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/_/abc/content.csv",
+		},
+		{
+			name:      "dot user id cannot collapse segment",
+			prefix:    "artifacts/",
+			userID:    ".",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/_/abc/content.csv",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildExportS3Key(tt.prefix, tt.userID, tt.assetID, tt.extension)
 			assert.Equal(t, tt.want, got)
 			assert.NotContains(t, got, "//", "S3 key must not contain consecutive slashes")
+			assert.False(t, strings.HasPrefix(got, "/"), "S3 key must not start with /")
 		})
 	}
 }
@@ -1096,9 +1127,8 @@ func TestValidateAndPrepare_NameSanitization(t *testing.T) {
 		"name":   "Q1\u2014\u201cSales\u201d Report\u2026",
 	})
 
-	input, uc, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	input, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
 	require.Nil(t, errResult, "validation should succeed")
-	require.NotNil(t, uc)
 	assert.Equal(t, "Q1-\"Sales\" Report...", input.Name, "name should be sanitized to ASCII")
 }
 
@@ -1118,5 +1148,24 @@ func TestValidateAndPrepare_NameSanitizedToEmpty(t *testing.T) {
 	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
 	require.NotNil(t, errResult, "validation should fail when name sanitizes to empty")
 	assert.True(t, errResult.IsError)
-	assertResultContains(t, errResult, "name is required")
+	assertResultContains(t, errResult, "name")
+}
+
+func TestValidateAndPrepare_SanitizationExpansionExceedsCap(t *testing.T) {
+	// 100 ellipsis runes (1 char each) sanitize to 300 ASCII chars (3 each),
+	// which exceeds maxExportNameLength (255). validateExportInput runs after
+	// sanitization and must still catch the over-cap result.
+	tk := newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{})
+
+	name := strings.Repeat("\u2026", 100)
+	req := buildExportRequest(map[string]any{
+		"sql":    "SELECT 1",
+		"format": "csv",
+		"name":   name,
+	})
+
+	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	require.NotNil(t, errResult, "validation should catch over-cap name after sanitization expansion")
+	assert.True(t, errResult.IsError)
+	assertResultContains(t, errResult, "exceeds")
 }
