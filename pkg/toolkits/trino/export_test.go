@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -965,4 +966,206 @@ func assertResultContains(t *testing.T, result *mcp.CallToolResult, substr strin
 		}
 	}
 	assert.Contains(t, tc.Text, substr)
+}
+
+func TestSanitizeExportName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain ascii", "Loyalty Customers by DBA", "Loyalty Customers by DBA"},
+		{"em dash", "Q1 \u2014 Sales Report", "Q1 - Sales Report"},
+		{"en dash", "2024\u20132025 Trend", "2024-2025 Trend"},
+		{"figure dash", "Page\u20122", "Page-2"},
+		{"horizontal bar", "Section\u2015A", "Section-A"},
+		{"minus sign", "Delta\u22125", "Delta-5"},
+		{"smart double quotes", "\u201cHello\u201d", "\"Hello\""},
+		{"smart single quotes", "It\u2019s great", "It's great"},
+		{"low double quote", "\u201eGerman\u201c style", "\"German\" style"},
+		{"ellipsis", "Loading\u2026", "Loading..."},
+		{"non-breaking space", "Hello\u00a0World", "Hello World"},
+		{"zero-width space stripped", "A\u200BB", "AB"},
+		{"BOM stripped", "\ufeffReport", "Report"},
+		{"control chars stripped", "Line1\x00Line2", "Line1Line2"},
+		{"trim whitespace", "  spaced  ", "spaced"},
+		{"collapse whitespace", "many   spaces", "many spaces"},
+		{"empty input", "", ""},
+		{"only whitespace", "   \t\n", ""},
+		{"mixed real-world", "Q1\u2014\u201cSales\u201d Report\u2026", "Q1-\"Sales\" Report..."},
+		{"preserves dots and underscores", "report_v1.2.csv", "report_v1.2.csv"},
+		{"preserves digits", "2024 Q1 Report", "2024 Q1 Report"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeExportName(tt.in))
+		})
+	}
+}
+
+func TestSanitizeUserIDPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty becomes underscore", "", "_"},
+		{"plain alphanumeric", "user-123", "user-123"},
+		{"uuid", "550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440000"},
+		{"apikey colon", "apikey:admin", "apikey_admin"},
+		{"email", "alice@example.com", "alice_example.com"},
+		{"slash injection", "user/../etc", "user_.._etc"},
+		{"backslash", "DOMAIN\\user", "DOMAIN_user"},
+		{"unicode", "f\u00f6\u00f6", "f__"},
+		{"mixed", "anonymous (api)", "anonymous__api_"},
+		{"single dot", ".", "_"},
+		{"double dot", "..", "_"},
+		{"triple dot", "...", "_"},
+		{"all dots six", "......", "_"},
+		{"dot among letters preserved", "a.b", "a.b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeUserIDPath(tt.in))
+		})
+	}
+}
+
+func TestBuildExportS3Key(t *testing.T) {
+	tests := []struct {
+		name      string
+		prefix    string
+		userID    string
+		assetID   string
+		extension string
+		want      string
+	}{
+		{
+			name:      "default trailing-slash prefix is normalized",
+			prefix:    "artifacts/",
+			userID:    "user-123",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/user-123/abc/content.csv",
+		},
+		{
+			name:      "no trailing slash on prefix",
+			prefix:    "artifacts",
+			userID:    "user-123",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/user-123/abc/content.csv",
+		},
+		{
+			name:      "apikey user id is sanitized",
+			prefix:    "exports",
+			userID:    "apikey:admin",
+			assetID:   "abc",
+			extension: ".json",
+			want:      "exports/apikey_admin/abc/content.json",
+		},
+		{
+			name:      "empty user id falls back to underscore",
+			prefix:    "exports",
+			userID:    "",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "exports/_/abc/content.csv",
+		},
+		{
+			name:      "nested prefix",
+			prefix:    "tenants/acme/exports/",
+			userID:    "u1",
+			assetID:   "id1",
+			extension: ".md",
+			want:      "tenants/acme/exports/u1/id1/content.md",
+		},
+		{
+			name:      "leading slash on prefix is trimmed",
+			prefix:    "/artifacts/",
+			userID:    "u1",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/u1/abc/content.csv",
+		},
+		{
+			name:      "dotdot user id cannot escape prefix",
+			prefix:    "artifacts/",
+			userID:    "..",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/_/abc/content.csv",
+		},
+		{
+			name:      "dot user id cannot collapse segment",
+			prefix:    "artifacts/",
+			userID:    ".",
+			assetID:   "abc",
+			extension: ".csv",
+			want:      "artifacts/_/abc/content.csv",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildExportS3Key(tt.prefix, tt.userID, tt.assetID, tt.extension)
+			assert.Equal(t, tt.want, got)
+			assert.NotContains(t, got, "//", "S3 key must not contain consecutive slashes")
+			assert.False(t, strings.HasPrefix(got, "/"), "S3 key must not start with /")
+		})
+	}
+}
+
+func TestValidateAndPrepare_NameSanitization(t *testing.T) {
+	assetStore := &mockExportAssetStore{}
+	versionStore := &mockExportVersionStore{}
+	s3Client := &mockExportS3Client{}
+	tk := newTestExportToolkit(assetStore, versionStore, s3Client)
+
+	req := buildExportRequest(map[string]any{
+		"sql":    "SELECT 1",
+		"format": "csv",
+		"name":   "Q1\u2014\u201cSales\u201d Report\u2026",
+	})
+
+	input, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	require.Nil(t, errResult, "validation should succeed")
+	assert.Equal(t, "Q1-\"Sales\" Report...", input.Name, "name should be sanitized to ASCII")
+}
+
+func TestValidateAndPrepare_NameSanitizedToEmpty(t *testing.T) {
+	assetStore := &mockExportAssetStore{}
+	versionStore := &mockExportVersionStore{}
+	s3Client := &mockExportS3Client{}
+	tk := newTestExportToolkit(assetStore, versionStore, s3Client)
+
+	// A name made up entirely of zero-width and control chars sanitizes to "".
+	req := buildExportRequest(map[string]any{
+		"sql":    "SELECT 1",
+		"format": "csv",
+		"name":   "\u200B\u200C\u200D",
+	})
+
+	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	require.NotNil(t, errResult, "validation should fail when name sanitizes to empty")
+	assert.True(t, errResult.IsError)
+	assertResultContains(t, errResult, "name")
+}
+
+func TestValidateAndPrepare_SanitizationExpansionExceedsCap(t *testing.T) {
+	// 100 ellipsis runes (1 char each) sanitize to 300 ASCII chars (3 each),
+	// which exceeds maxExportNameLength (255). validateExportInput runs after
+	// sanitization and must still catch the over-cap result.
+	tk := newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{})
+
+	name := strings.Repeat("\u2026", 100)
+	req := buildExportRequest(map[string]any{
+		"sql":    "SELECT 1",
+		"format": "csv",
+		"name":   name,
+	})
+
+	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	require.NotNil(t, errResult, "validation should catch over-cap name after sanitization expansion")
+	assert.True(t, errResult.IsError)
+	assertResultContains(t, errResult, "exceeds")
 }
