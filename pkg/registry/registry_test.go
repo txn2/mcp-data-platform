@@ -254,6 +254,17 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 		})
 		// Just verify the factory is called - actual creation depends on AWS SDK defaults
 	})
+
+	t.Run("gateway factory registered", func(t *testing.T) {
+		err := reg.CreateAndRegister(ToolkitConfig{
+			Kind:   "gateway",
+			Name:   regTestTest,
+			Config: map[string]any{},
+		})
+		if err == nil {
+			t.Error("expected error for missing gateway endpoint")
+		}
+	})
 }
 
 func TestTrinoFactory(t *testing.T) {
@@ -362,6 +373,34 @@ func TestDataHubFactory(t *testing.T) {
 	if err == nil {
 		t.Error("DataHubFactory() expected error for missing url")
 	}
+}
+
+func TestGatewayFactory_MissingEndpoint(t *testing.T) {
+	_, err := GatewayFactory(regTestTest, map[string]any{})
+	if err == nil {
+		t.Fatal("GatewayFactory() expected error for missing endpoint")
+	}
+}
+
+func TestGatewayFactory_UnreachableConstructsEmptyToolkit(t *testing.T) {
+	// Unreachable endpoint must NOT cause a fatal factory error — the
+	// gateway absorbs connection failures so platform startup continues.
+	tk, err := GatewayFactory(regTestTest, map[string]any{
+		"endpoint":        "http://127.0.0.1:1/mcp",
+		"connection_name": "broken",
+		"connect_timeout": "250ms",
+		"call_timeout":    "1s",
+	})
+	if err != nil {
+		t.Fatalf("expected no error for unreachable upstream, got %v", err)
+	}
+	if tk.Kind() != "gateway" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "gateway")
+	}
+	if got := tk.Tools(); len(got) != 0 {
+		t.Errorf("expected empty Tools() for unreachable upstream, got %v", got)
+	}
+	_ = tk.Close()
 }
 
 func TestS3Factory(_ *testing.T) {

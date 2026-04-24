@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -13,6 +14,7 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory("trino", TrinoAggregateFactory)
 	r.RegisterFactory("datahub", DataHubFactory)
 	r.RegisterFactory("s3", S3Factory)
+	r.RegisterFactory(gatewaykit.Kind, GatewayFactory)
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -68,4 +70,15 @@ func S3Factory(name string, cfg map[string]any) (Toolkit, error) {
 		return nil, fmt.Errorf("creating s3 toolkit: %w", err)
 	}
 	return tk, nil
+}
+
+// GatewayFactory creates a gateway toolkit from configuration. Upstream
+// connection failures are absorbed at construction time so an unreachable
+// upstream cannot block platform startup.
+func GatewayFactory(name string, cfg map[string]any) (Toolkit, error) {
+	config, err := gatewaykit.ParseConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("parsing gateway config: %w", err)
+	}
+	return gatewaykit.New(name, config), nil
 }
