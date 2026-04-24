@@ -414,6 +414,17 @@ definitions:
         example: about:blank
         type: string
     type: object
+  admin.refreshGatewayConnectionResponse:
+    properties:
+      error:
+        type: string
+      healthy:
+        type: boolean
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
   admin.setConnectionInstanceRequest:
     properties:
       config:
@@ -499,6 +510,23 @@ definitions:
       version:
         example: 1.55.11
         type: string
+    type: object
+  admin.testGatewayConnectionRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+    type: object
+  admin.testGatewayConnectionResponse:
+    properties:
+      error:
+        type: string
+      healthy:
+        type: boolean
+      tools:
+        items:
+          $ref: '#/definitions/gateway.ProbeTool'
+        type: array
     type: object
   admin.toolCallRequest:
     properties:
@@ -838,6 +866,15 @@ definitions:
       source:
         description: '"file", "database", or "both"'
         example: database
+        type: string
+    type: object
+  gateway.ProbeTool:
+    properties:
+      description:
+        type: string
+      local_name:
+        type: string
+      name:
         type: string
     type: object
   github_com_txn2_mcp-data-platform_pkg_portal.itemInput:
@@ -2511,6 +2548,79 @@ paths:
       summary: List connections
       tags:
       - System
+  /admin/gateway/connections/{name}/refresh:
+    post:
+      description: Re-dials a configured gateway connection using the stored config,
+        re-discovers its tool set, and swaps the live connection atomically. Used
+        after an upstream adds, removes, or changes tools.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.refreshGatewayConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.refreshGatewayConnectionResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Refresh a live gateway connection
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/test:
+    post:
+      consumes:
+      - application/json
+      description: Dials the upstream described by the submitted config, lists its
+        tools, and returns them. Does not persist anything. When the submitted config
+        contains "[REDACTED]" sensitive fields and a row with this name already exists,
+        the redacted fields are merged from the stored config.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Config to test
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.testGatewayConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.testGatewayConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.testGatewayConnectionResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Test a gateway connection config
+      tags:
+      - Connections
   /admin/knowledge/changesets:
     get:
       description: Returns paginated changesets with optional filtering.

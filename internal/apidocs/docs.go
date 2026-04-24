@@ -1056,6 +1056,116 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/gateway/connections/{name}/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Re-dials a configured gateway connection using the stored config, re-discovers its tool set, and swaps the live connection atomically. Used after an upstream adds, removes, or changes tools.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Refresh a live gateway connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.refreshGatewayConnectionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/admin.refreshGatewayConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/gateway/connections/{name}/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Dials the upstream described by the submitted config, lists its tools, and returns them. Does not persist anything. When the submitted config contains \"[REDACTED]\" sensitive fields and a row with this name already exists, the redacted fields are merged from the stored config.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Test a gateway connection config",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Config to test",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.testGatewayConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.testGatewayConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/admin.testGatewayConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/knowledge/changesets": {
             "get": {
                 "security": [
@@ -6030,6 +6140,23 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.refreshGatewayConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "healthy": {
+                    "type": "boolean"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "admin.setConnectionInstanceRequest": {
             "type": "object",
             "properties": {
@@ -6147,6 +6274,32 @@ const docTemplate = `{
                 "version": {
                     "type": "string",
                     "example": "1.55.11"
+                }
+            }
+        },
+        "admin.testGatewayConnectionRequest": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "admin.testGatewayConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "healthy": {
+                    "type": "boolean"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/gateway.ProbeTool"
+                    }
                 }
             }
         },
@@ -6615,6 +6768,20 @@ const docTemplate = `{
                     "description": "\"file\", \"database\", or \"both\"",
                     "type": "string",
                     "example": "database"
+                }
+            }
+        },
+        "gateway.ProbeTool": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "local_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },

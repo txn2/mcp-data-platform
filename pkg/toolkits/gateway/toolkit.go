@@ -365,6 +365,41 @@ func upstreamErr(connection, msg string) *mcp.CallToolResult {
 	}
 }
 
+// ProbeTool is a summary of a single discovered upstream tool, used by the
+// admin test endpoint to preview what a connection would expose.
+type ProbeTool struct {
+	Name        string `json:"name"`
+	LocalName   string `json:"local_name"`
+	Description string `json:"description,omitempty"`
+}
+
+// Probe dials the upstream described by cfg, lists its tools, and closes the
+// session. It does NOT mutate any live toolkit state, so it's safe to call
+// from the admin "test connection" endpoint before persisting a config.
+func Probe(ctx context.Context, cfg Config) ([]ProbeTool, error) {
+	if cfg.ConnectionName == "" {
+		cfg.ConnectionName = "probe"
+	}
+	client, tools, err := discover(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.close() }()
+
+	out := make([]ProbeTool, 0, len(tools))
+	for _, rt := range tools {
+		if rt == nil || rt.Name == "" {
+			continue
+		}
+		out = append(out, ProbeTool{
+			Name:        rt.Name,
+			LocalName:   cfg.ConnectionName + NamespaceSeparator + rt.Name,
+			Description: rt.Description,
+		})
+	}
+	return out, nil
+}
+
 // Verify interface compliance at compile time.
 var (
 	_ interface {

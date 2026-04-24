@@ -26,6 +26,7 @@ var sensitiveConfigKeys = map[string]bool{
 	"access_token":      true,
 	"refresh_token":     true,
 	"api_key":           true,
+	"credential":        true,
 }
 
 // FieldEncryptor encrypts and decrypts sensitive fields within connection config maps.

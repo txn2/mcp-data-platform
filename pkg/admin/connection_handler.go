@@ -393,6 +393,7 @@ const redactedValue = "[REDACTED]"
 var connectionSensitiveKeys = []string{
 	"password", "secret_access_key", "secret_key",
 	"token", "access_token", "refresh_token", "api_key",
+	"credential",
 }
 
 // platformInternalKeys lists config keys injected by the platform at runtime

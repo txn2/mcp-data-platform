@@ -190,6 +190,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
+	h.registerGatewayRoutes()
 	h.registerPromptRoutes()
 }
 
