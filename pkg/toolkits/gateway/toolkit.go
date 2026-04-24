@@ -2,106 +2,98 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// Toolkit is a gateway that re-exposes tools from an upstream MCP server
-// through the platform's registry, auth, persona, and audit pipeline.
+// ErrConnectionExists is returned when AddConnection is called with a name
+// already live in the toolkit.
+var ErrConnectionExists = errors.New("gateway: connection already exists")
+
+// ErrConnectionNotFound is returned when RemoveConnection is called for a
+// name that is not present.
+var ErrConnectionNotFound = errors.New("gateway: connection not found")
+
+// Log key constants keep structured-slog field names consistent across the package.
+const (
+	logKeyConnection = "connection"
+	logKeyEndpoint   = "endpoint"
+	logKeyError      = "error"
+)
+
+// Toolkit is a gateway that proxies tools from one or more upstream MCP
+// servers through the platform's registry, auth, persona, and audit pipeline.
 //
-// Startup is failure-isolated: if the upstream is unreachable or rejects
-// tool discovery, the toolkit is constructed with zero tools and a nil
-// client. It will not crash the platform and will not interfere with
-// other toolkits. Recovery requires restart or an admin-triggered refresh
-// (not part of v1).
+// A single Toolkit manages multiple named upstream connections. Each upstream
+// tool is re-exposed under a namespaced local name:
+// "<connection_name>__<remote_tool_name>". Connections can be added or
+// removed at runtime; the MCP server is notified of tool-list changes
+// through AddTool / RemoveTools.
+//
+// Startup is failure-isolated: an unreachable upstream is logged and
+// skipped — it does not block platform startup. Other connections remain
+// functional.
 type Toolkit struct {
-	name   string
-	config Config
-	client *upstreamClient
-	tools  []forwardedTool
+	name        string
+	defaultName string
+
+	mu          sync.RWMutex
+	server      *mcp.Server
+	connections map[string]*upstream
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 }
 
-// forwardedTool pairs the remote tool definition with its local namespaced name.
-type forwardedTool struct {
-	localName  string
-	remoteName string
-	definition *mcp.Tool
+// upstream tracks a single live connection to a remote MCP server.
+type upstream struct {
+	name      string
+	config    Config
+	client    *upstreamClient
+	tools     []*mcp.Tool // cached definitions from discovery
+	toolNames []string
+	desc      string
 }
 
-// New builds a Toolkit for the given upstream connection.
-//
-// The constructor synchronously dials the upstream and lists its tools,
-// bounded by Config.ConnectTimeout. A failure at any step is logged and
-// absorbed: the returned Toolkit is valid, exposes no tools, and holds a
-// nil client. Callers never see a connection error from this constructor.
-func New(name string, cfg Config) *Toolkit {
-	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = name
+// New builds a Toolkit with the given default connection name and no
+// initial connections.
+func New(defaultName string) *Toolkit {
+	return &Toolkit{
+		name:        defaultName,
+		defaultName: defaultName,
+		connections: make(map[string]*upstream),
 	}
-
-	t := &Toolkit{
-		name:   name,
-		config: cfg,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.ConnectTimeout)
-	defer cancel()
-
-	client, remoteTools, err := discover(ctx, cfg)
-	if err != nil {
-		slog.Warn("gateway: upstream unavailable at startup",
-			"connection", cfg.ConnectionName,
-			"endpoint", cfg.Endpoint,
-			"error", err)
-		return t
-	}
-
-	t.client = client
-	t.tools = namespaceTools(cfg.ConnectionName, remoteTools)
-	slog.Info("gateway: upstream connected",
-		"connection", cfg.ConnectionName,
-		"endpoint", cfg.Endpoint,
-		"tools", len(t.tools))
-	return t
 }
 
-// discover dials the upstream and fetches its tool catalog in one step.
-func discover(ctx context.Context, cfg Config) (*upstreamClient, []*mcp.Tool, error) {
-	client, err := dial(ctx, cfg)
-	if err != nil {
-		return nil, nil, err
+// NewMulti builds a Toolkit and pre-loads the given parsed connection
+// configs. Unreachable upstreams are logged and skipped so platform startup
+// is never blocked.
+func NewMulti(cfg MultiConfig) *Toolkit {
+	name := cfg.DefaultName
+	if name == "" {
+		name = Kind
 	}
-	remoteTools, err := client.listTools(ctx)
-	if err != nil {
-		_ = client.close()
-		return nil, nil, fmt.Errorf("list tools: %w", err)
-	}
-	return client, remoteTools, nil
-}
-
-// namespaceTools builds the local tool list by prefixing each remote name
-// with the connection name and the separator ("__").
-func namespaceTools(connection string, remote []*mcp.Tool) []forwardedTool {
-	out := make([]forwardedTool, 0, len(remote))
-	for _, rt := range remote {
-		if rt == nil || rt.Name == "" {
-			continue
+	t := New(name)
+	t.defaultName = cfg.DefaultName // may be empty; only "name" always set
+	for instanceName, c := range cfg.Instances {
+		if c.ConnectionName == "" {
+			c.ConnectionName = instanceName
 		}
-		out = append(out, forwardedTool{
-			localName:  connection + NamespaceSeparator + rt.Name,
-			remoteName: rt.Name,
-			definition: rt,
-		})
+		if err := t.addParsedConnection(instanceName, c); err != nil {
+			slog.Warn("gateway: initial connection failed",
+				logKeyConnection, instanceName, logKeyError, err)
+		}
 	}
-	return out
+	return t
 }
 
 // Kind returns the toolkit kind.
@@ -114,44 +106,211 @@ func (t *Toolkit) Name() string {
 	return t.name
 }
 
-// Connection returns the connection name used in audit logs and persona rules.
+// Connection returns the default connection name used in audit logs when a
+// request does not carry one. Empty if no default is configured.
 func (t *Toolkit) Connection() string {
-	return t.config.ConnectionName
+	return t.defaultName
 }
 
-// Tools returns the local (namespaced) tool names exposed by this toolkit.
-// Empty when the upstream was unreachable at construction.
+// Tools returns the aggregate, sorted set of namespaced local tool names
+// across all live connections.
 func (t *Toolkit) Tools() []string {
-	out := make([]string, len(t.tools))
-	for i, ft := range t.tools {
-		out[i] = ft.localName
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var out []string
+	for _, u := range t.connections {
+		out = append(out, u.toolNames...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RegisterTools captures the server reference and registers every tool from
+// every already-loaded connection. Must be called exactly once, after the
+// toolkit is registered in the platform registry.
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.server = s
+	for _, u := range t.connections {
+		if u.client == nil || len(u.tools) == 0 {
+			continue
+		}
+		t.addToolsToServerLocked(u)
+	}
+}
+
+// SetSemanticProvider stores the semantic provider (not consumed directly in v1).
+func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.semanticProvider = provider
+}
+
+// SetQueryProvider stores the query provider (not consumed directly in v1).
+func (t *Toolkit) SetQueryProvider(provider query.Provider) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.queryProvider = provider
+}
+
+// AddConnection parses the raw config, dials the upstream, discovers its
+// tools, and registers them on the server (if one is already set). The
+// admin layer's hotAddConnection helper logs any returned error as a
+// structured warning.
+func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+	cfg, err := ParseConfig(config)
+	if err != nil {
+		return err
+	}
+	if cfg.ConnectionName == "" {
+		cfg.ConnectionName = name
+	}
+	return t.addParsedConnection(name, cfg)
+}
+
+// addParsedConnection performs the shared dial + registration work under the
+// toolkit's write lock.
+func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if _, exists := t.connections[name]; exists {
+		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
+	}
+
+	client, tools, err := discover(context.Background(), cfg)
+	if err != nil {
+		slog.Warn("gateway: upstream unavailable",
+			logKeyConnection, cfg.ConnectionName,
+			logKeyEndpoint, cfg.Endpoint,
+			logKeyError, err)
+		return err
+	}
+
+	u := &upstream{
+		name:      name,
+		config:    cfg,
+		client:    client,
+		tools:     tools,
+		toolNames: makeLocalNames(cfg.ConnectionName, tools),
+		desc:      "Gateway to " + cfg.Endpoint,
+	}
+	t.connections[name] = u
+	if t.server != nil {
+		t.addToolsToServerLocked(u)
+	}
+	slog.Info("gateway: upstream connected",
+		logKeyConnection, cfg.ConnectionName,
+		logKeyEndpoint, cfg.Endpoint,
+		"tools", len(u.toolNames))
+	return nil
+}
+
+// RemoveConnection unregisters a connection's tools from the MCP server,
+// closes its upstream session, and removes it from the toolkit.
+func (t *Toolkit) RemoveConnection(name string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	u, ok := t.connections[name]
+	if !ok {
+		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionNotFound)
+	}
+
+	if t.server != nil && len(u.toolNames) > 0 {
+		t.server.RemoveTools(u.toolNames...)
+	}
+	if u.client != nil {
+		if err := u.client.close(); err != nil {
+			slog.Warn("gateway: error closing upstream session",
+				logKeyConnection, u.config.ConnectionName,
+				logKeyError, err)
+		}
+	}
+	delete(t.connections, name)
+	return nil
+}
+
+// HasConnection reports whether a connection with the given name is live.
+func (t *Toolkit) HasConnection(name string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.connections[name]
+	return ok
+}
+
+// ListConnections returns metadata for every live connection, sorted by name.
+func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]toolkit.ConnectionDetail, 0, len(t.connections))
+	for name, u := range t.connections {
+		out = append(out, toolkit.ConnectionDetail{
+			Name:        name,
+			Description: u.desc,
+			IsDefault:   name == t.defaultName,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Close closes every upstream session. Safe to call on a never-registered
+// toolkit.
+func (t *Toolkit) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var firstErr error
+	for _, u := range t.connections {
+		if u.client == nil {
+			continue
+		}
+		if err := u.client.close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// addToolsToServerLocked registers each remote tool on the server under a
+// namespaced local name. Caller must hold t.mu (write lock) and ensure
+// t.server is non-nil.
+func (t *Toolkit) addToolsToServerLocked(u *upstream) {
+	for _, rt := range u.tools {
+		if rt == nil || rt.Name == "" {
+			continue
+		}
+		local := &mcp.Tool{
+			Name:        u.config.ConnectionName + NamespaceSeparator + rt.Name,
+			Description: rt.Description,
+			InputSchema: rt.InputSchema,
+			Title:       rt.Title,
+			Annotations: rt.Annotations,
+		}
+		t.server.AddTool(local, u.makeForwarder(rt.Name))
+	}
+}
+
+// makeLocalNames builds the namespaced tool-name slice for a set of
+// discovered remote tools.
+func makeLocalNames(connection string, remote []*mcp.Tool) []string {
+	out := make([]string, 0, len(remote))
+	for _, rt := range remote {
+		if rt == nil || rt.Name == "" {
+			continue
+		}
+		out = append(out, connection+NamespaceSeparator+rt.Name)
 	}
 	return out
 }
 
-// RegisterTools wires each discovered upstream tool into the server with a
-// forwarding handler. Schemas are passed through verbatim.
-func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	for _, ft := range t.tools {
-		local := &mcp.Tool{
-			Name:        ft.localName,
-			Description: ft.definition.Description,
-			InputSchema: ft.definition.InputSchema,
-			Title:       ft.definition.Title,
-			Annotations: ft.definition.Annotations,
-		}
-		s.AddTool(local, t.makeForwarder(ft.remoteName))
-	}
-}
-
 // makeForwarder returns a handler that forwards a single proxied tool call
-// to the upstream session. Transport errors are returned as tool-error
-// results prefixed "upstream:<connection>:" so they flow through the audit
-// pipeline like any other error.
-func (t *Toolkit) makeForwarder(remoteName string) mcp.ToolHandler {
-	connection := t.config.ConnectionName
-	callTimeout := t.config.CallTimeout
-	client := t.client
+// to this upstream's session.
+func (u *upstream) makeForwarder(remoteName string) mcp.ToolHandler {
+	connection := u.config.ConnectionName
+	callTimeout := u.config.CallTimeout
+	client := u.client
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if client == nil {
 			return upstreamErr(connection, "upstream unavailable"), nil
@@ -166,6 +325,24 @@ func (t *Toolkit) makeForwarder(remoteName string) mcp.ToolHandler {
 		}
 		return res, nil
 	}
+}
+
+// discover dials the upstream and fetches its tool catalog in one step,
+// bounded by the config's ConnectTimeout.
+func discover(ctx context.Context, cfg Config) (*upstreamClient, []*mcp.Tool, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
+	defer cancel()
+
+	client, err := dial(dialCtx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	remoteTools, err := client.listTools(dialCtx)
+	if err != nil {
+		_ = client.close()
+		return nil, nil, fmt.Errorf("list tools: %w", err)
+	}
+	return client, remoteTools, nil
 }
 
 // argumentsFromRequest extracts raw arguments from a tool request. Empty
@@ -188,34 +365,18 @@ func upstreamErr(connection, msg string) *mcp.CallToolResult {
 	}
 }
 
-// SetSemanticProvider accepts the semantic provider used by enrichment
-// middleware. The gateway does not consume it directly in v1.
-func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
-	t.semanticProvider = provider
-}
-
-// SetQueryProvider accepts the query provider used by enrichment middleware.
-// The gateway does not consume it directly in v1.
-func (t *Toolkit) SetQueryProvider(provider query.Provider) {
-	t.queryProvider = provider
-}
-
-// Close releases the upstream session.
-func (t *Toolkit) Close() error {
-	if t.client == nil {
-		return nil
-	}
-	return t.client.close()
-}
-
 // Verify interface compliance at compile time.
-var _ interface {
-	Kind() string
-	Name() string
-	Connection() string
-	RegisterTools(s *mcp.Server)
-	Tools() []string
-	SetSemanticProvider(provider semantic.Provider)
-	SetQueryProvider(provider query.Provider)
-	Close() error
-} = (*Toolkit)(nil)
+var (
+	_ interface {
+		Kind() string
+		Name() string
+		Connection() string
+		RegisterTools(s *mcp.Server)
+		Tools() []string
+		SetSemanticProvider(provider semantic.Provider)
+		SetQueryProvider(provider query.Provider)
+		Close() error
+	} = (*Toolkit)(nil)
+	_ toolkit.ConnectionManager = (*Toolkit)(nil)
+	_ toolkit.ConnectionLister  = (*Toolkit)(nil)
+)

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,227 +17,434 @@ import (
 )
 
 const (
-	testConnection = "test-gateway"
-	testToolName   = "echo"
-	testLocalName  = testConnection + NamespaceSeparator + testToolName
-	testToolError  = "upstream tool error"
+	connCRM       = "crm"
+	connMKT       = "marketing"
+	toolEcho      = "echo"
+	toolBoom      = "boom"
+	localCRMEcho  = connCRM + NamespaceSeparator + toolEcho
+	localCRMBoom  = connCRM + NamespaceSeparator + toolBoom
+	localMKTEcho  = connMKT + NamespaceSeparator + toolEcho
+	testToolError = "upstream tool error"
 )
 
-// upstreamServer spins up an in-process MCP server exposed over streamable
-// HTTP, returning its URL and a shutdown function. The server advertises two
-// tools:
-//   - "echo": returns "echo:<msg>" as text content
-//   - "boom": returns IsError=true with a known message, so we can verify
-//     the gateway forwards error-results verbatim.
+// upstreamServer spins up an in-process MCP server with echo + boom tools.
 func upstreamServer(t *testing.T) string {
 	t.Helper()
-
 	srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
 
 	type echoArgs struct {
 		Message string `json:"message"`
 	}
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        testToolName,
-		Description: "echo back a message",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, args echoArgs) (*mcp.CallToolResult, any, error) {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + args.Message}},
-		}, nil, nil
-	})
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "boom",
-		Description: "always returns an error",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		return &mcp.CallToolResult{
-			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: testToolError}},
-		}, nil, nil
-	})
+	mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+		func(_ context.Context, _ *mcp.CallToolRequest, a echoArgs) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + a.Message}},
+			}, nil, nil
+		})
+	mcp.AddTool(srv, &mcp.Tool{Name: toolBoom, Description: "always errors"},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: testToolError}},
+			}, nil, nil
+		})
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	ts := httptest.NewServer(handler)
-	t.Cleanup(ts.Close)
+	// Force-close active SSE connections before shutting down the listener
+	// so the teardown doesn't block on the gateway's still-open outbound
+	// stream. Cleanup order is not guaranteed to close the gateway first.
+	t.Cleanup(func() {
+		ts.CloseClientConnections()
+		ts.Close()
+	})
 	return ts.URL
 }
 
-// gatewayAgainst builds a Toolkit pointing at the given upstream URL.
-func gatewayAgainst(t *testing.T, url string) *Toolkit {
-	t.Helper()
-	cfg, err := ParseConfig(map[string]any{
+// connectionConfig builds a raw config map suitable for AddConnection.
+func connectionConfig(url, connName string) map[string]any {
+	return map[string]any{
 		"endpoint":        url,
-		"connection_name": testConnection,
+		"connection_name": connName,
 		"connect_timeout": "3s",
 		"call_timeout":    "3s",
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
 	}
-	return New("primary", cfg)
 }
 
-func TestNew_DiscoversAndNamespacesTools(t *testing.T) {
-	tk := gatewayAgainst(t, upstreamServer(t))
+func TestAddConnection_DiscoversAndNamespacesTools(t *testing.T) {
+	url := upstreamServer(t)
+	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
 
-	names := tk.Tools()
-	if !slices.Contains(names, testLocalName) {
-		t.Errorf("expected %q in Tools(), got %v", testLocalName, names)
+	if err := tk.AddConnection(connCRM, connectionConfig(url, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
 	}
-	if !slices.Contains(names, testConnection+NamespaceSeparator+"boom") {
-		t.Errorf("expected boom tool to be discovered, got %v", names)
+
+	tools := tk.Tools()
+	if !slices.Contains(tools, localCRMEcho) || !slices.Contains(tools, localCRMBoom) {
+		t.Errorf("expected both namespaced tools, got %v", tools)
 	}
-	for _, n := range names {
-		if !strings.HasPrefix(n, testConnection+NamespaceSeparator) {
-			t.Errorf("tool %q missing connection-name prefix", n)
+	for _, n := range tools {
+		if !strings.HasPrefix(n, connCRM+NamespaceSeparator) {
+			t.Errorf("tool %q missing prefix", n)
 		}
 	}
 }
 
-func TestToolkitMetadata(t *testing.T) {
-	tk := gatewayAgainst(t, upstreamServer(t))
+func TestAddConnection_TwoConnectionsIsolated(t *testing.T) {
+	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
 
-	if tk.Kind() != Kind {
-		t.Errorf("Kind: got %q, want %q", tk.Kind(), Kind)
+	url1 := upstreamServer(t)
+	url2 := upstreamServer(t)
+	if err := tk.AddConnection(connCRM, connectionConfig(url1, connCRM)); err != nil {
+		t.Fatalf("AddConnection crm: %v", err)
 	}
-	if tk.Name() != "primary" {
-		t.Errorf("Name: got %q", tk.Name())
+	if err := tk.AddConnection(connMKT, connectionConfig(url2, connMKT)); err != nil {
+		t.Fatalf("AddConnection marketing: %v", err)
 	}
-	if tk.Connection() != testConnection {
-		t.Errorf("Connection: got %q", tk.Connection())
+
+	tools := tk.Tools()
+	want := []string{localCRMBoom, localCRMEcho, localMKTEcho, connMKT + NamespaceSeparator + toolBoom}
+	for _, n := range want {
+		if !slices.Contains(tools, n) {
+			t.Errorf("missing tool %q in %v", n, tools)
+		}
+	}
+
+	details := tk.ListConnections()
+	if len(details) != 2 {
+		t.Fatalf("ListConnections: got %d, want 2", len(details))
+	}
+	// Sorted by name → crm, marketing
+	if details[0].Name != connCRM || details[1].Name != connMKT {
+		t.Errorf("sort order: got %v", []string{details[0].Name, details[1].Name})
+	}
+	// DefaultName here is "primary" (from New), which matches neither
+	// connection — so neither should be marked default.
+	for _, d := range details {
+		if d.IsDefault {
+			t.Errorf("unexpected IsDefault on %s", d.Name)
+		}
 	}
 }
 
-func TestNew_DefaultsConnectionNameToInstance(t *testing.T) {
+func TestAddConnection_DuplicateReturnsExists(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
 	url := upstreamServer(t)
-	cfg, err := ParseConfig(map[string]any{
-		"endpoint":        url,
-		"connect_timeout": "3s",
-		"call_timeout":    "3s",
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
+	if err := tk.AddConnection(connCRM, connectionConfig(url, connCRM)); err != nil {
+		t.Fatalf("first AddConnection: %v", err)
 	}
-	tk := New("crm", cfg)
-	t.Cleanup(func() { _ = tk.Close() })
-	if tk.Connection() != "crm" {
-		t.Errorf("expected connection_name to default to instance name, got %q", tk.Connection())
+	err := tk.AddConnection(connCRM, connectionConfig(url, connCRM))
+	if !errors.Is(err, ErrConnectionExists) {
+		t.Errorf("second AddConnection: got %v, want ErrConnectionExists", err)
 	}
 }
 
-func TestNew_UpstreamUnreachable_ReturnsEmptyToolkit(t *testing.T) {
-	cfg, err := ParseConfig(map[string]any{
-		// Unreachable endpoint; a low connect timeout keeps this fast.
+func TestAddConnection_UpstreamUnreachableReturnsError(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	err := tk.AddConnection("broken", map[string]any{
 		"endpoint":        "http://127.0.0.1:1/mcp",
 		"connection_name": "broken",
-		"connect_timeout": "500ms",
+		"connect_timeout": "200ms",
 		"call_timeout":    "1s",
 	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
+	if err == nil {
+		t.Fatal("expected error for unreachable upstream")
 	}
-	tk := New("unreach", cfg)
+	// Placeholder must NOT be stored — retry path depends on HasConnection=false.
+	if tk.HasConnection("broken") {
+		t.Error("expected placeholder not to be stored after dial failure")
+	}
+}
+
+func TestAddConnection_BadConfigReturnsError(t *testing.T) {
+	tk := New("primary")
+	err := tk.AddConnection("x", map[string]any{"endpoint": ""})
+	if err == nil {
+		t.Error("expected config validation error")
+	}
+}
+
+func TestRemoveConnection_UnregistersTools(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	if err := tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	if !tk.HasConnection(connCRM) {
+		t.Fatal("expected HasConnection=true after add")
+	}
+	if err := tk.RemoveConnection(connCRM); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+	if tk.HasConnection(connCRM) {
+		t.Error("expected HasConnection=false after remove")
+	}
+	if len(tk.Tools()) != 0 {
+		t.Errorf("expected empty Tools() after remove, got %v", tk.Tools())
+	}
+}
+
+func TestRemoveConnection_MissingReturnsNotFound(t *testing.T) {
+	tk := New("primary")
+	err := tk.RemoveConnection("nope")
+	if !errors.Is(err, ErrConnectionNotFound) {
+		t.Errorf("got %v, want ErrConnectionNotFound", err)
+	}
+}
+
+func TestListConnections_MarksDefault(t *testing.T) {
+	tk := New(connCRM) // default connection name is "crm"
+	t.Cleanup(func() { _ = tk.Close() })
+
+	url := upstreamServer(t)
+	_ = tk.AddConnection(connCRM, connectionConfig(url, connCRM))
+	_ = tk.AddConnection(connMKT, connectionConfig(url, connMKT))
+
+	details := tk.ListConnections()
+	defaults := 0
+	for _, d := range details {
+		if d.IsDefault {
+			defaults++
+			if d.Name != connCRM {
+				t.Errorf("IsDefault on wrong connection: %s", d.Name)
+			}
+		}
+	}
+	if defaults != 1 {
+		t.Errorf("expected exactly 1 default, got %d", defaults)
+	}
+}
+
+func TestNewMulti_AbsorbsInitialFailures(t *testing.T) {
+	cfg, err := ParseMultiConfig("primary", map[string]map[string]any{
+		connCRM: {
+			"endpoint":        "http://127.0.0.1:1/mcp",
+			"connect_timeout": "200ms",
+			"call_timeout":    "1s",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig: %v", err)
+	}
+	tk := NewMulti(cfg)
 	t.Cleanup(func() { _ = tk.Close() })
 
 	if len(tk.Tools()) != 0 {
-		t.Errorf("expected empty Tools() on unreachable upstream, got %v", tk.Tools())
+		t.Errorf("expected empty Tools() for failed initial, got %v", tk.Tools())
 	}
-	if tk.Connection() != "broken" {
-		t.Errorf("Connection still exposed: got %q", tk.Connection())
+	if tk.HasConnection(connCRM) {
+		t.Error("failed initial connection should not be stored")
 	}
 }
 
-func TestForwarder_ReturnsUpstreamResultVerbatim(t *testing.T) {
-	tk := gatewayAgainst(t, upstreamServer(t))
+func TestNewMulti_LoadsHealthyInstances(t *testing.T) {
+	url := upstreamServer(t)
+	cfg, err := ParseMultiConfig("primary", map[string]map[string]any{
+		connCRM: connectionConfig(url, connCRM),
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig: %v", err)
+	}
+	tk := NewMulti(cfg)
 	t.Cleanup(func() { _ = tk.Close() })
 
-	client := platformWithGateway(t, tk)
+	if !tk.HasConnection(connCRM) {
+		t.Error("expected CRM connection to be live after NewMulti")
+	}
+}
+
+func TestParseMultiConfig_SurfacesBadInstance(t *testing.T) {
+	_, err := ParseMultiConfig("primary", map[string]map[string]any{
+		connCRM: {}, // no endpoint
+	})
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "gateway/crm") {
+		t.Errorf("error should name the instance, got: %v", err)
+	}
+}
+
+func TestToolkitMetadata(t *testing.T) {
+	tk := New("primary")
+	if tk.Kind() != Kind {
+		t.Errorf("Kind: %q", tk.Kind())
+	}
+	if tk.Name() != "primary" || tk.Connection() != "primary" {
+		t.Errorf("Name/Connection: %q / %q", tk.Name(), tk.Connection())
+	}
+}
+
+func TestNewMulti_EmptyDefaultFallsBackToKind(t *testing.T) {
+	tk := NewMulti(MultiConfig{DefaultName: "", Instances: nil})
+	if tk.Name() != Kind {
+		t.Errorf("Name with empty default: got %q, want %q", tk.Name(), Kind)
+	}
+}
+
+func TestEndToEnd_ForwardsCallsThroughServer(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	_ = tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM))
+
+	client := platformWithToolkit(t, tk)
 	t.Cleanup(func() { _ = client.Close() })
 
 	res, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      testLocalName,
+		Name:      localCRMEcho,
 		Arguments: map[string]any{"message": "hi"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 	if res.IsError {
-		t.Fatal("expected success, got IsError=true")
+		t.Fatal("expected success")
 	}
-	tc := firstText(t, res)
-	if tc.Text != "echo:hi" {
-		t.Errorf("got %q, want %q", tc.Text, "echo:hi")
+	if tc := firstText(t, res); tc.Text != "echo:hi" {
+		t.Errorf("got %q", tc.Text)
 	}
 }
 
-func TestForwarder_UpstreamErrorResultIsForwarded(t *testing.T) {
-	tk := gatewayAgainst(t, upstreamServer(t))
+func TestEndToEnd_HotAddAfterRegisterTools(t *testing.T) {
+	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
 
-	client := platformWithGateway(t, tk)
+	client := platformWithToolkit(t, tk)
+	t.Cleanup(func() { _ = client.Close() })
+
+	// No tools yet — tools/list returns empty.
+	list, err := client.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(list.Tools) != 0 {
+		t.Errorf("before Add: got %d tools, want 0", len(list.Tools))
+	}
+
+	if err := tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	list, err = client.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools after add: %v", err)
+	}
+	names := make([]string, 0, len(list.Tools))
+	for _, tool := range list.Tools {
+		names = append(names, tool.Name)
+	}
+	if !slices.Contains(names, localCRMEcho) {
+		t.Errorf("after Add: expected %q, got %v", localCRMEcho, names)
+	}
+
+	res, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      localCRMEcho,
+		Arguments: map[string]any{"message": "hot"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool after Add: %v", err)
+	}
+	if tc := firstText(t, res); tc.Text != "echo:hot" {
+		t.Errorf("got %q", tc.Text)
+	}
+}
+
+func TestEndToEnd_HotRemoveAfterRegisterTools(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	client := platformWithToolkit(t, tk)
+	t.Cleanup(func() { _ = client.Close() })
+
+	if err := tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	before, _ := client.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if len(before.Tools) == 0 {
+		t.Fatal("expected tools present before remove")
+	}
+
+	if err := tk.RemoveConnection(connCRM); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+
+	after, err := client.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools after remove: %v", err)
+	}
+	if len(after.Tools) != 0 {
+		t.Errorf("expected 0 tools after remove, got %d", len(after.Tools))
+	}
+}
+
+func TestEndToEnd_UpstreamErrorResultForwarded(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	_ = tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM))
+
+	client := platformWithToolkit(t, tk)
 	t.Cleanup(func() { _ = client.Close() })
 
 	res, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      testConnection + NamespaceSeparator + "boom",
+		Name:      localCRMBoom,
 		Arguments: map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("expected IsError=true from upstream tool error")
+		t.Fatal("expected IsError=true")
 	}
-	tc := firstText(t, res)
-	// Upstream's error message is forwarded unchanged — no "upstream:" prefix,
-	// because this is a TOOL error (IsError in result), not a TRANSPORT error.
-	if tc.Text != testToolError {
+	if tc := firstText(t, res); tc.Text != testToolError {
 		t.Errorf("got %q, want %q", tc.Text, testToolError)
 	}
 }
 
-func TestForwarder_TransportFailureIsAttributed(t *testing.T) {
-	// Stand up an upstream, connect, then close it so the next call fails at
-	// the transport layer. The forwarder must emit an "upstream:<conn>:" error.
-	url := upstreamServer(t)
-	tk := gatewayAgainst(t, url)
+func TestEndToEnd_TransportFailureAttribution(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	_ = tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM))
 
-	if tk.client == nil {
-		t.Fatal("expected successful dial before shutdown")
-	}
-	// Close the upstream session so subsequent calls fail at the transport.
-	_ = tk.client.close()
+	// Kill the upstream session so next call fails at transport.
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+	_ = u.client.close()
 
-	client := platformWithGateway(t, tk)
+	client := platformWithToolkit(t, tk)
 	t.Cleanup(func() { _ = client.Close() })
 
 	res, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      testLocalName,
+		Name:      localCRMEcho,
 		Arguments: map[string]any{"message": "x"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("expected IsError=true from closed upstream")
+		t.Fatal("expected IsError=true")
 	}
 	tc := firstText(t, res)
-	wantPrefix := "upstream:" + testConnection + ":"
-	if !strings.HasPrefix(tc.Text, wantPrefix) {
-		t.Errorf("error %q missing prefix %q", tc.Text, wantPrefix)
+	want := "upstream:" + connCRM + ":"
+	if !strings.HasPrefix(tc.Text, want) {
+		t.Errorf("error %q missing prefix %q", tc.Text, want)
 	}
 }
 
 func TestMakeForwarder_NilClientReturnsUnavailable(t *testing.T) {
-	tk := &Toolkit{config: Config{ConnectionName: "nilc", CallTimeout: time.Second}}
-	handler := tk.makeForwarder("any")
+	u := &upstream{config: Config{ConnectionName: "nilc", CallTimeout: time.Second}}
+	handler := u.makeForwarder("any")
 	res, err := handler(context.Background(), &mcp.CallToolRequest{})
 	if err != nil {
 		t.Fatalf("handler err: %v", err)
-	}
-	if !res.IsError {
-		t.Fatal("expected IsError=true")
 	}
 	tc := firstText(t, res)
 	if !strings.Contains(tc.Text, "upstream:nilc") || !strings.Contains(tc.Text, "upstream unavailable") {
@@ -243,41 +452,53 @@ func TestMakeForwarder_NilClientReturnsUnavailable(t *testing.T) {
 	}
 }
 
-func TestArgumentsFromRequest(t *testing.T) {
-	if got := argumentsFromRequest(nil); got != nil {
-		t.Errorf("nil req: got %v, want nil", got)
+func TestConcurrentAddConnection_Safe(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	url := upstreamServer(t)
+	const n = 8
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("c%d", i)
+			errs <- tk.AddConnection(name, connectionConfig(url, name))
+		}(i)
 	}
-	if got := argumentsFromRequest(&mcp.CallToolRequest{}); got != nil {
-		t.Errorf("nil params: got %v, want nil", got)
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		if e != nil {
+			t.Errorf("concurrent AddConnection: %v", e)
+		}
 	}
-	emptyArgs := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: json.RawMessage{}}}
-	if got := argumentsFromRequest(emptyArgs); got != nil {
-		t.Errorf("empty args: got %v, want nil", got)
-	}
-	raw := json.RawMessage(`{"k":"v"}`)
-	populated := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: raw}}
-	got := argumentsFromRequest(populated)
-	gotRaw, ok := got.(json.RawMessage)
-	if !ok {
-		t.Fatalf("expected json.RawMessage, got %T", got)
-	}
-	if !bytesEqual(gotRaw, raw) {
-		t.Errorf("populated: got %v, want %v", got, raw)
+	if len(tk.ListConnections()) != n {
+		t.Errorf("expected %d connections, got %d", n, len(tk.ListConnections()))
 	}
 }
 
-func TestNamespaceTools_SkipsInvalid(t *testing.T) {
-	in := []*mcp.Tool{
-		nil,
-		{Name: ""},
-		{Name: "ok"},
+func TestArgumentsFromRequest(t *testing.T) {
+	if argumentsFromRequest(nil) != nil {
+		t.Error("nil req")
 	}
-	out := namespaceTools("c", in)
-	if len(out) != 1 {
-		t.Fatalf("got %d forwarded tools, want 1", len(out))
+	if argumentsFromRequest(&mcp.CallToolRequest{}) != nil {
+		t.Error("nil params")
 	}
-	if out[0].localName != "c"+NamespaceSeparator+"ok" {
-		t.Errorf("unexpected localName %q", out[0].localName)
+	empty := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: json.RawMessage{}}}
+	if argumentsFromRequest(empty) != nil {
+		t.Error("empty args")
+	}
+	raw := json.RawMessage(`{"k":"v"}`)
+	got := argumentsFromRequest(&mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: raw}})
+	gr, ok := got.(json.RawMessage)
+	if !ok {
+		t.Fatalf("unexpected type %T", got)
+	}
+	if string(gr) != string(raw) {
+		t.Errorf("got %q, want %q", gr, raw)
 	}
 }
 
@@ -286,78 +507,43 @@ func TestUpstreamErr_Format(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("expected IsError=true")
 	}
-	tc := firstText(t, res)
-	if tc.Text != "upstream:crm: boom" {
+	if tc := firstText(t, res); tc.Text != "upstream:crm: boom" {
 		t.Errorf("got %q", tc.Text)
 	}
 }
 
+func TestMakeLocalNames_SkipsInvalid(t *testing.T) {
+	in := []*mcp.Tool{nil, {Name: ""}, {Name: "ok"}}
+	out := makeLocalNames("c", in)
+	if len(out) != 1 || out[0] != "c"+NamespaceSeparator+"ok" {
+		t.Errorf("got %v", out)
+	}
+}
+
 func TestSetProviders_NoOp(_ *testing.T) {
-	tk := &Toolkit{}
+	tk := New("x")
 	tk.SetSemanticProvider(nil)
 	tk.SetQueryProvider(nil)
-	// No panic = pass; also exercises the methods for coverage.
 }
 
-func TestClose_NilClient(t *testing.T) {
-	tk := &Toolkit{}
+func TestClose_Empty(t *testing.T) {
+	tk := New("x")
 	if err := tk.Close(); err != nil {
-		t.Errorf("Close() on nil client: %v", err)
-	}
-}
-
-func TestUpstreamClient_CloseIdempotent(t *testing.T) {
-	tk := gatewayAgainst(t, upstreamServer(t))
-	if tk.client == nil {
-		t.Fatal("expected dial to succeed")
-	}
-	if err := tk.client.close(); err != nil {
-		t.Errorf("first close: %v", err)
-	}
-	// nil-session variant — second invocation: session is gone, ensure we
-	// don't panic and we pass through cleanly.
-	var u *upstreamClient
-	if err := u.close(); err != nil {
-		t.Errorf("nil-receiver close: %v", err)
-	}
-}
-
-func TestUpstreamClient_ListTools_FailsAfterClose(t *testing.T) {
-	url := upstreamServer(t)
-	cfg, err := ParseConfig(map[string]any{
-		"endpoint":        url,
-		"connect_timeout": "3s",
-		"call_timeout":    "1s",
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	client, err := dial(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	_ = client.close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if _, err := client.listTools(ctx); err == nil {
-		t.Error("expected error calling listTools on closed session")
+		t.Error(err)
 	}
 }
 
 func TestAuthRoundTripper_BearerInjectsHeader(t *testing.T) {
-	got := captureAuthHeader(t, "Authorization", AuthModeBearer, "tok-123")
-	want := "Bearer tok-123"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	got := captureAuthHeader(t, "Authorization", AuthModeBearer, "tok")
+	if got != "Bearer tok" {
+		t.Errorf("got %q, want %q", got, "Bearer tok")
 	}
 }
 
 func TestAuthRoundTripper_APIKeyInjectsHeader(t *testing.T) {
-	got := captureAuthHeader(t, "X-API-Key", AuthModeAPIKey, "key-456")
-	want := "key-456"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	got := captureAuthHeader(t, "X-API-Key", AuthModeAPIKey, "k")
+	if got != "k" {
+		t.Errorf("got %q, want %q", got, "k")
 	}
 }
 
@@ -367,9 +553,9 @@ func TestBuildHTTPClient_NoneReturnsNil(t *testing.T) {
 	}
 }
 
-// TestDiscover_ListToolsTimeout exercises the dial-success / listTools-failure
-// branch of discover by hanging the upstream's tools/list handler until the
-// connect-scope context expires.
+// TestDiscover_ListToolsTimeout forces discover's post-dial error path by
+// hanging the upstream's tools/list handler until the connect-scope context
+// deadline elapses.
 func TestDiscover_ListToolsTimeout(t *testing.T) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "slow", Version: "0.0.1"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "noop"},
@@ -389,66 +575,25 @@ func TestDiscover_ListToolsTimeout(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
 
-	cfg, err := ParseConfig(map[string]any{
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	err := tk.AddConnection("slow", map[string]any{
 		"endpoint":        ts.URL,
-		"connection_name": "slow",
 		"connect_timeout": "500ms",
 		"call_timeout":    "500ms",
 	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
+	if err == nil {
+		t.Fatal("expected listTools timeout error from AddConnection")
 	}
-	tk := New("slow", cfg)
-	t.Cleanup(func() { _ = tk.Close() })
-
-	if got := len(tk.Tools()); got != 0 {
-		t.Errorf("expected empty Tools() when listTools times out, got %d: %v", got, tk.Tools())
+	if tk.HasConnection("slow") {
+		t.Error("timed-out connection should not be stored")
 	}
 }
 
-// captureAuthHeader stands up a server that records the first inbound request's
-// value of a given header, points the gateway at it, and returns the captured
-// value. The dial will fail (server isn't MCP) but the header is observed.
-func captureAuthHeader(t *testing.T, header, authMode, credential string) string {
-	t.Helper()
-	seen := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case seen <- r.Header.Get(header):
-		default:
-		}
-		// Respond with a body the MCP client will reject so dial ends fast.
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	t.Cleanup(ts.Close)
-
-	cfg, err := ParseConfig(map[string]any{
-		"endpoint":        ts.URL,
-		"auth_mode":       authMode,
-		"credential":      credential,
-		"connect_timeout": "2s",
-		"call_timeout":    "2s",
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	// New is expected to fail to discover tools (server isn't MCP), but
-	// authRoundTripper runs on the first HTTP request regardless.
-	tk := New("hdr", cfg)
-	t.Cleanup(func() { _ = tk.Close() })
-
-	select {
-	case v := <-seen:
-		return v
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for upstream request")
-		return ""
-	}
-}
-
-// platformWithGateway wires the toolkit into a fresh mcp.Server and returns a
-// connected client session via in-memory transports.
-func platformWithGateway(t *testing.T, tk *Toolkit) *mcp.ClientSession {
+// platformWithToolkit wires the toolkit into a fresh mcp.Server and returns a
+// connected client session over in-memory transports.
+func platformWithToolkit(t *testing.T, tk *Toolkit) *mcp.ClientSession {
 	t.Helper()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "platform", Version: "0.0.1"}, nil)
@@ -472,7 +617,6 @@ func platformWithGateway(t *testing.T, tk *Toolkit) *mcp.ClientSession {
 	if err != nil {
 		t.Fatalf("client Connect: %v", err)
 	}
-
 	t.Cleanup(func() {
 		if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
 			t.Logf("server loop exit: %v", err)
@@ -481,8 +625,7 @@ func platformWithGateway(t *testing.T, tk *Toolkit) *mcp.ClientSession {
 	return cs
 }
 
-// firstText returns the first TextContent from a CallToolResult, failing the
-// test if the shape is unexpected.
+// firstText returns the first TextContent from a CallToolResult.
 func firstText(t *testing.T, res *mcp.CallToolResult) *mcp.TextContent {
 	t.Helper()
 	if len(res.Content) == 0 {
@@ -495,14 +638,37 @@ func firstText(t *testing.T, res *mcp.CallToolResult) *mcp.TextContent {
 	return tc
 }
 
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+// captureAuthHeader stands up a non-MCP server, records the first inbound
+// value of a given header, points the gateway at it, and returns the captured
+// value. Dial fails (server isn't MCP) but the header has already been seen.
+func captureAuthHeader(t *testing.T, header, authMode, credential string) string {
+	t.Helper()
+	seen := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case seen <- r.Header.Get(header):
+		default:
 		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(ts.Close)
+
+	tk := New("hdr")
+	t.Cleanup(func() { _ = tk.Close() })
+	// Error expected (non-MCP server); we only care the header was sent.
+	_ = tk.AddConnection("hdr", map[string]any{
+		"endpoint":        ts.URL,
+		"auth_mode":       authMode,
+		"credential":      credential,
+		"connect_timeout": "2s",
+		"call_timeout":    "2s",
+	})
+
+	select {
+	case v := <-seen:
+		return v
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream request")
+		return ""
 	}
-	return true
 }

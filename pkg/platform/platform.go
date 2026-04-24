@@ -2504,9 +2504,9 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		p.config.Toolkits = make(map[string]any)
 	}
 
-	// Only merge connections for kinds that support DB management (trino, s3).
+	// Only merge connections for kinds that support DB management.
 	// Datahub is single-instance and managed via YAML only.
-	manageableKinds := map[string]bool{kindTrino: true, kindS3: true}
+	manageableKinds := map[string]bool{kindTrino: true, kindS3: true, kindGateway: true}
 
 	for _, inst := range instances {
 		if manageableKinds[inst.Kind] {

@@ -255,14 +255,10 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 		// Just verify the factory is called - actual creation depends on AWS SDK defaults
 	})
 
-	t.Run("gateway factory registered", func(t *testing.T) {
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "gateway",
-			Name:   regTestTest,
-			Config: map[string]any{},
-		})
-		if err == nil {
-			t.Error("expected error for missing gateway endpoint")
+	t.Run("gateway aggregate factory registered", func(t *testing.T) {
+		_, ok := reg.GetAggregateFactory("gateway")
+		if !ok {
+			t.Error("expected gateway aggregate factory to be registered")
 		}
 	})
 }
@@ -375,30 +371,45 @@ func TestDataHubFactory(t *testing.T) {
 	}
 }
 
-func TestGatewayFactory_MissingEndpoint(t *testing.T) {
-	_, err := GatewayFactory(regTestTest, map[string]any{})
+func TestGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
+	tk, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{})
+	if err != nil {
+		t.Fatalf("GatewayAggregateFactory: %v", err)
+	}
+	if tk.Kind() != "gateway" {
+		t.Errorf("Kind: got %q", tk.Kind())
+	}
+	if got := tk.Tools(); len(got) != 0 {
+		t.Errorf("expected empty Tools() for no instances, got %v", got)
+	}
+	_ = tk.Close()
+}
+
+func TestGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
+	_, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {}, // missing endpoint
+	})
 	if err == nil {
-		t.Fatal("GatewayFactory() expected error for missing endpoint")
+		t.Fatal("expected parse error for missing endpoint")
 	}
 }
 
-func TestGatewayFactory_UnreachableConstructsEmptyToolkit(t *testing.T) {
-	// Unreachable endpoint must NOT cause a fatal factory error — the
-	// gateway absorbs connection failures so platform startup continues.
-	tk, err := GatewayFactory(regTestTest, map[string]any{
-		"endpoint":        "http://127.0.0.1:1/mcp",
-		"connection_name": "broken",
-		"connect_timeout": "250ms",
-		"call_timeout":    "1s",
+func TestGatewayAggregateFactory_UnreachableInstanceAbsorbed(t *testing.T) {
+	// Unreachable endpoint must not fail the factory — the toolkit still
+	// constructs and the platform startup continues. The failed initial
+	// connection is not stored.
+	tk, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {
+			"endpoint":        "http://127.0.0.1:1/mcp",
+			"connect_timeout": "250ms",
+			"call_timeout":    "1s",
+		},
 	})
 	if err != nil {
-		t.Fatalf("expected no error for unreachable upstream, got %v", err)
-	}
-	if tk.Kind() != "gateway" {
-		t.Errorf("Kind: got %q, want %q", tk.Kind(), "gateway")
+		t.Fatalf("expected no error for unreachable instance, got %v", err)
 	}
 	if got := tk.Tools(); len(got) != 0 {
-		t.Errorf("expected empty Tools() for unreachable upstream, got %v", got)
+		t.Errorf("expected empty Tools(), got %v", got)
 	}
 	_ = tk.Close()
 }

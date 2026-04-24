@@ -54,6 +54,32 @@ type Config struct {
 	TrustLevel string
 }
 
+// MultiConfig holds one or more parsed per-connection gateway configs along
+// with the aggregate toolkit's default connection name.
+type MultiConfig struct {
+	DefaultName string
+	Instances   map[string]Config
+}
+
+// ParseMultiConfig validates and returns the parsed config for every
+// instance. Per-instance parse errors are surfaced as fatal (operator must
+// fix the config); dial/connectivity errors are handled at load time in
+// NewMulti, not here.
+func ParseMultiConfig(defaultName string, raw map[string]map[string]any) (MultiConfig, error) {
+	parsed := make(map[string]Config, len(raw))
+	for name, r := range raw {
+		c, err := ParseConfig(r)
+		if err != nil {
+			return MultiConfig{}, fmt.Errorf("gateway/%s: %w", name, err)
+		}
+		if c.ConnectionName == "" {
+			c.ConnectionName = name
+		}
+		parsed[name] = c
+	}
+	return MultiConfig{DefaultName: defaultName, Instances: parsed}, nil
+}
+
 // ParseConfig parses a gateway configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
