@@ -486,6 +486,118 @@ export interface EffectiveConnection {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway (third-party MCP proxy)
+// ---------------------------------------------------------------------------
+
+export interface GatewayProbeTool {
+  name: string;
+  local_name: string;
+  description?: string;
+}
+
+export interface GatewayTestResponse {
+  healthy: boolean;
+  tools?: GatewayProbeTool[];
+  error?: string;
+}
+
+export interface GatewayRefreshResponse {
+  healthy: boolean;
+  tools?: string[];
+  error?: string;
+}
+
+export interface GatewayOAuthStatus {
+  configured: boolean;
+  token_acquired: boolean;
+  expires_at?: string;
+  last_refreshed_at?: string;
+  has_refresh_token: boolean;
+  last_error?: string;
+  grant?: string;
+  token_url?: string;
+  scope?: string;
+  authenticated_by?: string;
+  authenticated_at?: string;
+  needs_reauth?: boolean;
+}
+
+export interface GatewayOAuthStartResponse {
+  authorization_url: string;
+  state: string;
+  redirect_uri: string;
+  expires_at: string;
+}
+
+export interface GatewayConnectionStatus {
+  name: string;
+  healthy: boolean;
+  auth_mode: string;
+  tools?: string[];
+  oauth?: GatewayOAuthStatus;
+}
+
+export interface EnrichmentPredicate {
+  kind?: "" | "always" | "response_contains";
+  paths?: string[];
+}
+
+export interface EnrichmentAction {
+  source: string;
+  operation: string;
+  parameters?: Record<string, any>;
+}
+
+export interface EnrichmentMerge {
+  kind?: "" | "path";
+  path?: string;
+}
+
+export interface EnrichmentRule {
+  id: string;
+  connection_name: string;
+  tool_name: string;
+  when_predicate: EnrichmentPredicate;
+  enrich_action: EnrichmentAction;
+  merge_strategy: EnrichmentMerge;
+  description?: string;
+  enabled: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EnrichmentRuleBody {
+  tool_name: string;
+  when_predicate: EnrichmentPredicate;
+  enrich_action: EnrichmentAction;
+  merge_strategy: EnrichmentMerge;
+  description?: string;
+  enabled: boolean;
+}
+
+export interface FiredRule {
+  rule_id: string;
+  source: string;
+  op: string;
+  skipped?: boolean;
+  error?: string;
+  duration_ms: number;
+}
+
+export interface DryRunRequest {
+  args?: Record<string, any>;
+  response?: any;
+  user?: { id?: string; email?: string };
+}
+
+export interface DryRunResponse {
+  response: any;
+  warnings?: string[];
+  fired?: FiredRule[];
+}
+
+// ---------------------------------------------------------------------------
 // Memory
 // ---------------------------------------------------------------------------
 

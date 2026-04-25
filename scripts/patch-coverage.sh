@@ -48,8 +48,10 @@ MODULE=$(head -c 500 go.mod | grep '^module ' | awk '{print $2}')
 git diff --unified=0 "$MERGE_BASE" | awk '
     /^\+\+\+ b\// {
         f = substr($0, 7)
-        # skip non-Go and test files
+        # skip non-Go and test files; skip dev-only fixtures whose
+        # purpose is local-dev support rather than runtime behavior.
         if (f !~ /\.go$/ || f ~ /_test\.go$/) f = ""
+        if (f ~ /^cmd\/dev-mcp-mock\//) f = ""
         next
     }
     f != "" && /^@@ / {

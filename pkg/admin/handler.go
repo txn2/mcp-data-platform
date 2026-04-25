@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
 // AuditQuerier queries audit events.
@@ -117,6 +118,21 @@ type Deps struct {
 	PromptRegistrar     PromptRegistrar
 	PromptInfoProvider  PromptInfoProvider
 	FilePersonaNames    map[string]bool
+	EnrichmentStore     EnrichmentStore
+	EnrichmentEngine    EnrichmentEngine
+	// PKCEStore holds in-flight authorization_code+PKCE state. When nil,
+	// the handler falls back to a process-singleton in-memory store
+	// (single-replica only). Set this to a PostgresPKCEStore for HA
+	// deployments where oauth-start and the callback may land on
+	// different replicas.
+	PKCEStore PKCEStore
+}
+
+// EnrichmentEngine is the admin-facing surface of an enrichment.Engine.
+// Defined as a small interface here so tests don't need to construct a
+// real Engine.
+type EnrichmentEngine interface {
+	Sources() *enrichment.SourceRegistry
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -124,6 +140,13 @@ const docsPrefix = "/api/v1/admin/docs/"
 
 // publicPrefix is the path prefix for unauthenticated public endpoints.
 const publicPrefix = "/api/v1/admin/public/"
+
+// oauthCallbackPrefix is the URL the gateway's OAuth flow redirects back
+// to. Lives outside publicPrefix because operators register the exact
+// URL with their OAuth provider; renaming would break every connected
+// upstream. Authenticated by the per-flow PKCE state, not by an admin
+// session.
+const oauthCallbackPrefix = "/api/v1/admin/oauth/"
 
 // Handler provides admin REST API endpoints.
 type Handler struct {
@@ -167,7 +190,9 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, docsPrefix) || strings.HasPrefix(r.URL.Path, publicPrefix) {
+	if strings.HasPrefix(r.URL.Path, docsPrefix) ||
+		strings.HasPrefix(r.URL.Path, publicPrefix) ||
+		strings.HasPrefix(r.URL.Path, oauthCallbackPrefix) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
@@ -190,6 +215,9 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
+	h.registerGatewayRoutes()
+	h.registerGatewayOAuthRoutes()
+	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 }
 

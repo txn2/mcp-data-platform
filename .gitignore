@@ -47,6 +47,7 @@ tmp/
 build/
 /mcp-data-platform
 /preview-content-viewer
+/dev-mcp-mock
 NOTES_*
 
 # E2E test artifacts
@@ -78,3 +79,6 @@ internal/ui/dist/*
 !internal/ui/dist/.gitkeep
 internal/contentviewer/dist/*
 !internal/contentviewer/dist/.gitkeep
+
+# Claude Code session files
+.claude/

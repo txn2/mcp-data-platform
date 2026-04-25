@@ -115,6 +115,62 @@ func TestFieldEncryptor_NilConfig(t *testing.T) {
 	assert.Nil(t, decrypted)
 }
 
+// TestRestFieldEncryptor_RoundTripAndIdempotence covers the adapter
+// that sub-package stores (gateway tokens, PKCE state) use. It must:
+//
+//  1. round-trip: Encrypt then Decrypt returns the original
+//  2. add the enc: prefix on first Encrypt
+//  3. be idempotent: Encrypting an already-prefixed value is a no-op
+//  4. degrade gracefully: Decrypt on plaintext (no prefix) returns it
+//     unchanged so legacy unencrypted rows don't break
+func TestRestFieldEncryptor_RoundTripAndIdempotence(t *testing.T) {
+	inner, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+	r := &RestFieldEncryptor{enc: inner}
+
+	// 1 + 2: Encrypt adds the enc: prefix and Decrypt restores plaintext.
+	plain := "ref-token-value"
+	enc1, err := r.Encrypt(plain)
+	require.NoError(t, err)
+	assert.NotEqual(t, plain, enc1)
+	assert.True(t, len(enc1) > len(plain))
+	dec1, err := r.Decrypt(enc1)
+	require.NoError(t, err)
+	assert.Equal(t, plain, dec1)
+
+	// 3: Encrypting the ciphertext a second time is a no-op (same value).
+	enc2, err := r.Encrypt(enc1)
+	require.NoError(t, err)
+	assert.Equal(t, enc1, enc2, "double-Encrypt must not double-wrap")
+
+	// 4: Decrypt on a plaintext value (no prefix) returns it unchanged.
+	got, err := r.Decrypt("plain-not-prefixed")
+	require.NoError(t, err)
+	assert.Equal(t, "plain-not-prefixed", got)
+
+	// Empty input passes through both directions cleanly.
+	emptyOut, err := r.Encrypt("")
+	require.NoError(t, err)
+	assert.Equal(t, "", emptyOut)
+	emptyOut, err = r.Decrypt("")
+	require.NoError(t, err)
+	assert.Equal(t, "", emptyOut)
+}
+
+// TestRestFieldEncryptor_NilInnerIsPassthrough verifies the dev path
+// where ENCRYPTION_KEY is unset and the inner FieldEncryptor is nil:
+// Encrypt and Decrypt must both pass through verbatim so the platform
+// can still boot for local development.
+func TestRestFieldEncryptor_NilInnerIsPassthrough(t *testing.T) {
+	r := &RestFieldEncryptor{enc: nil}
+	got, err := r.Encrypt("anything")
+	require.NoError(t, err)
+	assert.Equal(t, "anything", got)
+	got, err = r.Decrypt("anything")
+	require.NoError(t, err)
+	assert.Equal(t, "anything", got)
+}
+
 func TestFieldEncryptor_SkipsAlreadyEncrypted(t *testing.T) {
 	e, err := NewFieldEncryptor(testKey(t))
 	require.NoError(t, err)

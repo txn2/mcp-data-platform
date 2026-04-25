@@ -167,6 +167,49 @@ definitions:
         example: 5
         type: integer
     type: object
+  admin.dryRunEnrichmentRequest:
+    properties:
+      args:
+        additionalProperties: {}
+        type: object
+      response: {}
+      user:
+        $ref: '#/definitions/admin.dryRunUser'
+    type: object
+  admin.dryRunEnrichmentResponse:
+    properties:
+      fired:
+        items:
+          $ref: '#/definitions/enrichment.FiredRule'
+        type: array
+      response: {}
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.dryRunUser:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+  admin.enrichmentRuleBody:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      enrich_action:
+        $ref: '#/definitions/enrichment.Action'
+      merge_strategy:
+        $ref: '#/definitions/enrichment.Merge'
+      tool_name:
+        type: string
+      when_predicate:
+        $ref: '#/definitions/enrichment.Predicate'
+    type: object
   admin.insightListResponse:
     properties:
       data:
@@ -414,6 +457,17 @@ definitions:
         example: about:blank
         type: string
     type: object
+  admin.refreshGatewayConnectionResponse:
+    properties:
+      error:
+        type: string
+      healthy:
+        type: boolean
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
   admin.setConnectionInstanceRequest:
     properties:
       config:
@@ -421,6 +475,22 @@ definitions:
         type: object
       description:
         example: Production data warehouse
+        type: string
+    type: object
+  admin.startGatewayOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  admin.startGatewayOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
         type: string
     type: object
   admin.statusResponse:
@@ -499,6 +569,23 @@ definitions:
       version:
         example: 1.55.11
         type: string
+    type: object
+  admin.testGatewayConnectionRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+    type: object
+  admin.testGatewayConnectionResponse:
+    properties:
+      error:
+        type: string
+      healthy:
+        type: boolean
+      tools:
+        items:
+          $ref: '#/definitions/gateway.ProbeTool'
+        type: array
     type: object
   admin.toolCallRequest:
     properties:
@@ -838,6 +925,135 @@ definitions:
       source:
         description: '"file", "database", or "both"'
         example: database
+        type: string
+    type: object
+  enrichment.Action:
+    properties:
+      operation:
+        type: string
+      parameters:
+        additionalProperties: {}
+        type: object
+      source:
+        type: string
+    type: object
+  enrichment.FiredRule:
+    properties:
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      op:
+        type: string
+      rule_id:
+        type: string
+      skipped:
+        type: boolean
+      source:
+        type: string
+    type: object
+  enrichment.Merge:
+    properties:
+      kind:
+        type: string
+      path:
+        type: string
+    type: object
+  enrichment.Predicate:
+    properties:
+      kind:
+        type: string
+      paths:
+        items:
+          type: string
+        type: array
+    type: object
+  enrichment.Rule:
+    properties:
+      connection_name:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      enrich_action:
+        $ref: '#/definitions/enrichment.Action'
+      id:
+        type: string
+      merge_strategy:
+        $ref: '#/definitions/enrichment.Merge'
+      tool_name:
+        type: string
+      updated_at:
+        type: string
+      when_predicate:
+        $ref: '#/definitions/enrichment.Predicate'
+    type: object
+  gateway.ConnectionStatus:
+    properties:
+      auth_mode:
+        type: string
+      healthy:
+        type: boolean
+      name:
+        type: string
+      oauth:
+        $ref: '#/definitions/gateway.OAuthStatus'
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  gateway.OAuthStatus:
+    properties:
+      authenticated_at:
+        description: |-
+          AuthenticatedAt records when the most recent successful exchange
+          (initial OAuth dance or refresh) completed.
+        type: string
+      authenticated_by:
+        description: |-
+          AuthenticatedBy is the email/id of the operator who completed the
+          browser flow. Empty for client_credentials and for connections that
+          have not yet been authorized.
+        type: string
+      configured:
+        type: boolean
+      expires_at:
+        type: string
+      grant:
+        type: string
+      has_refresh_token:
+        type: boolean
+      last_error:
+        type: string
+      last_refreshed_at:
+        type: string
+      needs_reauth:
+        description: |-
+          NeedsReauth is true when the platform cannot mint an access token
+          without operator interaction. For authorization_code grants this
+          means: no stored token, or the refresh token has been revoked.
+          The admin UI surfaces a "Connect" button when this is true.
+        type: boolean
+      scope:
+        type: string
+      token_acquired:
+        type: boolean
+      token_url:
+        type: string
+    type: object
+  gateway.ProbeTool:
+    properties:
+      description:
+        type: string
+      local_name:
+        type: string
+      name:
         type: string
     type: object
   github_com_txn2_mcp-data-platform_pkg_portal.itemInput:
@@ -2511,6 +2727,397 @@ paths:
       summary: List connections
       tags:
       - System
+  /admin/gateway/connections/{name}/enrichment-rules:
+    get:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Filter by proxied tool name
+        in: query
+        name: tool_name
+        type: string
+      - description: Only return enabled rules
+        in: query
+        name: enabled_only
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/enrichment.Rule'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List enrichment rules for a connection
+      tags:
+      - Connections
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.enrichmentRuleBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create an enrichment rule
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/enrichment-rules/{id}:
+    delete:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete an enrichment rule
+      tags:
+      - Connections
+    get:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get an enrichment rule
+      tags:
+      - Connections
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.enrichmentRuleBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update an enrichment rule
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run:
+    post:
+      consumes:
+      - application/json
+      description: Loads the rule, applies it against the provided sample args/response/user
+        without persisting and without invoking the live gateway, and returns the
+        merged response + per-rule trace. Use this in the rule editor to validate
+        bindings and merge strategy.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Sample call
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.dryRunEnrichmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.dryRunEnrichmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Dry-run a single enrichment rule
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/oauth-start:
+    post:
+      consumes:
+      - application/json
+      description: Generates a PKCE verifier, derives the SHA256 challenge, registers
+        a state token, and returns the authorization URL the operator should open
+        in their browser. The platform expects the upstream to redirect to /api/v1/admin/oauth/callback
+        after the user authenticates.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Optional return URL
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Begin OAuth authorization-code flow for a gateway connection
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/reacquire-oauth:
+    post:
+      description: Triggers a client_credentials grant against the configured OAuth
+        token URL, replacing the cached token. Used to recover from upstream-side
+        credential rotations or to verify the configured client_id/client_secret without
+        waiting for token expiry.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/gateway.ConnectionStatus'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Force a fresh OAuth token exchange
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/refresh:
+    post:
+      description: Re-dials a configured gateway connection using the stored config,
+        re-discovers its tool set, and swaps the live connection atomically. Used
+        after an upstream adds, removes, or changes tools.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.refreshGatewayConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.refreshGatewayConnectionResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Refresh a live gateway connection
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/status:
+    get:
+      description: Reports whether the connection is healthy, its tool count, and
+        (when AuthMode=oauth) the current token state — expiry, last refreshed, last
+        error.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/gateway.ConnectionStatus'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a gateway connection's runtime status
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/test:
+    post:
+      consumes:
+      - application/json
+      description: Dials the upstream described by the submitted config, lists its
+        tools, and returns them. Does not persist anything. When the submitted config
+        contains "[REDACTED]" sensitive fields and a row with this name already exists,
+        the redacted fields are merged from the stored config.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Config to test
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.testGatewayConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.testGatewayConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.testGatewayConnectionResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Test a gateway connection config
+      tags:
+      - Connections
   /admin/knowledge/changesets:
     get:
       description: Returns paginated changesets with optional filtering.
@@ -3069,6 +3676,41 @@ paths:
       summary: Get memory record stats
       tags:
       - Memory
+  /admin/oauth/callback:
+    get:
+      description: Public endpoint hit by the upstream OAuth provider after the operator
+        authenticates. Exchanges the code for tokens and stores them. Renders an HTML
+        page on error so a stranded browser tab still gives a useful message.
+      parameters:
+      - description: OAuth authorization code
+        in: query
+        name: code
+        type: string
+      - description: PKCE state token from oauth-start
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: OAuth error code from upstream
+        in: query
+        name: error
+        type: string
+      - description: Human-readable error from upstream
+        in: query
+        name: error_description
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Found
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      summary: OAuth authorization-code callback
+      tags:
+      - Connections
   /admin/personas:
     get:
       description: Returns all configured personas with tool counts.

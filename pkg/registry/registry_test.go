@@ -254,6 +254,13 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 		})
 		// Just verify the factory is called - actual creation depends on AWS SDK defaults
 	})
+
+	t.Run("mcp (gateway) aggregate factory registered", func(t *testing.T) {
+		_, ok := reg.GetAggregateFactory("mcp")
+		if !ok {
+			t.Error("expected mcp aggregate factory to be registered (gateway feature)")
+		}
+	})
 }
 
 func TestTrinoFactory(t *testing.T) {
@@ -364,6 +371,49 @@ func TestDataHubFactory(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
+	tk, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{})
+	if err != nil {
+		t.Fatalf("GatewayAggregateFactory: %v", err)
+	}
+	if tk.Kind() != "mcp" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "mcp")
+	}
+	if got := tk.Tools(); len(got) != 0 {
+		t.Errorf("expected empty Tools() for no instances, got %v", got)
+	}
+	_ = tk.Close()
+}
+
+func TestGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
+	_, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {}, // missing endpoint
+	})
+	if err == nil {
+		t.Fatal("expected parse error for missing endpoint")
+	}
+}
+
+func TestGatewayAggregateFactory_UnreachableInstanceAbsorbed(t *testing.T) {
+	// Unreachable endpoint must not fail the factory — the toolkit still
+	// constructs and the platform startup continues. The failed initial
+	// connection is not stored.
+	tk, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {
+			"endpoint":        "http://127.0.0.1:1/mcp",
+			"connect_timeout": "250ms",
+			"call_timeout":    "1s",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for unreachable instance, got %v", err)
+	}
+	if got := tk.Tools(); len(got) != 0 {
+		t.Errorf("expected empty Tools(), got %v", got)
+	}
+	_ = tk.Close()
+}
+
 func TestS3Factory(_ *testing.T) {
 	// S3Factory may succeed with AWS SDK defaults (env vars, IAM role, etc.)
 	// Just verify it can be called
@@ -426,6 +476,61 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 			match := reg.GetToolkitForTool(tt.tool)
 			assertToolMatch(t, match, tt.want)
 		})
+	}
+}
+
+// mockMultiConnToolkit implements ConnectionResolver, mapping each tool
+// name to its source connection. Models the gateway toolkit pattern.
+type mockMultiConnToolkit struct {
+	mockToolkit
+	toolToConn map[string]string
+}
+
+func (m *mockMultiConnToolkit) ConnectionForTool(toolName string) string {
+	return m.toolToConn[toolName]
+}
+
+func TestGetToolkitForTool_MultiConnectionResolverWins(t *testing.T) {
+	reg := NewRegistry()
+	gw := &mockMultiConnToolkit{
+		mockToolkit: mockToolkit{
+			kind: "mcp", name: "primary", connection: "default-primary",
+			tools: []string{"vendorA__list", "vendorB__list"},
+		},
+		toolToConn: map[string]string{
+			"vendorA__list": "vendorA",
+			"vendorB__list": "vendorB",
+		},
+	}
+	if err := reg.Register(gw); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	matchA := reg.GetToolkitForTool("vendorA__list")
+	if matchA.Connection != "vendorA" {
+		t.Errorf("Connection for vendorA__list = %q, want vendorA", matchA.Connection)
+	}
+	matchB := reg.GetToolkitForTool("vendorB__list")
+	if matchB.Connection != "vendorB" {
+		t.Errorf("Connection for vendorB__list = %q, want vendorB", matchB.Connection)
+	}
+}
+
+func TestGetToolkitForTool_FallbackWhenResolverReturnsEmpty(t *testing.T) {
+	reg := NewRegistry()
+	gw := &mockMultiConnToolkit{
+		mockToolkit: mockToolkit{
+			kind: "mcp", name: "primary", connection: "default-fallback",
+			tools: []string{"orphan__tool"},
+		},
+		toolToConn: map[string]string{}, // resolver returns "" → fallback
+	}
+	if err := reg.Register(gw); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	match := reg.GetToolkitForTool("orphan__tool")
+	if match.Connection != "default-fallback" {
+		t.Errorf("Connection = %q, want default-fallback (resolver empty → fallback)", match.Connection)
 	}
 }
 

@@ -75,6 +75,7 @@ nav:
       - Audit Logging: server/audit.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
+      - Gateway Toolkit: server/gateway.md
     - MCP Apps:
       - Overview: mcpapps/overview.md
       - Configuration: mcpapps/configuration.md

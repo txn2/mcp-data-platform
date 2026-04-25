@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -13,6 +14,7 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory("trino", TrinoAggregateFactory)
 	r.RegisterFactory("datahub", DataHubFactory)
 	r.RegisterFactory("s3", S3Factory)
+	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -68,4 +70,16 @@ func S3Factory(name string, cfg map[string]any) (Toolkit, error) {
 		return nil, fmt.Errorf("creating s3 toolkit: %w", err)
 	}
 	return tk, nil
+}
+
+// GatewayAggregateFactory creates a multi-connection gateway toolkit from
+// all configured instances. Per-instance config parse errors fail the
+// factory; upstream connectivity failures are absorbed and logged so an
+// unreachable upstream cannot block platform startup.
+func GatewayAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	cfg, err := gatewaykit.ParseMultiConfig(defaultName, instances)
+	if err != nil {
+		return nil, fmt.Errorf("parsing gateway multi config: %w", err)
+	}
+	return gatewaykit.NewMulti(cfg), nil
 }

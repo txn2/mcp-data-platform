@@ -227,6 +227,30 @@ viewer:
       - "s3_*"
 ```
 
+## Gateway Tools
+
+Tools proxied through the gateway toolkit appear in `tools/list` under a connection-namespaced name: `<connection_name>__<remote_tool_name>`. Persona rules match these names with the same wildcard syntax as native tools, so a single persona can grant or deny access to a third-party MCP at any level of granularity:
+
+```yaml
+personas:
+  marketer:
+    roles: ["marketing_team"]
+    tools:
+      allow:
+        - "trino_query"           # Native: read warehouse data
+        - "datahub_get_*"         # Native: look up metadata
+        - "vendor__list_*"        # Gateway: read vendor objects
+        - "vendor__send_*"        # Gateway: trigger vendor sends
+      deny:
+        - "vendor__delete_*"      # Block destructive vendor calls
+```
+
+The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `datahub_search`, `s3_get_object`).
+
+### Composite personas
+
+A composite persona combines native and gateway access for a single role. The example above gives the `marketer` role read access to the warehouse plus action access to a third-party MCP wired through the gateway. The same audit log captures every tool call, regardless of whether it landed on Trino, DataHub, S3, or a proxied vendor.
+
 ## Deny Takes Precedence
 
 Deny rules always win over allow rules:

@@ -11,7 +11,13 @@ coverage:
         # Allow some uncovered defensive error handling in new code
         informational: false
 
-# Ignore test files in coverage reports
+# Ignore test files and dev-only fixtures in coverage reports.
 ignore:
   - "**/*_test.go"
   - "**/testdata/**"
+  # cmd/dev-mcp-mock is a development fixture that dev/start.sh
+  # launches alongside the platform so operators can exercise the
+  # MCP gateway end-to-end. It is not exercised by go test, has no
+  # runtime customers, and writing unit tests for a deterministic
+  # mock would be cargo-cult coverage.
+  - "cmd/dev-mcp-mock/**"

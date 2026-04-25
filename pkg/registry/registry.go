@@ -176,6 +176,14 @@ type ToolkitMatch struct {
 	Name       string
 	Connection string
 	Found      bool
+
+	// ConnectionResolved is true when Connection was determined by the
+	// toolkit's ConnectionResolver (per-tool routing) rather than from
+	// the toolkit's default Connection(). When true, downstream
+	// middleware MUST NOT override Connection from request arguments —
+	// the toolkit owns the routing and a caller-supplied "connection"
+	// arg is either ignored by the toolkit or attempts to spoof audit.
+	ConnectionResolved bool
 }
 
 // GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.
@@ -186,11 +194,20 @@ func (r *Registry) GetToolkitForTool(toolName string) ToolkitMatch {
 
 	for _, toolkit := range r.toolkits {
 		if slices.Contains(toolkit.Tools(), toolName) {
+			conn := toolkit.Connection()
+			resolved := false
+			if cr, ok := toolkit.(ConnectionResolver); ok {
+				if c := cr.ConnectionForTool(toolName); c != "" {
+					conn = c
+					resolved = true
+				}
+			}
 			return ToolkitMatch{
-				Kind:       toolkit.Kind(),
-				Name:       toolkit.Name(),
-				Connection: toolkit.Connection(),
-				Found:      true,
+				Kind:               toolkit.Kind(),
+				Name:               toolkit.Name(),
+				Connection:         conn,
+				Found:              true,
+				ConnectionResolved: resolved,
 			}
 		}
 	}

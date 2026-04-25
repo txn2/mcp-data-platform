@@ -52,6 +52,8 @@ import (
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -116,6 +118,9 @@ type Platform struct {
 	fileDefaults      map[string]string
 	connectionStore   ConnectionStore
 	connectionSources *ConnectionSourceMap
+	enrichmentStore   enrichment.Store
+	gatewayTokenStore gatewaykit.TokenStore
+	restEncryptor     *RestFieldEncryptor
 	personaStore      PersonaStore
 	apiKeyStore       APIKeyStore
 
@@ -417,8 +422,86 @@ func (p *Platform) initConnectionStore() error {
 	if err != nil {
 		return err
 	}
+	p.restEncryptor = &RestFieldEncryptor{enc: encryptor}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
+	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
+	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
 	return nil
+}
+
+// RestFieldEncryptor adapts the platform's FieldEncryptor to the
+// generic Encrypt/Decrypt interface used by sub-package stores
+// (gateway OAuth tokens, PKCE state, etc.) so every at-rest secret
+// uses the same key, algorithm, and enc:base64(nonce|cipher) prefix
+// as connection credentials.
+//
+// Exported so consumers like main.go can pass it to constructors
+// (e.g., admin.NewPostgresPKCEStore) without importing internal
+// platform types.
+type RestFieldEncryptor struct {
+	enc *FieldEncryptor
+}
+
+// Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
+// the field encryptor uses for sensitive config map values.
+func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
+	if g.enc == nil || plaintext == "" {
+		return plaintext, nil
+	}
+	if strings.HasPrefix(plaintext, encryptedPrefix) {
+		return plaintext, nil // idempotent: already encrypted
+	}
+	out, err := g.enc.encrypt(plaintext)
+	if err != nil {
+		return "", fmt.Errorf("rest field encrypt: %w", err)
+	}
+	return encryptedPrefix + out, nil
+}
+
+// Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
+// unchanged so legacy/unencrypted rows degrade gracefully.
+func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
+	if g.enc == nil || ciphertext == "" {
+		return ciphertext, nil
+	}
+	if !strings.HasPrefix(ciphertext, encryptedPrefix) {
+		return ciphertext, nil
+	}
+	out, err := g.enc.decrypt(strings.TrimPrefix(ciphertext, encryptedPrefix))
+	if err != nil {
+		return "", fmt.Errorf("rest field decrypt: %w", err)
+	}
+	return out, nil
+}
+
+// RestEncryptor returns the platform's at-rest field encryption
+// adapter, or nil when no database is configured. Sub-package stores
+// can pass this to their constructors so secrets they persist use the
+// same key and format as connection credentials.
+func (p *Platform) RestEncryptor() *RestFieldEncryptor {
+	return p.restEncryptor
+}
+
+// EnrichmentStore returns the gateway enrichment rule store. Nil when no
+// database is configured (the gateway toolkit still works without
+// enrichment rules — they're optional).
+func (p *Platform) EnrichmentStore() enrichment.Store {
+	return p.enrichmentStore
+}
+
+// GatewayTokenStore returns the persistent OAuth token store used by the
+// authorization_code grant. Nil when no database is configured —
+// authorization_code connections won't survive restart in that case.
+func (p *Platform) GatewayTokenStore() gatewaykit.TokenStore {
+	return p.gatewayTokenStore
+}
+
+// DB returns the platform's database handle, or nil when running
+// without a database. Exposed so admin sub-packages can build their
+// own DB-backed stores (e.g., PostgresPKCEStore for multi-replica
+// OAuth) without needing platform-side wiring per store.
+func (p *Platform) DB() *sql.DB {
+	return p.db
 }
 
 // initPersonaStore initializes the persona definition store.
@@ -2504,9 +2587,9 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		p.config.Toolkits = make(map[string]any)
 	}
 
-	// Only merge connections for kinds that support DB management (trino, s3).
+	// Only merge connections for kinds that support DB management.
 	// Datahub is single-instance and managed via YAML only.
-	manageableKinds := map[string]bool{kindTrino: true, kindS3: true}
+	manageableKinds := map[string]bool{kindTrino: true, kindS3: true, kindMCP: true}
 
 	for _, inst := range instances {
 		if manageableKinds[inst.Kind] {
