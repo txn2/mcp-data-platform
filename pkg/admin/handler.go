@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
 // AuditQuerier queries audit events.
@@ -118,6 +119,14 @@ type Deps struct {
 	PromptInfoProvider  PromptInfoProvider
 	FilePersonaNames    map[string]bool
 	EnrichmentStore     EnrichmentStore
+	EnrichmentEngine    EnrichmentEngine
+}
+
+// EnrichmentEngine is the admin-facing surface of an enrichment.Engine.
+// Defined as a small interface here so tests don't need to construct a
+// real Engine.
+type EnrichmentEngine interface {
+	Sources() *enrichment.SourceRegistry
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.

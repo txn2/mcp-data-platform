@@ -167,6 +167,21 @@ definitions:
         example: 5
         type: integer
     type: object
+  admin.enrichmentRuleBody:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      enrich_action:
+        $ref: '#/definitions/enrichment.Action'
+      merge_strategy:
+        $ref: '#/definitions/enrichment.Merge'
+      tool_name:
+        type: string
+      when_predicate:
+        $ref: '#/definitions/enrichment.Predicate'
+    type: object
   admin.insightListResponse:
     properties:
       data:
@@ -867,6 +882,57 @@ definitions:
         description: '"file", "database", or "both"'
         example: database
         type: string
+    type: object
+  enrichment.Action:
+    properties:
+      operation:
+        type: string
+      parameters:
+        additionalProperties: {}
+        type: object
+      source:
+        type: string
+    type: object
+  enrichment.Merge:
+    properties:
+      kind:
+        type: string
+      path:
+        type: string
+    type: object
+  enrichment.Predicate:
+    properties:
+      kind:
+        type: string
+      paths:
+        items:
+          type: string
+        type: array
+    type: object
+  enrichment.Rule:
+    properties:
+      connection_name:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      enrich_action:
+        $ref: '#/definitions/enrichment.Action'
+      id:
+        type: string
+      merge_strategy:
+        $ref: '#/definitions/enrichment.Merge'
+      tool_name:
+        type: string
+      updated_at:
+        type: string
+      when_predicate:
+        $ref: '#/definitions/enrichment.Predicate'
     type: object
   gateway.ProbeTool:
     properties:
@@ -2548,6 +2614,165 @@ paths:
       summary: List connections
       tags:
       - System
+  /admin/gateway/connections/{name}/enrichment-rules:
+    get:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Filter by proxied tool name
+        in: query
+        name: tool_name
+        type: string
+      - description: Only return enabled rules
+        in: query
+        name: enabled_only
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/enrichment.Rule'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List enrichment rules for a connection
+      tags:
+      - Connections
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.enrichmentRuleBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create an enrichment rule
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/enrichment-rules/{id}:
+    delete:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete an enrichment rule
+      tags:
+      - Connections
+    get:
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get an enrichment rule
+      tags:
+      - Connections
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.enrichmentRuleBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/enrichment.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update an enrichment rule
+      tags:
+      - Connections
   /admin/gateway/connections/{name}/refresh:
     post:
       description: Re-dials a configured gateway connection using the stored config,

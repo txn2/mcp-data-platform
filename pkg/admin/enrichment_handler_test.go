@@ -445,6 +445,149 @@ func TestAuthorEmailOrID(t *testing.T) {
 	assert.Equal(t, "uid-only", authorEmailOrID(ctxID))
 }
 
+// fakeEngine is a minimal EnrichmentEngine for dry-run tests. It exposes a
+// fresh source registry pre-loaded with one stub source.
+type fakeEngine struct{ reg *enrichment.SourceRegistry }
+
+func newFakeEngine(t *testing.T) *fakeEngine {
+	t.Helper()
+	reg := enrichment.NewSourceRegistry()
+	reg.Register(&fakeSource{})
+	return &fakeEngine{reg: reg}
+}
+
+func (f *fakeEngine) Sources() *enrichment.SourceRegistry { return f.reg }
+
+type fakeSource struct{}
+
+func (*fakeSource) Name() string         { return enrichment.SourceTrino }
+func (*fakeSource) Operations() []string { return []string{"query"} }
+func (*fakeSource) Execute(_ context.Context, _ string, params map[string]any) (any, error) {
+	return map[string]any{"echo": params}, nil
+}
+
+func enrichmentHandlerWithEngine(t *testing.T, store EnrichmentStore) *Handler {
+	t.Helper()
+	return NewHandler(Deps{
+		Config:           testConfig(),
+		EnrichmentStore:  store,
+		EnrichmentEngine: newFakeEngine(t),
+		ConfigStore:      &mockConfigStore{mode: "database"},
+	}, nil)
+}
+
+func TestDryRunEnrichmentRule_Success(t *testing.T) {
+	store := newStubStore()
+	store.items["rule-1"] = enrichment.Rule{
+		ID: "rule-1", ConnectionName: "crm", ToolName: "crm__get",
+		EnrichAction: enrichment.Action{
+			Source: enrichment.SourceTrino, Operation: "query",
+			Parameters: map[string]any{
+				"sql_template": "SELECT 1",
+				"email":        "$.response.email",
+			},
+		},
+		MergeStrategy: enrichment.Merge{Kind: enrichment.MergePath, Path: "extra"},
+		Enabled:       true,
+	}
+	h := enrichmentHandlerWithEngine(t, store)
+
+	body, _ := json.Marshal(dryRunEnrichmentRequest{
+		Args:     map[string]any{"id": 7},
+		Response: map[string]any{"email": "x@x.com"},
+		User:     dryRunUser{ID: "u-1", Email: "u@x.com"},
+	})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/rule-1/dry-run",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp dryRunEnrichmentResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+
+	merged, ok := resp.Response.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "x@x.com", merged["email"])
+	require.Contains(t, merged, "extra")
+	require.Len(t, resp.Fired, 1)
+	assert.Equal(t, "rule-1", resp.Fired[0].RuleID)
+}
+
+func TestDryRunEnrichmentRule_NotFound(t *testing.T) {
+	h := enrichmentHandlerWithEngine(t, newStubStore())
+	body, _ := json.Marshal(dryRunEnrichmentRequest{})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/missing/dry-run",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDryRunEnrichmentRule_ConnectionMismatchIs404(t *testing.T) {
+	store := newStubStore()
+	store.items["rule-1"] = enrichment.Rule{
+		ID: "rule-1", ConnectionName: "marketing", ToolName: "x",
+		EnrichAction: enrichment.Action{Source: enrichment.SourceTrino, Operation: "query"},
+		Enabled:      true,
+	}
+	h := enrichmentHandlerWithEngine(t, store)
+	body, _ := json.Marshal(dryRunEnrichmentRequest{})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/rule-1/dry-run",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDryRunEnrichmentRule_BadJSON(t *testing.T) {
+	store := newStubStore()
+	store.items["rule-1"] = enrichment.Rule{
+		ID: "rule-1", ConnectionName: "crm", ToolName: "x",
+		EnrichAction: enrichment.Action{Source: enrichment.SourceTrino, Operation: "query"},
+		Enabled:      true,
+	}
+	h := enrichmentHandlerWithEngine(t, store)
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/rule-1/dry-run",
+		bytes.NewReader([]byte("{bad")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDryRunEnrichmentRule_StoreError(t *testing.T) {
+	store := newStubStore()
+	store.getErr = errors.New("db down")
+	h := enrichmentHandlerWithEngine(t, store)
+	body, _ := json.Marshal(dryRunEnrichmentRequest{})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/rule-1/dry-run",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDryRunEnrichmentRule_NotRegisteredWhenNoEngine(t *testing.T) {
+	// Without an EnrichmentEngine, the dry-run route is not registered.
+	h := enrichmentHandler(newStubStore(), true)
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost,
+		"/api/v1/admin/gateway/connections/crm/enrichment-rules/x/dry-run", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestRegisterEnrichmentRoutes_SkipsWhenNoStore(t *testing.T) {
 	// No store → routes not registered → 404
 	h := enrichmentHandler(nil, true)

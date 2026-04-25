@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
 // ErrConnectionExists is returned when AddConnection is called with a name
@@ -46,12 +48,23 @@ type Toolkit struct {
 	name        string
 	defaultName string
 
-	mu          sync.RWMutex
-	server      *mcp.Server
-	connections map[string]*upstream
+	mu               sync.RWMutex
+	server           *mcp.Server
+	connections      map[string]*upstream
+	enrichmentEngine *enrichment.Engine
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+}
+
+// SetEnrichmentEngine wires a cross-enrichment engine into this gateway.
+// When set, every successful forwarded tool result is run through the
+// engine before being returned to the client. Safe to call before or
+// after RegisterTools — handlers fetch the current engine on each call.
+func (t *Toolkit) SetEnrichmentEngine(e *enrichment.Engine) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.enrichmentEngine = e
 }
 
 // upstream tracks a single live connection to a remote MCP server.
@@ -288,26 +301,14 @@ func (t *Toolkit) addToolsToServerLocked(u *upstream) {
 			Title:       rt.Title,
 			Annotations: rt.Annotations,
 		}
-		t.server.AddTool(local, u.makeForwarder(rt.Name))
+		t.server.AddTool(local, t.makeForwarder(u, rt.Name, local.Name))
 	}
 }
 
-// makeLocalNames builds the namespaced tool-name slice for a set of
-// discovered remote tools.
-func makeLocalNames(connection string, remote []*mcp.Tool) []string {
-	out := make([]string, 0, len(remote))
-	for _, rt := range remote {
-		if rt == nil || rt.Name == "" {
-			continue
-		}
-		out = append(out, connection+NamespaceSeparator+rt.Name)
-	}
-	return out
-}
-
-// makeForwarder returns a handler that forwards a single proxied tool call
-// to this upstream's session.
-func (u *upstream) makeForwarder(remoteName string) mcp.ToolHandler {
+// makeForwarder returns a handler that forwards the call upstream and, if
+// an enrichment engine is configured, applies enrichment rules to the
+// upstream response.
+func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.ToolHandler {
 	connection := u.config.ConnectionName
 	callTimeout := u.config.CallTimeout
 	client := u.client
@@ -323,8 +324,92 @@ func (u *upstream) makeForwarder(remoteName string) mcp.ToolHandler {
 		if err != nil {
 			return upstreamErr(connection, err.Error()), nil
 		}
+		if !res.IsError {
+			t.applyEnrichment(ctx, connection, localName, req, res)
+		}
 		return res, nil
 	}
+}
+
+// applyEnrichment runs the configured engine against the upstream response.
+// It mutates res.StructuredContent in place when enrichment fires; warnings
+// are surfaced as additional TextContent entries appended to res.Content.
+// A nil engine, missing structured input, or any internal failure leaves
+// the result unchanged so enrichment is never load-bearing for correctness.
+func (t *Toolkit) applyEnrichment(ctx context.Context, connection, localName string,
+	req *mcp.CallToolRequest, res *mcp.CallToolResult,
+) {
+	t.mu.RLock()
+	engine := t.enrichmentEngine
+	t.mu.RUnlock()
+	if engine == nil {
+		return
+	}
+
+	input, ok := structuredInput(res)
+	if !ok {
+		return
+	}
+
+	call := enrichment.CallContext{
+		Connection: connection,
+		ToolName:   localName,
+		Args:       argsFromRequest(req),
+	}
+	out := engine.Apply(ctx, call, input)
+	if out.Response != nil {
+		res.StructuredContent = out.Response
+	}
+	for _, w := range out.Warnings {
+		res.Content = append(res.Content, &mcp.TextContent{Text: "warning: " + w})
+	}
+}
+
+// structuredInput pulls a structured object out of an upstream
+// CallToolResult, preferring StructuredContent and falling back to JSON
+// embedded in the first TextContent.
+func structuredInput(res *mcp.CallToolResult) (any, bool) {
+	if res.StructuredContent != nil {
+		return res.StructuredContent, true
+	}
+	if len(res.Content) == 0 {
+		return nil, false
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return nil, false
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(tc.Text), &parsed); err != nil {
+		return nil, false
+	}
+	return parsed, true
+}
+
+// argsFromRequest decodes the tool call's raw arguments into a generic
+// any value for use as an evaluation-context input.
+func argsFromRequest(req *mcp.CallToolRequest) any {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return nil
+	}
+	var parsed any
+	if err := json.Unmarshal(req.Params.Arguments, &parsed); err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// makeLocalNames builds the namespaced tool-name slice for a set of
+// discovered remote tools.
+func makeLocalNames(connection string, remote []*mcp.Tool) []string {
+	out := make([]string, 0, len(remote))
+	for _, rt := range remote {
+		if rt == nil || rt.Name == "" {
+			continue
+		}
+		out = append(out, connection+NamespaceSeparator+rt.Name)
+	}
+	return out
 }
 
 // discover dials the upstream and fetches its tool catalog in one step,

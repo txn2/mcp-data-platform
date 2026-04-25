@@ -39,7 +39,124 @@ func (h *Handler) registerEnrichmentRoutes() {
 	h.mux.HandleFunc("GET "+base+"/{id}", h.getEnrichmentRule)
 	h.mux.HandleFunc("PUT "+base+"/{id}", h.updateEnrichmentRule)
 	h.mux.HandleFunc("DELETE "+base+"/{id}", h.deleteEnrichmentRule)
+	if h.deps.EnrichmentEngine != nil {
+		h.mux.HandleFunc("POST "+base+"/{id}/dry-run", h.dryRunEnrichmentRule)
+	}
 }
+
+// dryRunEnrichmentRequest is the body of a dry-run invocation. The fields
+// mirror what an upstream call carries so the engine can resolve bindings.
+type dryRunEnrichmentRequest struct {
+	Args     map[string]any `json:"args"`
+	Response any            `json:"response"`
+	User     dryRunUser     `json:"user"`
+}
+
+type dryRunUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+// dryRunEnrichmentResponse mirrors enrichment.Result enough for the
+// admin UI to preview the merged response and any per-rule outcomes.
+type dryRunEnrichmentResponse struct {
+	Response any                    `json:"response"`
+	Warnings []string               `json:"warnings,omitempty"`
+	Fired    []enrichment.FiredRule `json:"fired,omitempty"`
+}
+
+// dryRunEnrichmentRule lets an operator preview a single rule against a
+// sample call without persisting anything or affecting other rules.
+//
+// @Summary      Dry-run a single enrichment rule
+// @Description  Loads the rule, applies it against the provided sample args/response/user without persisting and without invoking the live gateway, and returns the merged response + per-rule trace. Use this in the rule editor to validate bindings and merge strategy.
+// @Tags         Connections
+// @Accept       json
+// @Produce      json
+// @Param        name  path  string                  true  "Gateway connection name"
+// @Param        id    path  string                  true  "Rule id"
+// @Param        body  body  dryRunEnrichmentRequest true  "Sample call"
+// @Success      200   {object}  dryRunEnrichmentResponse
+// @Failure      404   {object}  problemDetail
+// @Failure      400   {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run [post]
+func (h *Handler) dryRunEnrichmentRule(w http.ResponseWriter, r *http.Request) {
+	connection := r.PathValue(pathKeyName)
+	id := r.PathValue(pathKeyID)
+
+	rule, err := h.deps.EnrichmentStore.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, enrichment.ErrRuleNotFound) {
+			writeError(w, http.StatusNotFound, msgRuleNotFound)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load enrichment rule")
+		return
+	}
+	if rule.ConnectionName != connection {
+		writeError(w, http.StatusNotFound, msgRuleNotFound)
+		return
+	}
+
+	var body dryRunEnrichmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Run the engine in single-rule mode by routing through a one-shot
+	// store wrapper that returns only this rule.
+	oneShot := singleRuleStore{rule: *rule}
+	preview := enrichment.NewEngine(oneShot, h.deps.EnrichmentEngine.Sources())
+
+	call := enrichment.CallContext{
+		Connection: connection,
+		ToolName:   rule.ToolName,
+		Args:       body.Args,
+		User: enrichment.UserSnapshot{
+			ID:    body.User.ID,
+			Email: body.User.Email,
+		},
+	}
+	res := preview.Apply(r.Context(), call, body.Response)
+	writeJSON(w, http.StatusOK, dryRunEnrichmentResponse{
+		Response: res.Response,
+		Warnings: res.Warnings,
+		Fired:    res.Fired,
+	})
+}
+
+// singleRuleStore wraps a single Rule into a Store so the dry-run engine
+// only ever evaluates that one rule, regardless of what's persisted.
+type singleRuleStore struct {
+	rule enrichment.Rule
+}
+
+// List returns just the wrapped rule, ignoring filters. It satisfies
+// enrichment.Store for the dry-run engine.
+func (s singleRuleStore) List(_ context.Context, _, _ string, _ bool) ([]enrichment.Rule, error) {
+	return []enrichment.Rule{s.rule}, nil
+}
+
+// Get always reports not-found; the dry-run engine never calls Get.
+func (singleRuleStore) Get(_ context.Context, _ string) (*enrichment.Rule, error) {
+	return nil, enrichment.ErrRuleNotFound
+}
+
+// Create is a no-op required by enrichment.Store.
+func (singleRuleStore) Create(_ context.Context, r enrichment.Rule) (enrichment.Rule, error) {
+	return r, nil
+}
+
+// Update is a no-op required by enrichment.Store.
+func (singleRuleStore) Update(_ context.Context, r enrichment.Rule) (enrichment.Rule, error) {
+	return r, nil
+}
+
+// Delete is a no-op required by enrichment.Store.
+func (singleRuleStore) Delete(_ context.Context, _ string) error { return nil }
 
 // listEnrichmentRules returns every enrichment rule for a connection.
 //

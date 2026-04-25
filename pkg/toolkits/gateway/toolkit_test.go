@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
 const (
@@ -439,9 +441,229 @@ func TestEndToEnd_TransportFailureAttribution(t *testing.T) {
 	}
 }
 
+// engineFixture builds a minimal enrichment engine that fires one rule
+// against the response and merges a hardcoded value under "enrichment".
+func engineFixture(t *testing.T, connection, localTool string) *enrichment.Engine {
+	t.Helper()
+	store := &enrichmentStub{rules: []enrichment.Rule{{
+		ID: "fixture", ConnectionName: connection, ToolName: localTool,
+		EnrichAction: enrichment.Action{
+			Source: enrichment.SourceTrino, Operation: "query",
+		},
+		MergeStrategy: enrichment.Merge{Kind: enrichment.MergePath, Path: "warehouse_signals"},
+		Enabled:       true,
+	}}}
+	src := &fixtureSource{}
+	reg := enrichment.NewSourceRegistry()
+	reg.Register(src)
+	return enrichment.NewEngine(store, reg)
+}
+
+type fixtureSource struct{}
+
+func (*fixtureSource) Name() string         { return enrichment.SourceTrino }
+func (*fixtureSource) Operations() []string { return []string{"query"} }
+func (*fixtureSource) Execute(_ context.Context, _ string, _ map[string]any) (any, error) {
+	return map[string]any{"lifetime_value": 4242}, nil
+}
+
+type enrichmentStub struct{ rules []enrichment.Rule }
+
+func (s *enrichmentStub) List(_ context.Context, _, _ string, _ bool) ([]enrichment.Rule, error) {
+	return s.rules, nil
+}
+
+func (*enrichmentStub) Get(_ context.Context, _ string) (*enrichment.Rule, error) {
+	return nil, enrichment.ErrRuleNotFound
+}
+
+func (*enrichmentStub) Create(_ context.Context, r enrichment.Rule) (enrichment.Rule, error) {
+	return r, nil
+}
+
+func (*enrichmentStub) Update(_ context.Context, r enrichment.Rule) (enrichment.Rule, error) {
+	return r, nil
+}
+func (*enrichmentStub) Delete(_ context.Context, _ string) error { return nil }
+
+func TestEndToEnd_EnrichmentRunsThroughForwarder(t *testing.T) {
+	url := upstreamServer(t)
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	if err := tk.AddConnection(connCRM, connectionConfig(url, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.SetEnrichmentEngine(engineFixture(t, connCRM, localCRMEcho))
+
+	client := platformWithToolkit(t, tk)
+	t.Cleanup(func() { _ = client.Close() })
+
+	res, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      localCRMEcho,
+		Arguments: map[string]any{"message": "ignored"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	// The echo tool returns "echo:ignored" as TextContent. JSON parse
+	// fails, so structuredInput returns false and enrichment is a no-op
+	// here — the assertion is only that the forward+enrichment pipeline
+	// did not break the call. Engine integration is exhaustively unit
+	// tested in the enrichment package; this just proves the wiring.
+	if res.IsError {
+		t.Fatal("expected success")
+	}
+}
+
+func TestProbe_DiscoversTools(t *testing.T) {
+	url := upstreamServer(t)
+	cfg, err := ParseConfig(map[string]any{
+		"endpoint":        url,
+		"connect_timeout": "3s",
+		"call_timeout":    "3s",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	tools, err := Probe(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(tools) == 0 {
+		t.Fatal("expected probe to discover tools")
+	}
+}
+
+func TestProbe_UnreachableReturnsError(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{
+		"endpoint":        "http://127.0.0.1:1/mcp",
+		"connect_timeout": "200ms",
+		"call_timeout":    "1s",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if _, err := Probe(context.Background(), cfg); err == nil {
+		t.Fatal("expected error for unreachable upstream")
+	}
+}
+
+func TestApplyEnrichment_NoEngineIsNoOp(t *testing.T) {
+	tk := New("primary")
+	res := &mcp.CallToolResult{StructuredContent: map[string]any{"x": 1}}
+	tk.applyEnrichment(context.Background(), "c", "c__t", &mcp.CallToolRequest{}, res)
+	got, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content not a map: %T", res.StructuredContent)
+	}
+	if got["x"] != 1 || len(got) != 1 {
+		t.Errorf("unexpectedly modified: %v", got)
+	}
+}
+
+func TestApplyEnrichment_AppendsWarnings(t *testing.T) {
+	tk := New("primary")
+	store := &enrichmentStub{rules: []enrichment.Rule{{
+		ID: "r", ConnectionName: "c", ToolName: "c__t",
+		EnrichAction: enrichment.Action{Source: "phantom", Operation: "x"},
+		Enabled:      true,
+	}}}
+	tk.SetEnrichmentEngine(enrichment.NewEngine(store, enrichment.NewSourceRegistry()))
+
+	res := &mcp.CallToolResult{StructuredContent: map[string]any{"x": 1}}
+	tk.applyEnrichment(context.Background(), "c", "c__t", &mcp.CallToolRequest{}, res)
+
+	var foundWarning bool
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok && strings.HasPrefix(tc.Text, "warning:") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected at least one warning text content, got %d items", len(res.Content))
+	}
+}
+
+func TestStructuredInput_PrefersStructuredContent(t *testing.T) {
+	res := &mcp.CallToolResult{
+		StructuredContent: map[string]any{"a": 1},
+		Content:           []mcp.Content{&mcp.TextContent{Text: "ignored"}},
+	}
+	got, ok := structuredInput(res)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("got %T", got)
+	}
+	if m["a"] != 1 {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestStructuredInput_FallsBackToJSONText(t *testing.T) {
+	res := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: `{"a":1}`}},
+	}
+	got, ok := structuredInput(res)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("got %T", got)
+	}
+	if m["a"] != float64(1) {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestStructuredInput_NoneReturnsFalse(t *testing.T) {
+	if _, ok := structuredInput(&mcp.CallToolResult{}); ok {
+		t.Error("expected false on empty result")
+	}
+	if _, ok := structuredInput(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "not json"}}}); ok {
+		t.Error("expected false on non-JSON text")
+	}
+}
+
+func TestArgsFromRequest_ParsesJSON(t *testing.T) {
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Arguments: json.RawMessage(`{"k":"v"}`),
+	}}
+	got := argsFromRequest(req)
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("got %T", got)
+	}
+	if m["k"] != "v" {
+		t.Errorf("got %v", m)
+	}
+}
+
+func TestArgsFromRequest_NilCases(t *testing.T) {
+	if argsFromRequest(nil) != nil {
+		t.Error("nil req")
+	}
+	if argsFromRequest(&mcp.CallToolRequest{}) != nil {
+		t.Error("nil params")
+	}
+}
+
+func TestArgsFromRequest_BadJSONReturnsNil(t *testing.T) {
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Arguments: json.RawMessage(`{not json`),
+	}}
+	if argsFromRequest(req) != nil {
+		t.Error("expected nil for malformed JSON")
+	}
+}
+
 func TestMakeForwarder_NilClientReturnsUnavailable(t *testing.T) {
+	tk := New("primary")
 	u := &upstream{config: Config{ConnectionName: "nilc", CallTimeout: time.Second}}
-	handler := u.makeForwarder("any")
+	handler := tk.makeForwarder(u, "any", "nilc__any")
 	res, err := handler(context.Background(), &mcp.CallToolRequest{})
 	if err != nil {
 		t.Fatalf("handler err: %v", err)

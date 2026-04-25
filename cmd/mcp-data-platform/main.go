@@ -32,6 +32,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
 const (
@@ -744,6 +746,10 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.AuditMetricsQuerier = p.AuditStore()
 	}
 
+	if engine := wireEnrichmentEngine(p); engine != nil {
+		deps.EnrichmentEngine = engine
+	}
+
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(
 			p.KnowledgeInsightStore(),
@@ -761,6 +767,27 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	}
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+}
+
+// wireEnrichmentEngine builds the gateway enrichment engine when a rule
+// store is available, registers the (currently empty) source registry,
+// and attaches the engine to the live gateway toolkit so forwarded calls
+// pick it up. Source adapters (Trino, DataHub) register against the
+// engine separately as they are introduced.
+func wireEnrichmentEngine(p *platform.Platform) *enrichment.Engine {
+	store := p.EnrichmentStore()
+	if store == nil {
+		return nil
+	}
+	engine := enrichment.NewEngine(store, enrichment.NewSourceRegistry())
+	for _, tk := range p.ToolkitRegistry().All() {
+		gw, ok := tk.(*gatewaykit.Toolkit)
+		if !ok {
+			continue
+		}
+		gw.SetEnrichmentEngine(engine)
+	}
+	return engine
 }
 
 // mountBrowserAuth registers the OIDC login/callback/logout routes.
