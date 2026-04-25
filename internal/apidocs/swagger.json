@@ -1308,6 +1308,74 @@
                 }
             }
         },
+        "/admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Loads the rule, applies it against the provided sample args/response/user without persisting and without invoking the live gateway, and returns the merged response + per-rule trace. Use this in the rule editor to validate bindings and merge strategy.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Dry-run a single enrichment rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Rule id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Sample call",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.dryRunEnrichmentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.dryRunEnrichmentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/refresh": {
             "post": {
                 "security": [
@@ -6037,6 +6105,48 @@
                 }
             }
         },
+        "admin.dryRunEnrichmentRequest": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "response": {},
+                "user": {
+                    "$ref": "#/definitions/admin.dryRunUser"
+                }
+            }
+        },
+        "admin.dryRunEnrichmentResponse": {
+            "type": "object",
+            "properties": {
+                "fired": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/enrichment.FiredRule"
+                    }
+                },
+                "response": {},
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "admin.dryRunUser": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.enrichmentRuleBody": {
             "type": "object",
             "properties": {
@@ -7055,6 +7165,29 @@
                 "parameters": {
                     "type": "object",
                     "additionalProperties": {}
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "enrichment.FiredRule": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "op": {
+                    "type": "string"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "type": "boolean"
                 },
                 "source": {
                     "type": "string"

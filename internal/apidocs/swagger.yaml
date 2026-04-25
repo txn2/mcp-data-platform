@@ -167,6 +167,34 @@ definitions:
         example: 5
         type: integer
     type: object
+  admin.dryRunEnrichmentRequest:
+    properties:
+      args:
+        additionalProperties: {}
+        type: object
+      response: {}
+      user:
+        $ref: '#/definitions/admin.dryRunUser'
+    type: object
+  admin.dryRunEnrichmentResponse:
+    properties:
+      fired:
+        items:
+          $ref: '#/definitions/enrichment.FiredRule'
+        type: array
+      response: {}
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.dryRunUser:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
   admin.enrichmentRuleBody:
     properties:
       description:
@@ -890,6 +918,21 @@ definitions:
       parameters:
         additionalProperties: {}
         type: object
+      source:
+        type: string
+    type: object
+  enrichment.FiredRule:
+    properties:
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      op:
+        type: string
+      rule_id:
+        type: string
+      skipped:
+        type: boolean
       source:
         type: string
     type: object
@@ -2771,6 +2814,52 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update an enrichment rule
+      tags:
+      - Connections
+  /admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run:
+    post:
+      consumes:
+      - application/json
+      description: Loads the rule, applies it against the provided sample args/response/user
+        without persisting and without invoking the live gateway, and returns the
+        merged response + per-rule trace. Use this in the rule editor to validate
+        bindings and merge strategy.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Rule id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Sample call
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.dryRunEnrichmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.dryRunEnrichmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Dry-run a single enrichment rule
       tags:
       - Connections
   /admin/gateway/connections/{name}/refresh:

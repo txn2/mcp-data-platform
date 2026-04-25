@@ -51,14 +51,16 @@ type Result struct {
 }
 
 // FiredRule is a per-rule outcome record exposed to the dry-run endpoint
-// and audit middleware.
+// and audit middleware. DurationMs is the elapsed wall time in
+// milliseconds; chosen over time.Duration so JSON consumers (including
+// swag-generated OpenAPI schemas) get a portable integer.
 type FiredRule struct {
-	RuleID   string
-	Source   string
-	Op       string
-	Skipped  bool
-	Error    string
-	Duration time.Duration
+	RuleID     string `json:"rule_id"`
+	Source     string `json:"source"`
+	Op         string `json:"op"`
+	Skipped    bool   `json:"skipped,omitempty"`
+	Error      string `json:"error,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // Engine pulls rules from a Store and dispatches their actions to the
@@ -114,7 +116,7 @@ func (e *Engine) applyRule(ctx context.Context, rule Rule, call CallContext, out
 
 	if !predicateMatches(rule.WhenPredicate, out.Response) {
 		trace.Skipped = true
-		trace.Duration = time.Since(start)
+		trace.DurationMs = time.Since(start).Milliseconds()
 		return trace
 	}
 
@@ -122,13 +124,13 @@ func (e *Engine) applyRule(ctx context.Context, rule Rule, call CallContext, out
 	if !ok {
 		out.Warnings = append(out.Warnings, fmt.Sprintf("enrichment: source %q not registered (rule %s)", rule.EnrichAction.Source, rule.ID))
 		trace.Error = "source not registered"
-		trace.Duration = time.Since(start)
+		trace.DurationMs = time.Since(start).Milliseconds()
 		return trace
 	}
 	if !slices.Contains(source.Operations(), rule.EnrichAction.Operation) {
 		out.Warnings = append(out.Warnings, fmt.Sprintf("enrichment: source %q rejected operation %q (rule %s)", rule.EnrichAction.Source, rule.EnrichAction.Operation, rule.ID))
 		trace.Error = "operation not allowed"
-		trace.Duration = time.Since(start)
+		trace.DurationMs = time.Since(start).Milliseconds()
 		return trace
 	}
 
@@ -136,12 +138,12 @@ func (e *Engine) applyRule(ctx context.Context, rule Rule, call CallContext, out
 	if rerr != nil {
 		out.Warnings = append(out.Warnings, fmt.Sprintf("enrichment: resolve parameters (rule %s): %v", rule.ID, rerr))
 		trace.Error = rerr.Error()
-		trace.Duration = time.Since(start)
+		trace.DurationMs = time.Since(start).Milliseconds()
 		return trace
 	}
 
 	value, ferr := source.Execute(ctx, rule.EnrichAction.Operation, resolved)
-	trace.Duration = time.Since(start)
+	trace.DurationMs = time.Since(start).Milliseconds()
 	if ferr != nil {
 		out.Warnings = append(out.Warnings, fmt.Sprintf("enrichment: execute (rule %s): %v", rule.ID, ferr))
 		trace.Error = ferr.Error()
