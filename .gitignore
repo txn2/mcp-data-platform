@@ -78,3 +78,6 @@ internal/ui/dist/*
 !internal/ui/dist/.gitkeep
 internal/contentviewer/dist/*
 !internal/contentviewer/dist/.gitkeep
+
+# Claude Code session files
+.claude/
