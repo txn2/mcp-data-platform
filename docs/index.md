@@ -361,10 +361,11 @@ semantic:
 | **DataHub** | 16 tools | Search, metadata, lineage, glossary, browse, write-back |
 | **Trino** | 6 tools | SQL queries, schema exploration, catalog browsing |
 | **S3** | 6-9 tools | Bucket/object operations, presigned URLs |
+| **MCP Gateway** | per upstream | Proxy any third-party MCP (Salesforce, vendor APIs, internal tools) under the platform's auth + persona + audit envelope. Connections authored in the admin portal. OAuth 2.1 with both `client_credentials` and `authorization_code`+PKCE grants. Optional declarative cross-enrichment with Trino / DataHub. |
 
-DataHub is the foundation and serves as your semantic layer. Add Trino for SQL queries, S3 for object storage. Use what you have.
+DataHub is the foundation and serves as your semantic layer. Add Trino for SQL queries, S3 for object storage, the **MCP Gateway** for third-party MCPs. Use what you have.
 
-[:octicons-arrow-right-24: Tools reference](reference/tools-api.md)
+[:octicons-arrow-right-24: Tools reference](reference/tools-api.md) ・ [:octicons-arrow-right-24: Gateway toolkit](server/gateway.md)
 
 ---
 

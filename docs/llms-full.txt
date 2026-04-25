@@ -693,7 +693,8 @@ Authentication identifies who is making requests. Anonymous access is disabled b
 
 - **OIDC**: Human users via Keycloak, Auth0, Okta
 - **API Keys**: Service accounts, automation
-- **OAuth 2.1**: Claude Desktop authentication via upstream IdP
+- **OAuth 2.1 (inbound)**: Claude Desktop authentication via upstream IdP — see "OAuth 2.1 for Claude Desktop" below
+- **OAuth 2.1 (outbound)**: Gateway connections to upstream MCPs — `client_credentials` (M2M) and `authorization_code` + PKCE (browser sign-in). Encrypted refresh tokens persist across restarts. See "OAuth to Upstream MCPs" later in this document.
 
 ### OAuth 2.1 for Claude Desktop
 
@@ -2320,6 +2321,45 @@ The dry-run endpoint accepts a sample `{ args, response, user }` and returns the
 ## Failure isolation
 
 A gateway upstream that's unreachable at startup logs a warning, records zero tools for that connection, and does not block platform startup. Other connections keep working. A connection that becomes unhealthy at runtime returns tool-error results prefixed `upstream:<connection>:` so the LLM can self-correct, and the audit log captures the failure with the same event shape as a successful call.
+
+---
+
+# OAuth to Upstream MCPs
+
+When a gateway connection requires OAuth, the platform acts as the OAuth client to the upstream MCP. This is distinct from the inbound OAuth 2.1 server that lets Claude Desktop authenticate to the platform.
+
+## Supported grants
+
+- **client_credentials** (machine-to-machine): set `oauth_token_url`, `oauth_client_id`, `oauth_client_secret`, optional `oauth_scope`. Platform fetches and refreshes tokens automatically. No browser involved.
+- **authorization_code + PKCE** (browser sign-in): adds `oauth_authorization_url`. Operator clicks Connect in the admin portal once; the platform walks the PKCE flow per RFC 7636 (S256), persists encrypted refresh tokens, and refreshes the access token automatically thereafter — including for cron jobs and scheduled prompts.
+
+## Storage
+
+- `gateway_oauth_tokens` — access_token, refresh_token, expires_at, authenticated_by. AES-256-GCM via `ENCRYPTION_KEY`.
+- `oauth_pkce_states` — code_verifier (paired secret), state, redirect_uri. AES-256-GCM via `ENCRYPTION_KEY`. Rows expire after 10 min via server-side `NOW() + INTERVAL`.
+
+`ENCRYPTION_KEY` is required for production. Without it, the platform stores values in plaintext and logs a warning.
+
+## Multi-replica
+
+PKCE state must be visible across replicas (oauth-start may land on replica A, callback on replica B). The platform automatically uses the Postgres-backed PKCE store when a database is configured. Single-replica deployments fall back to in-memory.
+
+## Salesforce Hosted MCP
+
+Standard `authorization_code` + PKCE via an External Client App (ECA) with Web Server Flow enabled. Callback URL `https://<your-platform-host>/api/v1/admin/oauth/callback`, scopes `api refresh_token <mcp scope>`, authorization URL `https://login.salesforce.com/services/oauth2/authorize`, token URL `https://login.salesforce.com/services/oauth2/token`. Consumer key/secret become `oauth_client_id`/`oauth_client_secret`.
+
+---
+
+# Gateway Admin REST Endpoints
+
+In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (used for create/read/update/delete with `kind=mcp`), the gateway exposes:
+
+- `POST /api/v1/admin/gateway/connections/{name}/test` — dial the upstream without saving, return discovered tools. Used by the admin UI to validate credentials before persisting.
+- `POST /api/v1/admin/gateway/connections/{name}/refresh` — re-dial a saved connection and re-register its tool catalog on the live MCP server.
+- `POST /api/v1/admin/gateway/connections/{name}/oauth-start` — for `authorization_code` connections; returns the upstream's authorization URL with PKCE state. Operator opens this in a browser tab.
+- `GET /api/v1/admin/oauth/callback?code=…&state=…` — **public** endpoint (state token authenticates the callback). Upstream provider redirects here after sign-in. Platform exchanges the code for tokens and persists them encrypted.
+- `GET/POST/PUT/DELETE /api/v1/admin/gateway/connections/{name}/enrichment-rules[/{id}]` — cross-enrichment rule CRUD.
+- `POST /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run` — preview a rule against sample data without side effects.
 
 ---
 

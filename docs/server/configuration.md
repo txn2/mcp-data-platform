@@ -510,6 +510,35 @@ toolkits:
 | `connection_name` | string | instance name | Display name for this connection |
 | `bucket_prefix` | string | - | Only show buckets with this prefix |
 
+### MCP Gateway
+
+The `mcp` toolkit kind proxies upstream MCP servers and re-exposes their
+tools as `<connection_name>__<remote_tool>`. **Connections are managed
+exclusively through the admin portal** — no per-instance config goes in
+`platform.yaml`. The only YAML knob is `enabled`, which turns the kind on.
+
+```yaml
+toolkits:
+  mcp:
+    enabled: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Register the gateway toolkit kind. When false, mcp connections in `connection_instances` are ignored. |
+
+**Required environment for the OAuth + at-rest encryption path:**
+
+| Variable | Required for | Notes |
+|----------|--------------|-------|
+| `ENCRYPTION_KEY` | Encrypted credentials in `connection_instances`, `gateway_oauth_tokens`, and `oauth_pkce_states` | 32-byte AES-256 key, base64-encoded. Without it, sensitive fields are stored in plaintext and the platform logs a warning. Required for any production gateway deployment. |
+| `DATABASE_URL` | OAuth `authorization_code` grant (refresh-token persistence) and multi-replica deployments | Without a database, OAuth tokens live in process memory only and don't survive restarts. Multi-replica deployments additionally need this so PKCE state is shared across pods. |
+
+See [Gateway Toolkit](gateway.md) for the connection-config reference,
+auth modes (`none`/`bearer`/`api_key`/`oauth`), OAuth grant types
+(`client_credentials` and `authorization_code` + PKCE), and the
+cross-enrichment rule schema.
+
 ## Cross-Injection Configuration
 
 ```yaml

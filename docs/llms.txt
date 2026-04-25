@@ -43,7 +43,8 @@
 - [Auth Overview](auth/overview.md): Fail-closed security model, stdio vs HTTP authentication
 - [OIDC](auth/oidc.md): Keycloak, Auth0, Okta, Azure AD setup with required claims
 - [API Keys](auth/api-keys.md): Service account authentication
-- [OAuth Server](auth/oauth-server.md): Built-in OAuth 2.1 for Claude Desktop + Keycloak integration
+- [OAuth Server](auth/oauth-server.md): Built-in OAuth 2.1 for Claude Desktop + Keycloak integration (this platform as the OAuth provider)
+- [OAuth to Upstream MCPs](auth/oauth-gateway.md): OAuth-outbound from the platform to third-party MCP servers proxied through the gateway. Both `client_credentials` (M2M) and `authorization_code` + PKCE (browser sign-in) grants. Encrypted refresh tokens persist across restarts. Salesforce Hosted MCP setup walkthrough included
 - [Security Article](https://imti.co/mcp-defense/): MCP Defense - A Case Study in AI Security
 
 ## Personas

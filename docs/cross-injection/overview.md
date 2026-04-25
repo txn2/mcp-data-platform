@@ -716,6 +716,30 @@ curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
 
 ---
 
+## Related: Gateway Cross-Enrichment Rules
+
+The [MCP gateway toolkit](../server/gateway.md) extends the
+cross-injection pattern to **third-party MCP responses**. Where the
+in-process injection above is hard-coded for native toolkits
+(Trino ↔ DataHub ↔ S3), the gateway exposes a **declarative rule
+engine** that lets operators configure, per proxied tool, how the
+response is augmented with warehouse / catalog context — without
+writing Go.
+
+Conceptually the same pattern (one source's response is enriched with
+another's) but with three differences:
+
+| | Native cross-injection | Gateway cross-enrichment rules |
+|---|---|---|
+| Configured by | Platform code | Operator, in the admin portal |
+| Trigger | Hard-coded per toolkit | JSONB predicate (`always`, `response_contains`) |
+| Source | DataHub or Trino client | DataHub `get_entity` / `get_glossary_term`, Trino `query` |
+| Bindings | Compile-time | JSONPath against `$.args`, `$.response`, `$.user` |
+| Scope | All native tool calls | Per-rule, attached to a proxied tool name |
+
+See [Cross-Enrichment Rules](../server/gateway.md#cross-enrichment-rules)
+for the rule schema, dry-run preview, and failure semantics.
+
 ## Next Steps
 
 - [Trino → DataHub Enrichment](trino-datahub.md) - Deep dive into Trino enrichment

@@ -121,6 +121,55 @@ Amazon S3 (or any S3-compatible service like MinIO) is object storage. It stores
 
 ---
 
+## MCP Gateway: Third-Party MCP Integration
+
+### What is the MCP Gateway?
+
+The platform also acts as an **MCP client** against arbitrary upstream
+MCP servers and re-exposes their tools through its own MCP server. A
+third-party MCP — Salesforce Hosted MCP, a vendor's REST-wrapped MCP,
+an internal team's tool collection — becomes available to AI assistants
+under the platform's existing auth, persona, and audit envelope, with
+no code changes on the client side.
+
+### Why a Gateway?
+
+Composing third-party MCPs directly with the customer's data has three
+distinct values:
+
+1. **Proximity** — tools from external systems land next to warehouse
+   data and DataHub metadata, so an AI working in one session can
+   reason across vendor APIs and the customer's own data without
+   switching contexts or credentials.
+2. **Central control** — one auth flow, one persona model, one audit
+   log. Whether the AI calls a Trino query or a remote vendor's MCP
+   tool, the governance surface is identical.
+3. **Configurable cross-enrichment** — declarative rules join proxied
+   tool responses with warehouse / catalog context (e.g., a vendor's
+   "get customer" tool can be enriched with the matching row from
+   `mart.customers` automatically).
+
+### How it surfaces
+
+Tools from a gateway connection appear as `<connection>__<remote_tool>`
+in `tools/list` (e.g., `vendor__send_email`). Persona globs work the
+same way they do for native tools (`vendor__*`, `*_send_*`). Audit
+rows have `toolkit_kind=mcp` and `connection=<connection_name>`.
+
+### How operators use it
+
+Connections are created and authenticated in the admin portal — no
+YAML, no restarts. Authentication options include `none`, `bearer`,
+`api_key`, and `oauth` (with both `client_credentials` and
+`authorization_code` + PKCE grants). For `authorization_code` flows,
+encrypted refresh tokens persist in `gateway_oauth_tokens` so cron
+jobs and scheduled prompts run untouched after a one-time browser
+sign-in.
+
+See [Gateway Toolkit](../server/gateway.md) for the full reference.
+
+---
+
 ## How They Work Together
 
 ### What each component lacks

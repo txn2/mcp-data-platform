@@ -68,10 +68,10 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `user_id` | VARCHAR(255) | Authenticated user identity. From OIDC `sub` claim, API key name, or OAuth token subject. |
 | `user_email` | VARCHAR(255) | User email from OIDC claims, if available. |
 | `persona` | VARCHAR(100) | Resolved persona name (e.g., `analyst`, `admin`). Set by the authorizer based on the user's roles. |
-| `tool_name` | VARCHAR(255) | MCP tool name (e.g., `trino_query`, `datahub_search`, `s3_list_buckets`). |
-| `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, or `s3`. |
-| `toolkit_name` | VARCHAR(100) | Toolkit instance name from configuration (e.g., `production`, `staging`). |
-| `connection` | VARCHAR(100) | Connection name from toolkit config. Identifies which backend instance handled the request. |
+| `tool_name` | VARCHAR(255) | MCP tool name (e.g., `trino_query`, `datahub_search`, `s3_list_buckets`). For gateway-proxied tools, `<connection>__<remote_tool>` (e.g., `vendor__list_contacts`). |
+| `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, `s3`, or `mcp` (proxied through the [gateway toolkit](gateway.md)). |
+| `toolkit_name` | VARCHAR(100) | Toolkit instance name from configuration (e.g., `production`, `staging`). For gateway proxied tools, the gateway toolkit's own name (typically `primary`). |
+| `connection` | VARCHAR(100) | Connection name. For native toolkits, the connection used to route the call (e.g., `prod-trino`). For gateway proxied tools, the upstream MCP connection name (e.g., `vendor`) — populated via the registry's `ConnectionResolver` interface so per-upstream auditing is accurate without relying on caller-supplied args. |
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
