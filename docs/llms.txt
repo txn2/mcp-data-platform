@@ -25,6 +25,7 @@
 - [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference (including enrichment_mode, enrichment_tokens_full, enrichment_tokens_dedup), parameter sanitization, retention, query examples (including enrichment token savings and discovery-before-query patterns), troubleshooting
 - [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
 - [Session Externalization](server/session-externalization.md): Externalize session state to PostgreSQL for zero-downtime restarts and horizontal scaling
+- [Gateway Toolkit](server/gateway.md): Re-expose third-party MCP servers through the platform's auth, persona, and audit pipeline. Connections authored via the admin portal (DB-backed, encrypted credentials). Tools surface as `<connection>__<remote_tool>`. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups (predicates, JSONPath bindings, parameterized SQL, dry-run admin endpoint). Failure-isolated: unreachable upstreams never block startup or other tools
 
 ## Cross-Injection
 

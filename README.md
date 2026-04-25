@@ -25,6 +25,8 @@ mcp-data-platform is the orchestration layer for a broader suite of open-source 
 - [txn2/mcp-s3](https://github.com/txn2/mcp-s3/) — S3 object storage: list buckets, browse prefixes, read objects, generate presigned URLs
 - [txn2/mcp-trino](https://github.com/txn2/mcp-trino/) — Trino distributed SQL: query any data source Trino connects to with configurable timeouts and row limits
 
+The platform also includes a **[gateway toolkit](https://mcp-data-platform.txn2.com/server/gateway/)** that re-exposes any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Operators add connections through the admin portal (DB-backed, encrypted credentials); tools surface as `<connection>__<remote_tool>`. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups, so a vendor MCP can return its own data plus warehouse context in a single call.
+
 ---
 
 ## Why mcp-data-platform?

@@ -2179,6 +2179,136 @@ Requires `knowledge.enabled: true` and database. Returns 409 without database.
 
 ---
 
+# Gateway Toolkit
+
+The gateway toolkit lets the platform act as an MCP **client** against arbitrary upstream MCP servers and re-expose their tools through the platform's own MCP server. Every proxied tool inherits the platform's authentication, persona enforcement, and audit logging — operators get one security envelope across every MCP they integrate.
+
+## Architecture
+
+The forwarder dials each configured upstream once at startup, discovers its tool catalog, and re-registers every tool under a connection-namespaced local name (`<connection>__<remote_tool>`). Persona rules and audit middleware see proxied tools the same way they see native tools.
+
+## Configuring connections
+
+Gateway connections live in the database, not in `platform.yaml`. Operators add and authenticate them through the admin portal (or directly via the admin REST API). Required for the kind to be active in YAML:
+
+```yaml
+toolkits:
+  gateway:
+    enabled: true
+    # No instances here — connections are managed via the admin portal.
+```
+
+Create a connection through the admin REST API:
+
+```bash
+curl -X PUT \
+  -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": {
+      "endpoint": "https://vendor.example.com/mcp",
+      "auth_mode": "bearer",
+      "credential": "your-vendor-token",
+      "connection_name": "vendor"
+    },
+    "description": "Vendor analytics MCP"
+  }' \
+  https://platform.example.com/api/v1/admin/connection-instances/gateway/vendor
+```
+
+The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is set. The connection name (`vendor` above) becomes the prefix for every proxied tool.
+
+### Authentication modes
+
+- `none` — no auth header
+- `bearer` — `Authorization: Bearer <credential>`
+- `api_key` — `X-API-Key: <credential>`
+
+v1 uses a shared service credential per connection (one identity for all platform users). User-level attribution still appears in the audit log.
+
+### Test and refresh endpoints
+
+- `POST /api/v1/admin/gateway/connections/{name}/test` — dial without saving, return discovered tools
+- `POST /api/v1/admin/gateway/connections/{name}/refresh` — re-dial a stored connection, re-register tools
+
+## Persona enforcement
+
+Proxied tools follow standard persona rules. The double-underscore separator (`__`) makes gateway tools easy to target by pattern:
+
+```yaml
+personas:
+  marketer:
+    roles: ["marketing_team"]
+    tools:
+      allow:
+        - "trino_query"
+        - "vendor__list_*"
+        - "vendor__send_*"
+      deny:
+        - "vendor__delete_*"
+```
+
+## Cross-enrichment rules
+
+The gateway can run declarative enrichment rules that augment a proxied tool's response with context fetched from another platform source (Trino query, DataHub lookup). Rules are stored in `gateway_enrichment_rules` (migration 000034).
+
+Rule shape:
+
+```json
+{
+  "tool_name": "vendor__get_contact",
+  "when_predicate": { "kind": "response_contains", "paths": ["$.email"] },
+  "enrich_action": {
+    "source": "trino",
+    "operation": "query",
+    "parameters": {
+      "connection": "warehouse",
+      "sql_template": "SELECT lifetime_value FROM mart.customers WHERE email = :email",
+      "email": "$.response.email"
+    }
+  },
+  "merge_strategy": { "kind": "path", "path": "warehouse_signals" },
+  "enabled": true
+}
+```
+
+### Predicates
+
+- `always` (default) — fires on every successful tool call
+- `response_contains` — fires only when every JSONPath in `paths` resolves in the response
+
+### Sources and operations
+
+- `trino` — `query` (parameters: `connection`, `sql_template`, plus bindings)
+- `datahub` — `get_entity`, `get_glossary_term` (parameter: `urn`)
+
+Bindings (string parameters starting with `$.` or `$[`) are JSONPath expressions resolved against `{ args, response, user }`. SQL `:name` placeholders are substituted with safely-quoted ANSI-SQL literals; single-quoted regions in templates are skipped so timestamp literals are never mangled.
+
+### Merge strategies
+
+- `path` (default) — attaches the source result to `response[merge.path]`. Default path: `enrichment`.
+
+### Failure mode
+
+Rule failures never break the parent tool call. Warnings are appended as `TextContent` entries prefixed `warning:` and the unaltered response content is returned.
+
+### Rule admin endpoints
+
+- `GET    /api/v1/admin/gateway/connections/{name}/enrichment-rules`
+- `POST   /api/v1/admin/gateway/connections/{name}/enrichment-rules`
+- `GET    /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}`
+- `PUT    /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}`
+- `DELETE /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}`
+- `POST   /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run`
+
+The dry-run endpoint accepts a sample `{ args, response, user }` and returns the merged response plus per-rule traces (timing, errors).
+
+## Failure isolation
+
+A gateway upstream that's unreachable at startup logs a warning, records zero tools for that connection, and does not block platform startup. Other connections keep working. A connection that becomes unhealthy at runtime returns tool-error results prefixed `upstream:<connection>:` so the LLM can self-correct, and the audit log captures the failure with the same event shape as a successful call.
+
+---
+
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform
