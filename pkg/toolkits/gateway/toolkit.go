@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 
@@ -60,13 +61,37 @@ type Toolkit struct {
 
 // SetTokenStore wires a persistent OAuth token store into the gateway.
 // Required for authorization_code grants to survive process restarts.
-// Safe to call before or after RegisterTools — connections constructed
-// from this point on use the new store; existing connections retain
-// their original (typically nil) store.
+//
+// When called after AddConnection, any authorization_code placeholder
+// connections (those that were registered as "awaiting reauth" because
+// the store wasn't yet wired) are automatically retried so persisted
+// tokens are picked up without requiring a manual refresh. This makes
+// startup wiring order-independent.
 func (t *Toolkit) SetTokenStore(s TokenStore) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.tokenStore = s
+	type pending struct {
+		name string
+		cfg  Config
+	}
+	var retry []pending
+	for name, u := range t.connections {
+		if u.client == nil &&
+			u.config.AuthMode == AuthModeOAuth &&
+			u.config.OAuth.Grant == OAuthGrantAuthorizationCode {
+			retry = append(retry, pending{name: name, cfg: u.config})
+			delete(t.connections, name)
+		}
+	}
+	t.mu.Unlock()
+
+	for _, p := range retry {
+		if err := t.addParsedConnection(p.name, p.cfg); err != nil {
+			slog.Warn("gateway: retry placeholder after token store wired",
+				logKeyConnection, p.cfg.ConnectionName,
+				logKeyError, err)
+		}
+	}
 }
 
 // SetEnrichmentEngine wires a cross-enrichment engine into this gateway.
@@ -148,6 +173,21 @@ func (t *Toolkit) Tools() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ConnectionForTool maps a namespaced local tool name (e.g.
+// "vendor__list_contacts") back to its source connection name. Used by
+// the platform's audit middleware to attribute proxied tool calls to
+// the specific upstream connection they were routed to.
+func (t *Toolkit) ConnectionForTool(toolName string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, u := range t.connections {
+		if slices.Contains(u.toolNames, toolName) {
+			return u.config.ConnectionName
+		}
+	}
+	return ""
 }
 
 // RegisterTools captures the server reference and registers every tool from

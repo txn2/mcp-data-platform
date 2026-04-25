@@ -501,6 +501,72 @@ func TestOAuthTokenSource_ReacquireAuthorizationCode_RefreshSucceeds(t *testing.
 	}
 }
 
+// TestSetTokenStore_RetriesAuthorizationCodePlaceholders proves the
+// race-fix for the live-found bug: a toolkit that already has placeholder
+// authorization_code connections (because the token store wasn't wired
+// when AddConnection ran) MUST retry those placeholders when the store
+// is finally attached, so persisted tokens survive process restarts.
+func TestSetTokenStore_RetriesAuthorizationCodePlaceholders(t *testing.T) {
+	// Token endpoint that always returns a valid token.
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "valid-acc", RefreshToken: "valid-ref", ExpiresIn: 3600,
+		})
+	})
+
+	// Real MCP upstream that requires Bearer auth.
+	upstreamURL := upstreamServer(t)
+
+	// Step 1: AddConnection BEFORE token store is wired. Connection
+	// should land as an "awaiting reauth" placeholder.
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	cfg := map[string]any{
+		"endpoint":                upstreamURL,
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "3s",
+		"call_timeout":            "3s",
+	}
+	if err := tk.AddConnection("vendor", cfg); err != nil {
+		t.Fatalf("AddConnection (placeholder expected to be created without error): %v", err)
+	}
+	if got := len(tk.Tools()); got != 0 {
+		t.Fatalf("placeholder should have zero tools, got %d", got)
+	}
+
+	// Step 2: Pre-seed token store and wire it. Placeholder should be
+	// retried automatically.
+	store := NewMemoryTokenStore()
+	if err := store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "valid-acc",
+		RefreshToken:   "valid-ref",
+		ExpiresAt:      time.Now().Add(1 * time.Hour),
+	}); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+	tk.SetTokenStore(store)
+
+	// Step 3: Connection should now be live with discovered tools.
+	tools := tk.Tools()
+	if len(tools) == 0 {
+		t.Fatalf("expected SetTokenStore to retry placeholder and discover tools, got %d", len(tools))
+	}
+	for _, n := range tools {
+		if !strings.HasPrefix(n, "vendor"+NamespaceSeparator) {
+			t.Errorf("tool %q missing connection prefix", n)
+		}
+	}
+}
+
 func TestOAuthTokenSource_ReacquireAuthorizationCode_RefreshFailsCapturesError(t *testing.T) {
 	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

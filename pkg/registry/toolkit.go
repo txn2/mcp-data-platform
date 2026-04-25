@@ -67,6 +67,15 @@ type PromptDescriber interface {
 	PromptInfos() []PromptInfo
 }
 
+// ConnectionResolver is an optional interface for toolkits that fan
+// out across multiple upstream connections (e.g. the mcp gateway).
+// When implemented, the registry calls ConnectionForTool to attribute
+// each tool to its specific upstream connection in audit rows; an
+// empty return falls back to the toolkit's default Connection().
+type ConnectionResolver interface {
+	ConnectionForTool(toolName string) string
+}
+
 // ToolkitConfig holds configuration for a toolkit instance.
 type ToolkitConfig struct {
 	Kind    string

@@ -186,10 +186,16 @@ func (r *Registry) GetToolkitForTool(toolName string) ToolkitMatch {
 
 	for _, toolkit := range r.toolkits {
 		if slices.Contains(toolkit.Tools(), toolName) {
+			conn := toolkit.Connection()
+			if cr, ok := toolkit.(ConnectionResolver); ok {
+				if c := cr.ConnectionForTool(toolName); c != "" {
+					conn = c
+				}
+			}
 			return ToolkitMatch{
 				Kind:       toolkit.Kind(),
 				Name:       toolkit.Name(),
-				Connection: toolkit.Connection(),
+				Connection: conn,
 				Found:      true,
 			}
 		}

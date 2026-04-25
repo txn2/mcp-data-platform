@@ -93,6 +93,30 @@ func TestAddConnection_DiscoversAndNamespacesTools(t *testing.T) {
 	}
 }
 
+func TestConnectionForTool_ResolvesPerToolToConnection(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	url1 := upstreamServer(t)
+	url2 := upstreamServer(t)
+	if err := tk.AddConnection(connCRM, connectionConfig(url1, connCRM)); err != nil {
+		t.Fatalf("AddConnection crm: %v", err)
+	}
+	if err := tk.AddConnection(connMKT, connectionConfig(url2, connMKT)); err != nil {
+		t.Fatalf("AddConnection marketing: %v", err)
+	}
+
+	if got := tk.ConnectionForTool(localCRMEcho); got != connCRM {
+		t.Errorf("ConnectionForTool(%q) = %q, want %q", localCRMEcho, got, connCRM)
+	}
+	if got := tk.ConnectionForTool(localMKTEcho); got != connMKT {
+		t.Errorf("ConnectionForTool(%q) = %q, want %q", localMKTEcho, got, connMKT)
+	}
+	if got := tk.ConnectionForTool("not_a_tool"); got != "" {
+		t.Errorf("ConnectionForTool(unknown) = %q, want empty", got)
+	}
+}
+
 func TestAddConnection_TwoConnectionsIsolated(t *testing.T) {
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
