@@ -19,6 +19,7 @@ import {
   Database,
   X,
 } from "lucide-react";
+import { GatewayActionBar, GatewayRulesDrawer } from "./GatewayActions";
 
 // Fields that should be redacted in view mode.
 const SENSITIVE_KEYS = new Set([
@@ -31,6 +32,7 @@ const SENSITIVE_KEYS = new Set([
   "api_key",
   "api_secret",
   "private_key",
+  "credential",
 ]);
 
 function isSensitive(key: string): boolean {
@@ -45,6 +47,7 @@ const KIND_COLORS: Record<string, string> = {
   trino: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   datahub: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
   s3: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  gateway: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
 };
 
 function kindColor(kind: string): string {
@@ -277,6 +280,7 @@ function ConnectionViewer({
   const deleteMutation = useDeleteConnectionInstance();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   const datahubSourceName = typeof connection.config?.datahub_source_name === "string"
     ? connection.config.datahub_source_name : undefined;
@@ -326,6 +330,21 @@ function ConnectionViewer({
           </div>
         )}
       </div>
+
+      {/* Gateway-specific actions: test, refresh, rules */}
+      {connection.kind === "gateway" && !isReadOnly && (
+        <GatewayActionBar
+          connectionName={connection.name}
+          connectionConfig={connection.config ?? {}}
+          onOpenRules={() => setRulesOpen(true)}
+        />
+      )}
+      {rulesOpen && connection.kind === "gateway" && (
+        <GatewayRulesDrawer
+          connectionName={connection.name}
+          onClose={() => setRulesOpen(false)}
+        />
+      )}
 
       {/* Metadata */}
       <div className="grid grid-cols-3 gap-4">
@@ -470,7 +489,7 @@ interface EditorProps {
   onDirtyChange: (dirty: boolean) => void;
 }
 
-const AVAILABLE_KINDS = ["trino", "s3"];
+const AVAILABLE_KINDS = ["trino", "s3", "gateway"];
 
 function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: EditorProps) {
   const isCreate = !connection;
@@ -642,6 +661,9 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
             )}
             {kind === "s3" && (
               <S3ConfigForm config={configObj} onChange={setConfigObj} />
+            )}
+            {kind === "gateway" && (
+              <GatewayConfigForm config={configObj} onChange={setConfigObj} />
             )}
           </div>
         </div>
@@ -996,5 +1018,86 @@ function KeyValueEditor({
         </button>
       </div>
     </div>
+  );
+}
+
+function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
+  return (
+    <>
+      <ConfigField
+        label="Endpoint"
+        help="HTTPS URL of the upstream MCP server (Streamable HTTP transport)."
+        value={String(config.endpoint ?? "")}
+        onChange={(v) => onChange(update(config, "endpoint", v))}
+        placeholder="https://vendor.example.com/mcp"
+        mono
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium">Auth mode</label>
+          <select
+            value={String(config.auth_mode ?? "none")}
+            onChange={(e) => onChange(update(config, "auth_mode", e.target.value))}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          >
+            <option value="none">None</option>
+            <option value="bearer">Bearer token</option>
+            <option value="api_key">API key</option>
+          </select>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Bearer sends Authorization header; API key sends X-API-Key.
+          </p>
+        </div>
+        <ConfigField
+          label="Connection name"
+          help="Optional override; defaults to the instance name above. Becomes the tool prefix."
+          value={String(config.connection_name ?? "")}
+          onChange={(v) => onChange(update(config, "connection_name", v))}
+          placeholder="vendor"
+          mono
+        />
+      </div>
+      {(config.auth_mode === "bearer" || config.auth_mode === "api_key") && (
+        <ConfigField
+          label="Credential"
+          help="Encrypted at rest when ENCRYPTION_KEY is set. Use [REDACTED] when re-saving without changing it."
+          value={String(config.credential ?? "")}
+          onChange={(v) => onChange(update(config, "credential", v))}
+          sensitive
+        />
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <ConfigField
+          label="Connect timeout"
+          help="Initial dial + tool discovery (e.g. 10s, 1m)."
+          value={String(config.connect_timeout ?? "")}
+          onChange={(v) => onChange(update(config, "connect_timeout", v))}
+          placeholder="10s"
+          mono
+        />
+        <ConfigField
+          label="Call timeout"
+          help="Per-tool-call upstream timeout (e.g. 60s)."
+          value={String(config.call_timeout ?? "")}
+          onChange={(v) => onChange(update(config, "call_timeout", v))}
+          placeholder="60s"
+          mono
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium">Trust level</label>
+        <select
+          value={String(config.trust_level ?? "untrusted")}
+          onChange={(e) => onChange(update(config, "trust_level", e.target.value))}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+        >
+          <option value="untrusted">Untrusted (default)</option>
+          <option value="trusted">Trusted</option>
+        </select>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          Reserved for future content-fencing of upstream responses. Leave at "untrusted" unless you control the upstream.
+        </p>
+      </div>
+    </>
   );
 }

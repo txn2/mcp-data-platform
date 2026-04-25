@@ -592,6 +592,99 @@ export function useDeleteConnectionInstance() {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway-specific endpoints (test/refresh + enrichment rules)
+// ---------------------------------------------------------------------------
+
+export function useTestGatewayConnection() {
+  return useMutation({
+    mutationFn: ({ name, config }: { name: string; config: Record<string, any> }) =>
+      apiFetch<import("./types").GatewayTestResponse>(
+        `/gateway/connections/${name}/test`,
+        { method: "POST", body: JSON.stringify({ config }) },
+      ),
+  });
+}
+
+export function useRefreshGatewayConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<import("./types").GatewayRefreshResponse>(
+        `/gateway/connections/${name}/refresh`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+      void qc.invalidateQueries({ queryKey: ["tools"] });
+    },
+  });
+}
+
+export function useEnrichmentRules(connection: string, enabled = true) {
+  return useQuery({
+    queryKey: ["enrichment-rules", connection],
+    queryFn: () =>
+      apiFetch<import("./types").EnrichmentRule[]>(
+        `/gateway/connections/${connection}/enrichment-rules`,
+      ),
+    enabled: enabled && !!connection,
+  });
+}
+
+export function useCreateEnrichmentRule(connection: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: import("./types").EnrichmentRuleBody) =>
+      apiFetch<import("./types").EnrichmentRule>(
+        `/gateway/connections/${connection}/enrichment-rules`,
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["enrichment-rules", connection] });
+    },
+  });
+}
+
+export function useUpdateEnrichmentRule(connection: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & import("./types").EnrichmentRuleBody) =>
+      apiFetch<import("./types").EnrichmentRule>(
+        `/gateway/connections/${connection}/enrichment-rules/${id}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["enrichment-rules", connection] });
+    },
+  });
+}
+
+export function useDeleteEnrichmentRule(connection: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchRaw(`/gateway/connections/${connection}/enrichment-rules/${id}`, {
+        method: "DELETE",
+      }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete enrichment rule");
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["enrichment-rules", connection] });
+    },
+  });
+}
+
+export function useDryRunEnrichmentRule(connection: string) {
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: import("./types").DryRunRequest }) =>
+      apiFetch<import("./types").DryRunResponse>(
+        `/gateway/connections/${connection}/enrichment-rules/${id}/dry-run`,
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // API Keys
 // ---------------------------------------------------------------------------
 
