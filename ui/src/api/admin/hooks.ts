@@ -646,6 +646,19 @@ export function useReacquireGatewayOAuth() {
   });
 }
 
+export function useStartGatewayOAuth() {
+  return useMutation({
+    mutationFn: ({ name, returnURL }: { name: string; returnURL?: string }) =>
+      apiFetch<import("./types").GatewayOAuthStartResponse>(
+        `/gateway/connections/${name}/oauth-start`,
+        {
+          method: "POST",
+          body: JSON.stringify({ return_url: returnURL ?? "" }),
+        },
+      ),
+  });
+}
+
 export function useEnrichmentRules(connection: string, enabled = true) {
   return useQuery({
     queryKey: ["enrichment-rules", connection],

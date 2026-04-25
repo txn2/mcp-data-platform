@@ -44,7 +44,7 @@ func TestOAuthTokenSource_AcquiresOnFirstCall(t *testing.T) {
 			AccessToken: "abc", TokenType: "Bearer", ExpiresIn: 3600,
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	tok, err := src.Token(context.Background())
 	if err != nil {
@@ -76,7 +76,7 @@ func TestOAuthTokenSource_CachesValidToken(t *testing.T) {
 			AccessToken: "cached", ExpiresIn: 3600,
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	for i := range 5 {
 		_, err := src.Token(context.Background())
@@ -108,7 +108,7 @@ func TestOAuthTokenSource_RefreshesUsingRefreshToken(t *testing.T) {
 			AccessToken: "fresh", ExpiresIn: 3600,
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	if _, err := src.Token(context.Background()); err != nil {
 		t.Fatalf("first Token: %v", err)
@@ -139,7 +139,7 @@ func TestOAuthTokenSource_ReacquireBypassesCache(t *testing.T) {
 			AccessToken: "tok", ExpiresIn: 3600,
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	if _, err := src.Token(context.Background()); err != nil {
 		t.Fatalf("Token: %v", err)
@@ -160,7 +160,7 @@ func TestOAuthTokenSource_RFCErrorResponse(t *testing.T) {
 			Error: "invalid_client", ErrorDescription: "unknown client",
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	_, err := src.Token(context.Background())
 	if err == nil {
@@ -176,7 +176,7 @@ func TestOAuthTokenSource_NonJSONErrorResponse(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("upstream is on fire"))
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	_, err := src.Token(context.Background())
 	if err == nil {
@@ -192,7 +192,7 @@ func TestOAuthTokenSource_MissingAccessTokenIsError(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"token_type": "Bearer", "expires_in": 3600})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	_, err := src.Token(context.Background())
 	if !errors.Is(err, err) || err == nil || !strings.Contains(err.Error(), "missing access_token") {
@@ -206,7 +206,7 @@ func TestOAuthTokenSource_DefaultExpiryWhenAbsent(t *testing.T) {
 		//nolint:gosec // G117 false positive: OAuth response shape, not a credential
 		_ = json.NewEncoder(w).Encode(tokenResponse{AccessToken: "no-expiry"})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	if _, err := src.Token(context.Background()); err != nil {
 		t.Fatalf("Token: %v", err)
@@ -236,7 +236,7 @@ func TestOAuthTokenSource_ConcurrentTokenCallsSerialize(t *testing.T) {
 			AccessToken: "tok", ExpiresIn: 3600,
 		})
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	const n = 8
 	var wg sync.WaitGroup
@@ -256,7 +256,7 @@ func TestOAuthTokenSource_StatusReportsLastError(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 
 	_, _ = src.Token(context.Background())
 	st := src.Status()
@@ -343,7 +343,7 @@ func TestOAuthTokenSource_ReacquireFailureCapturesError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("nope"))
 	})
-	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	src := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 	if err := src.Reacquire(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
@@ -416,7 +416,7 @@ func TestAuthRoundTripper_OAuthInjectsBearer(t *testing.T) {
 			AccessToken: "fresh-tok", ExpiresIn: 3600,
 		})
 	})
-	source := newOAuthTokenSource(defaultOAuthConfig(tokenServer))
+	source := newOAuthTokenSource(defaultOAuthConfig(tokenServer), "test", nil)
 
 	got := http.Header{}
 	echo := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -437,6 +437,94 @@ func TestAuthRoundTripper_OAuthInjectsBearer(t *testing.T) {
 	_ = resp.Body.Close()
 	if got.Get("Authorization") != "Bearer fresh-tok" {
 		t.Errorf("bearer header missing: %v", got)
+	}
+}
+
+func TestOAuthTokenSource_ReacquireAuthorizationCode_NoRefreshTokenReturnsReauthError(t *testing.T) {
+	cfg := OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     "http://unused",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	store := NewMemoryTokenStore()
+	src := newOAuthTokenSource(cfg, "vendor", store)
+
+	err := src.Reacquire(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no refresh token, got nil")
+	}
+	if !strings.Contains(err.Error(), "no refresh token") {
+		t.Errorf("error should mention missing refresh token: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Connect") {
+		t.Errorf("error should suggest Connect button: %v", err)
+	}
+}
+
+func TestOAuthTokenSource_ReacquireAuthorizationCode_RefreshSucceeds(t *testing.T) {
+	var seenGrant string
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		seenGrant = parseFormBytes(body).Get("grant_type")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "fresh", RefreshToken: "newref", ExpiresIn: 3600,
+		})
+	})
+	cfg := OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	store := NewMemoryTokenStore()
+	if err := store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor", AccessToken: "stale", RefreshToken: "oldref",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	src := newOAuthTokenSource(cfg, "vendor", store)
+
+	if err := src.Reacquire(context.Background()); err != nil {
+		t.Fatalf("Reacquire: %v", err)
+	}
+	if seenGrant != "refresh_token" {
+		t.Errorf("expected refresh_token grant, got %q", seenGrant)
+	}
+	persisted, err := store.Get(context.Background(), "vendor")
+	if err != nil {
+		t.Fatalf("Get persisted: %v", err)
+	}
+	if persisted.AccessToken != "fresh" || persisted.RefreshToken != "newref" {
+		t.Errorf("persisted tokens not rotated: %+v", persisted)
+	}
+}
+
+func TestOAuthTokenSource_ReacquireAuthorizationCode_RefreshFailsCapturesError(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	})
+	cfg := OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	store := NewMemoryTokenStore()
+	_ = store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor", RefreshToken: "stillgood",
+	})
+	src := newOAuthTokenSource(cfg, "vendor", store)
+
+	err := src.Reacquire(context.Background())
+	if err == nil {
+		t.Fatal("expected error on refresh failure")
+	}
+	st := src.Status()
+	if st.LastError == "" {
+		t.Errorf("expected lastError to be captured")
 	}
 }
 
@@ -486,7 +574,7 @@ func TestStatus_OAuthFieldsPopulated(t *testing.T) {
 			AccessToken: "tok", ExpiresIn: 3600,
 		})
 	})
-	source := newOAuthTokenSource(defaultOAuthConfig(tokenURL))
+	source := newOAuthTokenSource(defaultOAuthConfig(tokenURL), "test", nil)
 	if _, err := source.Token(context.Background()); err != nil {
 		t.Fatalf("seed Token: %v", err)
 	}

@@ -9,6 +9,7 @@ import {
   useDryRunEnrichmentRule,
   useGatewayConnectionStatus,
   useReacquireGatewayOAuth,
+  useStartGatewayOAuth,
 } from "@/api/admin/hooks";
 import type {
   EnrichmentRule,
@@ -32,6 +33,7 @@ import {
   Key,
   Clock,
   KeyRound,
+  ExternalLink,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -160,22 +162,43 @@ export function GatewayActionBar({
 function OAuthStatusCard({ connectionName }: { connectionName: string }) {
   const { data: status } = useGatewayConnectionStatus(connectionName);
   const reacquire = useReacquireGatewayOAuth();
-  const [reacquireMsg, setReacquireMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const startOAuth = useStartGatewayOAuth();
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   if (!status || status.auth_mode !== "oauth" || !status.oauth) {
     return null;
   }
   const oauth = status.oauth;
+  const isAuthCode = oauth.grant === "authorization_code";
+
   const handleReacquire = async () => {
-    setReacquireMsg(null);
+    setActionMsg(null);
     try {
       await reacquire.mutateAsync(connectionName);
-      setReacquireMsg({ ok: true, text: "Token refreshed" });
+      setActionMsg({ ok: true, text: "Token refreshed" });
     } catch (err) {
-      setReacquireMsg({
-        ok: false,
-        text: err instanceof Error ? err.message : "Reacquire failed",
+      setActionMsg({ ok: false, text: err instanceof Error ? err.message : "Reacquire failed" });
+    }
+  };
+
+  const handleConnect = async () => {
+    setActionMsg(null);
+    try {
+      const res = await startOAuth.mutateAsync({
+        name: connectionName,
+        returnURL: window.location.pathname + window.location.search,
       });
+      // Open the upstream's authorization URL in a new tab so the
+      // operator can complete the browser dance without losing the
+      // admin context. Status will auto-refetch on the existing 30s
+      // poll once the callback runs.
+      window.open(res.authorization_url, "_blank", "noopener,noreferrer");
+      setActionMsg({
+        ok: true,
+        text: "Authorization page opened in a new tab. Sign in to complete the connection.",
+      });
+    } catch (err) {
+      setActionMsg({ ok: false, text: err instanceof Error ? err.message : "Connect failed" });
     }
   };
 
@@ -187,33 +210,73 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             OAuth status
           </span>
+          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-[9px] font-medium font-mono">
+            {oauth.grant}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={handleReacquire}
-          disabled={reacquire.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={cn("h-3 w-3", reacquire.isPending && "animate-spin")} />
-          {reacquire.isPending ? "Reacquiring..." : "Reacquire now"}
-        </button>
+        <div className="flex gap-1">
+          {isAuthCode && (
+            <button
+              type="button"
+              onClick={handleConnect}
+              disabled={startOAuth.isPending}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium disabled:opacity-50",
+                oauth.needs_reauth
+                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <ExternalLink className="h-3 w-3" />
+              {oauth.needs_reauth ? "Connect" : "Reconnect"}
+            </button>
+          )}
+          {oauth.token_acquired && (
+            <button
+              type="button"
+              onClick={handleReacquire}
+              disabled={reacquire.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3 w-3", reacquire.isPending && "animate-spin")} />
+              {reacquire.isPending ? "Refreshing..." : "Refresh now"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {oauth.needs_reauth && (
+        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+          <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
+        </div>
+      )}
+
       <OAuthStatusGrid status={oauth} />
+
+      {oauth.authenticated_by && (
+        <div className="text-[10px] text-muted-foreground">
+          Authorized by{" "}
+          <span className="font-mono">{oauth.authenticated_by}</span>
+          {oauth.authenticated_at && <> {formatRelative(oauth.authenticated_at)}</>}
+        </div>
+      )}
+
       {oauth.last_error && (
         <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
           <span className="font-medium">Last error:</span> {oauth.last_error}
         </div>
       )}
-      {reacquireMsg && (
+
+      {actionMsg && (
         <div
           className={cn(
             "rounded border px-2 py-1 text-[10px]",
-            reacquireMsg.ok
+            actionMsg.ok
               ? "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
               : "border-destructive/30 bg-destructive/10 text-destructive",
           )}
         >
-          {reacquireMsg.text}
+          {actionMsg.text}
         </div>
       )}
     </div>

@@ -52,6 +52,7 @@ import (
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
@@ -118,6 +119,7 @@ type Platform struct {
 	connectionStore   ConnectionStore
 	connectionSources *ConnectionSourceMap
 	enrichmentStore   enrichment.Store
+	gatewayTokenStore gatewaykit.TokenStore
 	personaStore      PersonaStore
 	apiKeyStore       APIKeyStore
 
@@ -421,7 +423,47 @@ func (p *Platform) initConnectionStore() error {
 	}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
+	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, &gatewayTokenEncryptor{enc: encryptor})
 	return nil
+}
+
+// gatewayTokenEncryptor adapts the platform's FieldEncryptor to the
+// gatewaykit.TokenEncryptor interface so refresh tokens are encrypted at
+// rest using the same key/algorithm as connection credentials.
+type gatewayTokenEncryptor struct {
+	enc *FieldEncryptor
+}
+
+// Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
+// the field encryptor uses for sensitive config map values.
+func (g *gatewayTokenEncryptor) Encrypt(plaintext string) (string, error) {
+	if g.enc == nil || plaintext == "" {
+		return plaintext, nil
+	}
+	if strings.HasPrefix(plaintext, encryptedPrefix) {
+		return plaintext, nil // idempotent: already encrypted
+	}
+	out, err := g.enc.encrypt(plaintext)
+	if err != nil {
+		return "", fmt.Errorf("gateway token encrypt: %w", err)
+	}
+	return encryptedPrefix + out, nil
+}
+
+// Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
+// unchanged so legacy/unencrypted rows degrade gracefully.
+func (g *gatewayTokenEncryptor) Decrypt(ciphertext string) (string, error) {
+	if g.enc == nil || ciphertext == "" {
+		return ciphertext, nil
+	}
+	if !strings.HasPrefix(ciphertext, encryptedPrefix) {
+		return ciphertext, nil
+	}
+	out, err := g.enc.decrypt(strings.TrimPrefix(ciphertext, encryptedPrefix))
+	if err != nil {
+		return "", fmt.Errorf("gateway token decrypt: %w", err)
+	}
+	return out, nil
 }
 
 // EnrichmentStore returns the gateway enrichment rule store. Nil when no
@@ -429,6 +471,13 @@ func (p *Platform) initConnectionStore() error {
 // enrichment rules — they're optional).
 func (p *Platform) EnrichmentStore() enrichment.Store {
 	return p.enrichmentStore
+}
+
+// GatewayTokenStore returns the persistent OAuth token store used by the
+// authorization_code grant. Nil when no database is configured —
+// authorization_code connections won't survive restart in that case.
+func (p *Platform) GatewayTokenStore() gatewaykit.TokenStore {
+	return p.gatewayTokenStore
 }
 
 // initPersonaStore initializes the persona definition store.

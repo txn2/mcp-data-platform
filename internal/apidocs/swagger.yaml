@@ -477,6 +477,22 @@ definitions:
         example: Production data warehouse
         type: string
     type: object
+  admin.startGatewayOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  admin.startGatewayOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
+        type: string
+    type: object
   admin.statusResponse:
     properties:
       status:
@@ -994,6 +1010,17 @@ definitions:
     type: object
   gateway.OAuthStatus:
     properties:
+      authenticated_at:
+        description: |-
+          AuthenticatedAt records when the most recent successful exchange
+          (initial OAuth dance or refresh) completed.
+        type: string
+      authenticated_by:
+        description: |-
+          AuthenticatedBy is the email/id of the operator who completed the
+          browser flow. Empty for client_credentials and for connections that
+          have not yet been authorized.
+        type: string
       configured:
         type: boolean
       expires_at:
@@ -1006,6 +1033,13 @@ definitions:
         type: string
       last_refreshed_at:
         type: string
+      needs_reauth:
+        description: |-
+          NeedsReauth is true when the platform cannot mint an access token
+          without operator interaction. For authorization_code grants this
+          means: no stored token, or the refresh token has been revoked.
+          The admin UI surfaces a "Connect" button when this is true.
+        type: boolean
       scope:
         type: string
       token_acquired:
@@ -2898,6 +2932,50 @@ paths:
       summary: Dry-run a single enrichment rule
       tags:
       - Connections
+  /admin/gateway/connections/{name}/oauth-start:
+    post:
+      consumes:
+      - application/json
+      description: Generates a PKCE verifier, derives the SHA256 challenge, registers
+        a state token, and returns the authorization URL the operator should open
+        in their browser. The platform expects the upstream to redirect to /api/v1/admin/oauth/callback
+        after the user authenticates.
+      parameters:
+      - description: Gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Optional return URL
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Begin OAuth authorization-code flow for a gateway connection
+      tags:
+      - Connections
   /admin/gateway/connections/{name}/reacquire-oauth:
     post:
       description: Triggers a client_credentials grant against the configured OAuth
@@ -3598,6 +3676,41 @@ paths:
       summary: Get memory record stats
       tags:
       - Memory
+  /admin/oauth/callback:
+    get:
+      description: Public endpoint hit by the upstream OAuth provider after the operator
+        authenticates. Exchanges the code for tokens and stores them. Renders an HTML
+        page on error so a stranded browser tab still gives a useful message.
+      parameters:
+      - description: OAuth authorization code
+        in: query
+        name: code
+        type: string
+      - description: PKCE state token from oauth-start
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: OAuth error code from upstream
+        in: query
+        name: error
+        type: string
+      - description: Human-readable error from upstream
+        in: query
+        name: error_description
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Found
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      summary: OAuth authorization-code callback
+      tags:
+      - Connections
   /admin/personas:
     get:
       description: Returns all configured personas with tool counts.

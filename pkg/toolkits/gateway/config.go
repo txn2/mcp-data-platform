@@ -32,6 +32,12 @@ const (
 	// behalf of all platform users.
 	OAuthGrantClientCredentials = "client_credentials"
 
+	// OAuthGrantAuthorizationCode is the user-driven grant. The operator
+	// completes a one-time browser flow at setup; the resulting refresh
+	// token is persisted (encrypted) so subsequent platform restarts
+	// and background workloads keep working without further interaction.
+	OAuthGrantAuthorizationCode = "authorization_code"
+
 	// TrustLevelUntrusted is the default. Upstream responses are treated as
 	// untrusted content (reserved for future enforcement).
 	TrustLevelUntrusted = "untrusted"
@@ -70,17 +76,19 @@ type Config struct {
 }
 
 // OAuthConfig describes the OAuth 2.1 parameters used when AuthMode is
-// "oauth". The grant is client_credentials in v1 — the platform holds
-// client_id + client_secret and exchanges them for a bearer token on
-// every platform user's behalf. Per-user authorization-code flow is a
-// planned follow-up; until then rule-by-rule user attribution still
-// lives in the platform's audit log.
+// "oauth". The grant determines whether the token is acquired from
+// machine-to-machine credentials or via a one-time browser flow that
+// hands the platform a refresh token for long-running background use.
 type OAuthConfig struct {
-	// Grant selects the OAuth flow. Currently only "client_credentials"
-	// is accepted.
+	// Grant selects the OAuth flow. One of "client_credentials" or
+	// "authorization_code".
 	Grant string
 	// TokenURL is the upstream's OAuth token endpoint.
 	TokenURL string
+	// AuthorizationURL is the upstream's authorization endpoint. Only
+	// used by the authorization_code grant; the platform redirects the
+	// admin's browser here to start the flow.
+	AuthorizationURL string
 	// ClientID is the platform's registered client id with the upstream.
 	ClientID string
 	// ClientSecret is the platform's registered client secret. Encrypted
@@ -181,9 +189,11 @@ func (c Config) validateAuth() error {
 }
 
 func validateOAuth(o OAuthConfig) error {
-	if o.Grant != OAuthGrantClientCredentials {
-		return fmt.Errorf("gateway: oauth.grant %q not supported (only %q in v1)",
-			o.Grant, OAuthGrantClientCredentials)
+	switch o.Grant {
+	case OAuthGrantClientCredentials, OAuthGrantAuthorizationCode:
+	default:
+		return fmt.Errorf("gateway: oauth.grant %q not supported (want %q or %q)",
+			o.Grant, OAuthGrantClientCredentials, OAuthGrantAuthorizationCode)
 	}
 	if o.TokenURL == "" {
 		return errors.New("gateway: oauth.token_url is required")
@@ -193,6 +203,9 @@ func validateOAuth(o OAuthConfig) error {
 	}
 	if o.ClientSecret == "" {
 		return errors.New("gateway: oauth.client_secret is required")
+	}
+	if o.Grant == OAuthGrantAuthorizationCode && o.AuthorizationURL == "" {
+		return errors.New("gateway: oauth.authorization_url is required for authorization_code grant")
 	}
 	return nil
 }
@@ -204,19 +217,21 @@ func validateOAuth(o OAuthConfig) error {
 func parseOAuthConfig(cfg map[string]any) OAuthConfig {
 	if nested, ok := cfg["oauth"].(map[string]any); ok {
 		return OAuthConfig{
-			Grant:        getStringDefault(nested, "grant", OAuthGrantClientCredentials),
-			TokenURL:     getString(nested, "token_url"),
-			ClientID:     getString(nested, "client_id"),
-			ClientSecret: getString(nested, "client_secret"),
-			Scope:        getString(nested, "scope"),
+			Grant:            getStringDefault(nested, "grant", OAuthGrantClientCredentials),
+			TokenURL:         getString(nested, "token_url"),
+			AuthorizationURL: getString(nested, "authorization_url"),
+			ClientID:         getString(nested, "client_id"),
+			ClientSecret:     getString(nested, "client_secret"),
+			Scope:            getString(nested, "scope"),
 		}
 	}
 	return OAuthConfig{
-		Grant:        getStringDefault(cfg, "oauth_grant", OAuthGrantClientCredentials),
-		TokenURL:     getString(cfg, "oauth_token_url"),
-		ClientID:     getString(cfg, "oauth_client_id"),
-		ClientSecret: getString(cfg, "oauth_client_secret"),
-		Scope:        getString(cfg, "oauth_scope"),
+		Grant:            getStringDefault(cfg, "oauth_grant", OAuthGrantClientCredentials),
+		TokenURL:         getString(cfg, "oauth_token_url"),
+		AuthorizationURL: getString(cfg, "oauth_authorization_url"),
+		ClientID:         getString(cfg, "oauth_client_id"),
+		ClientSecret:     getString(cfg, "oauth_client_secret"),
+		Scope:            getString(cfg, "oauth_scope"),
 	}
 }
 

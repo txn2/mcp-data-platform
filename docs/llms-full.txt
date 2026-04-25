@@ -2223,8 +2223,22 @@ The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is
 - `none` — no auth header
 - `bearer` — `Authorization: Bearer <credential>`
 - `api_key` — `X-API-Key: <credential>`
+- `oauth` — `Authorization: Bearer <token>`, with the token acquired via OAuth 2.1 and refreshed automatically
 
-v1 uses a shared service credential per connection (one identity for all platform users). User-level attribution still appears in the audit log.
+Connections use a shared service credential per connection (one upstream identity for every platform user). User-level attribution still appears in the audit log.
+
+### OAuth 2.1
+
+Two grants are supported:
+
+- `client_credentials` — for machine-to-machine credentials. Set `oauth_token_url`, `oauth_client_id`, `oauth_client_secret`, `oauth_scope`. The platform fetches and refreshes tokens automatically.
+- `authorization_code` — for upstreams that require browser sign-in (e.g. Salesforce Hosted MCP). Adds `oauth_authorization_url` and uses PKCE. The operator clicks Connect in the admin portal, signs in, and the platform persists the tokens (encrypted at rest in `gateway_oauth_tokens`, migration `000035`). The refresh token keeps the access token alive automatically thereafter — including for cron jobs and scheduled prompts.
+
+Reauthentication is only required if the upstream invalidates the refresh token. The admin UI surfaces a Connect button when reauth is needed.
+
+#### Salesforce Hosted MCP setup
+
+Salesforce's Hosted MCP (Beta as of Dreamforce 2025) requires `authorization_code` + PKCE through an External Client App with the Web Server Flow enabled. Configure the ECA with callback URL `https://<host>/api/v1/admin/oauth/callback`, scopes `api refresh_token <mcp scope>`, and use the consumer key/secret as `oauth_client_id` / `oauth_client_secret`. Authorization URL is `https://login.salesforce.com/services/oauth2/authorize`; token URL is `https://login.salesforce.com/services/oauth2/token`.
 
 ### Test and refresh endpoints
 

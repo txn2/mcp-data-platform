@@ -1043,10 +1043,10 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
             <option value="none">None</option>
             <option value="bearer">Bearer token</option>
             <option value="api_key">API key</option>
-            <option value="oauth">OAuth 2.1 (client credentials)</option>
+            <option value="oauth">OAuth 2.1</option>
           </select>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Bearer sends Authorization header; API key sends X-API-Key; OAuth exchanges client credentials for a managed bearer token.
+            Bearer sends Authorization header; API key sends X-API-Key; OAuth obtains a managed bearer token via client_credentials or authorization_code+PKCE.
           </p>
         </div>
         <ConfigField
@@ -1070,11 +1070,35 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
       {config.auth_mode === "oauth" && (
         <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            OAuth (client credentials)
+            OAuth 2.1
           </div>
+          <div>
+            <label className="block text-xs font-medium text-foreground/80">Grant type</label>
+            <select
+              value={String(config.oauth_grant ?? "client_credentials")}
+              onChange={(e) => onChange(update(config, "oauth_grant", e.target.value))}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+            >
+              <option value="client_credentials">client_credentials (machine-to-machine)</option>
+              <option value="authorization_code">authorization_code + PKCE (browser sign-in)</option>
+            </select>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Use authorization_code for upstreams that require a human sign-in (Salesforce Hosted MCP, etc.). After saving the connection, click Connect to authorize once — the platform refreshes the token automatically thereafter.
+            </p>
+          </div>
+          {config.oauth_grant === "authorization_code" && (
+            <ConfigField
+              label="Authorization URL"
+              help="Where the browser is sent to sign in. e.g. https://login.salesforce.com/services/oauth2/authorize"
+              value={String(config.oauth_authorization_url ?? "")}
+              onChange={(v) => onChange(update(config, "oauth_authorization_url", v))}
+              placeholder="https://login.salesforce.com/services/oauth2/authorize"
+              mono
+            />
+          )}
           <ConfigField
             label="Token URL"
-            help="OAuth token endpoint. The platform POSTs grant_type=client_credentials here."
+            help="OAuth token endpoint. The platform POSTs the grant here."
             value={String(config.oauth_token_url ?? "")}
             onChange={(v) => onChange(update(config, "oauth_token_url", v))}
             placeholder="https://vendor.example.com/oauth/token"
@@ -1098,10 +1122,12 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
           </div>
           <ConfigField
             label="Scope"
-            help="Optional space-delimited scope string."
+            help={config.oauth_grant === "authorization_code"
+              ? "Space-delimited scopes. Include 'refresh_token' so cron jobs work without re-authenticating."
+              : "Optional space-delimited scope string."}
             value={String(config.oauth_scope ?? "")}
             onChange={(v) => onChange(update(config, "oauth_scope", v))}
-            placeholder="read"
+            placeholder={config.oauth_grant === "authorization_code" ? "api refresh_token" : "read"}
             mono
           />
         </div>

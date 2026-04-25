@@ -135,6 +135,13 @@ const docsPrefix = "/api/v1/admin/docs/"
 // publicPrefix is the path prefix for unauthenticated public endpoints.
 const publicPrefix = "/api/v1/admin/public/"
 
+// oauthCallbackPrefix is the URL the gateway's OAuth flow redirects back
+// to. Lives outside publicPrefix because operators register the exact
+// URL with their OAuth provider; renaming would break every connected
+// upstream. Authenticated by the per-flow PKCE state, not by an admin
+// session.
+const oauthCallbackPrefix = "/api/v1/admin/oauth/"
+
 // Handler provides admin REST API endpoints.
 type Handler struct {
 	mux        *http.ServeMux
@@ -177,7 +184,9 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, docsPrefix) || strings.HasPrefix(r.URL.Path, publicPrefix) {
+	if strings.HasPrefix(r.URL.Path, docsPrefix) ||
+		strings.HasPrefix(r.URL.Path, publicPrefix) ||
+		strings.HasPrefix(r.URL.Path, oauthCallbackPrefix) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
@@ -201,6 +210,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
 	h.registerGatewayRoutes()
+	h.registerGatewayOAuthRoutes()
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 }

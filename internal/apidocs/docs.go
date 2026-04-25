@@ -1382,6 +1382,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/gateway/connections/{name}/oauth-start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Generates a PKCE verifier, derives the SHA256 challenge, registers a state token, and returns the authorization URL the operator should open in their browser. The platform expects the upstream to redirect to /api/v1/admin/oauth/callback after the user authenticates.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Begin OAuth authorization-code flow for a gateway connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional return URL",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/reacquire-oauth": {
             "post": {
                 "security": [
@@ -2473,6 +2539,56 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/oauth/callback": {
+            "get": {
+                "description": "Public endpoint hit by the upstream OAuth provider after the operator authenticates. Exchanges the code for tokens and stores them. Renders an HTML page on error so a stranded browser tab still gives a useful message.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "OAuth authorization-code callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth authorization code",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "PKCE state token from oauth-start",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth error code from upstream",
+                        "name": "error",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Human-readable error from upstream",
+                        "name": "error_description",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
@@ -6665,6 +6781,31 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.startGatewayOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.startGatewayOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.statusResponse": {
             "type": "object",
             "properties": {
@@ -7393,6 +7534,14 @@ const docTemplate = `{
         "gateway.OAuthStatus": {
             "type": "object",
             "properties": {
+                "authenticated_at": {
+                    "description": "AuthenticatedAt records when the most recent successful exchange\n(initial OAuth dance or refresh) completed.",
+                    "type": "string"
+                },
+                "authenticated_by": {
+                    "description": "AuthenticatedBy is the email/id of the operator who completed the\nbrowser flow. Empty for client_credentials and for connections that\nhave not yet been authorized.",
+                    "type": "string"
+                },
                 "configured": {
                     "type": "boolean"
                 },
@@ -7410,6 +7559,10 @@ const docTemplate = `{
                 },
                 "last_refreshed_at": {
                     "type": "string"
+                },
+                "needs_reauth": {
+                    "description": "NeedsReauth is true when the platform cannot mint an access token\nwithout operator interaction. For authorization_code grants this\nmeans: no stored token, or the refresh token has been revoked.\nThe admin UI surfaces a \"Connect\" button when this is true.",
+                    "type": "boolean"
                 },
                 "scope": {
                     "type": "string"

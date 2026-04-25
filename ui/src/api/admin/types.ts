@@ -517,6 +517,16 @@ export interface GatewayOAuthStatus {
   grant?: string;
   token_url?: string;
   scope?: string;
+  authenticated_by?: string;
+  authenticated_at?: string;
+  needs_reauth?: boolean;
+}
+
+export interface GatewayOAuthStartResponse {
+  authorization_url: string;
+  state: string;
+  redirect_uri: string;
+  expires_at: string;
 }
 
 export interface GatewayConnectionStatus {

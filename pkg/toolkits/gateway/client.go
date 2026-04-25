@@ -27,10 +27,13 @@ type upstreamClient struct {
 
 // dial opens a client connection to the configured endpoint and returns a
 // usable upstreamClient. The caller is responsible for calling Close.
-func dial(ctx context.Context, cfg Config) (*upstreamClient, error) {
+// The optional store is used by authorization_code OAuth grants to load
+// and persist refresh tokens; pass nil for client_credentials and for
+// non-OAuth modes.
+func dial(ctx context.Context, cfg Config, connection string, store TokenStore) (*upstreamClient, error) {
 	var oauth *oauthTokenSource
 	if cfg.AuthMode == AuthModeOAuth {
-		oauth = newOAuthTokenSource(cfg.OAuth)
+		oauth = newOAuthTokenSource(cfg.OAuth, connection, store)
 	}
 	httpClient := buildHTTPClient(cfg, oauth)
 

@@ -52,9 +52,21 @@ type Toolkit struct {
 	server           *mcp.Server
 	connections      map[string]*upstream
 	enrichmentEngine *enrichment.Engine
+	tokenStore       TokenStore
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+}
+
+// SetTokenStore wires a persistent OAuth token store into the gateway.
+// Required for authorization_code grants to survive process restarts.
+// Safe to call before or after RegisterTools — connections constructed
+// from this point on use the new store; existing connections retain
+// their original (typically nil) store.
+func (t *Toolkit) SetTokenStore(s TokenStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tokenStore = s
 }
 
 // SetEnrichmentEngine wires a cross-enrichment engine into this gateway.
@@ -192,8 +204,24 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
 	}
 
-	client, tools, err := discover(context.Background(), cfg)
+	client, tools, err := discover(context.Background(), cfg, name, t.tokenStore)
 	if err != nil {
+		// authorization_code connections without a stored token are
+		// expected to fail discovery — record a placeholder so the admin
+		// status surface knows to render a Connect button. For other
+		// failure modes, keep the existing behavior of bubbling the
+		// error so retries from the admin path can succeed.
+		if cfg.AuthMode == AuthModeOAuth && cfg.OAuth.Grant == OAuthGrantAuthorizationCode {
+			slog.Warn("gateway: oauth authorization_code connection awaiting reauth",
+				logKeyConnection, cfg.ConnectionName,
+				logKeyEndpoint, cfg.Endpoint)
+			t.connections[name] = &upstream{
+				name:   name,
+				config: cfg,
+				desc:   "Awaiting OAuth authorization",
+			}
+			return nil
+		}
 		slog.Warn("gateway: upstream unavailable",
 			logKeyConnection, cfg.ConnectionName,
 			logKeyEndpoint, cfg.Endpoint,
@@ -228,7 +256,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 
 	u, ok := t.connections[name]
 	if !ok {
-		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionNotFound)
+		return fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
 	}
 
 	if t.server != nil && len(u.toolNames) > 0 {
@@ -293,12 +321,94 @@ func (t *Toolkit) ReacquireOAuthToken(ctx context.Context, name string) error {
 	u, ok := t.connections[name]
 	t.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionNotFound)
+		return fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
 	}
 	if u.client == nil || u.client.oauth == nil {
 		return fmt.Errorf("gateway: %s: not configured for OAuth", name)
 	}
 	return u.client.oauth.Reacquire(ctx)
+}
+
+// IngestOAuthTokenInput is the parameter set for IngestOAuthToken.
+// Defined as a struct to keep the public method's argument list under
+// the project's revive limit.
+type IngestOAuthTokenInput struct {
+	Name            string
+	AccessToken     string
+	RefreshToken    string
+	ExpiresIn       int
+	Scope           string
+	AuthenticatedBy string
+}
+
+// IngestOAuthToken stores tokens obtained from an authorization_code
+// callback into the named connection's token source AND persists them
+// via the toolkit's TokenStore. Triggers re-discovery of the upstream
+// (re-dial + listTools) so the previously "needs reauth" connection
+// becomes live with its discovered tools registered on the MCP server.
+func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput) error {
+	t.mu.Lock()
+	u, ok := t.connections[in.Name]
+	if !ok {
+		t.mu.Unlock()
+		return fmt.Errorf(errFmtConnection, in.Name, ErrConnectionNotFound)
+	}
+	cfg := u.config
+	store := t.tokenStore
+	t.mu.Unlock()
+
+	// Even if the connection has no live client (the typical case for an
+	// authorization_code connection awaiting Connect), build a temporary
+	// token source bound to the same store, ingest the tokens, and let
+	// the rebuild path below materialize the upstream client with the
+	// fresh credentials.
+	tmp := newOAuthTokenSource(cfg.OAuth, in.Name, store)
+	if err := tmp.IngestTokenResponse(ctx, IngestTokenResponseInput{
+		AccessToken:     in.AccessToken,
+		RefreshToken:    in.RefreshToken,
+		ExpiresIn:       in.ExpiresIn,
+		Scope:           in.Scope,
+		AuthenticatedBy: in.AuthenticatedBy,
+	}); err != nil {
+		return fmt.Errorf("gateway: %s: ingest token: %w", in.Name, err)
+	}
+
+	// Replace the connection with a fresh one so it gets re-dialed using
+	// the now-valid tokens and its tools registered on the live server.
+	if err := t.RemoveConnection(in.Name); err != nil && !errors.Is(err, ErrConnectionNotFound) {
+		return fmt.Errorf("gateway: %s: remove during reauth: %w", in.Name, err)
+	}
+	rawCfg := configToMap(cfg)
+	return t.AddConnection(in.Name, rawCfg)
+}
+
+// errFmtConnection is the standard "gateway: <name>: <wrapped err>"
+// format. Centralized to satisfy revive's add-constant rule.
+const errFmtConnection = "gateway: %s: %w"
+
+// configToMap rebuilds the raw config map for a Config — used by the
+// OAuth ingest path to round-trip a parsed Config back through
+// AddConnection's parser. Only the fields that AddConnection reads need
+// to round-trip; ConnectionName is set directly to preserve the original.
+func configToMap(c Config) map[string]any {
+	m := map[string]any{
+		"endpoint":        c.Endpoint,
+		"auth_mode":       c.AuthMode,
+		"credential":      c.Credential,
+		"connection_name": c.ConnectionName,
+		"connect_timeout": c.ConnectTimeout.String(),
+		"call_timeout":    c.CallTimeout.String(),
+		"trust_level":     c.TrustLevel,
+	}
+	if c.OAuth.Grant != "" {
+		m["oauth_grant"] = c.OAuth.Grant
+		m["oauth_token_url"] = c.OAuth.TokenURL
+		m["oauth_authorization_url"] = c.OAuth.AuthorizationURL
+		m["oauth_client_id"] = c.OAuth.ClientID
+		m["oauth_client_secret"] = c.OAuth.ClientSecret
+		m["oauth_scope"] = c.OAuth.Scope
+	}
+	return m
 }
 
 // ListConnections returns metadata for every live connection, sorted by name.
@@ -462,11 +572,11 @@ func makeLocalNames(connection string, remote []*mcp.Tool) []string {
 
 // discover dials the upstream and fetches its tool catalog in one step,
 // bounded by the config's ConnectTimeout.
-func discover(ctx context.Context, cfg Config) (*upstreamClient, []*mcp.Tool, error) {
+func discover(ctx context.Context, cfg Config, connection string, store TokenStore) (*upstreamClient, []*mcp.Tool, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()
 
-	client, err := dial(dialCtx, cfg)
+	client, err := dial(dialCtx, cfg, connection, store)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -513,7 +623,10 @@ func Probe(ctx context.Context, cfg Config) ([]ProbeTool, error) {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = "probe"
 	}
-	client, tools, err := discover(ctx, cfg)
+	// Probe is a one-shot dial — never persists tokens, so pass nil for
+	// the store. authorization_code grants can't be probed without a
+	// valid stored refresh token (which would require Connect first).
+	client, tools, err := discover(ctx, cfg, cfg.ConnectionName, nil)
 	if err != nil {
 		return nil, err
 	}

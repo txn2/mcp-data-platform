@@ -68,8 +68,43 @@ The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is
 | `none`      | none                                   |
 | `bearer`    | `Authorization: Bearer <credential>`   |
 | `api_key`   | `X-API-Key: <credential>`              |
+| `oauth`     | `Authorization: Bearer <token>` (token acquired and refreshed automatically) |
 
-v1 uses a **shared service credential** per connection (one identity for all platform users hitting that upstream). User-level attribution still appears in the audit log. Per-user OAuth to upstream is planned for v2.
+Connections use a **shared service credential** per connection — one upstream identity for every platform user that hits the proxied tool. User-level attribution remains in the audit log; the upstream sees the connection's credential.
+
+### OAuth 2.1
+
+Two grants are supported:
+
+| `oauth_grant`         | Use when                                                                  |
+|-----------------------|----------------------------------------------------------------------------|
+| `client_credentials`  | The upstream supports machine-to-machine credentials (no human in loop).   |
+| `authorization_code`  | The upstream requires a browser sign-in (Salesforce Hosted MCP, etc.).     |
+
+**`client_credentials`** — set `oauth_token_url`, `oauth_client_id`, `oauth_client_secret`, and `oauth_scope`. The platform fetches a token on first use and refreshes automatically as it expires. No human interaction required.
+
+**`authorization_code`** — adds `oauth_authorization_url` and uses PKCE (RFC 7636). After saving the connection, click **Connect** in the admin portal. The browser is redirected to the upstream, you sign in, and the upstream redirects back to `/api/v1/admin/oauth/callback` with an authorization code. The platform exchanges the code for an access token + refresh token, encrypts both at rest, and persists them.
+
+Once connected, the refresh token keeps the access token alive without further interaction — including for cron jobs and scheduled prompts running at 3 a.m. The platform reauthorizes silently every time the access token expires. Operators only need to click Connect again if the upstream invalidates the refresh token.
+
+The OAuth token row lives in `gateway_oauth_tokens` (migration `000035`). When `ENCRYPTION_KEY` is set, both `access_token` and `refresh_token` are encrypted with AES-256-GCM. Without an encryption key, tokens are stored in plaintext and the admin UI surfaces a warning.
+
+#### Salesforce Hosted MCP
+
+Salesforce's Hosted MCP Server (Beta as of Dreamforce 2025) requires `authorization_code` + PKCE through an **External Client App (ECA)** with the `Web Server Flow` enabled.
+
+1. In Salesforce Setup, create an External Client App with OAuth scopes `api`, `refresh_token`, and the MCP scope.
+2. Set the callback URL to `https://<your-platform-host>/api/v1/admin/oauth/callback`.
+3. In the platform admin portal, add an MCP connection of kind `mcp`:
+    - `endpoint`: the Salesforce Hosted MCP URL
+    - `auth_mode`: `oauth`
+    - `oauth_grant`: `authorization_code`
+    - `oauth_authorization_url`: `https://login.salesforce.com/services/oauth2/authorize` (or your domain)
+    - `oauth_token_url`: `https://login.salesforce.com/services/oauth2/token`
+    - `oauth_client_id` / `oauth_client_secret`: ECA consumer key/secret
+    - `oauth_scope`: `api refresh_token <mcp scope>`
+4. Save the connection, then click **Connect**. Sign in to Salesforce, approve the scopes, and the platform persists the tokens.
+5. The connection's tools are now usable by any persona that allows them, including from scheduled cron prompts that run while no one is watching.
 
 ### Test and refresh endpoints
 
