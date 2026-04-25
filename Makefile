@@ -447,6 +447,17 @@ dev-up:
 dev-down:
 	@echo "Stopping ACME dev environment..."
 	$(DEV_COMPOSE) down -v
+	@# Kill leftover host processes that dev/start.sh's trap may have
+	@# missed (e.g., when the script was backgrounded and the parent
+	@# shell exited). Without these, ports 5173/8080 stay occupied
+	@# even though Docker is clean and the next 'make dev' fails its
+	@# port pre-flight check.
+	@pkill -f "build/air/mcp-data-platform" 2>/dev/null || true
+	@pkill -f "air -c dev/.air.toml" 2>/dev/null || true
+	@pkill -f "ui/node_modules/.bin/vite" 2>/dev/null || true
+	@pkill -f "@esbuild/.*/bin/esbuild --service" 2>/dev/null || true
+	@pkill -f "go run ./cmd/dev-mcp-mock" 2>/dev/null || true
+	@pkill -f "/dev-mcp-mock$$" 2>/dev/null || true
 	@echo "ACME dev environment stopped."
 
 ## dev: Start full dev environment with hot-reload (Docker + Go + Vite)

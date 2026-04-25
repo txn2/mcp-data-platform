@@ -62,13 +62,14 @@ if [ ! -d ui/node_modules ]; then
 fi
 ok "UI dependencies ready"
 
-# Port checks
-for port in 5432 8080 5173 9000; do
+# Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
+# 9000 = seaweedfs, 9180 = dev-mcp-mock OAuth, 9181 = dev-mcp-mock MCP)
+for port in 5432 8080 5173 9000 9180 9181; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000 are free"
+ok "Ports 5432, 8080, 5173, 9000, 9180, 9181 are free"
 
 echo ""
 
@@ -127,6 +128,28 @@ fi
 
 echo ""
 
+# ─── Start dev-mcp-mock (mock upstream + OAuth provider) ────────────
+
+echo -e "${BOLD}Starting dev-mcp-mock${NC}"
+MOCK_LOG="/tmp/mcp-dev-mock.log"
+go run ./cmd/dev-mcp-mock > "$MOCK_LOG" 2>&1 &
+PIDS+=($!)
+info "Compiling and starting mock (first run takes a moment)..."
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:9181/.health > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo -e "  ${RED}dev-mcp-mock log (last 10 lines):${NC}"
+    tail -10 "$MOCK_LOG" 2>/dev/null | sed 's/^/    /'
+    fail "dev-mcp-mock did not become healthy within 30s"
+  fi
+  sleep 1
+done
+ok "dev-mcp-mock ready on :9180 (OAuth) and :9181 (MCP)"
+
+echo ""
+
 # ─── Start Go server with hot-reload ────────────────────────────────
 
 echo -e "${BOLD}Starting Go server (air)${NC}"
@@ -160,6 +183,24 @@ ok "Database seeded"
 bash dev/seed-s3.sh
 ok "Asset content uploaded to S3"
 
+# Register the dev-mock MCP gateway connection through the admin API.
+# Going through the admin API (rather than just an INSERT in seed.sql)
+# triggers the toolkit's AddConnection path, which discovers the
+# upstream's tools and registers them on the live MCP server. A direct
+# DB insert would only be picked up after a platform restart.
+info "Registering dev-mock gateway connection..."
+DEVMOCK_BODY='{"config":{"endpoint":"http://localhost:9181/mcp","auth_mode":"bearer","credential":"static-bearer-token","connection_name":"dev-mock","connect_timeout":"5s","call_timeout":"5s"},"description":"Dev fixture: cmd/dev-mcp-mock — echo, add, now"}'
+DEVMOCK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$DEVMOCK_BODY" \
+  http://localhost:8080/api/v1/admin/connection-instances/mcp/dev-mock || echo "000")
+if [ "$DEVMOCK_HTTP" = "200" ] || [ "$DEVMOCK_HTTP" = "201" ]; then
+  ok "dev-mock gateway connection registered (tools: dev-mock__echo, dev-mock__add, dev-mock__now)"
+else
+  echo -e "  ${YELLOW}⚠${NC} dev-mock connection register returned HTTP $DEVMOCK_HTTP — admin API may not be ready"
+fi
+
 echo ""
 
 # ─── Start Vite dev server ──────────────────────────────────────────
@@ -188,9 +229,11 @@ echo -e "${BOLD}${GREEN}══════════════════�
 echo -e "${BOLD}${GREEN}  Development environment ready${NC}"
 echo -e "${BOLD}${GREEN}══════════════════════════════════════════${NC}"
 echo ""
-echo -e "  Portal UI:  ${CYAN}http://localhost:5173/portal/${NC}"
-echo -e "  Go API:     ${CYAN}http://localhost:8080${NC}"
-echo -e "  API Key:    ${CYAN}acme-dev-key-2024${NC}"
+echo -e "  Portal UI:    ${CYAN}http://localhost:5173/portal/${NC}"
+echo -e "  Go API:       ${CYAN}http://localhost:8080${NC}"
+echo -e "  API Key:      ${CYAN}acme-dev-key-2024${NC}"
+echo -e "  MCP gateway:  ${CYAN}dev-mock connection pre-wired to the local mock${NC}"
+echo -e "                ${CYAN}(http://localhost:9181/mcp + http://localhost:9180 OAuth)${NC}"
 echo ""
 echo -e "  Go files  → air rebuilds automatically"
 echo -e "  UI files  → Vite hot-reloads automatically"
