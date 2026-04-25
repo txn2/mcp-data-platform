@@ -4,13 +4,13 @@
 // services run from a single process:
 //
 //   - :9180  Mock OAuth 2.1 provider with authorization_code+PKCE,
-//            refresh_token, and client_credentials grants. Access
-//            tokens default to a 1-hour TTL (override with
-//            ACCESS_TTL_SECONDS=10 to exercise refresh quickly).
+//     refresh_token, and client_credentials grants. Access
+//     tokens default to a 1-hour TTL (override with
+//     ACCESS_TTL_SECONDS=10 to exercise refresh quickly).
 //   - :9181  Mock MCP server (streamable HTTP) with three trivial
-//            tools: echo, add, now. Bearer-permissive by default;
-//            set STRICT_AUTH=1 to validate that the bearer token
-//            was issued by the OAuth server above.
+//     tools: echo, add, now. Bearer-permissive by default;
+//     set STRICT_AUTH=1 to validate that the bearer token
+//     was issued by the OAuth server above.
 //
 // dev/seed.sql pre-creates an mcp connection named "dev-mock"
 // pointing at this server, so opening the admin portal immediately
@@ -18,13 +18,15 @@
 // platform's tools/list.
 //
 // Usage:
-//   go run ./cmd/dev-mcp-mock
-//   STRICT_AUTH=1 go run ./cmd/dev-mcp-mock
-//   ACCESS_TTL_SECONDS=10 go run ./cmd/dev-mcp-mock
+//
+//	go run ./cmd/dev-mcp-mock
+//	STRICT_AUTH=1 go run ./cmd/dev-mcp-mock
+//	ACCESS_TTL_SECONDS=10 go run ./cmd/dev-mcp-mock
 //
 // Health:
-//   curl http://localhost:9180/.health
-//   curl http://localhost:9181/.health
+//
+//	curl http://localhost:9180/.health
+//	curl http://localhost:9181/.health
 package main
 
 import (
@@ -80,6 +82,19 @@ var (
 	accessTTL = 1 * time.Hour
 )
 
+const (
+	// readHeaderTimeout caps the time the mock server waits for HTTP
+	// request headers — cheap protection against slowloris during
+	// local dev. Real upstreams use whatever their framework defaults
+	// to; this is just a sane fixture default.
+	readHeaderTimeout = 5 * time.Second
+
+	// maxFormBytes caps POST body size at /token. Real OAuth providers
+	// see ~1KB form bodies; 64KB is generous. Prevents memory
+	// exhaustion if a malformed client streams nonsense.
+	maxFormBytes = 64 << 10
+)
+
 func main() {
 	if v := os.Getenv("ACCESS_TTL_SECONDS"); v != "" {
 		var s int
@@ -89,18 +104,23 @@ func main() {
 		}
 	}
 
-	go startOAuth(":9180")
-	go startMCP(":9181")
+	errCh := make(chan error, 2)
+	go func() { errCh <- startOAuth(":9180") }()
+	go func() { errCh <- startMCP(":9181") }()
 
-	log.Printf("livetest: OAuth provider on :9180, MCP upstream on :9181 (access_ttl=%s)", accessTTL)
+	log.Printf("dev-mcp-mock: OAuth provider on :9180, MCP upstream on :9181 (access_ttl=%s)", accessTTL)
 
-	// Block forever.
-	select {}
+	// Surface the first server error from main() so revive's deep-exit
+	// rule is satisfied — log.Fatal lives only here, not inside the
+	// startOAuth/startMCP helpers.
+	if err := <-errCh; err != nil {
+		log.Fatalf("dev-mcp-mock: %v", err)
+	}
 }
 
 // ---------- OAuth provider on :9180 ----------
 
-func startOAuth(addr string) {
+func startOAuth(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.health", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -110,12 +130,13 @@ func startOAuth(addr string) {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	log.Printf("oauth: listening %s", addr)
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("oauth: %v", err)
+		return fmt.Errorf("oauth: %w", err)
 	}
+	return nil
 }
 
 func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -151,13 +172,44 @@ func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		qq.Set("state", state)
 	}
 	dest.RawQuery = qq.Encode()
-	log.Printf("oauth: /authorize → redirect to %s (code=%s)", dest, code)
-	http.Redirect(w, r, dest.String(), http.StatusFound)
+	// Log only the host of the redirect target; the rest of the URL
+	// contains query params that flowed in from the request and would
+	// otherwise allow log injection of newlines/escape sequences.
+	log.Printf("oauth: /authorize → redirect host=%s code=%s", sanitizeHost(dest.Host), code)
+	// This is the OAuth /authorize endpoint — by spec it MUST redirect
+	// to the client-supplied redirect_uri. This is a dev fixture, not
+	// a production OAuth provider; no allowlist enforcement is
+	// appropriate here.
+	http.Redirect(w, r, dest.String(), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+}
+
+// asciiSpace and asciiDel are the boundaries of the printable ASCII
+// range used by sanitizeHost: anything below space or equal to DEL
+// is treated as a control character and dropped.
+const (
+	asciiSpace = 0x20
+	asciiDel   = 0x7f
+)
+
+// sanitizeHost strips control characters from a host string before
+// logging. The mock's logs are line-oriented and we don't want a
+// crafted redirect_uri header to inject newlines or terminal escapes.
+func sanitizeHost(h string) string {
+	out := make([]byte, 0, len(h))
+	for i := 0; i < len(h); i++ {
+		c := h[i]
+		if c < asciiSpace || c == asciiDel {
+			continue
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }
 
 func oauthToken(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
-		writeJSONErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeJSONErr(w, "invalid_request", err.Error())
 		return
 	}
 	grant := r.Form.Get("grant_type")
@@ -169,7 +221,7 @@ func oauthToken(w http.ResponseWriter, r *http.Request) {
 	case "client_credentials":
 		oauthClientCredentials(w, r)
 	default:
-		writeJSONErr(w, http.StatusBadRequest, "unsupported_grant_type", grant)
+		writeJSONErr(w, "unsupported_grant_type", grant)
 	}
 }
 
@@ -180,7 +232,7 @@ func oauthExchangeCode(w http.ResponseWriter, r *http.Request) {
 	state, ok := store.pkce[code]
 	if !ok {
 		store.mu.Unlock()
-		writeJSONErr(w, http.StatusBadRequest, "invalid_grant", "unknown code")
+		writeJSONErr(w, "invalid_grant", "unknown code")
 		return
 	}
 	delete(store.pkce, code)
@@ -188,7 +240,7 @@ func oauthExchangeCode(w http.ResponseWriter, r *http.Request) {
 	got := pkceS256(verifier)
 	if state.CodeChallengeMethod == "S256" && got != state.CodeChallenge {
 		store.mu.Unlock()
-		writeJSONErr(w, http.StatusBadRequest, "invalid_grant", fmt.Sprintf("PKCE mismatch: got=%s expected=%s", got, state.CodeChallenge))
+		writeJSONErr(w, "invalid_grant", fmt.Sprintf("PKCE mismatch: got=%s expected=%s", got, state.CodeChallenge))
 		return
 	}
 	access, refresh := mintLocked()
@@ -202,7 +254,7 @@ func oauthRefresh(w http.ResponseWriter, r *http.Request) {
 	store.mu.Lock()
 	if _, ok := store.refresh[rt]; !ok {
 		store.mu.Unlock()
-		writeJSONErr(w, http.StatusBadRequest, "invalid_grant", "unknown refresh_token")
+		writeJSONErr(w, "invalid_grant", "unknown refresh_token")
 		return
 	}
 	// Rotate: invalidate old refresh, mint new pair.
@@ -212,7 +264,10 @@ func oauthRefresh(w http.ResponseWriter, r *http.Request) {
 	t.IsRefreshed = true
 	store.issued[access] = t
 	store.mu.Unlock()
-	log.Printf("oauth: /token refresh_token rotated old=%s → access=%s refresh=%s", rt, access, refresh)
+	// rt is the inbound refresh-token value (form input). Log only
+	// our internally-generated identifiers, never the verbatim
+	// inbound bytes.
+	log.Printf("oauth: /token refresh_token rotated → access=%s refresh=%s", access, refresh)
 	writeTokenResponse(w, access, refresh)
 }
 
@@ -259,9 +314,12 @@ func writeTokenResponse(w http.ResponseWriter, access, refresh string) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func writeJSONErr(w http.ResponseWriter, status int, code, desc string) {
+// writeJSONErr writes an OAuth-style error body. The HTTP status is
+// always 400 — every caller in the mock returns invalid_grant /
+// invalid_request / unsupported_grant_type which all use 400.
+func writeJSONErr(w http.ResponseWriter, code, desc string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error":             code,
 		"error_description": desc,
@@ -280,7 +338,7 @@ func pkceS256(verifier string) string {
 
 // ---------- MCP upstream on :9181 ----------
 
-func startMCP(addr string) {
+func startMCP(addr string) error {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "livetest-mcp", Version: "0.0.1"},
 		nil,
@@ -326,12 +384,13 @@ func startMCP(addr string) {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	log.Printf("mcp:   listening %s", addr)
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("mcp: %v", err)
+		return fmt.Errorf("mcp: %w", err)
 	}
+	return nil
 }
 
 // authMiddleware enforces Bearer token auth. Any token issued by the
