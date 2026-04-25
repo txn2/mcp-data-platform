@@ -68,44 +68,61 @@ type Toolkit struct {
 // tokens are picked up without requiring a manual refresh. This makes
 // startup wiring order-independent.
 //
-// Atomicity: the store assignment, placeholder removal, and retry
-// re-registration all happen under the same toolkit write lock so that
-// concurrent Status / ListConnections / Tools callers never see a
-// "vanished" placeholder during the retry window.
+// Concurrency: the toolkit lock is HELD ONLY for the snapshot of
+// placeholders to retry and again for the final pointer-swap on each
+// success. The discover() network I/O happens with the lock RELEASED
+// so concurrent Status / ListConnections / Tools / AddConnection
+// callers don't block on potentially-slow upstream dials. The
+// placeholder remains in the connections map throughout, so the
+// admin UI keeps showing "Connect" while a retry is in flight.
 func (t *Toolkit) SetTokenStore(s TokenStore) {
+	type pending struct {
+		name string
+		cfg  Config
+	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.tokenStore = s
+	store := s
+	var retry []pending
 	for name, u := range t.connections {
 		if u.client != nil ||
 			u.config.AuthMode != AuthModeOAuth ||
 			u.config.OAuth.Grant != OAuthGrantAuthorizationCode {
 			continue
 		}
-		// In-place retry: the placeholder stays in the map until it
-		// either becomes live or the discover error confirms reauth is
-		// still needed (placeholder remains).
-		cfg := u.config
-		if err := t.retryPlaceholderLocked(name, cfg); err != nil {
+		retry = append(retry, pending{name: name, cfg: u.config})
+	}
+	t.mu.Unlock()
+
+	for _, p := range retry {
+		client, tools, err := discover(context.Background(), p.cfg, p.name, store)
+		if err != nil {
 			slog.Warn("gateway: retry placeholder after token store wired",
-				logKeyConnection, cfg.ConnectionName,
+				logKeyConnection, p.cfg.ConnectionName,
 				logKeyError, err)
+			continue
 		}
+		t.installLiveConnection(p.name, p.cfg, client, tools)
 	}
 }
 
-// retryPlaceholderLocked re-attempts discovery for an authorization_code
-// placeholder now that t.tokenStore has been set. Caller must hold t.mu.
-//
-// On success, replaces the placeholder with a live upstream and registers
-// its tools on the server (if one is already set). On failure, leaves the
-// placeholder in place so the admin UI continues to surface "Connect".
-func (t *Toolkit) retryPlaceholderLocked(name string, cfg Config) error {
-	client, tools, err := discover(context.Background(), cfg, name, t.tokenStore)
-	if err != nil {
-		// Still failing — keep the placeholder. authorization_code
-		// connections may legitimately fail until the human signs in.
-		return err
+// installLiveConnection promotes a placeholder to a live upstream by
+// swapping the connection-map pointer atomically under the lock. If
+// the connection was removed concurrently (or already replaced by
+// another retry), the freshly-dialed client is closed and the result
+// discarded — last-writer-wins for the rare race.
+func (t *Toolkit) installLiveConnection(name string, cfg Config, client *upstreamClient, tools []*mcp.Tool) {
+	t.mu.Lock()
+	existing, ok := t.connections[name]
+	if !ok || existing.client != nil {
+		t.mu.Unlock()
+		// Connection was removed or already promoted; drop our work.
+		if cerr := client.close(); cerr != nil {
+			slog.Warn("gateway: discarded retry client close error",
+				logKeyConnection, cfg.ConnectionName,
+				logKeyError, cerr)
+		}
+		return
 	}
 	u := &upstream{
 		name:      name,
@@ -119,11 +136,11 @@ func (t *Toolkit) retryPlaceholderLocked(name string, cfg Config) error {
 	if t.server != nil {
 		t.addToolsToServerLocked(u)
 	}
+	t.mu.Unlock()
 	slog.Info("gateway: upstream connected",
 		logKeyConnection, cfg.ConnectionName,
 		logKeyEndpoint, cfg.Endpoint,
 		"tools", len(u.toolNames))
-	return nil
 }
 
 // SetEnrichmentEngine wires a cross-enrichment engine into this gateway.

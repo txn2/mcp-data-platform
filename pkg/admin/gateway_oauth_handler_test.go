@@ -39,7 +39,8 @@ func authCodeConnectionConfig(authURL, tokenURL string) map[string]any {
 
 // gatewayOAuthHandlerWithToolkit builds a Handler whose live gateway
 // toolkit shares a TokenStore with the test, so callback ingestion can
-// be observed via the store.
+// be observed via the store. Each call gets its OWN in-memory PKCE
+// store so test functions don't share state through a process global.
 func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, gatewaykit.TokenStore) {
 	t.Helper()
 	tk := gatewaykit.New("primary")
@@ -47,12 +48,16 @@ func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handl
 	tk.SetTokenStore(tokenStore)
 	t.Cleanup(func() { _ = tk.Close() })
 
+	pkceStore := NewMemoryPKCEStore()
+	t.Cleanup(func() { _ = pkceStore.Close() })
+
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
 	h := NewHandler(Deps{
 		Config:          testConfig(),
 		ConnectionStore: store,
 		ToolkitRegistry: reg,
 		ConfigStore:     &mockConfigStore{mode: "database"},
+		PKCEStore:       pkceStore,
 	}, nil)
 	return h, tokenStore
 }

@@ -10,43 +10,85 @@ import (
 	"time"
 )
 
+// ErrPKCEStateCollision is returned by PKCEStore.Put when a state token
+// already exists in the store. State tokens are 256 bits of entropy so a
+// genuine collision is statistically impossible — in practice this means
+// generatePKCEState is broken or someone is replaying a state. Either
+// way, the second oauth-start must fail loudly rather than silently
+// overwriting the first.
+var ErrPKCEStateCollision = errors.New("admin: pkce state token collision")
+
+// ErrPKCEStorePut wraps any DB-side failure from Put. Tests assert with
+// errors.Is rather than coupling to a specific message.
+var ErrPKCEStorePut = errors.New("admin: pkce store put failed")
+
+// PKCEFieldEncryptor encrypts and decrypts the code_verifier column at
+// rest. The same FieldEncryptor the platform uses for connection
+// credentials and OAuth tokens. A nil implementation passes values
+// through verbatim — only acceptable in dev when ENCRYPTION_KEY is
+// unset; the platform logs a warning in that case.
+type PKCEFieldEncryptor interface {
+	Encrypt(plaintext string) (string, error)
+	Decrypt(ciphertext string) (string, error)
+}
+
 // PostgresPKCEStore persists in-flight PKCE state to the
 // oauth_pkce_states table. Used in multi-replica deployments where
 // oauth-start may run on a different pod than /oauth/callback.
+//
+// code_verifier is encrypted at rest via PKCEFieldEncryptor — verifiers
+// are short-lived (≤pkceTTL) but they are paired secrets, so a DB read
+// of them while still in flight is roughly equivalent to leaking a
+// short-window OAuth refresh token.
 type PostgresPKCEStore struct {
-	db *sql.DB
+	db  *sql.DB
+	enc PKCEFieldEncryptor
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
 }
 
 // NewPostgresPKCEStore returns a Postgres-backed PKCE store that runs
-// a background sweeper to delete expired rows.
-func NewPostgresPKCEStore(db *sql.DB) *PostgresPKCEStore {
-	s := &PostgresPKCEStore{db: db, stopCh: make(chan struct{})}
+// a background sweeper to delete expired rows. Pass nil for enc to
+// skip at-rest encryption (dev-only).
+func NewPostgresPKCEStore(db *sql.DB, enc PKCEFieldEncryptor) *PostgresPKCEStore {
+	if enc == nil {
+		enc = passThroughPKCEEncryptor{}
+	}
+	s := &PostgresPKCEStore{db: db, enc: enc, stopCh: make(chan struct{})}
 	go s.sweepLoop(pkceGCInterval)
 	return s
 }
 
-// Put inserts (or overwrites) a state row.
+// Put inserts a state row. The expires_at column is computed
+// server-side (NOW() + interval matching pkceTTL) so the take-side
+// filter NOW() comparison can't be defeated by Go-process / Postgres
+// clock drift. ON CONFLICT (state) DO NOTHING rejects collisions
+// loudly via ErrPKCEStateCollision.
 func (s *PostgresPKCEStore) Put(ctx context.Context, state string, val *PKCEState) error {
-	expiresAt := val.createdAt.Add(pkceTTL)
-	_, err := s.db.ExecContext(ctx,
+	verifierEnc, err := s.enc.Encrypt(val.codeVerifier)
+	if err != nil {
+		return errors.Join(ErrPKCEStorePut, fmt.Errorf("encrypting code_verifier %w", err))
+	}
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO oauth_pkce_states
             (state, connection, code_verifier, started_by, return_url, redirect_uri, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (state) DO UPDATE
-         SET connection    = EXCLUDED.connection,
-             code_verifier = EXCLUDED.code_verifier,
-             started_by    = EXCLUDED.started_by,
-             return_url    = EXCLUDED.return_url,
-             redirect_uri  = EXCLUDED.redirect_uri,
-             created_at    = EXCLUDED.created_at,
-             expires_at    = EXCLUDED.expires_at`,
-		state, val.connection, val.codeVerifier, val.startedBy,
-		val.returnURL, val.redirectURI, val.createdAt, expiresAt)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + ($8 || ' seconds')::interval)
+         ON CONFLICT (state) DO NOTHING`,
+		state, val.connection, verifierEnc, val.startedBy,
+		val.returnURL, val.redirectURI, val.createdAt,
+		fmt.Sprintf("%d", int64(pkceTTL.Seconds())))
 	if err != nil {
-		return fmt.Errorf("pkce_store: put: %w", err)
+		return errors.Join(ErrPKCEStorePut, err)
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		// Either a real collision (negligible probability with 256-bit
+		// state) or generatePKCEState produced a duplicate. Refuse —
+		// the operator's flow is broken regardless of cause.
+		slog.Error("pkce_store: state token collision rejected",
+			"connection", val.connection, "state_prefix", safeStatePrefix(state))
+		return ErrPKCEStateCollision
 	}
 	return nil
 }
@@ -61,14 +103,22 @@ func (s *PostgresPKCEStore) Take(ctx context.Context, state string) (*PKCEState,
          WHERE state = $1 AND expires_at > NOW()
          RETURNING connection, code_verifier, started_by, return_url, redirect_uri, created_at`,
 		state)
-	var v PKCEState
-	if err := row.Scan(&v.connection, &v.codeVerifier, &v.startedBy,
+	var (
+		v           PKCEState
+		verifierEnc string
+	)
+	if err := row.Scan(&v.connection, &verifierEnc, &v.startedBy,
 		&v.returnURL, &v.redirectURI, &v.createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPKCEStateNotFound
 		}
 		return nil, fmt.Errorf("pkce_store: take: %w", err)
 	}
+	verifier, err := s.enc.Decrypt(verifierEnc)
+	if err != nil {
+		return nil, fmt.Errorf("pkce_store: decrypt code_verifier: %w", err)
+	}
+	v.codeVerifier = verifier
 	return &v, nil
 }
 
@@ -94,4 +144,31 @@ func (s *PostgresPKCEStore) sweepLoop(interval time.Duration) {
 			return
 		}
 	}
+}
+
+// passThroughPKCEEncryptor is the dev-mode "no encryption" stand-in.
+// Used when ENCRYPTION_KEY is unset. The platform separately logs a
+// warning so operators don't deploy this path to production unaware.
+type passThroughPKCEEncryptor struct{}
+
+// Encrypt returns the plaintext unchanged.
+func (passThroughPKCEEncryptor) Encrypt(s string) (string, error) { return s, nil }
+
+// Decrypt returns the input unchanged.
+func (passThroughPKCEEncryptor) Decrypt(s string) (string, error) { return s, nil }
+
+// statePrefixLen is the number of leading characters of a state token
+// safe to include in log correlation IDs without leaking the full
+// secret to log readers. 256 bits of entropy → 6 base64 chars is
+// roughly 36 bits, enough to disambiguate flows in a session log.
+const statePrefixLen = 6
+
+// safeStatePrefix returns the first statePrefixLen bytes of a state
+// token for log correlation without exposing the full secret. Tokens
+// shorter than that are returned as "<short>".
+func safeStatePrefix(state string) string {
+	if len(state) < statePrefixLen {
+		return "<short>"
+	}
+	return state[:statePrefixLen]
 }

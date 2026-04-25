@@ -3,12 +3,59 @@ package sources
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestSQLLiteral_RejectsHostileValues covers the security/correctness
+// guards on the literal renderer: NUL bytes (Trino-undefined behavior),
+// NaN/Inf (parse errors at runtime), and unsupported types.
+func TestSQLLiteral_RejectsHostileValues(t *testing.T) {
+	cases := []struct {
+		name string
+		v    any
+		want string
+	}{
+		{"nul-byte", "abc\x00def", "NUL"},
+		{"nan", math.NaN(), "NaN"},
+		{"pos-inf", math.Inf(1), "+Inf"},
+		{"neg-inf", math.Inf(-1), "+Inf or -Inf"}, // error mentions both
+		{"unsupported-slice", []string{"a"}, "unsupported binding type"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sqlLiteral(tt.v)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+func TestSQLLiteral_AcceptsValidValues(t *testing.T) {
+	cases := []struct {
+		v    any
+		want string
+	}{
+		{nil, "NULL"},
+		{"hi", "'hi'"},
+		{"o'reilly", "'o''reilly'"}, // single-quote doubling
+		{true, "TRUE"},
+		{false, "FALSE"},
+		{int(42), "42"},
+		{int64(-7), "-7"},
+		{float64(3.14), "3.14"},
+		{float32(-2.5), "-2.5"},
+	}
+	for _, tt := range cases {
+		got, err := sqlLiteral(tt.v)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, got)
+	}
+}
 
 func TestTrinoSource_NameAndOperations(t *testing.T) {
 	s := NewTrinoSource(nil)

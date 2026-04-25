@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
@@ -169,11 +170,21 @@ func substitutePlaceholder(out *strings.Builder, tmpl string, i int, literals ma
 // sqlLiteral renders a Go value as an ANSI-SQL literal that's safe to
 // concatenate into a query. Returns an error for unsupported types so
 // the source never produces a query containing untyped data.
+//
+// Hardening:
+//   - Strings containing a NUL byte are rejected (Trino's behavior with
+//     embedded NUL is undefined; cleaner to refuse).
+//   - NaN and Inf floats are rejected (they format as "NaN"/"+Inf"
+//     which Trino can't parse, producing an opaque error at runtime;
+//     fail fast at binding time instead).
 func sqlLiteral(v any) (string, error) {
 	switch x := v.(type) {
 	case nil:
 		return "NULL", nil
 	case string:
+		if strings.ContainsRune(x, 0) {
+			return "", errors.New("string binding contains a NUL byte")
+		}
 		return "'" + strings.ReplaceAll(x, "'", "''") + "'", nil
 	case bool:
 		if x {
@@ -182,10 +193,24 @@ func sqlLiteral(v any) (string, error) {
 		return "FALSE", nil
 	case int, int32, int64:
 		return fmt.Sprintf("%d", x), nil
-	case float32, float64:
-		return fmt.Sprintf("%g", x), nil
+	case float32:
+		return formatFloatLiteral(float64(x))
+	case float64:
+		return formatFloatLiteral(x)
 	}
 	return "", errors.New("unsupported binding type")
+}
+
+// formatFloatLiteral rejects NaN/Inf and otherwise renders the value
+// in shortest decimal form Trino can parse.
+func formatFloatLiteral(f float64) (string, error) {
+	if math.IsNaN(f) {
+		return "", errors.New("float binding is NaN")
+	}
+	if math.IsInf(f, 0) {
+		return "", errors.New("float binding is +Inf or -Inf")
+	}
+	return fmt.Sprintf("%g", f), nil
 }
 
 // isIdentByte reports whether b can be part of a SQL identifier

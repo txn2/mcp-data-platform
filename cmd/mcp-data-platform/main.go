@@ -755,11 +755,13 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.EnrichmentEngine = engine
 	}
 
-	// PKCE state: prefer DB-backed (multi-replica safe) when available;
-	// otherwise fall through to the handler's process-singleton in-memory
-	// store. Single-replica deploys still work either way.
+	// PKCE state: DB-backed (multi-replica safe) when a database is
+	// configured. otherwise an in-memory store with a background GC
+	// goroutine is wired here — single-replica only.
 	if db := p.DB(); db != nil {
-		deps.PKCEStore = admin.NewPostgresPKCEStore(db)
+		deps.PKCEStore = admin.NewPostgresPKCEStore(db, p.RestEncryptor())
+	} else {
+		deps.PKCEStore = admin.NewMemoryPKCEStore()
 	}
 
 	if p.KnowledgeInsightStore() != nil {

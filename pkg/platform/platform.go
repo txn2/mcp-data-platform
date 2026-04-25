@@ -120,6 +120,7 @@ type Platform struct {
 	connectionSources *ConnectionSourceMap
 	enrichmentStore   enrichment.Store
 	gatewayTokenStore gatewaykit.TokenStore
+	restEncryptor     *RestFieldEncryptor
 	personaStore      PersonaStore
 	apiKeyStore       APIKeyStore
 
@@ -421,22 +422,29 @@ func (p *Platform) initConnectionStore() error {
 	if err != nil {
 		return err
 	}
+	p.restEncryptor = &RestFieldEncryptor{enc: encryptor}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
-	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, &gatewayTokenEncryptor{enc: encryptor})
+	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
 	return nil
 }
 
-// gatewayTokenEncryptor adapts the platform's FieldEncryptor to the
-// gatewaykit.TokenEncryptor interface so refresh tokens are encrypted at
-// rest using the same key/algorithm as connection credentials.
-type gatewayTokenEncryptor struct {
+// RestFieldEncryptor adapts the platform's FieldEncryptor to the
+// generic Encrypt/Decrypt interface used by sub-package stores
+// (gateway OAuth tokens, PKCE state, etc.) so every at-rest secret
+// uses the same key, algorithm, and enc:base64(nonce|cipher) prefix
+// as connection credentials.
+//
+// Exported so consumers like main.go can pass it to constructors
+// (e.g., admin.NewPostgresPKCEStore) without importing internal
+// platform types.
+type RestFieldEncryptor struct {
 	enc *FieldEncryptor
 }
 
 // Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
 // the field encryptor uses for sensitive config map values.
-func (g *gatewayTokenEncryptor) Encrypt(plaintext string) (string, error) {
+func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
 	if g.enc == nil || plaintext == "" {
 		return plaintext, nil
 	}
@@ -445,14 +453,14 @@ func (g *gatewayTokenEncryptor) Encrypt(plaintext string) (string, error) {
 	}
 	out, err := g.enc.encrypt(plaintext)
 	if err != nil {
-		return "", fmt.Errorf("gateway token encrypt: %w", err)
+		return "", fmt.Errorf("rest field encrypt: %w", err)
 	}
 	return encryptedPrefix + out, nil
 }
 
 // Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
 // unchanged so legacy/unencrypted rows degrade gracefully.
-func (g *gatewayTokenEncryptor) Decrypt(ciphertext string) (string, error) {
+func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
 	if g.enc == nil || ciphertext == "" {
 		return ciphertext, nil
 	}
@@ -461,9 +469,17 @@ func (g *gatewayTokenEncryptor) Decrypt(ciphertext string) (string, error) {
 	}
 	out, err := g.enc.decrypt(strings.TrimPrefix(ciphertext, encryptedPrefix))
 	if err != nil {
-		return "", fmt.Errorf("gateway token decrypt: %w", err)
+		return "", fmt.Errorf("rest field decrypt: %w", err)
 	}
 	return out, nil
+}
+
+// RestEncryptor returns the platform's at-rest field encryption
+// adapter, or nil when no database is configured. Sub-package stores
+// can pass this to their constructors so secrets they persist use the
+// same key and format as connection credentials.
+func (p *Platform) RestEncryptor() *RestFieldEncryptor {
+	return p.restEncryptor
 }
 
 // EnrichmentStore returns the gateway enrichment rule store. Nil when no

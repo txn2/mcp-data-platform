@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sync"
 	"time"
 )
@@ -35,10 +34,13 @@ type PKCEStore interface {
 	Close() error
 }
 
-// memoryPKCEStore is an in-process map keyed by state token. Sweeps
+// MemoryPKCEStore is an in-process map keyed by state token. Sweeps
 // expired entries on every put/take AND on a background ticker so an
 // idle server still releases stranded oauth-start records.
-type memoryPKCEStore struct {
+//
+// Single-replica deployments and tests use this directly. Production
+// multi-replica deployments use PostgresPKCEStore.
+type MemoryPKCEStore struct {
 	mu     sync.Mutex
 	states map[string]*PKCEState
 
@@ -46,10 +48,18 @@ type memoryPKCEStore struct {
 	stopCh   chan struct{}
 }
 
-// newMemoryPKCEStore returns a store with a background GC goroutine
-// running on the given interval. Callers must Close() to release it.
-func newMemoryPKCEStore(gcInterval time.Duration) *memoryPKCEStore {
-	s := &memoryPKCEStore{
+// NewMemoryPKCEStore returns a store with a background GC goroutine
+// running on pkceGCInterval. Callers MUST Close() it to release the
+// goroutine — typically via t.Cleanup() in tests or a deferred close
+// in production process teardown.
+func NewMemoryPKCEStore() *MemoryPKCEStore {
+	return memoryPKCEStoreWithInterval(pkceGCInterval)
+}
+
+// memoryPKCEStoreWithInterval is an internal constructor for tests
+// that want to drive the GC interval directly (or disable it with 0).
+func memoryPKCEStoreWithInterval(gcInterval time.Duration) *MemoryPKCEStore {
+	s := &MemoryPKCEStore{
 		states: map[string]*PKCEState{},
 		stopCh: make(chan struct{}),
 	}
@@ -61,7 +71,7 @@ func newMemoryPKCEStore(gcInterval time.Duration) *memoryPKCEStore {
 
 // Put stores a state under the given token, sweeping expired entries
 // opportunistically.
-func (s *memoryPKCEStore) Put(_ context.Context, state string, val *PKCEState) error {
+func (s *MemoryPKCEStore) Put(_ context.Context, state string, val *PKCEState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
@@ -72,7 +82,7 @@ func (s *memoryPKCEStore) Put(_ context.Context, state string, val *PKCEState) e
 // Take returns and deletes the matching state, or ErrPKCEStateNotFound
 // if absent. Expired entries are GC'd before lookup so callers don't
 // need to check pkceTTL themselves.
-func (s *memoryPKCEStore) Take(_ context.Context, state string) (*PKCEState, error) {
+func (s *MemoryPKCEStore) Take(_ context.Context, state string) (*PKCEState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
@@ -85,12 +95,12 @@ func (s *memoryPKCEStore) Take(_ context.Context, state string) (*PKCEState, err
 }
 
 // Close stops the background GC goroutine. Idempotent.
-func (s *memoryPKCEStore) Close() error {
+func (s *MemoryPKCEStore) Close() error {
 	s.stopOnce.Do(func() { close(s.stopCh) })
 	return nil
 }
 
-func (s *memoryPKCEStore) gcLoop(interval time.Duration) {
+func (s *MemoryPKCEStore) gcLoop(interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -105,7 +115,7 @@ func (s *memoryPKCEStore) gcLoop(interval time.Duration) {
 	}
 }
 
-func (s *memoryPKCEStore) gcLocked() {
+func (s *MemoryPKCEStore) gcLocked() {
 	cutoff := time.Now().Add(-pkceTTL)
 	for k, v := range s.states {
 		if v.createdAt.Before(cutoff) {
@@ -119,11 +129,3 @@ func (s *memoryPKCEStore) gcLocked() {
 // put/take sweeps). One minute keeps the leak ceiling tight without
 // being chatty for a feature that's idle most of the time.
 const pkceGCInterval = 1 * time.Minute
-
-// noopPKCEStoreLogger lets us silently swallow the rare Close error
-// in test paths where teardown order doesn't care.
-func noopCloseLog(err error) {
-	if err != nil {
-		slog.Debug("pkce_store: close error", "err", err)
-	}
-}
