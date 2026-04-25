@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -19,12 +20,19 @@ const (
 type upstreamClient struct {
 	session *mcp.ClientSession
 	cfg     Config
+	// oauth is non-nil when AuthMode == AuthModeOAuth. It backs the
+	// authRoundTripper's bearer token and feeds the OAuth status endpoint.
+	oauth *oauthTokenSource
 }
 
 // dial opens a client connection to the configured endpoint and returns a
 // usable upstreamClient. The caller is responsible for calling Close.
 func dial(ctx context.Context, cfg Config) (*upstreamClient, error) {
-	httpClient := buildHTTPClient(cfg)
+	var oauth *oauthTokenSource
+	if cfg.AuthMode == AuthModeOAuth {
+		oauth = newOAuthTokenSource(cfg.OAuth)
+	}
+	httpClient := buildHTTPClient(cfg, oauth)
 
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    clientName,
@@ -39,7 +47,7 @@ func dial(ctx context.Context, cfg Config) (*upstreamClient, error) {
 		return nil, fmt.Errorf("connect to %s: %w", cfg.Endpoint, err)
 	}
 
-	return &upstreamClient{session: session, cfg: cfg}, nil
+	return &upstreamClient{session: session, cfg: cfg, oauth: oauth}, nil
 }
 
 // listTools fetches the current tool catalog from the upstream.
@@ -76,38 +84,62 @@ func (u *upstreamClient) close() error {
 
 // buildHTTPClient constructs an HTTP client with the configured auth scheme.
 // For AuthModeNone it returns nil, letting the SDK use its default client.
-func buildHTTPClient(cfg Config) *http.Client {
+// The oauth source is required when AuthMode is "oauth" and ignored
+// otherwise; pass nil for the non-OAuth modes.
+func buildHTTPClient(cfg Config, oauth *oauthTokenSource) *http.Client {
 	if cfg.AuthMode == AuthModeNone {
 		return nil
 	}
 	return &http.Client{
 		Transport: &authRoundTripper{
-			mode:       cfg.AuthMode,
-			credential: cfg.Credential,
-			base:       http.DefaultTransport,
+			mode:        cfg.AuthMode,
+			credential:  cfg.Credential,
+			tokenSource: oauth,
+			base:        http.DefaultTransport,
 		},
 	}
 }
 
 // authRoundTripper injects an outbound auth header on every request.
 type authRoundTripper struct {
-	mode       string
-	credential string
-	base       http.RoundTripper
+	mode        string
+	credential  string
+	tokenSource *oauthTokenSource
+	base        http.RoundTripper
 }
 
 // RoundTrip adds the configured auth header to req and delegates to the base.
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
-	switch a.mode {
-	case AuthModeBearer:
-		req.Header.Set("Authorization", "Bearer "+a.credential)
-	case AuthModeAPIKey:
-		req.Header.Set("X-API-Key", a.credential)
+	if err := a.applyAuth(req); err != nil {
+		return nil, err
 	}
 	resp, err := a.base.RoundTrip(req)
 	if err != nil {
 		return nil, fmt.Errorf("round trip: %w", err)
 	}
 	return resp, nil
+}
+
+// applyAuth sets the appropriate header on req. For OAuth, this lazily
+// fetches/refreshes the token; failures here surface as transport errors
+// to the MCP client, which the gateway forwarder then attributes back as
+// upstream:<connection>: errors in the audit log.
+func (a *authRoundTripper) applyAuth(req *http.Request) error {
+	switch a.mode {
+	case AuthModeBearer:
+		req.Header.Set("Authorization", "Bearer "+a.credential)
+	case AuthModeAPIKey:
+		req.Header.Set("X-API-Key", a.credential)
+	case AuthModeOAuth:
+		if a.tokenSource == nil {
+			return errors.New("oauth: token source not configured")
+		}
+		token, err := a.tokenSource.Token(req.Context())
+		if err != nil {
+			return fmt.Errorf("oauth: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return nil
 }

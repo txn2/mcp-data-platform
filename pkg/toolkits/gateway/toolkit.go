@@ -253,6 +253,54 @@ func (t *Toolkit) HasConnection(name string) bool {
 	return ok
 }
 
+// ConnectionStatus is a per-connection health snapshot exposed by the
+// admin status endpoint.
+type ConnectionStatus struct {
+	Name     string       `json:"name"`
+	Healthy  bool         `json:"healthy"`
+	AuthMode string       `json:"auth_mode"`
+	Tools    []string     `json:"tools,omitempty"`
+	OAuth    *OAuthStatus `json:"oauth,omitempty"`
+}
+
+// Status returns a status snapshot for the named connection. Returns nil
+// when the connection is not registered.
+func (t *Toolkit) Status(name string) *ConnectionStatus {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	u, ok := t.connections[name]
+	if !ok {
+		return nil
+	}
+	cs := &ConnectionStatus{
+		Name:     name,
+		Healthy:  u.client != nil,
+		AuthMode: u.config.AuthMode,
+		Tools:    append([]string(nil), u.toolNames...),
+	}
+	if u.client != nil && u.client.oauth != nil {
+		s := u.client.oauth.Status()
+		cs.OAuth = &s
+	}
+	return cs
+}
+
+// ReacquireOAuthToken forces a fresh client_credentials exchange for the
+// named connection. Returns an error if the connection is missing or not
+// configured for OAuth.
+func (t *Toolkit) ReacquireOAuthToken(ctx context.Context, name string) error {
+	t.mu.RLock()
+	u, ok := t.connections[name]
+	t.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionNotFound)
+	}
+	if u.client == nil || u.client.oauth == nil {
+		return fmt.Errorf("gateway: %s: not configured for OAuth", name)
+	}
+	return u.client.oauth.Reacquire(ctx)
+}
+
 // ListConnections returns metadata for every live connection, sorted by name.
 func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	t.mu.RLock()

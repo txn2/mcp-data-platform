@@ -112,7 +112,7 @@ func TestParseConfig_Errors(t *testing.T) {
 			name: "invalid auth_mode",
 			cfg: map[string]any{
 				"endpoint":  "https://u.example.com",
-				"auth_mode": "oauth",
+				"auth_mode": "kerberos",
 			},
 			wantMsg: "invalid auth_mode",
 		},

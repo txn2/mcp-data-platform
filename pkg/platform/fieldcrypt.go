@@ -19,14 +19,16 @@ const encryptedPrefix = "enc:"
 
 // sensitiveConfigKeys are the config map keys whose values must be encrypted at rest.
 var sensitiveConfigKeys = map[string]bool{
-	"password":          true,
-	"secret_access_key": true,
-	"secret_key":        true,
-	"token":             true,
-	"access_token":      true,
-	"refresh_token":     true,
-	"api_key":           true,
-	"credential":        true,
+	"password":            true,
+	"secret_access_key":   true,
+	"secret_key":          true,
+	"token":               true,
+	"access_token":        true,
+	"refresh_token":       true,
+	"api_key":             true,
+	"credential":          true,
+	"client_secret":       true,
+	"oauth_client_secret": true,
 }
 
 // FieldEncryptor encrypts and decrypts sensitive fields within connection config maps.

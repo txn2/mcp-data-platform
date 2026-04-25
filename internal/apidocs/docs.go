@@ -1382,6 +1382,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/gateway/connections/{name}/reacquire-oauth": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Triggers a client_credentials grant against the configured OAuth token URL, replacing the cached token. Used to recover from upstream-side credential rotations or to verify the configured client_id/client_secret without waiting for token expiry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Force a fresh OAuth token exchange",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/gateway.ConnectionStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/refresh": {
             "post": {
                 "security": [
@@ -1426,6 +1481,55 @@ const docTemplate = `{
                         "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/admin.refreshGatewayConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/gateway/connections/{name}/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the connection is healthy, its tool count, and (when AuthMode=oauth) the current token state — expiry, last refreshed, last error.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get a gateway connection's runtime status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/gateway.ConnectionStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
                         }
                     }
                 }
@@ -7260,6 +7364,61 @@ const docTemplate = `{
                 },
                 "when_predicate": {
                     "$ref": "#/definitions/enrichment.Predicate"
+                }
+            }
+        },
+        "gateway.ConnectionStatus": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "healthy": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oauth": {
+                    "$ref": "#/definitions/gateway.OAuthStatus"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "gateway.OAuthStatus": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "grant": {
+                    "type": "string"
+                },
+                "has_refresh_token": {
+                    "type": "boolean"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_refreshed_at": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "token_acquired": {
+                    "type": "boolean"
+                },
+                "token_url": {
+                    "type": "string"
                 }
             }
         },

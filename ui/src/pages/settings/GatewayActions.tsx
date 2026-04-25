@@ -7,12 +7,15 @@ import {
   useUpdateEnrichmentRule,
   useDeleteEnrichmentRule,
   useDryRunEnrichmentRule,
+  useGatewayConnectionStatus,
+  useReacquireGatewayOAuth,
 } from "@/api/admin/hooks";
 import type {
   EnrichmentRule,
   EnrichmentRuleBody,
   GatewayProbeTool,
   DryRunResponse,
+  GatewayOAuthStatus,
 } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
@@ -26,6 +29,9 @@ import {
   Check,
   AlertCircle,
   Play,
+  Key,
+  Clock,
+  KeyRound,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -141,8 +147,135 @@ export function GatewayActionBar({
           )}
         </div>
       )}
+      <OAuthStatusCard connectionName={connectionName} />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// OAuthStatusCard — token state + Reacquire button (rendered only when the
+// connection's auth_mode is "oauth")
+// ---------------------------------------------------------------------------
+
+function OAuthStatusCard({ connectionName }: { connectionName: string }) {
+  const { data: status } = useGatewayConnectionStatus(connectionName);
+  const reacquire = useReacquireGatewayOAuth();
+  const [reacquireMsg, setReacquireMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  if (!status || status.auth_mode !== "oauth" || !status.oauth) {
+    return null;
+  }
+  const oauth = status.oauth;
+  const handleReacquire = async () => {
+    setReacquireMsg(null);
+    try {
+      await reacquire.mutateAsync(connectionName);
+      setReacquireMsg({ ok: true, text: "Token refreshed" });
+    } catch (err) {
+      setReacquireMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : "Reacquire failed",
+      });
+    }
+  };
+
+  return (
+    <div className="rounded-md border bg-muted/10 px-3 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            OAuth status
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleReacquire}
+          disabled={reacquire.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={cn("h-3 w-3", reacquire.isPending && "animate-spin")} />
+          {reacquire.isPending ? "Reacquiring..." : "Reacquire now"}
+        </button>
+      </div>
+      <OAuthStatusGrid status={oauth} />
+      {oauth.last_error && (
+        <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+          <span className="font-medium">Last error:</span> {oauth.last_error}
+        </div>
+      )}
+      {reacquireMsg && (
+        <div
+          className={cn(
+            "rounded border px-2 py-1 text-[10px]",
+            reacquireMsg.ok
+              ? "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
+              : "border-destructive/30 bg-destructive/10 text-destructive",
+          )}
+        >
+          {reacquireMsg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OAuthStatusGrid({ status }: { status: GatewayOAuthStatus }) {
+  const items: Array<{ label: string; value: string; icon: React.ReactNode; tone?: "ok" | "warn" }> = [
+    {
+      label: "Token",
+      value: status.token_acquired ? "acquired" : "not yet acquired",
+      icon: status.token_acquired ? (
+        <Check className="h-3 w-3 text-emerald-500" />
+      ) : (
+        <AlertCircle className="h-3 w-3 text-amber-500" />
+      ),
+      tone: status.token_acquired ? "ok" : "warn",
+    },
+    {
+      label: "Expires",
+      value: status.expires_at ? formatRelative(status.expires_at) : "—",
+      icon: <Clock className="h-3 w-3 text-muted-foreground" />,
+    },
+    {
+      label: "Last refreshed",
+      value: status.last_refreshed_at ? formatRelative(status.last_refreshed_at) : "—",
+      icon: <RefreshCw className="h-3 w-3 text-muted-foreground" />,
+    },
+    {
+      label: "Refresh token",
+      value: status.has_refresh_token ? "present" : "none",
+      icon: <Key className="h-3 w-3 text-muted-foreground" />,
+    },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2 text-[10px]">
+      {items.map((it) => (
+        <div key={it.label} className="flex items-center gap-1.5">
+          {it.icon}
+          <span className="text-muted-foreground">{it.label}:</span>
+          <span className="font-mono">{it.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatRelative(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const diff = t - Date.now();
+  const abs = Math.abs(diff);
+  const sec = Math.round(abs / 1000);
+  const min = Math.round(sec / 60);
+  const hr = Math.round(min / 60);
+  const day = Math.round(hr / 24);
+  let rel: string;
+  if (sec < 60) rel = `${sec}s`;
+  else if (min < 60) rel = `${min}m`;
+  else if (hr < 24) rel = `${hr}h`;
+  else rel = `${day}d`;
+  return diff >= 0 ? `in ${rel}` : `${rel} ago`;
 }
 
 // ---------------------------------------------------------------------------

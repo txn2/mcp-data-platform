@@ -507,6 +507,26 @@ export interface GatewayRefreshResponse {
   error?: string;
 }
 
+export interface GatewayOAuthStatus {
+  configured: boolean;
+  token_acquired: boolean;
+  expires_at?: string;
+  last_refreshed_at?: string;
+  has_refresh_token: boolean;
+  last_error?: string;
+  grant?: string;
+  token_url?: string;
+  scope?: string;
+}
+
+export interface GatewayConnectionStatus {
+  name: string;
+  healthy: boolean;
+  auth_mode: string;
+  tools?: string[];
+  oauth?: GatewayOAuthStatus;
+}
+
 export interface EnrichmentPredicate {
   kind?: "" | "always" | "response_contains";
   paths?: string[];

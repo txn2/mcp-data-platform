@@ -20,9 +20,87 @@ func (h *Handler) registerGatewayRoutes() {
 		return
 	}
 	h.mux.HandleFunc("POST /api/v1/admin/gateway/connections/{name}/test", h.testGatewayConnection)
+	h.mux.HandleFunc("GET /api/v1/admin/gateway/connections/{name}/status", h.getGatewayConnectionStatus)
 	if h.deps.ConnectionStore != nil {
 		h.mux.HandleFunc("POST /api/v1/admin/gateway/connections/{name}/refresh", h.refreshGatewayConnection)
+		h.mux.HandleFunc("POST /api/v1/admin/gateway/connections/{name}/reacquire-oauth", h.reacquireGatewayOAuth)
 	}
+}
+
+// getGatewayConnectionStatus handles GET /api/v1/admin/gateway/connections/{name}/status.
+//
+// @Summary      Get a gateway connection's runtime status
+// @Description  Reports whether the connection is healthy, its tool count, and (when AuthMode=oauth) the current token state — expiry, last refreshed, last error.
+// @Tags         Connections
+// @Produce      json
+// @Param        name  path  string  true  "Gateway connection name"
+// @Success      200  {object}  gatewaykit.ConnectionStatus
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/gateway/connections/{name}/status [get]
+func (h *Handler) getGatewayConnectionStatus(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue(pathKeyName)
+	tk := h.findGatewayToolkit()
+	if tk == nil {
+		writeError(w, http.StatusConflict, "gateway toolkit is not registered")
+		return
+	}
+	status := tk.Status(name)
+	if status == nil {
+		writeError(w, http.StatusNotFound, "gateway connection not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+// reacquireGatewayOAuth handles POST /api/v1/admin/gateway/connections/{name}/reacquire-oauth.
+//
+// @Summary      Force a fresh OAuth token exchange
+// @Description  Triggers a client_credentials grant against the configured OAuth token URL, replacing the cached token. Used to recover from upstream-side credential rotations or to verify the configured client_id/client_secret without waiting for token expiry.
+// @Tags         Connections
+// @Produce      json
+// @Param        name  path  string  true  "Gateway connection name"
+// @Success      200  {object}  gatewaykit.ConnectionStatus
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      502  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/gateway/connections/{name}/reacquire-oauth [post]
+func (h *Handler) reacquireGatewayOAuth(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue(pathKeyName)
+	tk := h.findGatewayToolkit()
+	if tk == nil {
+		writeError(w, http.StatusConflict, "gateway toolkit is not registered")
+		return
+	}
+	if err := tk.ReacquireOAuthToken(r.Context(), name); err != nil {
+		if errors.Is(err, gatewaykit.ErrConnectionNotFound) {
+			writeError(w, http.StatusNotFound, "gateway connection not found")
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	status := tk.Status(name)
+	writeJSON(w, http.StatusOK, status)
+}
+
+// findGatewayToolkit returns the live *gatewaykit.Toolkit (if any) so the
+// status / reacquire endpoints can call its methods directly. Returns nil
+// when no gateway toolkit is registered.
+func (h *Handler) findGatewayToolkit() *gatewaykit.Toolkit {
+	if h.deps.ToolkitRegistry == nil {
+		return nil
+	}
+	for _, tk := range h.deps.ToolkitRegistry.All() {
+		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
+			return gw
+		}
+	}
+	return nil
 }
 
 // testGatewayConnectionRequest is the JSON body for the test endpoint.
@@ -53,7 +131,7 @@ type testGatewayConnectionResponse struct {
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/test [post]
 func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name := r.PathValue(pathKeyName)
 
 	var req testGatewayConnectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -120,7 +198,7 @@ type refreshGatewayConnectionResponse struct {
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/refresh [post]
 func (h *Handler) refreshGatewayConnection(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name := r.PathValue(pathKeyName)
 
 	inst, err := h.deps.ConnectionStore.Get(r.Context(), gatewaykit.Kind, name)
 	if err != nil {

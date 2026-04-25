@@ -1043,9 +1043,10 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
             <option value="none">None</option>
             <option value="bearer">Bearer token</option>
             <option value="api_key">API key</option>
+            <option value="oauth">OAuth 2.1 (client credentials)</option>
           </select>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Bearer sends Authorization header; API key sends X-API-Key.
+            Bearer sends Authorization header; API key sends X-API-Key; OAuth exchanges client credentials for a managed bearer token.
           </p>
         </div>
         <ConfigField
@@ -1065,6 +1066,45 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "credential", v))}
           sensitive
         />
+      )}
+      {config.auth_mode === "oauth" && (
+        <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            OAuth (client credentials)
+          </div>
+          <ConfigField
+            label="Token URL"
+            help="OAuth token endpoint. The platform POSTs grant_type=client_credentials here."
+            value={String(config.oauth_token_url ?? "")}
+            onChange={(v) => onChange(update(config, "oauth_token_url", v))}
+            placeholder="https://vendor.example.com/oauth/token"
+            mono
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <ConfigField
+              label="Client ID"
+              value={String(config.oauth_client_id ?? "")}
+              onChange={(v) => onChange(update(config, "oauth_client_id", v))}
+              placeholder="platform-client"
+              mono
+            />
+            <ConfigField
+              label="Client Secret"
+              help="Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving."
+              value={String(config.oauth_client_secret ?? "")}
+              onChange={(v) => onChange(update(config, "oauth_client_secret", v))}
+              sensitive
+            />
+          </div>
+          <ConfigField
+            label="Scope"
+            help="Optional space-delimited scope string."
+            value={String(config.oauth_scope ?? "")}
+            onChange={(v) => onChange(update(config, "oauth_scope", v))}
+            placeholder="read"
+            mono
+          />
+        </div>
       )}
       <div className="grid grid-cols-2 gap-3">
         <ConfigField

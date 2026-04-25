@@ -770,7 +770,7 @@ func TestAuthRoundTripper_APIKeyInjectsHeader(t *testing.T) {
 }
 
 func TestBuildHTTPClient_NoneReturnsNil(t *testing.T) {
-	if c := buildHTTPClient(Config{AuthMode: AuthModeNone}); c != nil {
+	if c := buildHTTPClient(Config{AuthMode: AuthModeNone}, nil); c != nil {
 		t.Errorf("expected nil client for auth_mode=none, got %v", c)
 	}
 }

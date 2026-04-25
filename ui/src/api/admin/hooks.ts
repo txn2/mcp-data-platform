@@ -620,6 +620,32 @@ export function useRefreshGatewayConnection() {
   });
 }
 
+export function useGatewayConnectionStatus(name: string, enabled = true) {
+  return useQuery({
+    queryKey: ["gateway-status", name],
+    queryFn: () =>
+      apiFetch<import("./types").GatewayConnectionStatus>(
+        `/gateway/connections/${name}/status`,
+      ),
+    enabled: enabled && !!name,
+    refetchInterval: REFETCH_INTERVAL,
+  });
+}
+
+export function useReacquireGatewayOAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<import("./types").GatewayConnectionStatus>(
+        `/gateway/connections/${name}/reacquire-oauth`,
+        { method: "POST" },
+      ),
+    onSuccess: (_, name) => {
+      void qc.invalidateQueries({ queryKey: ["gateway-status", name] });
+    },
+  });
+}
+
 export function useEnrichmentRules(connection: string, enabled = true) {
   return useQuery({
     queryKey: ["enrichment-rules", connection],

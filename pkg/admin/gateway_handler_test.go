@@ -311,6 +311,92 @@ func (*stubConnManager) AddConnection(_ string, _ map[string]any) error { return
 func (*stubConnManager) RemoveConnection(_ string) error                { return nil }
 func (*stubConnManager) HasConnection(_ string) bool                    { return false }
 
+func TestGetGatewayConnectionStatus_NotFound(t *testing.T) {
+	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/gateway/connections/missing/status", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetGatewayConnectionStatus_NoToolkitReturns409(t *testing.T) {
+	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{}}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: &mockConnectionStore{},
+		ToolkitRegistry: reg,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+	}, nil)
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/gateway/connections/x/status", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestGetGatewayConnectionStatus_ReturnsStatus(t *testing.T) {
+	url := upstreamMCP(t)
+	store := &mockConnectionStore{
+		getResult: &platform.ConnectionInstance{
+			Kind: gatewaykit.Kind, Name: "live",
+			Config: map[string]any{
+				"endpoint":        url,
+				"connection_name": "live",
+				"connect_timeout": "3s",
+				"call_timeout":    "3s",
+			},
+		},
+	}
+	h, tk := gatewayHandlerDeps(t, store)
+	require.NoError(t, tk.AddConnection("live", store.getResult.Config))
+
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/gateway/connections/live/status", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var status gatewaykit.ConnectionStatus
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&status))
+	assert.Equal(t, "live", status.Name)
+	assert.True(t, status.Healthy)
+	assert.Equal(t, gatewaykit.AuthModeNone, status.AuthMode)
+	assert.Nil(t, status.OAuth)
+}
+
+func TestReacquireGatewayOAuth_NotFound(t *testing.T) {
+	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/missing/reacquire-oauth", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestReacquireGatewayOAuth_NotConfiguredReturns502(t *testing.T) {
+	url := upstreamMCP(t)
+	store := &mockConnectionStore{
+		getResult: &platform.ConnectionInstance{
+			Kind: gatewaykit.Kind, Name: "noauth",
+			Config: map[string]any{
+				"endpoint":        url,
+				"connection_name": "noauth",
+				"connect_timeout": "3s",
+				"call_timeout":    "3s",
+			},
+		},
+	}
+	h, tk := gatewayHandlerDeps(t, store)
+	require.NoError(t, tk.AddConnection("noauth", store.getResult.Config))
+
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/noauth/reacquire-oauth", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+}
+
 func TestRegisterGatewayRoutes_ImmutableSkipsRegistration(t *testing.T) {
 	url := upstreamMCP(t)
 	// File-mode config store → handler is immutable → gateway routes skip.
