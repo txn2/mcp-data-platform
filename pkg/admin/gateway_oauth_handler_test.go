@@ -261,17 +261,37 @@ func TestGenerateHelpers_ProduceUniqueValues(t *testing.T) {
 
 func TestSafeReturnURL(t *testing.T) {
 	cases := map[string]string{
-		"":                                       "/portal/admin/connections",
-		"//evil.example.com/x":                   "/portal/admin/connections",
-		"https://evil.example.com/x":             "/portal/admin/connections",
-		"javascript:alert(1)":                    "/portal/admin/connections", //nolint:gosec // G203 false positive: test data string, not executed
-		"portal/admin":                           "/portal/admin/connections",
+		// rejected forms — CodeQL go/bad-redirect-check coverage
+		"":                               "/portal/admin/connections",
+		"//evil.example.com/x":           "/portal/admin/connections",
+		`/\evil.example.com/x`:           "/portal/admin/connections", // backslash-protocol-relative
+		`/\\evil.example.com/x`:          "/portal/admin/connections",
+		"https://evil.example.com/x":     "/portal/admin/connections",
+		"javascript:alert(1)":            "/portal/admin/connections", //nolint:gosec // G203 false positive: test data string, not executed
+		"portal/admin":                   "/portal/admin/connections",
+		"/path?next=javascript:alert(1)": "/portal/admin/connections", // colon anywhere → reject
+		// accepted forms
 		"/portal/admin/connections/foo":          "/portal/admin/connections/foo",
 		"/portal/admin/gateway/connections?ok=1": "/portal/admin/gateway/connections?ok=1",
+		"/x":                                     "/x",
 	}
 	for input, want := range cases {
 		assert.Equal(t, want, safeReturnURL(input), "input=%q", input)
 	}
+}
+
+// TestWriteOAuthError_EscapesUpstreamControlledMsg covers the CodeQL
+// go/reflected-xss alert: error_description from the OAuth provider
+// is interpolated into the error page, so any markup-like content
+// must be escaped by html/template before reaching the response.
+func TestWriteOAuthError_EscapesUpstreamControlledMsg(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeOAuthError(w, `<script>alert(1)</script> & "quote" 'tick'`)
+	body := w.Body.String()
+	assert.NotContains(t, body, "<script>", "raw <script> must not appear in body")
+	assert.Contains(t, body, "&lt;script&gt;")
+	assert.Contains(t, body, "&amp;")
+	assert.Contains(t, body, "&#34;") // html/template uses numeric entity for "
 }
 
 func TestTrimOAuthBody(t *testing.T) {

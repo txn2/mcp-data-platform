@@ -84,23 +84,30 @@ This entire feature was non-functional across restarts despite all unit + sqlmoc
 - `TestConnectionForTool_ResolvesPerToolToConnection` (`pkg/toolkits/gateway/toolkit_test.go`)
 - Live: `mockup__add` audit row → `connection=mockup`, `oauthup__echo` audit row → `connection=oauthup`.
 
-### Bug C (MEDIUM, NOT FIXED — known issue) — Refresh-token storm on initial connection
+### Bug C — was a TEST ARTIFACT, not a bug. Resolved by inspection, no code change.
 
-**Symptom:** Right after the initial `authorization_code` exchange minted `acc-2/ref-1`, the mock OAuth log showed four extra `refresh_token rotated` calls in the same second, before the gateway had been used for any tool call. The DB stored `acc-6/ref-5` rather than `acc-2/ref-1`.
+**Symptom (during test):** Right after the initial `authorization_code` exchange minted `acc-2/ref-1`, the mock OAuth log showed four extra `refresh_token rotated` calls in the same second, before the gateway had been used for any tool call.
 
-**Hypothesized cause:** The auth round-tripper is calling `Token()` multiple times during initial discovery (e.g., one HTTP request per `initialize` + `tools/list` + something else), and each call's expiry check is misfiring (likely a small window where `time.Now().After(state.ExpiresAt)` evaluates true on a freshly-issued token, possibly due to the PersistedToken loading path setting an unexpected ExpiresAt).
+**Root cause (after re-reading the code):** The mock OAuth provider issues access tokens with a 10-second TTL (deliberately short, to make refresh testing fast). The platform's `oauthTokenSource.Token()` (`pkg/toolkits/gateway/oauth.go:109`) refreshes whenever `time.Until(ExpiresAt) <= expiryBuffer`, and `expiryBuffer = 30 * time.Second` (`pkg/toolkits/gateway/oauth.go:18`). With `expiryBuffer (30s) > access TTL (10s)`, *every* `Token()` call sees the token as "about to expire" and triggers a refresh.
 
-**Why not fixed now:** Functionally harmless (rotations succeed, refresh-token rotation is normal OAuth practice, eventual state is correct). But it wastes upstream API quota and produces noisy audit-style records on the upstream side. Worth investigating but doesn't block #338.
+In a real deployment, OAuth providers issue access tokens with TTLs measured in minutes-to-hours (Salesforce defaults to 2 hours). The 30-second buffer is correct: it triggers refresh in the last 30 seconds of a 2-hour token's life, which is exactly the desired behavior. The "storm" was an artifact of the mock's deliberately-aggressive expiry, not a defect in the platform.
 
-**Filed as:** P2 follow-up — "investigate refresh-token storm on initial connection".
+**Why no code change:** The behavior is correct. Tightening the buffer to (say) 5 seconds would help mock testing but would risk real-world race conditions where a request's full round-trip burns more than the buffer's worth of clock time and the upstream rejects the now-expired token. 30s is the right balance.
 
-### Bug D (HIGH, NOT FIXED — known issue) — In-memory PKCE state, multi-replica unsafe
+**Test improvement (deferred):** The mock could be reconfigured with `ACCESS_TTL_SECONDS=3600` for the steady-state subset of the test (where we don't want to exercise refresh) and then re-run with a short TTL only for the refresh path. Out of scope for this PR.
 
-**Symptom:** `pkg/admin/gateway_oauth_handler.go` uses a process-global `globalPKCEStore` for `state → code_verifier` PKCE state. Two platform replicas behind a load balancer will fail every callback whose initial `oauth-start` landed on a different replica.
+### Bug D (HIGH, FIXED) — In-memory PKCE state, multi-replica unsafe
 
-**Why not fixed now:** Out of scope of this live test. Fix is straightforward — DB-backed `pkce_states` table with TTL — but it's a real new migration + handler refactor, not a code-correction.
+**Symptom:** `pkg/admin/gateway_oauth_handler.go` originally used a process-global `globalPKCEStore` for `state → code_verifier`. Two platform replicas behind a load balancer would fail every callback whose initial `oauth-start` landed on a different replica.
 
-**Filed as:** P1 follow-up — "DB-back PKCE state for multi-replica safety". Single-replica deployments are unaffected.
+**Fix:**
+- New `PKCEStore` interface (`pkg/admin/pkce_store.go`) with two implementations:
+  - `memoryPKCEStore` — in-process map with a background GC ticker (single-replica default).
+  - `PostgresPKCEStore` (`pkg/admin/pkce_store_postgres.go`) — `oauth_pkce_states` table (migration `000036`), `DELETE … RETURNING` for atomic single-shot take, periodic sweeper.
+- `Handler.Deps.PKCEStore` field; `main.go` wires the Postgres store when a database is available, falls through to in-memory otherwise.
+- Removed the `globalPKCEStore` global.
+
+**Verification:** `pkg/admin/pkce_store_test.go` covers Put/Take/idempotent Close, opportunistic GC, background GC sweep, and Postgres path via sqlmock. The handler tests continue to pass against the in-memory default.
 
 ---
 

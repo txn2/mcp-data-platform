@@ -13,6 +13,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeTokenServer stands up an httptest server that mimics an OAuth 2.1
@@ -565,6 +568,120 @@ func TestSetTokenStore_RetriesAuthorizationCodePlaceholders(t *testing.T) {
 			t.Errorf("tool %q missing connection prefix", n)
 		}
 	}
+}
+
+// TestSetTokenStore_PlaceholderRetainedWhenUpstreamDown covers the
+// "upstream still unreachable" path: even after the token store is
+// wired and the placeholder is retried, if the upstream MCP itself is
+// down the placeholder must be retained — a "Connect" UI is wrong here
+// because the user already authorized; the upstream is just sick.
+func TestSetTokenStore_PlaceholderRetainedWhenUpstreamDown(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "valid", RefreshToken: "valid-r", ExpiresIn: 3600,
+		})
+	})
+	// Upstream MCP that immediately 503s (simulating a sick vendor).
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(deadUpstream.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	cfg := map[string]any{
+		"endpoint":                deadUpstream.URL,
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor", AccessToken: "valid", RefreshToken: "valid-r",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+	tk.SetTokenStore(store) // retry runs; upstream still down
+
+	// Connection should still be registered (placeholder preserved) but
+	// have zero tools — UI should keep showing "Connect".
+	statuses := tk.ListConnections()
+	assert.Len(t, statuses, 1, "placeholder must be preserved when retry fails")
+	assert.Empty(t, tk.Tools(), "no tools should leak from a sick upstream")
+}
+
+// TestSetTokenStore_MultiplePlaceholdersRetriedIndependently asserts
+// each authorization_code placeholder is retried on its own — one
+// failure does not prevent another from succeeding.
+func TestSetTokenStore_MultiplePlaceholdersRetriedIndependently(t *testing.T) {
+	goodTokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "good", RefreshToken: "good-r", ExpiresIn: 3600,
+		})
+	})
+	upstreamA := upstreamServer(t)
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(deadUpstream.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	mkCfg := func(endpoint, name string) map[string]any {
+		return map[string]any{
+			"endpoint":                endpoint,
+			"connection_name":         name,
+			"auth_mode":               AuthModeOAuth,
+			"oauth_grant":             OAuthGrantAuthorizationCode,
+			"oauth_token_url":         goodTokenURL,
+			"oauth_authorization_url": goodTokenURL + "/auth",
+			"oauth_client_id":         "id",
+			"oauth_client_secret":     "sec",
+			"connect_timeout":         "1s",
+			"call_timeout":            "1s",
+		}
+	}
+	require.NoError(t, tk.AddConnection("a", mkCfg(upstreamA, "a")))
+	require.NoError(t, tk.AddConnection("b", mkCfg(deadUpstream.URL, "b")))
+
+	store := NewMemoryTokenStore()
+	for _, name := range []string{"a", "b"} {
+		require.NoError(t, store.Set(context.Background(), PersistedToken{
+			ConnectionName: name, AccessToken: "good", RefreshToken: "good-r",
+			ExpiresAt: time.Now().Add(time.Hour),
+		}))
+	}
+
+	tk.SetTokenStore(store)
+
+	// "a" should be live (real upstream); "b" should still be a
+	// placeholder (sick upstream) but retained.
+	statuses := tk.ListConnections()
+	assert.Len(t, statuses, 2)
+	assert.NotEmpty(t, tk.Tools(), "live upstream a should contribute tools")
+	for _, name := range tk.Tools() {
+		assert.True(t, strings.HasPrefix(name, "a"+NamespaceSeparator),
+			"tools must come only from the live placeholder, not the dead one: got %q", name)
+	}
+}
+
+// TestSetTokenStore_NilStoreNoOp confirms passing nil leaves the
+// toolkit in a sane state (placeholders unchanged, no panic).
+func TestSetTokenStore_NilStoreNoOp(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	tk.SetTokenStore(nil) // empty toolkit — does not panic
+	assert.Empty(t, tk.ListConnections())
 }
 
 func TestOAuthTokenSource_ReacquireAuthorizationCode_RefreshFailsCapturesError(t *testing.T) {

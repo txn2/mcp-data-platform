@@ -124,15 +124,22 @@ func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformCont
 		ctx = WithProgressToken(ctx, pt)
 	}
 
-	// Populate toolkit metadata (kind, name, default connection).
-	populateToolkitMetadata(pc, toolkitLookup, toolName)
+	// Populate toolkit metadata (kind, name, default-or-resolved connection).
+	resolved := populateToolkitMetadata(pc, toolkitLookup, toolName)
 
 	// Override connection from request arguments for accurate audit logging.
-	// With multi-connection toolkits, the toolkit's Connection() returns the
-	// default, but the actual connection is determined by the request's
-	// "connection" argument.
-	if connFromArgs := extractConnectionArg(req); connFromArgs != "" {
-		pc.Connection = connFromArgs
+	// With multi-connection toolkits that route by request arg (trino,
+	// datahub, s3), the toolkit's Connection() returns the default and the
+	// actual connection comes from the "connection" argument.
+	//
+	// SKIP this override when the registry already resolved the connection
+	// via ConnectionResolver — toolkits like the gateway route by tool-name
+	// prefix, so a caller-supplied "connection" arg either is meaningless
+	// or is an audit-spoofing attempt.
+	if !resolved {
+		if connFromArgs := extractConnectionArg(req); connFromArgs != "" {
+			pc.Connection = connFromArgs
+		}
 	}
 
 	// Bridge auth token from Streamable HTTP per-request headers.
@@ -140,16 +147,20 @@ func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformCont
 }
 
 // populateToolkitMetadata fills PlatformContext toolkit fields from the lookup.
-func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName string) {
+// Returns true when the lookup's Connection came from a ConnectionResolver
+// (per-tool routing) so the caller can skip the args-override path.
+func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName string) bool {
 	if lookup == nil {
-		return
+		return false
 	}
 	match := lookup.GetToolkitForTool(toolName)
 	if match.Found {
 		pc.ToolkitKind = match.Kind
 		pc.ToolkitName = match.Name
 		pc.Connection = match.Connection
+		return match.ConnectionResolved
 	}
+	return false
 }
 
 // bridgeAuthToken extracts auth tokens from Streamable HTTP RequestExtra headers

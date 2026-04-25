@@ -57,10 +57,17 @@ type mcpTestToolkitLookup struct {
 	name       string
 	connection string
 	found      bool
+	resolved   bool
 }
 
 func (m *mcpTestToolkitLookup) GetToolkitForTool(_ string) registry.ToolkitMatch {
-	return registry.ToolkitMatch{Kind: m.kind, Name: m.name, Connection: m.connection, Found: m.found}
+	return registry.ToolkitMatch{
+		Kind:               m.kind,
+		Name:               m.name,
+		Connection:         m.connection,
+		Found:              m.found,
+		ConnectionResolved: m.resolved,
+	}
 }
 
 // mcpTestRequest wraps ServerRequest for testing.
@@ -969,6 +976,55 @@ func TestMCPToolCallMiddleware_ConnectionOverride(t *testing.T) {
 			t.Fatalf(mcpTestErrFmt, err)
 		}
 	})
+}
+
+// TestMCPToolCallMiddleware_ResolverPreventsConnectionSpoof verifies
+// that when a toolkit's ConnectionResolver already attributed the
+// tool to a specific connection (gateway pattern), a caller-supplied
+// "connection" argument cannot overwrite the audit attribution.
+func TestMCPToolCallMiddleware_ResolverPreventsConnectionSpoof(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{
+			UserID: mcpTestUserID,
+			Roles:  []string{mcpTestPersona},
+		},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+	toolkitLookup := &mcpTestToolkitLookup{
+		kind:       "mcp",
+		name:       "primary",
+		connection: "real-vendor",
+		found:      true,
+		resolved:   true, // ConnectionResolver populated the connection
+	}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal(mcpTestPCExpected)
+		}
+		// Caller tried to spoof connection=fake-vendor in args.
+		// Resolver-attributed audit must NOT be overwritten.
+		if pc.Connection != "real-vendor" {
+			t.Errorf("Connection = %q, want 'real-vendor' (spoofing attempt should be ignored)", pc.Connection)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
+
+	handler := middleware(next)
+	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      testAuditToolName,
+			Arguments: json.RawMessage(`{"connection":"fake-vendor","message":"hi"}`),
+		},
+	}
+	if _, err := handler(context.Background(), mcpTestMethod, req); err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
 }
 
 func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {

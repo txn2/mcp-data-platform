@@ -120,6 +120,12 @@ type Deps struct {
 	FilePersonaNames    map[string]bool
 	EnrichmentStore     EnrichmentStore
 	EnrichmentEngine    EnrichmentEngine
+	// PKCEStore holds in-flight authorization_code+PKCE state. When nil,
+	// the handler falls back to a process-singleton in-memory store
+	// (single-replica only). Set this to a PostgresPKCEStore for HA
+	// deployments where oauth-start and the callback may land on
+	// different replicas.
+	PKCEStore PKCEStore
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.

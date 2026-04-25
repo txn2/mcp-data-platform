@@ -67,31 +67,63 @@ type Toolkit struct {
 // the store wasn't yet wired) are automatically retried so persisted
 // tokens are picked up without requiring a manual refresh. This makes
 // startup wiring order-independent.
+//
+// Atomicity: the store assignment, placeholder removal, and retry
+// re-registration all happen under the same toolkit write lock so that
+// concurrent Status / ListConnections / Tools callers never see a
+// "vanished" placeholder during the retry window.
 func (t *Toolkit) SetTokenStore(s TokenStore) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.tokenStore = s
-	type pending struct {
-		name string
-		cfg  Config
-	}
-	var retry []pending
 	for name, u := range t.connections {
-		if u.client == nil &&
-			u.config.AuthMode == AuthModeOAuth &&
-			u.config.OAuth.Grant == OAuthGrantAuthorizationCode {
-			retry = append(retry, pending{name: name, cfg: u.config})
-			delete(t.connections, name)
+		if u.client != nil ||
+			u.config.AuthMode != AuthModeOAuth ||
+			u.config.OAuth.Grant != OAuthGrantAuthorizationCode {
+			continue
 		}
-	}
-	t.mu.Unlock()
-
-	for _, p := range retry {
-		if err := t.addParsedConnection(p.name, p.cfg); err != nil {
+		// In-place retry: the placeholder stays in the map until it
+		// either becomes live or the discover error confirms reauth is
+		// still needed (placeholder remains).
+		cfg := u.config
+		if err := t.retryPlaceholderLocked(name, cfg); err != nil {
 			slog.Warn("gateway: retry placeholder after token store wired",
-				logKeyConnection, p.cfg.ConnectionName,
+				logKeyConnection, cfg.ConnectionName,
 				logKeyError, err)
 		}
 	}
+}
+
+// retryPlaceholderLocked re-attempts discovery for an authorization_code
+// placeholder now that t.tokenStore has been set. Caller must hold t.mu.
+//
+// On success, replaces the placeholder with a live upstream and registers
+// its tools on the server (if one is already set). On failure, leaves the
+// placeholder in place so the admin UI continues to surface "Connect".
+func (t *Toolkit) retryPlaceholderLocked(name string, cfg Config) error {
+	client, tools, err := discover(context.Background(), cfg, name, t.tokenStore)
+	if err != nil {
+		// Still failing — keep the placeholder. authorization_code
+		// connections may legitimately fail until the human signs in.
+		return err
+	}
+	u := &upstream{
+		name:      name,
+		config:    cfg,
+		client:    client,
+		tools:     tools,
+		toolNames: makeLocalNames(cfg.ConnectionName, tools),
+		desc:      "Gateway to " + cfg.Endpoint,
+	}
+	t.connections[name] = u
+	if t.server != nil {
+		t.addToolsToServerLocked(u)
+	}
+	slog.Info("gateway: upstream connected",
+		logKeyConnection, cfg.ConnectionName,
+		logKeyEndpoint, cfg.Endpoint,
+		"tools", len(u.toolNames))
+	return nil
 }
 
 // SetEnrichmentEngine wires a cross-enrichment engine into this gateway.

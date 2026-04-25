@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,15 +21,34 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 )
 
+// oauthErrorPageTemplate renders the stranded-tab fallback HTML with
+// context-aware auto-escaping. Using html/template (rather than the
+// previous custom escaper) is what CodeQL recognizes as a sound
+// sanitizer for upstream-controlled error strings.
+var oauthErrorPageTemplate = template.Must(template.New("oauth-error").Parse(
+	`<!doctype html><html><head><title>OAuth error</title>
+<style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;max-width:480px;margin:6rem auto;padding:2rem;color:#333}h1{font-size:1.2rem;color:#c00}</style>
+</head><body>
+<h1>OAuth flow failed</h1>
+<p>{{.Msg}}</p>
+<p><a href="/portal/admin/connections">Return to admin</a></p>
+</body></html>`))
+
 // pkceTTL is how long an in-progress oauth-start hold-state remains
 // valid before the operator must restart the flow. Salesforce and
 // most providers complete the redirect in seconds; 10 minutes is a
 // generous window that survives slow MFA prompts.
 const pkceTTL = 10 * time.Minute
 
-// pkceState is the server-side hold for one pending OAuth flow. Maps
+// PKCEState is the server-side hold for one pending OAuth flow. Maps
 // the random state token to the data the callback handler needs.
-type pkceState struct {
+//
+// Exported so the PKCEStore interface (memoryPKCEStore /
+// PostgresPKCEStore) can carry pointers to it across implementations
+// without revive flagging the methods as exported-but-returning-
+// unexported. Fields stay package-private; consumers from outside
+// admin should not need to introspect a state in flight.
+type PKCEState struct {
 	connection   string
 	codeVerifier string
 	startedBy    string
@@ -36,46 +57,29 @@ type pkceState struct {
 	redirectURI  string
 }
 
-// pkceStore is a small in-memory map keyed by state token. v1 lives in
-// process memory — restarting the platform invalidates in-flight flows
-// (operator restarts the Connect button). For multi-replica deployments,
-// pin OAuth-start + callback to the same instance via a sticky session.
-type pkceStore struct {
-	mu     sync.Mutex
-	states map[string]*pkceState
-}
-
-// global PKCE store shared across handler instances.
-//
-//nolint:gochecknoglobals // single in-memory map for OAuth flow state
-var globalPKCEStore = &pkceStore{states: map[string]*pkceState{}}
-
-func (s *pkceStore) put(state string, val *pkceState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.gcLocked()
-	s.states[state] = val
-}
-
-func (s *pkceStore) take(state string) *pkceState {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.gcLocked()
-	v, ok := s.states[state]
-	if !ok {
-		return nil
+// pkceStoreFor returns the PKCE store the handler should use. Set on
+// Deps; in-memory by default for tests and single-replica deploys.
+// See PKCEStore for the multi-replica path.
+func (h *Handler) pkceStoreFor() PKCEStore {
+	if h.deps.PKCEStore != nil {
+		return h.deps.PKCEStore
 	}
-	delete(s.states, state)
-	return v
+	return defaultPKCEStore()
 }
 
-func (s *pkceStore) gcLocked() {
-	cutoff := time.Now().Add(-pkceTTL)
-	for k, v := range s.states {
-		if v.createdAt.Before(cutoff) {
-			delete(s.states, k)
-		}
-	}
+// defaultPKCEStore is a process-singleton in-memory store used when no
+// store has been injected via Deps. Created lazily so test cases that
+// don't exercise the OAuth flow don't spin up a GC goroutine.
+var (
+	defaultPKCEStoreOnce sync.Once
+	defaultPKCEStoreMem  PKCEStore
+)
+
+func defaultPKCEStore() PKCEStore {
+	defaultPKCEStoreOnce.Do(func() {
+		defaultPKCEStoreMem = newMemoryPKCEStore(pkceGCInterval)
+	})
+	return defaultPKCEStoreMem
 }
 
 // registerGatewayOAuthRoutes adds the OAuth-flow endpoints. The callback
@@ -162,14 +166,18 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	redirectURI := buildOAuthCallbackURL(r)
 	authURL := buildAuthorizationURL(cfg.OAuth, state, verifier, redirectURI)
 
-	globalPKCEStore.put(state, &pkceState{
+	if err := h.pkceStoreFor().Put(r.Context(), state, &PKCEState{
 		connection:   name,
 		codeVerifier: verifier,
 		startedBy:    authorEmailOrID(r.Context()),
 		createdAt:    time.Now(),
 		returnURL:    body.ReturnURL,
 		redirectURI:  redirectURI,
-	})
+	}); err != nil {
+		slog.Error("oauth-start: failed to persist pkce state", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
@@ -206,9 +214,14 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, "missing state parameter")
 		return
 	}
-	pending := globalPKCEStore.take(state)
-	if pending == nil {
-		writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
+	pending, err := h.pkceStoreFor().Take(r.Context(), state)
+	if err != nil {
+		if errors.Is(err, ErrPKCEStateNotFound) {
+			writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
+			return
+		}
+		slog.Error("oauth-callback: pkce store lookup failed", "err", err)
+		writeOAuthError(w, "OAuth state lookup failed")
 		return
 	}
 	if errCode := q.Get("error"); errCode != "" {
@@ -227,23 +240,40 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// safeReturnURL constrains the destination to a same-origin relative
-	// path; semgrep's taint analysis can't see the constraint.
+	// path (rejects absolute, protocol-relative, backslash-protocol-relative,
+	// and scheme-bearing URLs). Semgrep's taint analysis can't see the
+	// constraint; the suppression below is verified by safeReturnURL's
+	// unit tests in gateway_oauth_handler_test.go.
 	http.Redirect(w, r, safeReturnURL(pending.returnURL), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
 // safeReturnURL constrains post-OAuth redirects to same-origin relative
 // paths so a tampered or maliciously authored returnURL cannot bounce
 // the browser to an attacker-controlled host.
+//
+// Must reject:
+//   - Absolute URLs ("https://evil.example.com/x")
+//   - Protocol-relative URLs ("//evil.example.com/x")
+//   - Backslash-protocol-relative URLs ("/\evil.example.com/x") — some
+//     browsers normalise the backslash to a forward slash before
+//     parsing, turning the path into a host
+//   - Anything that doesn't start with "/"
+//   - Anything containing ":" (URL scheme indicator like
+//     "javascript:alert(1)") even after the leading slash
 func safeReturnURL(raw string) string {
 	const fallback = "/portal/admin/connections"
-	if raw == "" {
+	if raw == "" || !strings.HasPrefix(raw, "/") {
 		return fallback
 	}
-	// Reject anything that looks absolute or protocol-relative.
-	if strings.HasPrefix(raw, "//") || strings.Contains(raw, ":") {
+	// Second character must not be "/" or "\\" — those forms can be
+	// interpreted by browsers as protocol-relative URLs.
+	if len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\') {
 		return fallback
 	}
-	if !strings.HasPrefix(raw, "/") {
+	// Block any URL-scheme-like content (covers "javascript:" and
+	// stray colons in the redirect target). Same-origin relative
+	// paths reach the admin shell without needing a colon.
+	if strings.Contains(raw, ":") {
 		return fallback
 	}
 	return raw
@@ -253,7 +283,7 @@ func safeReturnURL(raw string) string {
 // hands them to the gateway toolkit. The toolkit re-adds the connection
 // so the previously "needs reauth" entry becomes live with its
 // discovered tools registered on the MCP server.
-func (h *Handler) completeOAuthExchange(ctx context.Context, pending *pkceState, code string) error {
+func (h *Handler) completeOAuthExchange(ctx context.Context, pending *PKCEState, code string) error {
 	inst, err := h.deps.ConnectionStore.Get(ctx, gatewaykit.Kind, pending.connection)
 	if err != nil {
 		return fmt.Errorf("load connection: %w", err)
@@ -282,7 +312,7 @@ type authCodeTokenResponse struct {
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
 // upstream's token endpoint and returns the parsed response.
 func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
-	pending *pkceState, code string,
+	pending *PKCEState, code string,
 ) (*authCodeTokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -326,7 +356,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 // persistOAuthTokens hands the freshly-exchanged tokens to the live
 // gateway toolkit. Re-creates the connection placeholder when missing
 // (e.g. after a platform restart between oauth-start and callback).
-func (h *Handler) persistOAuthTokens(ctx context.Context, pending *pkceState,
+func (h *Handler) persistOAuthTokens(ctx context.Context, pending *PKCEState,
 	connConfig map[string]any, tr *authCodeTokenResponse,
 ) error {
 	tk := h.findGatewayToolkit()
@@ -418,32 +448,12 @@ func buildOAuthCallbackURL(r *http.Request) string {
 }
 
 // writeOAuthError renders a minimal HTML page for stranded browser tabs.
-// The msg is HTML-escaped before interpolation so user/upstream-controlled
-// strings can't inject script tags into the response.
+// Uses html/template auto-escaping so upstream-controlled strings
+// (e.g. an OAuth provider's error_description) cannot inject markup.
 func writeOAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
-	const tmpl = `<!doctype html><html><head><title>OAuth error</title>
-<style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;max-width:480px;margin:6rem auto;padding:2rem;color:#333}h1{font-size:1.2rem;color:#c00}</style>
-</head><body>
-<h1>OAuth flow failed</h1>
-<p>%s</p>
-<p><a href="/portal/admin/connections">Return to admin</a></p>
-</body></html>`
-	// #nosec G203 G104 G705 -- msg is htmlEscape'd above; Fprintf used for static template.
-	_, _ = fmt.Fprintf(w, tmpl, htmlEscape(msg))
-}
-
-// htmlEscape sanitizes a string for safe HTML inclusion.
-func htmlEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return r.Replace(s)
+	_ = oauthErrorPageTemplate.Execute(w, struct{ Msg string }{Msg: msg})
 }
 
 // trimOAuthBody caps response body size in error messages so a noisy

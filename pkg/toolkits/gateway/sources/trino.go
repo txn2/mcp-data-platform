@@ -19,10 +19,14 @@ import (
 type TrinoQueryFunc func(ctx context.Context, connection, sql string) ([]map[string]any, error)
 
 // TrinoSource exposes a single read-only "query" operation that runs a
-// parameterized SQL template against a named Trino connection. Bindings
-// substitute :name placeholders with safely-quoted literal values; this
-// keeps the source compatible with the existing Trino client without
-// requiring server-side prepared statements.
+// SQL template against a named Trino connection. The :name placeholders
+// in the template are substituted with **escaped ANSI-SQL literals**
+// derived from the binding values — single quotes are doubled, NULL is
+// emitted for nil, ints/floats/bools are rendered as literals. This is
+// not server-side parameter binding (the Trino Go client does not expose
+// a parameterized exec path on our existing query interface); the
+// escaping is sound for the supported value types but identifiers are
+// not substitutable.
 type TrinoSource struct {
 	exec TrinoQueryFunc
 }

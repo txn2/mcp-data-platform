@@ -8,7 +8,7 @@
 
 ## TL;DR — **Ship as-is.**
 
-We surveyed nine OSS MCP gateways (IBM ContextForge, Microsoft mcp-gateway, agentgateway, MCPJungle, agentic-community/mcp-gateway-registry, Lunar MCPX, MetaMCP, Docker MCP Gateway, MCP Mesh). **None of them combine the things our v1 does**: persistent encrypted refresh tokens for unattended cron-driven OAuth, declarative cross-source enrichment with parameterized SQL, and persona-glob tool filtering tied to a structured per-call audit.
+We surveyed nine OSS MCP gateways (IBM ContextForge, Microsoft mcp-gateway, agentgateway, MCPJungle, agentic-community/mcp-gateway-registry, Lunar MCPX, MetaMCP, Docker MCP Gateway, MCP Mesh). **None of them combine the things our v1 does**: persistent encrypted refresh tokens for unattended cron-driven OAuth, declarative cross-source enrichment with escaped ANSI-SQL literals, and persona-glob tool filtering tied to a structured per-call audit.
 
 We do have real gaps relative to the field — stdio upstream transport, OpenTelemetry export, schema-drift detection, and stateful connection pre-allocation — but none of them invalidate the v1 design and none should block merge. They become numbered follow-up tickets after #338 lands.
 
@@ -22,7 +22,7 @@ Cells marked **unverified** mean the comparison agent could not find a primary s
 
 | Project | Lang | License | Transports (upstream) | Auth → upstream | Token persistence | Per-user OAuth | Tool filtering | Enrichment | Audit | Schema drift |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **ours (#338)** | Go | MIT | streamable HTTP | none / bearer / api_key / OAuth (`client_credentials` + `authorization_code`+PKCE) | encrypted at rest (AES-256-GCM), auto-refresh | shared per connection | persona globs | declarative rules (Trino + DataHub, JSONPath bindings, parameterized SQL, dry-run) | structured Postgres per-call (user, persona, duration_ms, correlation) | manual refresh |
+| **ours (#338)** | Go | MIT | streamable HTTP | none / bearer / api_key / OAuth (`client_credentials` + `authorization_code`+PKCE) | encrypted at rest (AES-256-GCM), auto-refresh | shared per connection | persona globs | declarative rules (Trino + DataHub, JSONPath bindings, escaped ANSI-SQL literals, dry-run) | structured Postgres per-call (user, persona, duration_ms, correlation) | manual refresh |
 | **IBM ContextForge** | Python | Apache-2.0 | stdio, HTTP, SSE, WebSocket, streamable | bearer per-plugin | **unverified** (Redis-backed for multi-cluster) | **unverified** | none documented | plugins (40+) — generic, not declarative | OTel (Phoenix, Jaeger, Zipkin, DataDog) | gRPC reflection auto-discovery |
 | **Microsoft mcp-gateway** | C# (.NET 8) | MIT | HTTP (proxy) | not documented (assumes K8s network trust) | n/a | per-user (Entra ID claims) | RBAC via Entra app roles | none | not documented | static per adapter |
 | **agentgateway** | Rust+Go+TS | Apache-2.0 | stdio, HTTP, SSE | OAuth 2.1 + PKCE (mandatory per MCP spec) | **unverified** (provider-managed) | per-user (PKCE token claims) | CEL policy (Cedar-like) | none | OTel | not documented |
@@ -72,7 +72,7 @@ Things the survey could not find in any of the nine subjects:
 
 1. **Persistent encrypted refresh tokens for unattended OAuth.** The closest peers either store tokens in Redis without documented encryption (MCP Mesh), in encrypted session cookies tied to a browser session (agentic-community/registry), or via Docker Desktop's local secret store (Docker MCP Gateway). None offer "OAuth-once-via-browser, then run cron jobs for the life of the refresh token, with the refresh token encrypted at rest." `gateway_oauth_tokens` table + AES-256-GCM via `FieldEncryptor` + automatic refresh on `oauthTokenSource.Token()` is genuinely novel for this category.
 
-2. **Declarative cross-source enrichment.** Our `gateway_enrichment_rules` (JSONB predicate / action / merge, parameterized SQL with JSONPath bindings, dry-run endpoint, correlation IDs in audit) is unique. IBM has plugins, Lunar has interceptors, agentic-community has A2A chaining — all are general-purpose middleware. None bind warehouse data to proxied responses declaratively.
+2. **Declarative cross-source enrichment.** Our `gateway_enrichment_rules` (JSONB predicate / action / merge, escaped ANSI-SQL literals with JSONPath bindings, dry-run endpoint, correlation IDs in audit) is unique. (Note: literals are produced by `sqlLiteral` and concatenated into the query — Trino's Go client doesn't expose `?` parameter binding for our exec path. The escaping covers the `'` and basic-type cases; identifiers and column-name placeholders are out of scope and explicitly rejected.) IBM has plugins, Lunar has interceptors, agentic-community has A2A chaining — all are general-purpose middleware. None bind warehouse data to proxied responses declaratively.
 
 3. **Persona-aware tool filtering tied to structured audit.** Microsoft has Entra app roles, agentgateway has CEL policies, agentic-community has RBAC. None thread the same identity through tool filtering AND per-call audit metadata (user_id, persona, toolkit_kind, connection, duration_ms, correlation_id) the way we do.
 

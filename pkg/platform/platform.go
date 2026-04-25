@@ -480,6 +480,14 @@ func (p *Platform) GatewayTokenStore() gatewaykit.TokenStore {
 	return p.gatewayTokenStore
 }
 
+// DB returns the platform's database handle, or nil when running
+// without a database. Exposed so admin sub-packages can build their
+// own DB-backed stores (e.g., PostgresPKCEStore for multi-replica
+// OAuth) without needing platform-side wiring per store.
+func (p *Platform) DB() *sql.DB {
+	return p.db
+}
+
 // initPersonaStore initializes the persona definition store.
 func (p *Platform) initPersonaStore() {
 	if p.db != nil {
