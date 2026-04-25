@@ -37,6 +37,15 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    // mermaid 11.x lazy-loads diagram modules (flowDiagram, sequenceDiagram,
+    // etc.) at runtime. Vite's dep optimizer tries to pre-bundle them but
+    // can't resolve the dynamic imports cleanly, producing "file does not
+    // exist in the optimize deps directory" errors after cache flips.
+    // Excluding mermaid + its diagram registry tells Vite to load these as
+    // raw ESM, which mermaid is designed for.
+    optimizeDeps: {
+      exclude: ["mermaid"],
+    },
     server: {
       proxy: {
         "/api": {
