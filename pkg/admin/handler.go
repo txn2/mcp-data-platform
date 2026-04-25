@@ -117,6 +117,7 @@ type Deps struct {
 	PromptRegistrar     PromptRegistrar
 	PromptInfoProvider  PromptInfoProvider
 	FilePersonaNames    map[string]bool
+	EnrichmentStore     EnrichmentStore
 }
 
 // docsPrefix is the path prefix for the public Swagger UI.
@@ -191,6 +192,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
 	h.registerGatewayRoutes()
+	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 }
 

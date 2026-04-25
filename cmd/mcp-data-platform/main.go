@@ -729,6 +729,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		S3Bucket:           p.Config().Portal.S3Bucket,
 		ConnectionStore:    p.ConnectionStore(),
 		ConnectionSources:  p.ConnectionSources(),
+		EnrichmentStore:    p.EnrichmentStore(),
 		ToolkitsConfig:     p.Config().Toolkits,
 		PersonaStore:       p.PersonaStore(),
 		APIKeyStore:        p.APIKeyStore(),

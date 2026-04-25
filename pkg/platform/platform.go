@@ -52,6 +52,7 @@ import (
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -116,6 +117,7 @@ type Platform struct {
 	fileDefaults      map[string]string
 	connectionStore   ConnectionStore
 	connectionSources *ConnectionSourceMap
+	enrichmentStore   enrichment.Store
 	personaStore      PersonaStore
 	apiKeyStore       APIKeyStore
 
@@ -418,7 +420,15 @@ func (p *Platform) initConnectionStore() error {
 		return err
 	}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
+	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
 	return nil
+}
+
+// EnrichmentStore returns the gateway enrichment rule store. Nil when no
+// database is configured (the gateway toolkit still works without
+// enrichment rules — they're optional).
+func (p *Platform) EnrichmentStore() enrichment.Store {
+	return p.enrichmentStore
 }
 
 // initPersonaStore initializes the persona definition store.
