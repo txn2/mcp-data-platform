@@ -22,7 +22,7 @@ const (
 	kindPortal     = "portal"
 	kindKnowledge  = "knowledge"
 	kindMemory     = "memory"
-	kindGateway    = "gateway"
+	kindMCP        = "mcp"
 )
 
 // registerPlatformPrompts registers platform-level prompts from config.

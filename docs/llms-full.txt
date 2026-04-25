@@ -2193,12 +2193,12 @@ Gateway connections live in the database, not in `platform.yaml`. Operators add 
 
 ```yaml
 toolkits:
-  gateway:
+  mcp:
     enabled: true
     # No instances here — connections are managed via the admin portal.
 ```
 
-Create a connection through the admin REST API:
+Create a connection through the admin REST API. Connection kind is `mcp` (each connection is a remote MCP server); the gateway is the platform-side feature that proxies them.
 
 ```bash
 curl -X PUT \
@@ -2213,7 +2213,7 @@ curl -X PUT \
     },
     "description": "Vendor analytics MCP"
   }' \
-  https://platform.example.com/api/v1/admin/connection-instances/gateway/vendor
+  https://platform.example.com/api/v1/admin/connection-instances/mcp/vendor
 ```
 
 The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is set. The connection name (`vendor` above) becomes the prefix for every proxied tool.

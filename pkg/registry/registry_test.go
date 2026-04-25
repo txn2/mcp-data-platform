@@ -255,10 +255,10 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 		// Just verify the factory is called - actual creation depends on AWS SDK defaults
 	})
 
-	t.Run("gateway aggregate factory registered", func(t *testing.T) {
-		_, ok := reg.GetAggregateFactory("gateway")
+	t.Run("mcp (gateway) aggregate factory registered", func(t *testing.T) {
+		_, ok := reg.GetAggregateFactory("mcp")
 		if !ok {
-			t.Error("expected gateway aggregate factory to be registered")
+			t.Error("expected mcp aggregate factory to be registered (gateway feature)")
 		}
 	})
 }
@@ -376,8 +376,8 @@ func TestGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GatewayAggregateFactory: %v", err)
 	}
-	if tk.Kind() != "gateway" {
-		t.Errorf("Kind: got %q", tk.Kind())
+	if tk.Kind() != "mcp" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "mcp")
 	}
 	if got := tk.Tools(); len(got) != 0 {
 		t.Errorf("expected empty Tools() for no instances, got %v", got)

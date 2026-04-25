@@ -9,8 +9,12 @@ import (
 )
 
 const (
-	// Kind is the toolkit kind identifier for gateway instances.
-	Kind = "gateway"
+	// Kind is the toolkit kind identifier. Each connection of this kind is
+	// a remote MCP server that the platform's gateway feature proxies. The
+	// kind value is what operators see in the connection picker; the
+	// gateway terminology is reserved for the platform-side feature
+	// (admin endpoints, internal package, DB tables) that does the proxying.
+	Kind = "mcp"
 
 	// AuthModeNone disables outbound authentication.
 	AuthModeNone = "none"

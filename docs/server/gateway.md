@@ -25,13 +25,18 @@ graph LR
 
 The forwarder dials each configured upstream once at startup, discovers its tool catalog, and re-registers every tool under a connection-namespaced local name (`<connection>__<remote_tool>`). Persona rules and audit middleware see proxied tools the same way they see native tools, with no special handling required.
 
+## Terminology
+
+- The platform IS the gateway — it owns the proxying behavior, the admin endpoints under `/api/v1/admin/gateway/*`, the enrichment-rule storage, and the docs you are reading.
+- A **connection** of kind `mcp` is a single remote MCP server the gateway proxies to. Operators see `mcp` as a connection kind in the admin UI, alongside `trino`, `s3`, and `datahub`.
+
 ## Configuring connections
 
-Gateway connections live in the database, not in `platform.yaml`. Operators add and authenticate them through the admin portal (or directly via the admin REST API). Required for the kind to be active in YAML:
+MCP connections live in the database, not in `platform.yaml`. Operators add and authenticate them through the admin portal (or directly via the admin REST API). Required for the kind to be active in YAML:
 
 ```yaml
 toolkits:
-  gateway:
+  mcp:
     enabled: true
     # No instances here — connections are managed via the admin portal.
 ```
@@ -51,7 +56,7 @@ curl -X PUT \
     },
     "description": "Vendor analytics MCP"
   }' \
-  https://platform.example.com/api/v1/admin/connection-instances/gateway/vendor
+  https://platform.example.com/api/v1/admin/connection-instances/mcp/vendor
 ```
 
 The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is set. The connection name (`vendor` above) becomes the prefix for every proxied tool: a remote `get_contact` tool surfaces as `vendor__get_contact`.

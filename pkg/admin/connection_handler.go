@@ -33,9 +33,9 @@ const (
 // connection instances. DataHub is excluded because the platform connects to a
 // single catalog instance configured in the YAML file.
 var knownConnectionKinds = map[string]bool{
-	"trino":   true,
-	"s3":      true,
-	"gateway": true,
+	"trino": true,
+	"s3":    true,
+	"mcp":   true,
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.
