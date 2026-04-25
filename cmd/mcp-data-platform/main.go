@@ -19,6 +19,7 @@ import (
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
@@ -32,8 +33,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/sources"
+	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
 const (
@@ -770,16 +774,18 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 }
 
 // wireEnrichmentEngine builds the gateway enrichment engine when a rule
-// store is available, registers the (currently empty) source registry,
-// and attaches the engine to the live gateway toolkit so forwarded calls
-// pick it up. Source adapters (Trino, DataHub) register against the
-// engine separately as they are introduced.
+// store is available, registers the built-in source adapters (Trino,
+// DataHub) bound to the platform's live toolkits, and attaches the
+// engine to the live gateway toolkit so forwarded calls pick it up.
 func wireEnrichmentEngine(p *platform.Platform) *enrichment.Engine {
 	store := p.EnrichmentStore()
 	if store == nil {
 		return nil
 	}
-	engine := enrichment.NewEngine(store, enrichment.NewSourceRegistry())
+	sourceReg := enrichment.NewSourceRegistry()
+	registerEnrichmentSources(p, sourceReg)
+
+	engine := enrichment.NewEngine(store, sourceReg)
 	for _, tk := range p.ToolkitRegistry().All() {
 		gw, ok := tk.(*gatewaykit.Toolkit)
 		if !ok {
@@ -788,6 +794,66 @@ func wireEnrichmentEngine(p *platform.Platform) *enrichment.Engine {
 		gw.SetEnrichmentEngine(engine)
 	}
 	return engine
+}
+
+// registerEnrichmentSources binds source adapters to the platform's
+// active toolkits. A toolkit that isn't running results in no
+// registration for that source — rules referencing it will surface a
+// "source not registered" warning at evaluation time.
+func registerEnrichmentSources(p *platform.Platform, reg *enrichment.SourceRegistry) {
+	if exec := buildTrinoQueryFunc(p); exec != nil {
+		reg.Register(sources.NewTrinoSource(exec))
+	}
+	if getEntity, getTerm := buildDataHubFuncs(p); getEntity != nil || getTerm != nil {
+		// DataHub source registers even when only a subset of operations
+		// is wired; missing operations report unsupported on dispatch.
+		reg.Register(sources.NewDataHubSource(getEntity, getTerm))
+	}
+}
+
+// buildTrinoQueryFunc returns a TrinoQueryFunc bound to the live trino
+// toolkit's manager, or nil if no trino toolkit is registered.
+func buildTrinoQueryFunc(p *platform.Platform) sources.TrinoQueryFunc {
+	for _, tk := range p.ToolkitRegistry().All() {
+		trinoTk, ok := tk.(*trinokit.Toolkit)
+		if !ok || trinoTk.Manager() == nil {
+			continue
+		}
+		mgr := trinoTk.Manager()
+		return func(ctx context.Context, connection, sql string) ([]map[string]any, error) {
+			c, err := mgr.Client(connection)
+			if err != nil {
+				return nil, fmt.Errorf("trino manager: %w", err)
+			}
+			res, qerr := c.Query(ctx, sql, trinoclient.DefaultQueryOptions())
+			if qerr != nil {
+				return nil, fmt.Errorf("trino query: %w", qerr)
+			}
+			return res.Rows, nil
+		}
+	}
+	return nil
+}
+
+// buildDataHubFuncs returns get-entity and get-glossary-term closures
+// bound to the live datahub toolkit's client, or nils if no datahub
+// toolkit is registered.
+func buildDataHubFuncs(p *platform.Platform) (sources.DataHubGetEntityFunc, sources.DataHubGetGlossaryTermFunc) {
+	for _, tk := range p.ToolkitRegistry().All() {
+		dhTk, ok := tk.(*datahubkit.Toolkit)
+		if !ok || dhTk.Client() == nil {
+			continue
+		}
+		client := dhTk.Client()
+		getEntity := func(ctx context.Context, urn string) (any, error) {
+			return client.GetEntity(ctx, urn)
+		}
+		getTerm := func(ctx context.Context, urn string) (any, error) {
+			return client.GetGlossaryTerm(ctx, urn)
+		}
+		return getEntity, getTerm
+	}
+	return nil, nil
 }
 
 // mountBrowserAuth registers the OIDC login/callback/logout routes.

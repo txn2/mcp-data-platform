@@ -573,6 +573,15 @@ func (t *Toolkit) Client() *trinoclient.Client {
 	return t.client
 }
 
+// Manager returns the multi-connection manager when the toolkit was
+// constructed in multi-mode (the typical platform startup path). Returns
+// nil for single-connection toolkits. Callers that need a per-connection
+// client (gateway enrichment, cross-toolkit lookups) use this to look up
+// a client by name.
+func (t *Toolkit) Manager() *multiserver.Manager {
+	return t.manager
+}
+
 // Config returns the toolkit configuration.
 func (t *Toolkit) Config() Config {
 	return t.config
