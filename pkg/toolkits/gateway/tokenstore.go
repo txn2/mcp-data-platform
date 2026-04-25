@@ -41,12 +41,21 @@ type TokenStore interface {
 	Delete(ctx context.Context, connection string) error
 }
 
-// TokenEncryptor abstracts the platform's FieldEncryptor so this package
-// doesn't import pkg/platform (which would create a cycle).
-type TokenEncryptor interface {
+// FieldEncryptor abstracts the platform's at-rest field encryption so
+// this package doesn't import pkg/platform (which would create a
+// cycle). The same interface shape is reused by other sub-package
+// stores that need at-rest encryption (e.g. admin's PKCE state).
+//
+// TokenEncryptor is the legacy alias retained for callers that still
+// reference it; new code should use FieldEncryptor.
+type FieldEncryptor interface {
 	Encrypt(plaintext string) (string, error)
 	Decrypt(ciphertext string) (string, error)
 }
+
+// TokenEncryptor is an alias for FieldEncryptor kept for backward
+// compatibility with the original gateway-token-store API.
+type TokenEncryptor = FieldEncryptor
 
 // noopEncryptor is used when ENCRYPTION_KEY is unset. Storing OAuth
 // refresh tokens unencrypted is poor practice; the admin UI surfaces a

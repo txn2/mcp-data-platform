@@ -94,16 +94,26 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 	}
 	t.mu.Unlock()
 
+	// Retries run concurrently — each placeholder's discover() is bounded
+	// by cfg.ConnectTimeout, so a single sick upstream no longer blocks
+	// the others from coming up. installLiveConnection is concurrency-
+	// safe (it re-acquires the toolkit lock for its atomic pointer swap).
+	var wg sync.WaitGroup
 	for _, p := range retry {
-		client, tools, err := discover(context.Background(), p.cfg, p.name, store)
-		if err != nil {
-			slog.Warn("gateway: retry placeholder after token store wired",
-				logKeyConnection, p.cfg.ConnectionName,
-				logKeyError, err)
-			continue
-		}
-		t.installLiveConnection(p.name, p.cfg, client, tools)
+		wg.Add(1)
+		go func(p pending) {
+			defer wg.Done()
+			client, tools, err := discover(context.Background(), p.cfg, p.name, store)
+			if err != nil {
+				slog.Warn("gateway: retry placeholder after token store wired",
+					logKeyConnection, p.cfg.ConnectionName,
+					logKeyError, err)
+				return
+			}
+			t.installLiveConnection(p.name, p.cfg, client, tools)
+		}(p)
 	}
+	wg.Wait()
 }
 
 // installLiveConnection promotes a placeholder to a live upstream by

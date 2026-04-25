@@ -8,7 +8,12 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 )
+
+// ensure putError satisfies the standard error chain we expect.
+var _ error = (*putError)(nil)
 
 // ErrPKCEStateCollision is returned by PKCEStore.Put when a state token
 // already exists in the store. State tokens are 256 bits of entropy so a
@@ -22,27 +27,21 @@ var ErrPKCEStateCollision = errors.New("admin: pkce state token collision")
 // errors.Is rather than coupling to a specific message.
 var ErrPKCEStorePut = errors.New("admin: pkce store put failed")
 
-// PKCEFieldEncryptor encrypts and decrypts the code_verifier column at
-// rest. The same FieldEncryptor the platform uses for connection
-// credentials and OAuth tokens. A nil implementation passes values
-// through verbatim — only acceptable in dev when ENCRYPTION_KEY is
-// unset; the platform logs a warning in that case.
-type PKCEFieldEncryptor interface {
-	Encrypt(plaintext string) (string, error)
-	Decrypt(ciphertext string) (string, error)
-}
-
 // PostgresPKCEStore persists in-flight PKCE state to the
 // oauth_pkce_states table. Used in multi-replica deployments where
 // oauth-start may run on a different pod than /oauth/callback.
 //
-// code_verifier is encrypted at rest via PKCEFieldEncryptor — verifiers
-// are short-lived (≤pkceTTL) but they are paired secrets, so a DB read
-// of them while still in flight is roughly equivalent to leaking a
-// short-window OAuth refresh token.
+// code_verifier is encrypted at rest via the platform's
+// gatewaykit.FieldEncryptor — verifiers are short-lived (≤pkceTTL) but
+// they are paired secrets, so a DB read of them while still in flight
+// is roughly equivalent to leaking a short-window OAuth refresh token.
+//
+// We reuse gatewaykit's encryptor interface rather than declaring a
+// duplicate to keep one canonical interface for at-rest field
+// encryption across sub-package stores.
 type PostgresPKCEStore struct {
 	db  *sql.DB
-	enc PKCEFieldEncryptor
+	enc gatewaykit.FieldEncryptor
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -51,7 +50,7 @@ type PostgresPKCEStore struct {
 // NewPostgresPKCEStore returns a Postgres-backed PKCE store that runs
 // a background sweeper to delete expired rows. Pass nil for enc to
 // skip at-rest encryption (dev-only).
-func NewPostgresPKCEStore(db *sql.DB, enc PKCEFieldEncryptor) *PostgresPKCEStore {
+func NewPostgresPKCEStore(db *sql.DB, enc gatewaykit.FieldEncryptor) *PostgresPKCEStore {
 	if enc == nil {
 		enc = passThroughPKCEEncryptor{}
 	}
@@ -68,7 +67,7 @@ func NewPostgresPKCEStore(db *sql.DB, enc PKCEFieldEncryptor) *PostgresPKCEStore
 func (s *PostgresPKCEStore) Put(ctx context.Context, state string, val *PKCEState) error {
 	verifierEnc, err := s.enc.Encrypt(val.codeVerifier)
 	if err != nil {
-		return errors.Join(ErrPKCEStorePut, fmt.Errorf("encrypting code_verifier %w", err))
+		return &putError{op: "encrypt code_verifier", err: err}
 	}
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO oauth_pkce_states
@@ -79,7 +78,7 @@ func (s *PostgresPKCEStore) Put(ctx context.Context, state string, val *PKCEStat
 		val.returnURL, val.redirectURI, val.createdAt,
 		fmt.Sprintf("%d", int64(pkceTTL.Seconds())))
 	if err != nil {
-		return errors.Join(ErrPKCEStorePut, err)
+		return &putError{op: "insert", err: err}
 	}
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
@@ -87,10 +86,31 @@ func (s *PostgresPKCEStore) Put(ctx context.Context, state string, val *PKCEStat
 		// state) or generatePKCEState produced a duplicate. Refuse —
 		// the operator's flow is broken regardless of cause.
 		slog.Error("pkce_store: state token collision rejected",
-			"connection", val.connection, "state_prefix", safeStatePrefix(state))
+			"connection", val.connection)
 		return ErrPKCEStateCollision
 	}
 	return nil
+}
+
+// putError is a single-line, errors.Is-aware wrapper that preserves
+// both the ErrPKCEStorePut sentinel and the underlying cause. Used in
+// place of errors.Join (which separates messages with newlines and
+// breaks line-oriented log aggregators).
+type putError struct {
+	op  string
+	err error
+}
+
+func (p *putError) Error() string {
+	return fmt.Sprintf("admin: pkce store put failed (%s): %v", p.op, p.err)
+}
+
+func (p *putError) Unwrap() error { return p.err }
+
+// Is reports both the wrapped error AND the ErrPKCEStorePut sentinel
+// as matches so callers can errors.Is(err, ErrPKCEStorePut).
+func (*putError) Is(target error) bool {
+	return target == ErrPKCEStorePut //nolint:errorlint // sentinel comparison is intentional
 }
 
 // Take atomically reads-and-deletes the matching row using DELETE …
@@ -156,19 +176,3 @@ func (passThroughPKCEEncryptor) Encrypt(s string) (string, error) { return s, ni
 
 // Decrypt returns the input unchanged.
 func (passThroughPKCEEncryptor) Decrypt(s string) (string, error) { return s, nil }
-
-// statePrefixLen is the number of leading characters of a state token
-// safe to include in log correlation IDs without leaking the full
-// secret to log readers. 256 bits of entropy → 6 base64 chars is
-// roughly 36 bits, enough to disambiguate flows in a session log.
-const statePrefixLen = 6
-
-// safeStatePrefix returns the first statePrefixLen bytes of a state
-// token for log correlation without exposing the full secret. Tokens
-// shorter than that are returned as "<short>".
-func safeStatePrefix(state string) string {
-	if len(state) < statePrefixLen {
-		return "<short>"
-	}
-	return state[:statePrefixLen]
-}

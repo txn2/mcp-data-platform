@@ -96,6 +96,60 @@ func TestStartGatewayOAuth_RejectsClientCredentialsConnection(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
+// TestStartGatewayOAuth_NoPKCEStoreReturns503 verifies the
+// fail-fast guard for misconfigured handlers. Deps.PKCEStore is
+// required; absence yields a clear 503 rather than a panic or a
+// silent in-memory fallback.
+func TestStartGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
+	store := &mockConnectionStore{
+		getResult: &platform.ConnectionInstance{
+			Kind: gatewaykit.Kind, Name: "vendor",
+			Config: authCodeConnectionConfig("https://auth/", "https://t/"),
+		},
+	}
+	tk := gatewaykit.New("primary")
+	tk.SetTokenStore(gatewaykit.NewMemoryTokenStore())
+	t.Cleanup(func() { _ = tk.Close() })
+
+	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: store,
+		ToolkitRegistry: reg,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		// PKCEStore intentionally nil
+	}, nil)
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/oauth-start", http.NoBody)
+	req.Host = "platform.example.com"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "PKCE store not configured")
+}
+
+// TestGatewayOAuthCallback_NoPKCEStoreRendersError verifies the
+// callback path behaves the same way: render an HTML error page
+// rather than panic.
+func TestGatewayOAuthCallback_NoPKCEStoreRendersError(t *testing.T) {
+	tk := gatewaykit.New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: &mockConnectionStore{},
+		ToolkitRegistry: reg,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		// PKCEStore intentionally nil
+	}, nil)
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/oauth/callback?code=abc&state=anything", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code) // writeOAuthError uses 400
+	assert.Contains(t, w.Body.String(), "PKCE store not configured")
+}
+
 func TestStartGatewayOAuth_ReturnsAuthorizationURL(t *testing.T) {
 	store := &mockConnectionStore{
 		getResult: &platform.ConnectionInstance{

@@ -251,15 +251,15 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set the Location header explicitly with a sanitized path so
-	// neither semgrep nor a future CodeQL pass treats this as a
-	// taint flow from the request. safeReturnURL only ever returns:
-	//   - the constant fallback "/portal/admin/connections", or
-	//   - a same-origin relative path that begins with "/" and contains
-	//     no ":" or backslash-protocol-relative form
-	// Both are safe Location targets.
-	w.Header().Set("Location", safeReturnURL(pending.returnURL))
-	w.WriteHeader(http.StatusFound)
+	// safeReturnURL only ever returns either the constant fallback
+	// "/portal/admin/connections" or a same-origin relative path that
+	// begins with "/" and contains no ":" or backslash-protocol-relative
+	// form (covered by TestSafeReturnURL). http.Redirect is fine here
+	// because the destination cannot reach an external host; we use it
+	// for the small "<a href>Found</a>" body it writes, which gives
+	// non-browser HTTP clients (curl, scripts) a useful response body.
+	dest := safeReturnURL(pending.returnURL)
+	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
 // safeReturnURL constrains post-OAuth redirects to same-origin relative
