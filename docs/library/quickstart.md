@@ -131,7 +131,7 @@ func main() {
 }
 ```
 
-## Enabling Cross-Injection
+## Enabling Cross-Enrichment
 
 ```go
 p, err := platform.New(
@@ -141,7 +141,7 @@ p, err := platform.New(
     platform.WithTrinoToolkit("primary", trinoCfg),
     platform.WithDataHubToolkit("primary", datahubCfg),
 
-    // Set up providers for cross-injection
+    // Set up providers for cross-enrichment
     platform.WithSemanticProvider("datahub", "primary"),
     platform.WithQueryProvider("trino", "primary"),
 

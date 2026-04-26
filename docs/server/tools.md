@@ -626,7 +626,7 @@ For `add_curated_query`, `query_sql` (required) and `query_description` (optiona
 ## Memory Tools
 
 !!! tip "Full documentation"
-    For the complete memory layer documentation including architecture, staleness detection, and cross-injection, see [Memory Layer](../memory/overview.md).
+    For the complete memory layer documentation including architecture, staleness detection, and cross-enrichment, see [Memory Layer](../memory/overview.md).
 
 ### memory_manage
 
@@ -649,7 +649,7 @@ Manages persistent agent/analyst memory. Opt-in per persona (requires `memory_*`
 
 ### memory_recall
 
-Multi-strategy memory retrieval. Use when cross-injection does not surface the context you need. Opt-in per persona.
+Multi-strategy memory retrieval. Use when cross-enrichment does not surface the context you need. Opt-in per persona.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -720,5 +720,5 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 ## Next Steps
 
 - [Multi-Provider](multi-provider.md) - Use multiple connections
-- [Cross-Injection](../cross-injection/overview.md) - Understand semantic enrichment
+- [Cross-Enrichment](../cross-enrichment/overview.md) - Understand semantic enrichment
 - [Tools API Reference](../reference/tools-api.md) - Complete API specification

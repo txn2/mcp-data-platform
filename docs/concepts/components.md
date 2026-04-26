@@ -1,5 +1,5 @@
 ---
-description: Why DataHub, Trino, and S3 form the foundation of mcp-data-platform. What each component does, why it was chosen, and how cross-injection wires them together.
+description: Why DataHub, Trino, and S3 form the foundation of mcp-data-platform. What each component does, why it was chosen, and how cross-enrichment wires them together.
 ---
 
 # The Data Stack: DataHub + Trino + S3
@@ -182,18 +182,18 @@ See [Gateway Toolkit](../server/gateway.md) for the full reference.
 
 ### Cross-injection fills the gaps
 
-**Trino + DataHub Cross-Injection**:
+**Trino + DataHub Cross-Enrichment**:
 
 - Query a table → Get schema + owners + tags + deprecation + quality
 - No extra calls. One request. Complete context.
 
-**DataHub + Trino Cross-Injection**:
+**DataHub + Trino Cross-Enrichment**:
 
 - Search DataHub → See which datasets are queryable
 - Get sample SQL for any discovered dataset
 - Know the row count and freshness
 
-**S3 + DataHub Cross-Injection**:
+**S3 + DataHub Cross-Enrichment**:
 
 - List objects → Get matching DataHub metadata
 - Know who owns those files and what they represent
@@ -262,7 +262,7 @@ graph TB
     subgraph "mcp-data-platform"
         Platform[Platform Bridge]
 
-        subgraph "Cross-Injection"
+        subgraph "Cross-Enrichment"
             Enrich[Enrichment Middleware]
         end
     end
@@ -289,13 +289,13 @@ The platform acts as a bridge, intercepting requests and responses to inject con
 
 <div class="grid cards" markdown>
 
--   :material-swap-horizontal: **See Cross-Injection in Action**
+-   :material-swap-horizontal: **See Cross-Enrichment in Action**
 
     ---
 
     Detailed examples of how Trino and DataHub enrich each other's responses.
 
-    [:octicons-arrow-right-24: Cross-injection overview](../cross-injection/overview.md)
+    [:octicons-arrow-right-24: Cross-injection overview](../cross-enrichment/overview.md)
 
 -   :material-server: **Deploy the Server**
 

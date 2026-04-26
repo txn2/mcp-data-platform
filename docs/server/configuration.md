@@ -56,6 +56,14 @@ injection:
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 ```
 
+> **Naming note:** the `injection:` config-block key is on track to be
+> renamed to `enrichment:` in a future release — the feature has
+> always been about enriching tool responses with context, and
+> "injection" carries security baggage we'd rather not. The current
+> key continues to work; this docs PR uses the term "cross-enrichment"
+> in prose throughout, and a follow-up release will accept both keys
+> with a deprecation warning on `injection:`.
+
 ## Config Versioning
 
 Every configuration file should include an `apiVersion` field as the first key. This enables safe schema evolution with deprecation warnings and migration tooling.
@@ -531,7 +539,7 @@ toolkits:
 
 | Variable | Required for | Notes |
 |----------|--------------|-------|
-| `ENCRYPTION_KEY` | Encrypted credentials in `connection_instances`, `gateway_oauth_tokens`, and `oauth_pkce_states` | 32-byte AES-256 key, base64-encoded. Without it, sensitive fields are stored in plaintext and the platform logs a warning. Required for any production gateway deployment. |
+| `ENCRYPTION_KEY` | Encrypted credentials in `connection_instances`, `gateway_oauth_tokens`, and `oauth_pkce_states` | 32 bytes of key material, accepted in three forms: 64 hex characters, 44-character base64, or 32 raw bytes (set via `printf` / file). Without it, sensitive fields are stored in plaintext and the platform logs a warning. Required for any production gateway deployment. |
 | `DATABASE_URL` | OAuth `authorization_code` grant (refresh-token persistence) and multi-replica deployments | Without a database, OAuth tokens live in process memory only and don't survive restarts. Multi-replica deployments additionally need this so PKCE state is shared across pods. |
 
 See [Gateway Toolkit](gateway.md) for the connection-config reference,
@@ -539,7 +547,7 @@ auth modes (`none`/`bearer`/`api_key`/`oauth`), OAuth grant types
 (`client_credentials` and `authorization_code` + PKCE), and the
 cross-enrichment rule schema.
 
-## Cross-Injection Configuration
+## Cross-Enrichment Configuration
 
 ```yaml
 injection:
@@ -654,7 +662,7 @@ knowledge:
 
 ## Memory Layer Configuration
 
-The memory layer provides persistent memory for agent and analyst sessions with vector search, cross-injection, and staleness detection. See [Memory Layer](../memory/overview.md) for the full feature documentation.
+The memory layer provides persistent memory for agent and analyst sessions with vector search, cross-enrichment, and staleness detection. See [Memory Layer](../memory/overview.md) for the full feature documentation.
 
 ```yaml
 memory:
@@ -798,7 +806,7 @@ client_logging:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable client logging |
 
-Zero overhead if the client hasn't subscribed via `logging/setLevel`. When active, log messages report semantic cache hits/misses, enrichment timing, and cross-injection decisions.
+Zero overhead if the client hasn't subscribed via `logging/setLevel`. When active, log messages report semantic cache hits/misses, enrichment timing, and cross-enrichment decisions.
 
 ## Elicitation Configuration
 

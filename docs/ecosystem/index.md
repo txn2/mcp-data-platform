@@ -6,7 +6,7 @@ hide:
 
 # MCP Data Platform Ecosystem
 
-mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-enrichment, authentication, and personas.
 
 ---
 
@@ -53,4 +53,4 @@ graph LR
     Platform --> Client
 ```
 
-Each component is an independent MCP server with its own documentation, releases, and test suite. mcp-data-platform composes them into a single connection point with cross-injection (Trino results include DataHub metadata, DataHub searches show query availability), authentication, personas, audit logging, and knowledge capture.
+Each component is an independent MCP server with its own documentation, releases, and test suite. mcp-data-platform composes them into a single connection point with cross-enrichment (Trino results include DataHub metadata, DataHub searches show query availability), authentication, personas, audit logging, and knowledge capture.

@@ -762,7 +762,7 @@ injection:
 | `entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |
 | `session_timeout` | duration | streamable session timeout | Idle session cleanup interval |
 
-See [Session Metadata Deduplication](../cross-injection/overview.md#session-metadata-deduplication) for detailed behavior and JSON examples.
+See [Session Metadata Deduplication](../cross-enrichment/overview.md#session-metadata-deduplication) for detailed behavior and JSON examples.
 
 ## Tuning Configuration
 

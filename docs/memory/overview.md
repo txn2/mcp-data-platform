@@ -1,12 +1,12 @@
 ---
-description: Persistent memory for agent and analyst sessions. Accumulates preferences, corrections, domain knowledge, and institutional facts across sessions with persona-scoped visibility and automatic cross-injection.
+description: Persistent memory for agent and analyst sessions. Accumulates preferences, corrections, domain knowledge, and institutional facts across sessions with persona-scoped visibility and automatic cross-enrichment.
 ---
 
 # Memory Layer
 
 ## The Problem
 
-Stateless LLMs treat each session as a clean slate. Without memory, agents repeat mistakes humans already corrected, re-inject context at token cost, and cannot maintain continuity over multi-step workflows. The existing knowledge capture tools record institutional knowledge, but lack per-analyst personalization, temporal reasoning, and automatic surfacing of relevant context.
+Stateless LLMs treat each session as a clean slate. Without memory, agents repeat mistakes humans already corrected, re-attach context at token cost, and cannot maintain continuity over multi-step workflows. The existing knowledge capture tools record institutional knowledge, but lack per-analyst personalization, temporal reasoning, and automatic surfacing of relevant context.
 
 ## How It Works
 
@@ -25,7 +25,7 @@ flowchart TB
     end
 
     subgraph "Automatic"
-        E --> F[Cross-injection middleware<br/>attaches memories to<br/>toolkit responses]
+        E --> F[Cross-enrichment middleware<br/>attaches memories to<br/>toolkit responses]
         E --> G[Staleness watcher<br/>flags stale memories]
     end
 
@@ -73,7 +73,7 @@ CRUD operations for memory records. Opt-in per persona (requires `memory_*` in `
 
 ### memory_recall
 
-Multi-strategy retrieval for when cross-injection is not enough.
+Multi-strategy retrieval for when cross-enrichment is not enough.
 
 | Strategy | Method | LOCOMO Dimension |
 |----------|--------|-----------------|
@@ -90,7 +90,7 @@ Now writes to `memory_records` instead of the legacy `knowledge_insights` table.
 
 Reads from `memory_records` via an adapter. Promotes curated memories into durable DataHub knowledge (context documents, glossary terms, tags, structured properties).
 
-## Cross-Injection
+## Cross-Enrichment
 
 The existing bidirectional enrichment middleware automatically attaches relevant memories to toolkit responses. When a Trino query, DataHub lookup, or S3 operation returns results containing DataHub URNs, the middleware recalls memories linked to those entities and appends them as a `memory_context` content block.
 

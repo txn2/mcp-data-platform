@@ -87,32 +87,48 @@ the in-memory store.
 
 ## Salesforce Hosted MCP setup walkthrough
 
-Salesforce's Hosted MCP requires an **External Client App (ECA)** with
-the `Web Server Flow` enabled. Steps from a fresh org:
+Salesforce's Hosted MCP requires an OAuth client registration with the
+**Web Server Flow** (the OAuth term Salesforce uses for
+`authorization_code`). The high-level shape:
 
-1. **Salesforce Setup** → External Client Apps → New External Client App.
-2. Enable OAuth, set scopes: `api`, `refresh_token`, plus the MCP scope.
-3. Set callback URL to `https://<your-platform-host>/api/v1/admin/oauth/callback`.
-4. Save and capture the **consumer key** and **consumer secret**.
-5. **In the platform admin portal** (`/portal/admin/connections`),
+1. **Register an OAuth client in Salesforce** that allows the Web
+   Server Flow. The exact path through Salesforce Setup depends on
+   your org's edition and Salesforce-Hosted-MCP rollout — refer to
+   Salesforce's current Hosted MCP / External Client App docs for the
+   step-by-step. What you need to capture from this step:
+    - **Consumer key** (becomes `oauth_client_id`)
+    - **Consumer secret** (becomes `oauth_client_secret`)
+    - **Callback URL** must be set to `https://<your-platform-host>/api/v1/admin/oauth/callback`
+    - **Scopes** that include OAuth basics (`api`, `refresh_token`)
+      plus the scope(s) Salesforce requires for Hosted MCP access —
+      check the current Salesforce docs for the exact scope name(s).
+2. **Pick the right Salesforce OAuth endpoint base URL** for your org:
+    - Production / Developer Edition orgs: `https://login.salesforce.com/services/oauth2/...`
+    - Sandbox orgs: `https://test.salesforce.com/services/oauth2/...`
+    - Orgs using My Domain: `https://<mydomain>.my.salesforce.com/services/oauth2/...`
+3. **In the platform admin portal** (`/portal/admin/connections`),
    click **+ Add Connection** and select kind **mcp**:
     - Endpoint: the Salesforce Hosted MCP URL
     - Auth mode: **OAuth 2.1**
     - Grant type: **authorization_code + PKCE**
-    - Authorization URL: `https://login.salesforce.com/services/oauth2/authorize`
-      (or your domain-specific URL)
-    - Token URL: `https://login.salesforce.com/services/oauth2/token`
-    - Client ID / Secret: the ECA consumer key / secret
-    - Scope: `api refresh_token <mcp scope>`
-6. Save, click **Connect**, sign in to Salesforce, approve the scopes.
-7. The connection card now shows "Authorized by `<email>` `<time ago>`",
-   the Salesforce-MCP tools are available as
-   `salesforce__<tool>` in `tools/list`, and any persona that allows
-   `salesforce__*` can call them.
+    - Authorization URL: `<base>/services/oauth2/authorize` (from step 2)
+    - Token URL: `<base>/services/oauth2/token`
+    - Client ID / Secret: the consumer key / secret from step 1
+    - Scope: the scopes you registered above (typically `api refresh_token` + the MCP-access scope)
+4. Save, click **Connect**, sign in to Salesforce, approve the scopes.
+5. The connection card shows "Authorized by `<email>` `<time ago>`",
+   and Salesforce-MCP tools surface as `<connection_name>__<remote_tool>`
+   in `tools/list`. Personas with allow-globs matching that prefix can
+   call them.
 
-The platform refreshes the access token automatically. Scheduled
-prompts (cron jobs at 1 AM, etc.) run untouched until Salesforce
-invalidates the refresh token.
+The platform refreshes the access token automatically using the stored
+refresh token. Scheduled prompts (cron jobs at 1 AM, etc.) run
+untouched until Salesforce invalidates the refresh token.
+
+> The Salesforce Setup UI navigation path and the exact MCP scope name
+> change between editions and over time. Treat this walkthrough as the
+> **shape** of the integration; verify the specifics against current
+> Salesforce documentation before configuring a real org.
 
 ## Related
 

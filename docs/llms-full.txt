@@ -18,7 +18,7 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups.
 
-- **Cross-Injection**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
+- **Cross-Enrichment**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
 - **Enterprise Security**: Fail-closed authentication model, TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement.
 
@@ -44,7 +44,7 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 # Ecosystem
 
-mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-enrichment, authentication, and personas.
 
 ## mcp-datahub (https://github.com/txn2/mcp-datahub/)
 
@@ -92,7 +92,7 @@ S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any da
 
 **Why S3**: Infinite scale at low cost, any file format, direct querying via Trino, object versioning, S3-compatible (AWS, MinIO, Ceph).
 
-## Cross-injection fills the gaps
+## Cross-enrichment fills the gaps
 
 | Component | Answers | Limitation Alone |
 |-----------|---------|------------------|
@@ -100,7 +100,7 @@ S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any da
 | Trino | "What's in this table?" | Doesn't know business context |
 | S3 | "What files exist?" | Just storage, no meaning |
 
-Cross-injection wires them together:
+Cross-enrichment wires them together:
 - Trino + DataHub: Query a table → Get schema + owners + tags + deprecation + quality
 - DataHub + Trino: Search DataHub → See which datasets are queryable with sample SQL
 - S3 + DataHub: List objects → Get matching metadata and ownership
@@ -548,7 +548,7 @@ Elicitation requires client-side support (MCP `elicitation/create` capability). 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `icons.enabled` | bool | `false` | Enable icon injection middleware |
+| `icons.enabled` | bool | `false` | Enable icon enrichment middleware |
 | `icons.tools.<name>.src` | string | - | Icon URI for a tool |
 | `icons.tools.<name>.mime_type` | string | - | Icon MIME type |
 | `icons.resources.<uri>.src` | string | - | Icon URI for a resource template |
@@ -617,7 +617,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `secret_access_key` | string | - | AWS secret access key |
 | `read_only` | bool | false | Restrict to read operations |
 
-## Cross-Injection Configuration
+## Cross-Enrichment Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -827,20 +827,20 @@ A background goroutine runs every 24 hours and deletes rows older than `retentio
 
 ---
 
-# Cross-Injection
+# Cross-Enrichment
 
 When you query a Trino table, you get DataHub context in the response. When you search DataHub, you see which datasets are queryable. No extra calls.
 
 ## The Problem It Solves
 
-Without cross-injection:
+Without cross-enrichment:
 1. Query a table
 2. Search DataHub for that table
 3. Get entity details for owners and tags
 4. Check deprecation status
 5. Look up quality score
 
-Five calls to understand one table. With cross-injection, step 1 gives you everything.
+Five calls to understand one table. With cross-enrichment, step 1 gives you everything.
 
 ## What Gets Injected
 
@@ -1809,7 +1809,7 @@ Interactive tool execution environment:
 - Tool browser grouped by connection with search filtering
 - Dynamic parameter form generated from JSON schema
 - Result display with rendered markdown tables and Raw JSON toggle
-- Semantic context: cross-injection enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
+- Semantic context: cross-enrichment enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
 - Execution history with duration, status, and replay
 
 ## Audit Log
@@ -2021,7 +2021,7 @@ For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tuto
 | Server exits immediately | Configuration error | Validate YAML syntax |
 | 401 Unauthorized | Invalid credentials | Check token/key |
 | 403 Forbidden | Persona/tool mismatch | Check persona tool rules |
-| No enrichment data | Injection misconfigured | Enable injection settings |
+| No enrichment data | Enrichment misconfigured | Enable enrichment settings |
 | Slow responses | Performance bottleneck | Enable caching |
 | Connection refused | Service unreachable | Check connectivity |
 

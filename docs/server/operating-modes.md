@@ -22,7 +22,7 @@ mcp-data-platform supports three operating modes based on available infrastructu
 | OAuth (downstream clients) | available (memory store) | available (DB store) | available (DB store) |
 | MCP gateway connections | not loaded (no DB to read from) | loaded; bearer/api_key only | loaded; full feature set |
 | Gateway OAuth `client_credentials` | n/a | tokens in memory only (lost on restart) | tokens encrypted in DB |
-| Gateway OAuth `authorization_code` | n/a | **not supported** (refresh tokens require DB) | encrypted refresh tokens persist across restarts |
+| Gateway OAuth `authorization_code` | n/a | tokens in memory only; works for the lifetime of the process, but **operator must Connect again after every restart** | encrypted refresh tokens persist across restarts |
 | Persona/auth key CRUD | read-only | read-only | enabled |
 | Config import | blocked | blocked | enabled |
 

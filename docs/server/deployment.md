@@ -663,12 +663,13 @@ kubectl get hpa -n mcp-data-platform
 The [gateway toolkit](gateway.md) (kind `mcp`) has additional production
 requirements:
 
-- [ ] **`ENCRYPTION_KEY` is set** (32 bytes, base64-encoded). Required
-      for at-rest encryption of stored credentials, OAuth access and
-      refresh tokens (`gateway_oauth_tokens`), and PKCE state
-      (`oauth_pkce_states.code_verifier`). Without it the platform
-      logs a warning and stores those values in plaintext — not
-      acceptable in production.
+- [ ] **`ENCRYPTION_KEY` is set** (32 bytes of key material; accepted
+      as 64 hex characters, 44-character base64, or 32 raw bytes).
+      Required for at-rest encryption of stored credentials, OAuth
+      access and refresh tokens (`gateway_oauth_tokens`), and PKCE
+      state (`oauth_pkce_states.code_verifier`). Without it the
+      platform logs a warning and stores those values in plaintext —
+      not acceptable in production.
 - [ ] **PostgreSQL is reachable from every replica** and shared.
       Multi-replica deployments rely on the Postgres-backed PKCE state
       store so an `oauth-start` on replica A and the redirect callback

@@ -177,7 +177,7 @@ The `platform_info` tool returns:
 {
   "name": "mcp-data-platform",
   "version": "1.0.0",
-  "description": "Semantic data platform MCP server with bidirectional cross-injection",
+  "description": "Semantic data platform MCP server with bidirectional cross-enrichment",
   "toolkits": ["trino", "datahub", "s3"],
   "features": {
     "semantic_enrichment": true,
@@ -500,7 +500,7 @@ Replace the default JSON with your tool's output format:
 {
   "name": "mcp-data-platform",
   "version": "1.0.0",
-  "description": "Semantic data platform MCP server with bidirectional cross-injection",
+  "description": "Semantic data platform MCP server with bidirectional cross-enrichment",
   "toolkits": ["trino", "datahub", "s3"],
   "features": {
     "semantic_enrichment": true,

@@ -1045,10 +1045,17 @@ connection can be re-tested without re-entering secrets.
 ```json
 {
   "healthy": true,
-  "tools": ["echo", "add", "now"],
-  "tool_count": 3
+  "tools": [
+    {"name": "echo", "local_name": "vendor__echo", "description": "Echo input message"},
+    {"name": "add",  "local_name": "vendor__add",  "description": "Sum two integers"},
+    {"name": "now",  "local_name": "vendor__now",  "description": "Return current UTC time"}
+  ]
 }
 ```
+
+`tools[].local_name` is what the proxied tool will surface as in
+`tools/list` once the connection is persisted (`<connection_name>__<remote_tool>`).
+On failure, the response carries `{"healthy": false, "error": "..."}`.
 
 ### Refresh Connection
 
@@ -1064,10 +1071,13 @@ the live MCP server. Use after an upstream changes its tool set.
 ```json
 {
   "healthy": true,
-  "tools": ["echo", "add", "now", "delete"],
-  "tool_count": 4
+  "tools": ["echo", "add", "now"]
 }
 ```
+
+The `tools` array here is just the remote tool names (no `local_name`
+because they're already registered with their gateway-prefixed names on
+the live server). On failure, `{"healthy": false, "error": "..."}`.
 
 ### Begin OAuth Authorization-Code Flow
 
@@ -1168,12 +1178,23 @@ filter by tool name.
       }
     },
     "merge_strategy": {"kind": "path", "path": "warehouse_signals"},
+    "description": "Attach lifetime value + last-order date when the proxied response carries an email",
     "enabled": true,
     "created_by": "admin@example.com",
+    "created_at": "2026-04-15T14:30:00Z",
     "updated_at": "2026-04-15T14:30:00Z"
   }
 ]
 ```
+
+### Get Enrichment Rule
+
+```
+GET /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}
+```
+
+Returns a single rule by its server-assigned id. Same shape as a single
+element of the list response above.
 
 ### Create Enrichment Rule
 
@@ -1217,7 +1238,7 @@ look like. Used by the admin UI's rule editor preview pane.
 {
   "args": {"contact_id": "C-1234"},
   "response": {"email": "ada@example.com", "name": "Ada Lovelace"},
-  "user": {"id": "u_123", "persona": "analyst"}
+  "user": {"id": "u_123", "email": "alice@example.com"}
 }
 ```
 
@@ -1225,9 +1246,7 @@ look like. Used by the admin UI's rule editor preview pane.
 
 ```json
 {
-  "predicate_matched": true,
-  "enrichment_executed": true,
-  "merged_response": {
+  "response": {
     "email": "ada@example.com",
     "name": "Ada Lovelace",
     "warehouse_signals": [
@@ -1235,9 +1254,21 @@ look like. Used by the admin UI's rule editor preview pane.
     ]
   },
   "warnings": [],
-  "duration_ms": 142
+  "fired": [
+    {
+      "rule_id": "01j3z7n7d6y2g3xq4y9k7m9c8q",
+      "matched": true,
+      "duration_ms": 142
+    }
+  ]
 }
 ```
+
+`response` is the merged result the proxied tool would have returned if
+the rule had fired live. `warnings` carries any non-fatal binding /
+source errors. `fired` contains a per-rule trace (only the dry-run rule
+in this case; the live engine's same shape carries every rule that
+evaluated against the call).
 
 ## Knowledge Endpoints
 

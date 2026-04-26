@@ -19,7 +19,7 @@ The only requirement is [DataHub](https://datahubproject.io/) as your semantic l
 
 ## MCP Data Platform Ecosystem
 
-mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-enrichment, authentication, and personas.
 
 - [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/) — DataHub metadata catalog: search, lineage, glossary terms, domains, tags, and ownership
 - [txn2/mcp-s3](https://github.com/txn2/mcp-s3/) — S3 object storage: list buckets, browse prefixes, read objects, generate presigned URLs
@@ -91,7 +91,7 @@ sequenceDiagram
     P-->>AI: Schema + Full Business Context
 ```
 
-The platform intercepts tool responses and enriches them with semantic metadata. This **cross-injection** pattern means:
+The platform intercepts tool responses and enriches them with semantic metadata. This **cross-enrichment** pattern means:
 
 - **Trino → DataHub**: Query results include owners, tags, glossary terms, deprecation warnings, quality scores
 - **DataHub → Trino**: Search results include query availability (can this dataset be queried? what's the SQL?)
@@ -105,7 +105,7 @@ The platform intercepts tool responses and enriches them with semantic metadata.
 ### Semantic-First Data Access
 Every data query includes business context from DataHub. Table descriptions, column meanings, data quality scores, and ownership information flow automatically. Your AI assistant understands what data means, not just what it contains.
 
-### Bidirectional Cross-Injection
+### Bidirectional Cross-Enrichment
 Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
 
 ### Workflow Gating
@@ -124,7 +124,7 @@ Define who can use which tools. Analysts get read access to queries and searches
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
 ### Persistent Memory
-Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations, `memory_recall` offers multi-strategy retrieval (entity lookup, vector similarity, DataHub lineage traversal). Memories are automatically injected into toolkit responses via the cross-injection middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
+Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations, `memory_recall` offers multi-strategy retrieval (entity lookup, vector similarity, DataHub lineage traversal). Memories are automatically injected into toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
 
 ### Knowledge Capture
 AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `capture_insight` tool records these observations during sessions (now backed by the memory layer with vector embeddings), and `apply_knowledge` provides admins with a structured review workflow. Approved insights are written back to DataHub with full changeset tracking and rollback. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
@@ -478,7 +478,7 @@ go build -o mcp-data-platform ./cmd/mcp-data-platform
 Full documentation is available at [mcp-data-platform.txn2.com](https://mcp-data-platform.txn2.com/).
 
 - [Server Guide](https://mcp-data-platform.txn2.com/server/overview/) - Configuration and deployment
-- [Cross-Injection](https://mcp-data-platform.txn2.com/cross-injection/overview/) - How automatic enrichment works
+- [Cross-Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/) - How automatic enrichment works
 - [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) - OIDC, API keys, and OAuth 2.1
 - [Go Library](https://mcp-data-platform.txn2.com/library/overview/) - Build custom MCP servers
 - [API Reference](https://mcp-data-platform.txn2.com/reference/tools-api/) - Complete tool documentation

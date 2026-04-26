@@ -1,5 +1,5 @@
 ---
-description: MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context.
+description: MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-enrichment automatically attaches business context to query results.
 hide:
   - navigation
   - toc
@@ -24,15 +24,15 @@ mcp-data-platform fixes that. Connect AI assistants to your data infrastructure 
 
     DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups needed.
 
-    [:octicons-arrow-right-24: Cross-injection](cross-injection/overview.md)
+    [:octicons-arrow-right-24: Cross-enrichment](cross-enrichment/overview.md)
 
--   :material-swap-horizontal: **Cross-Injection**
+-   :material-swap-horizontal: **Cross-Enrichment**
 
     ---
 
     Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
-    [:octicons-arrow-right-24: How it works](cross-injection/overview.md)
+    [:octicons-arrow-right-24: How it works](cross-enrichment/overview.md)
 
 -   :material-shield-check: **Enterprise Security**
 
@@ -203,7 +203,7 @@ sequenceDiagram
     P-->>AI: Schema + Full Business Context
 ```
 
-The enrichment middleware intercepts tool responses and adds semantic context before returning to the client. This **cross-injection** works in both directions:
+The enrichment middleware intercepts tool responses and adds semantic context before returning to the client. This **cross-enrichment** works in both directions:
 
 | When you use | You also get |
 |--------------|--------------|
@@ -211,7 +211,7 @@ The enrichment middleware intercepts tool responses and adds semantic context be
 | **DataHub search** | Which datasets are queryable in Trino |
 | **S3** | DataHub metadata for matching datasets |
 
-[:octicons-arrow-right-24: Cross-injection details](cross-injection/overview.md)
+[:octicons-arrow-right-24: Cross-enrichment details](cross-enrichment/overview.md)
 
 ---
 
@@ -290,7 +290,7 @@ semantic:
           - "elasticsearch.default.jakes-sale-*"
 ```
 
-[:octicons-arrow-right-24: Lineage inheritance details](cross-injection/lineage.md)
+[:octicons-arrow-right-24: Lineage inheritance details](cross-enrichment/lineage.md)
 
 ---
 
@@ -427,4 +427,4 @@ Built with a **fail-closed** security model. Missing credentials deny access, ne
 | [mcp-datahub](https://github.com/txn2/mcp-datahub) | DataHub metadata |
 | [mcp-s3](https://github.com/txn2/mcp-s3) | S3 storage |
 
-These work standalone. This platform wires them together with cross-injection, auth, and personas.
+These work standalone. This platform wires them together with cross-enrichment, auth, and personas.

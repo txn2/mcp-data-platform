@@ -4,7 +4,7 @@
 
 ## Concepts
 
-- [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-injection makes them greater than the sum of parts.
+- [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-enrichment makes them greater than the sum of parts.
 
 ## Ecosystem
 
@@ -27,16 +27,16 @@
 - [Session Externalization](server/session-externalization.md): Externalize session state to PostgreSQL for zero-downtime restarts and horizontal scaling
 - [Gateway Toolkit](server/gateway.md): Re-expose third-party MCP servers through the platform's auth, persona, and audit pipeline. Connections authored via the admin portal (DB-backed, encrypted credentials). Tools surface as `<connection>__<remote_tool>`. OAuth 2.1 client_credentials and authorization_code+PKCE grants supported, with refresh tokens persisted encrypted (gateway_oauth_tokens) so cron jobs and scheduled prompts run untouched after a one-time browser sign-in. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups (predicates, JSONPath bindings, escaped ANSI-SQL literals, dry-run admin endpoint). Failure-isolated: unreachable upstreams never block startup or other tools
 
-## Cross-Injection
+## Cross-Enrichment
 
-- [Overview](cross-injection/overview.md): How automatic context enrichment works between services
-- [Trino to DataHub](cross-injection/trino-datahub.md): Trino results include DataHub metadata
-- [DataHub to Trino](cross-injection/datahub-trino.md): DataHub results show query availability
-- [S3 Enrichment](cross-injection/s3.md): S3 operations include semantic context
-- [Lineage Inheritance](cross-injection/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
-- [Session Dedup](cross-injection/overview.md#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
-- [Column Context Filtering](cross-injection/trino-datahub.md#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
-- [Schema Preview](cross-injection/datahub-trino.md#schema-preview): Adds bounded column-name+type preview to datahub_search query_context, eliminating intermediate datahub_get_schema calls (default: enabled, max 15 columns)
+- [Overview](cross-enrichment/overview.md): How automatic context enrichment works between services
+- [Trino to DataHub](cross-enrichment/trino-datahub.md): Trino results include DataHub metadata
+- [DataHub to Trino](cross-enrichment/datahub-trino.md): DataHub results show query availability
+- [S3 Enrichment](cross-enrichment/s3.md): S3 operations include semantic context
+- [Lineage Inheritance](cross-enrichment/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
+- [Session Dedup](cross-enrichment/overview.md#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
+- [Column Context Filtering](cross-enrichment/trino-datahub.md#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
+- [Schema Preview](cross-enrichment/datahub-trino.md#schema-preview): Adds bounded column-name+type preview to datahub_search query_context, eliminating intermediate datahub_get_schema calls (default: enabled, max 15 columns)
 
 ## Authentication & Security
 
@@ -62,11 +62,11 @@
 
 ## Managed Resources
 
-- [Overview](resources/overview.md): Human-uploaded reference material (samples, playbooks, templates, references) surfaced to AI assistants via MCP resources/list and resources/read. Three scopes: global (all users), persona (role-based), user (owner-only). PostgreSQL metadata + S3 blob storage. REST API at /api/v1/resources. Permission model: platform admins write global, persona admins write persona-scoped, any user writes own scope. URI scheme mcp://scope/category/filename. Portal Resources page for upload, browse, edit, delete. MCPManagedResourceMiddleware injects managed resources into MCP protocol. Auto-enabled when database is available
+- [Overview](resources/overview.md): Human-uploaded reference material (samples, playbooks, templates, references) surfaced to AI assistants via MCP resources/list and resources/read. Three scopes: global (all users), persona (role-based), user (owner-only). PostgreSQL metadata + S3 blob storage. REST API at /api/v1/resources. Permission model: platform admins write global, persona admins write persona-scoped, any user writes own scope. URI scheme mcp://scope/category/filename. Portal Resources page for upload, browse, edit, delete. MCPManagedResourceMiddleware attaches managed resources to the MCP protocol. Auto-enabled when database is available
 
 ## Memory Layer
 
-- [Overview](memory/overview.md): Persistent memory for agent and analyst sessions. Accumulates preferences, corrections, domain knowledge, and institutional facts across sessions. Backed by PostgreSQL + pgvector. Two scoping axes: user (ownership) and persona (visibility). LOCOMO dimensions (knowledge, event, entity, relationship, preference). memory_manage tool (remember, update, forget, list, review_stale). memory_recall tool (entity, semantic, graph, auto strategies). Cross-injection middleware auto-attaches memories to toolkit responses. Staleness watcher flags memories when referenced DataHub entities change. Correction chains via metadata.superseded_by
+- [Overview](memory/overview.md): Persistent memory for agent and analyst sessions. Accumulates preferences, corrections, domain knowledge, and institutional facts across sessions. Backed by PostgreSQL + pgvector. Two scoping axes: user (ownership) and persona (visibility). LOCOMO dimensions (knowledge, event, entity, relationship, preference). memory_manage tool (remember, update, forget, list, review_stale). memory_recall tool (entity, semantic, graph, auto strategies). Cross-enrichment middleware auto-attaches memories to toolkit responses. Staleness watcher flags memories when referenced DataHub entities change. Correction chains via metadata.superseded_by
 - [Configuration](memory/configuration.md): Memory config reference. Embedding provider (Ollama nomic-embed-text 768-dim or noop). Staleness watcher interval and batch size. Persona opt-in via memory_* in tools.allow. pgvector extension setup. Migration from knowledge_insights
 
 ## Knowledge Capture
@@ -91,7 +91,7 @@
 - [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
 - [Configuration](reference/configuration.md): Full YAML schema with all options including portal configuration and export settings (portal.export.*)
 - [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
-- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware, description override middleware (built-in overrides for trino_query/trino_execute plus config-driven overrides), session-aware workflow gating (MCPRuleEnforcementMiddleware with SessionWorkflowTracker), icon injection middleware, client logging, progress notifications
+- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware, description override middleware (built-in overrides for trino_query/trino_execute plus config-driven overrides), session-aware workflow gating (MCPRuleEnforcementMiddleware with SessionWorkflowTracker), icon enrichment middleware, client logging, progress notifications
 
 ## Support
 
