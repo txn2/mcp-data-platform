@@ -35,7 +35,22 @@ func MergedDescriptionOverrides(configOverrides map[string]string) map[string]st
 // replaces tool descriptions in tools/list responses. This is used to inject
 // workflow guidance (e.g., "call datahub_search first") into tool descriptions
 // that agents see when discovering available tools.
+//
+// Deprecated: prefer MCPDescriptionOverrideMiddlewareDynamic so admin-API
+// edits to tool.<name>.description take effect on the next tools/list call
+// instead of requiring a platform restart.
 func MCPDescriptionOverrideMiddleware(overrides map[string]string) mcp.Middleware {
+	return MCPDescriptionOverrideMiddlewareDynamic(func() map[string]string {
+		return overrides
+	})
+}
+
+// MCPDescriptionOverrideMiddlewareDynamic is a hot-reloading variant that
+// re-resolves the override map on every tools/list call. The getter is
+// expected to merge built-in defaults with the live config overrides.
+// Used by Platform so per-tool description overrides authored from the
+// admin portal take effect immediately.
+func MCPDescriptionOverrideMiddlewareDynamic(getOverrides func() map[string]string) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, err := next(ctx, method, req)
@@ -45,7 +60,7 @@ func MCPDescriptionOverrideMiddleware(overrides map[string]string) mcp.Middlewar
 			if method != methodToolsList {
 				return result, nil
 			}
-			return applyDescriptionOverrides(overrides, result), nil
+			return applyDescriptionOverrides(getOverrides(), result), nil
 		}
 	}
 }

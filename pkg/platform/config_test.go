@@ -1489,19 +1489,27 @@ func TestApplyConfigEntry(t *testing.T) {
 
 func TestParseToolsDenyValue(t *testing.T) {
 	tests := []struct {
-		name  string
-		value string
-		want  []string
+		name    string
+		value   string
+		want    []string
+		wantErr bool
 	}{
-		{"empty", "", nil},
-		{"whitespace", "   ", nil},
-		{"valid array", `["a","b"]`, []string{"a", "b"}},
-		{"empty array", `[]`, []string{}},
-		{"invalid json", "not json", nil},
-		{"non-array json", `"a string"`, nil},
+		{"empty", "", nil, false},
+		{"whitespace", "   ", nil, false},
+		{"valid array", `["a","b"]`, []string{"a", "b"}, false},
+		{"empty array", `[]`, []string{}, false},
+		{"invalid json", "not json", nil, true},
+		{"non-array json", `"a string"`, nil, true},
 	}
 	for _, tc := range tests {
-		got := parseToolsDenyValue(tc.value)
+		got, err := parseToolsDenyValue(tc.value)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: parseToolsDenyValue(%q) err=%v, wantErr=%v", tc.name, tc.value, err, tc.wantErr)
+			continue
+		}
+		if tc.wantErr {
+			continue
+		}
 		if len(got) != len(tc.want) {
 			t.Errorf("%s: parseToolsDenyValue(%q) got %v, want %v", tc.name, tc.value, got, tc.want)
 			continue
@@ -1511,6 +1519,18 @@ func TestParseToolsDenyValue(t *testing.T) {
 				t.Errorf("%s: parseToolsDenyValue(%q)[%d] = %q, want %q", tc.name, tc.value, i, got[i], tc.want[i])
 			}
 		}
+	}
+}
+
+func TestApplyConfigEntry_ToolsDeny_PreservesOnMalformed(t *testing.T) {
+	// Bug guard: a corrupt tools.deny config_entry must NOT clobber the
+	// live deny list. Otherwise a bad row could silently open up tools
+	// the file config wanted hidden.
+	cfg := &Config{}
+	cfg.Tools.Deny = []string{"trino_admin_kill"}
+	cfg.ApplyConfigEntry("tools.deny", "not valid json")
+	if len(cfg.Tools.Deny) != 1 || cfg.Tools.Deny[0] != "trino_admin_kill" {
+		t.Errorf("malformed tools.deny clobbered live slice: got %v", cfg.Tools.Deny)
 	}
 }
 

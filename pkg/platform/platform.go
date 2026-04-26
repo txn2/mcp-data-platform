@@ -2007,13 +2007,25 @@ func (p *Platform) addToolVisibilityMiddleware() {
 
 // addDescriptionOverrideMiddleware registers description override middleware.
 // Built-in overrides guide agents toward DataHub discovery; config overrides
-// can customize or extend them.
+// (loaded from the file or the database-backed config_entries store) can
+// customize or extend them.
+//
+// The dynamic variant re-resolves the override map on every tools/list call
+// so admin-API edits to tool.<name>.description take effect immediately,
+// without a platform restart. The cost is a tiny map allocation per
+// tools/list — negligible compared to the surrounding RPC.
 func (p *Platform) addDescriptionOverrideMiddleware() {
-	overrides := middleware.MergedDescriptionOverrides(p.config.Tools.DescriptionOverrides)
-	if len(overrides) == 0 {
+	getOverrides := func() map[string]string {
+		return middleware.MergedDescriptionOverrides(p.config.Tools.DescriptionOverrides)
+	}
+	if len(getOverrides()) == 0 {
+		// No defaults and no overrides configured at startup. The map can
+		// later be populated via admin API, but skipping the middleware
+		// here matches the prior behavior for the empty-config case.
+		// Re-evaluate on the next platform restart.
 		return
 	}
-	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddleware(overrides))
+	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddlewareDynamic(getOverrides))
 }
 
 // addIconMiddleware registers icon injection middleware when icons are configured.

@@ -723,6 +723,33 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+
+	t.Run("accepts tool.<platform-tool>.description", func(t *testing.T) {
+		// Platform-level tools (platform_info, list_connections, manage_prompt)
+		// aren't owned by any toolkit, so they aren't in ToolkitRegistry.AllTools.
+		// The whitelist must still accept their description-override keys.
+		cs := &mockConfigStore{mode: "database"}
+		cfg := testConfig()
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      cfg,
+			ToolkitRegistry: &mockToolkitRegistry{
+				allResult: []mockToolkit{},
+			},
+			PlatformTools: []platform.ToolInfo{
+				{Name: "platform_info", Kind: "platform"},
+			},
+		}, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/tool.platform_info.description",
+			strings.NewReader(`{"value":"custom"}`))
+		req.SetPathValue("key", "tool.platform_info.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "custom", cfg.Tools.DescriptionOverrides["platform_info"])
+	})
 }
 
 func TestDeleteConfigEntry_ToolDescriptionOverride(t *testing.T) {

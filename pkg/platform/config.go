@@ -974,8 +974,10 @@ func applySessionDefaults(cfg *Config) {
 // tool reverts to its default (built-in or file-config) description.
 //
 // The "tools.deny" key carries a JSON-encoded []string. An empty/blank
-// value clears the deny list. Malformed JSON is silently ignored so a
-// bad row in config_entries can't crash startup.
+// value clears the deny list. A malformed JSON value is logged and
+// IGNORED — the existing live slice is left untouched so a corrupt
+// config_entries row can't silently open up tools that were supposed to
+// be hidden by the file config.
 func (c *Config) ApplyConfigEntry(key, value string) {
 	switch key {
 	case "server.description":
@@ -985,7 +987,13 @@ func (c *Config) ApplyConfigEntry(key, value string) {
 		c.Server.AgentInstructions = value
 		return
 	case "tools.deny":
-		c.Tools.Deny = parseToolsDenyValue(value)
+		deny, err := parseToolsDenyValue(value)
+		if err != nil {
+			slog.Warn("ignoring malformed tools.deny config entry; live deny list unchanged",
+				"error", err)
+			return
+		}
+		c.Tools.Deny = deny
 		return
 	}
 	if name, ok := toolDescriptionKey(key); ok {
@@ -1001,18 +1009,19 @@ func (c *Config) ApplyConfigEntry(key, value string) {
 }
 
 // parseToolsDenyValue decodes the JSON-encoded []string stored in the
-// "tools.deny" config_entry. Returns nil for empty/blank/invalid input
-// so the live config falls back to the file-loaded default.
-func parseToolsDenyValue(value string) []string {
+// "tools.deny" config_entry. Returns (nil, nil) for empty/blank input
+// (an explicit empty deny list). Returns an error for malformed JSON or
+// non-array values so the caller can refuse to clobber the live slice.
+func parseToolsDenyValue(value string) ([]string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return nil
+		return nil, nil
 	}
 	var out []string
 	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
-		return nil
+		return nil, fmt.Errorf("tools.deny: %w", err)
 	}
-	return out
+	return out, nil
 }
 
 // toolDescriptionKey returns the tool name embedded in a

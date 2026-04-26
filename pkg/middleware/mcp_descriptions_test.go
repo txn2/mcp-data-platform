@@ -125,3 +125,37 @@ func TestMergedDescriptionOverrides(t *testing.T) {
 		assert.Contains(t, merged, "trino_query")
 	})
 }
+
+func TestMCPDescriptionOverrideMiddlewareDynamic(t *testing.T) {
+	// Bug guard: the middleware must re-resolve overrides on every
+	// tools/list call. Otherwise admin-API edits to a tool description
+	// don't take effect until platform restart, which the UI presents
+	// as a successful save.
+	current := map[string]string{"trino_query": "v1"}
+
+	mw := MCPDescriptionOverrideMiddlewareDynamic(func() map[string]string {
+		return current
+	})
+	handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.ListToolsResult{
+			Tools: []*mcp.Tool{{Name: "trino_query", Description: "original"}},
+		}, nil
+	})
+
+	// First call sees "v1".
+	result, err := handler(context.Background(), methodToolsList, nil)
+	require.NoError(t, err)
+	listResult, ok := result.(*mcp.ListToolsResult)
+	require.True(t, ok)
+	assert.Equal(t, "v1", listResult.Tools[0].Description)
+
+	// Mutate the source map (simulates an admin-API save into live config).
+	current = map[string]string{"trino_query": "v2"}
+
+	// Second call must reflect the new value without rebuilding middleware.
+	result, err = handler(context.Background(), methodToolsList, nil)
+	require.NoError(t, err)
+	listResult, ok = result.(*mcp.ListToolsResult)
+	require.True(t, ok)
+	assert.Equal(t, "v2", listResult.Tools[0].Description)
+}

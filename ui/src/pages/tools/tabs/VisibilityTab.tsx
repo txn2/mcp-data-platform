@@ -18,6 +18,14 @@ export function VisibilityTab({ detail }: { detail: ToolDetail }) {
   const allowed = personas.filter((p) => p.allowed);
   const denied = personas.filter((p) => !p.allowed);
 
+  // When a glob (not a literal name) matches in tools.deny, toggling the
+  // literal off does nothing — the glob still matches. Disable the button
+  // and direct the user to Config instead.
+  const globHidden =
+    detail.hidden_by_global_deny &&
+    detail.global_deny_pattern !== undefined &&
+    detail.global_deny_pattern !== detail.name;
+
   const personasHref = `/portal/admin/personas?affects=${encodeURIComponent(detail.name)}`;
 
   function runPreview(e: React.FormEvent<HTMLFormElement>) {
@@ -80,7 +88,12 @@ export function VisibilityTab({ detail }: { detail: ToolDetail }) {
             onClick={() =>
               setVisibility.mutate({ hidden: !detail.hidden_by_global_deny })
             }
-            disabled={setVisibility.isPending}
+            disabled={setVisibility.isPending || globHidden}
+            title={
+              globHidden
+                ? "Tool is hidden by a glob pattern. Edit the tools.deny entry in Config to remove it."
+                : undefined
+            }
             className="inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
           >
             {setVisibility.isPending

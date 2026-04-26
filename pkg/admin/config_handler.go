@@ -53,18 +53,28 @@ func extractToolNameFromDescriptionKey(key string) (string, bool) {
 // isConfigKeyAllowed returns true if the key is editable via PUT/DELETE
 // /api/v1/admin/config/entries/{key}. Static whitelist always wins;
 // otherwise tool.<name>.description is allowed when <name> matches a
-// tool currently registered in the toolkit registry. Without a registry
-// (test fixtures, degraded startup) the dynamic path is rejected so a
-// typo can't pollute config_entries with orphan rows.
+// tool currently registered in the toolkit registry OR a platform-level
+// tool registered directly on the MCP server (platform_info,
+// list_connections, manage_prompt). A typo for an unregistered name is
+// rejected so config_entries doesn't accumulate orphan rows.
 func (h *Handler) isConfigKeyAllowed(key string) bool {
 	if configEntryWhitelist[key] {
 		return true
 	}
 	name, ok := extractToolNameFromDescriptionKey(key)
-	if !ok || h.deps.ToolkitRegistry == nil {
+	if !ok {
 		return false
 	}
-	return slices.Contains(h.deps.ToolkitRegistry.AllTools(), name)
+	if h.deps.ToolkitRegistry != nil &&
+		slices.Contains(h.deps.ToolkitRegistry.AllTools(), name) {
+		return true
+	}
+	for _, pt := range h.deps.PlatformTools {
+		if pt.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // sensitiveKeys contains key name patterns that should be redacted.
