@@ -91,6 +91,62 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 	}
 }
 
+// TestToolFilter_WhyAllowed verifies that the diagnostic variant
+// surfaces which pattern produced the decision (allow / deny /
+// default) so the admin UI can explain access in the Tools detail.
+func TestToolFilter_WhyAllowed(t *testing.T) {
+	reg := NewRegistry()
+	filter := NewToolFilter(reg)
+
+	persona := &Persona{
+		Name: "analyst",
+		Tools: ToolRules{
+			Allow: []string{"trino_*", "datahub_search"},
+			Deny:  []string{"trino_execute"},
+		},
+	}
+
+	cases := []struct {
+		tool        string
+		wantAllowed bool
+		wantPattern string
+		wantSource  AccessSource
+		expectMatch bool
+	}{
+		{"trino_query", true, "trino_*", AccessSourceAllow, true},
+		{"datahub_search", true, "datahub_search", AccessSourceAllow, true},
+		{"trino_execute", false, "trino_execute", AccessSourceDeny, true},
+		{"s3_list_buckets", false, "", AccessSourceDefault, true},
+	}
+	for _, c := range cases {
+		t.Run(c.tool, func(t *testing.T) {
+			got := filter.WhyAllowed(persona, c.tool)
+			if got.Allowed != c.wantAllowed {
+				t.Errorf("Allowed = %v, want %v", got.Allowed, c.wantAllowed)
+			}
+			if got.MatchedPattern != c.wantPattern {
+				t.Errorf("MatchedPattern = %q, want %q", got.MatchedPattern, c.wantPattern)
+			}
+			if got.Source != c.wantSource {
+				t.Errorf("Source = %q, want %q", got.Source, c.wantSource)
+			}
+		})
+	}
+}
+
+// Nil persona must fail closed with default-deny semantics.
+func TestToolFilter_WhyAllowed_NilPersona(t *testing.T) {
+	reg := NewRegistry()
+	filter := NewToolFilter(reg)
+	got := filter.WhyAllowed(nil, "anything")
+	if got.Allowed {
+		t.Error("nil persona should default-deny")
+	}
+	if got.Source != AccessSourceDefault {
+		t.Errorf("Source = %q, want %q", got.Source, AccessSourceDefault)
+	}
+}
+
 func TestToolFilter_FilterTools(t *testing.T) {
 	reg := NewRegistry()
 	filter := NewToolFilter(reg)

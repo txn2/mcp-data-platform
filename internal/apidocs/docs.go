@@ -2831,6 +2831,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/personas/{name}/test-access": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Evaluates the named persona's allow/deny rules against a tool name and returns the decision plus the matching pattern. Used by the admin Tools page to preview \"would persona X allow this tool?\" without traversing every persona.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Personas"
+                ],
+                "summary": "Preview a persona's decision for a tool",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Persona name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Tool to evaluate",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.testPersonaAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.testPersonaAccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/system/info": {
             "get": {
                 "security": [
@@ -2958,6 +3019,110 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/admin.toolSchemaResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tools/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns everything the admin Tools page needs to render a single tool: kind, toolkit, connection, schema, per-persona allow/deny matrix with matched pattern, hidden state, description-override status, recent audit aggregate, and enrichment-rule count for gateway-proxied tools.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tools"
+                ],
+                "summary": "Get aggregating tool detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tool name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.ToolDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tools/{name}/visibility": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds or removes the named tool from the platform-wide tools.deny list. The deny list controls visibility in tools/list responses; persona auth gates execution independently. Read-modify-write through the standard config_entries store, so the value is JSON-encoded as []string and persists across restarts.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tools"
+                ],
+                "summary": "Toggle a tool's global visibility",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tool name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Visibility toggle",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.toolVisibilityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.toolVisibilityResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
                         }
                     }
                 }
@@ -6091,6 +6256,101 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "admin.ToolActivityAggregate": {
+            "type": "object",
+            "properties": {
+                "avg_duration_ms": {
+                    "type": "number"
+                },
+                "call_count": {
+                    "type": "integer"
+                },
+                "success_rate": {
+                    "type": "number"
+                },
+                "window_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.ToolDetail": {
+            "type": "object",
+            "properties": {
+                "activity": {
+                    "$ref": "#/definitions/admin.ToolActivityAggregate"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "description_overridden": {
+                    "description": "Description-override status (populated when a\ntool.\u003cname\u003e.description config-entry exists).",
+                    "type": "boolean"
+                },
+                "enrichment_rule_count": {
+                    "description": "Number of cross-enrichment rules attached to this tool. Only\nmeaningful for proxied tools (kind=mcp); zero for native.",
+                    "type": "integer"
+                },
+                "global_deny_pattern": {
+                    "type": "string"
+                },
+                "hidden_by_global_deny": {
+                    "description": "HiddenByGlobalDeny is true when the platform-level tools.deny\nlist matches this tool. GlobalDenyPattern is the matching glob.",
+                    "type": "boolean"
+                },
+                "hidden_by_persona": {
+                    "description": "HiddenByPersona maps persona name → true for any persona where\nthis tool is denied.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
+                },
+                "input_schema": {
+                    "description": "JSON Schema for the tool's input parameters."
+                },
+                "name": {
+                    "type": "string"
+                },
+                "override_author": {
+                    "type": "string"
+                },
+                "personas": {
+                    "description": "Persona allow/deny matrix — one entry per database-managed\npersona, with the matched pattern and source recorded.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.ToolPersonaAccess"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                },
+                "toolkit_kind": {
+                    "type": "string"
+                },
+                "toolkit_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.ToolPersonaAccess": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "matched_pattern": {
+                    "type": "string"
+                },
+                "persona": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/persona.AccessSource"
+                }
+            }
+        },
         "admin.auditEventResponse": {
             "type": "object",
             "properties": {
@@ -6939,6 +7199,36 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.testPersonaAccessRequest": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                }
+            }
+        },
+        "admin.testPersonaAccessResponse": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "matched_pattern": {
+                    "type": "string",
+                    "example": "trino_*"
+                },
+                "source": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.AccessSource"
+                        }
+                    ],
+                    "example": "allow"
+                }
+            }
+        },
         "admin.toolCallRequest": {
             "type": "object",
             "properties": {
@@ -6994,6 +7284,11 @@ const docTemplate = `{
                 "connection": {
                     "type": "string",
                     "example": "acme-warehouse"
+                },
+                "hidden": {
+                    "description": "Hidden is true when the tool is excluded from tools/list responses by\nthe platform-wide tools.allow / tools.deny visibility filter. Persona\nauthorization is independent and not reflected here.",
+                    "type": "boolean",
+                    "example": false
                 },
                 "kind": {
                     "type": "string",
@@ -7058,6 +7353,35 @@ const docTemplate = `{
                     "additionalProperties": {
                         "$ref": "#/definitions/admin.toolSchema"
                     }
+                }
+            }
+        },
+        "admin.toolVisibilityRequest": {
+            "type": "object",
+            "properties": {
+                "hidden": {
+                    "description": "Hidden=true adds the tool to the global tools.deny list; false removes it.",
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "admin.toolVisibilityResponse": {
+            "type": "object",
+            "properties": {
+                "deny": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "hidden": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_admin_kill"
                 }
             }
         },
@@ -7942,6 +8266,19 @@ const docTemplate = `{
                     "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
                 }
             }
+        },
+        "persona.AccessSource": {
+            "type": "string",
+            "enum": [
+                "allow",
+                "deny",
+                "default"
+            ],
+            "x-enum-varnames": [
+                "AccessSourceAllow",
+                "AccessSourceDeny",
+                "AccessSourceDefault"
+            ]
         },
         "platform.ConnectionInstance": {
             "type": "object",

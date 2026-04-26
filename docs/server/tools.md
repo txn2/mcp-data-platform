@@ -717,6 +717,61 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 
 ---
 
+## Inspecting and Managing Tools (Admin Portal)
+
+The portal at `/admin/tools` is a master-detail view: a left rail listing every registered tool grouped by connection or kind, and a right pane with five tabs for the selected tool.
+
+### Detail tabs
+
+| Tab | Purpose |
+| --- | --- |
+| Overview | Description (editable, see [overrides](#description-overrides) below), routing (toolkit / kind / connection), persona allow/deny matrix with matched pattern, raw input schema. |
+| Try It | Dynamic form generated from the tool's input schema. Submits a real `tools/call` and renders the result with optional enrichment blocks. Per-session history with replay. |
+| Activity | 24-hour aggregate from the audit log: call count, success rate, average duration. Links to `/admin/audit?tool=<name>`. |
+| Enrichment | Gateway-proxied tools only. Lists [cross-enrichment](../cross-enrichment/overview.md) rules attached to this tool, with merge strategy and enabled state. Links to the connection's enrichment drawer. |
+| Visibility | Toggle the global kill-switch (see [`tools.deny`](#global-kill-switch-toolsdeny) below) and preview a persona's decision for this tool without editing persona rules. |
+
+### Description overrides
+
+A tool's description is what an LLM agent sees in `tools/list`. Overriding it is the most reliable way to steer agent behavior — for example, to insist that `trino_query` calls `datahub_search` first to discover the table.
+
+Overrides are persisted as config entries with the key `tool.<name>.description`. Resolution order, last wins:
+
+1. **Built-in defaults** in `pkg/middleware/mcp_descriptions.go` — currently `trino_query` and `trino_execute` redirect agents through DataHub discovery.
+2. **File-config overrides** in `tools.description_overrides` of `platform.yaml`.
+3. **Database overrides** authored from the portal Tools page, stored in the `config_entries` table.
+
+The Overview tab shows an `overridden` badge with the author when a database override is in effect. The "Reset" button removes the database override; the file-config or built-in default takes over. Overrides are picked up at platform startup — saving from the portal updates the live config struct immediately, but the `tools/list` response continues to serve the previously-cached description until restart.
+
+### Global kill-switch (`tools.deny`)
+
+`tools.deny` is a glob list that hides matching tools from `tools/list` responses for **all clients**. It is a cosmetic / token-budget filter, not a security boundary — persona authorization continues to gate `tools/call` independently.
+
+Three equivalent ways to set it:
+
+- Edit `tools.deny` in `platform.yaml` (file mode).
+- `PUT /api/v1/admin/config/entries/tools.deny` with a JSON-encoded string array as `value`.
+- Click "Hide tool" on the Visibility tab. The portal does a read-modify-write of the `tools.deny` config entry, appending the literal tool name.
+
+When a deny pattern is a glob (e.g. `*_admin_*`) rather than a literal name, the Visibility tab will surface a warning that toggling here only changes the literal entry — the glob must be edited via Config.
+
+### Admin API surface
+
+| Endpoint | Use |
+| --- | --- |
+| `GET /api/v1/admin/tools` | Inventory of every registered tool with kind / connection. |
+| `GET /api/v1/admin/tools/schemas` | Bulk fetch input schemas. |
+| `GET /api/v1/admin/tools/{name}` | Aggregating per-tool detail used by the master-detail page. |
+| `POST /api/v1/admin/tools/call` | Invoke a tool with parameters; returns the same content envelope clients see. |
+| `PUT /api/v1/admin/tools/{name}/visibility` | Add/remove the tool from `tools.deny` (read-modify-write under the hood). |
+| `POST /api/v1/admin/personas/{name}/test-access` | Preview a persona's allow/deny decision for one tool. |
+| `PUT /api/v1/admin/config/entries/tool.<name>.description` | Save a per-tool description override. Only accepted for keys whose `<name>` matches a registered tool. |
+| `DELETE /api/v1/admin/config/entries/tool.<name>.description` | Remove an override and revert to the file or built-in default. |
+
+See [Admin API](admin-api.md) for full request/response shapes.
+
+---
+
 ## Next Steps
 
 - [Multi-Provider](multi-provider.md) - Use multiple connections

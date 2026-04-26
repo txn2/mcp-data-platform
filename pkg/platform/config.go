@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -966,13 +967,67 @@ func applySessionDefaults(cfg *Config) {
 }
 
 // ApplyConfigEntry updates a live config field for a whitelisted config entry key.
+//
+// In addition to the static keys, any key matching tool.<name>.description
+// is treated as a per-tool description override and written into
+// Tools.DescriptionOverrides. An empty value removes the override so the
+// tool reverts to its default (built-in or file-config) description.
+//
+// The "tools.deny" key carries a JSON-encoded []string. An empty/blank
+// value clears the deny list. Malformed JSON is silently ignored so a
+// bad row in config_entries can't crash startup.
 func (c *Config) ApplyConfigEntry(key, value string) {
 	switch key {
 	case "server.description":
 		c.Server.Description = value
+		return
 	case "server.agent_instructions":
 		c.Server.AgentInstructions = value
+		return
+	case "tools.deny":
+		c.Tools.Deny = parseToolsDenyValue(value)
+		return
 	}
+	if name, ok := toolDescriptionKey(key); ok {
+		if c.Tools.DescriptionOverrides == nil {
+			c.Tools.DescriptionOverrides = make(map[string]string)
+		}
+		if value == "" {
+			delete(c.Tools.DescriptionOverrides, name)
+			return
+		}
+		c.Tools.DescriptionOverrides[name] = value
+	}
+}
+
+// parseToolsDenyValue decodes the JSON-encoded []string stored in the
+// "tools.deny" config_entry. Returns nil for empty/blank/invalid input
+// so the live config falls back to the file-loaded default.
+func parseToolsDenyValue(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// toolDescriptionKey returns the tool name embedded in a
+// "tool.<name>.description" config key, or ("", false) if the key does
+// not match the pattern.
+func toolDescriptionKey(key string) (string, bool) {
+	const prefix = "tool."
+	const suffix = ".description"
+	if len(key) <= len(prefix)+len(suffix) {
+		return "", false
+	}
+	if key[:len(prefix)] != prefix || key[len(key)-len(suffix):] != suffix {
+		return "", false
+	}
+	return key[len(prefix) : len(key)-len(suffix)], true
 }
 
 // Validate validates the configuration.

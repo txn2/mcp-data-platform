@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -596,11 +597,19 @@ func (p *Platform) initConfigStore() error {
 }
 
 // buildConfigEntryMap extracts the current whitelisted config values as a key/value map.
+// Encodes tools.deny as a JSON array so it round-trips through the
+// string-valued config_entries store.
 func (p *Platform) buildConfigEntryMap() map[string]string {
-	return map[string]string{
+	m := map[string]string{
 		"server.description":        p.config.Server.Description,
 		"server.agent_instructions": p.config.Server.AgentInstructions,
 	}
+	if len(p.config.Tools.Deny) > 0 {
+		if buf, err := json.Marshal(p.config.Tools.Deny); err == nil {
+			m["tools.deny"] = string(buf)
+		}
+	}
+	return m
 }
 
 // applyConfigEntry updates a live config field for a whitelisted key.

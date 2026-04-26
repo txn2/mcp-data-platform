@@ -43,8 +43,16 @@ export default defineConfig(({ mode }) => {
     // exist in the optimize deps directory" errors after cache flips.
     // Excluding mermaid + its diagram registry tells Vite to load these as
     // raw ESM, which mermaid is designed for.
+    //
+    // Side-effect of that exclude: mermaid's transitive `dayjs` import
+    // also skips vite's CJS→ESM interop shim and breaks at runtime
+    // ("does not provide an export named 'default'") because the
+    // shipped dayjs.min.js is UMD. Explicitly `include` dayjs so vite
+    // still pre-bundles it with the interop wrapper. Same for any
+    // other UMD/CJS-only deps mermaid pulls in.
     optimizeDeps: {
       exclude: ["mermaid"],
+      include: ["dayjs", "@braintree/sanitize-url"],
     },
     server: {
       proxy: {

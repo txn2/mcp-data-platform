@@ -1,5 +1,79 @@
 basePath: /api/v1
 definitions:
+  admin.ToolActivityAggregate:
+    properties:
+      avg_duration_ms:
+        type: number
+      call_count:
+        type: integer
+      success_rate:
+        type: number
+      window_seconds:
+        type: integer
+    type: object
+  admin.ToolDetail:
+    properties:
+      activity:
+        $ref: '#/definitions/admin.ToolActivityAggregate'
+      connection:
+        type: string
+      description:
+        type: string
+      description_overridden:
+        description: |-
+          Description-override status (populated when a
+          tool.<name>.description config-entry exists).
+        type: boolean
+      enrichment_rule_count:
+        description: |-
+          Number of cross-enrichment rules attached to this tool. Only
+          meaningful for proxied tools (kind=mcp); zero for native.
+        type: integer
+      global_deny_pattern:
+        type: string
+      hidden_by_global_deny:
+        description: |-
+          HiddenByGlobalDeny is true when the platform-level tools.deny
+          list matches this tool. GlobalDenyPattern is the matching glob.
+        type: boolean
+      hidden_by_persona:
+        additionalProperties:
+          type: boolean
+        description: |-
+          HiddenByPersona maps persona name → true for any persona where
+          this tool is denied.
+        type: object
+      input_schema:
+        description: JSON Schema for the tool's input parameters.
+      name:
+        type: string
+      override_author:
+        type: string
+      personas:
+        description: |-
+          Persona allow/deny matrix — one entry per database-managed
+          persona, with the matched pattern and source recorded.
+        items:
+          $ref: '#/definitions/admin.ToolPersonaAccess'
+        type: array
+      title:
+        type: string
+      toolkit_kind:
+        type: string
+      toolkit_name:
+        type: string
+    type: object
+  admin.ToolPersonaAccess:
+    properties:
+      allowed:
+        type: boolean
+      matched_pattern:
+        type: string
+      persona:
+        type: string
+      source:
+        $ref: '#/definitions/persona.AccessSource'
+    type: object
   admin.auditEventResponse:
     properties:
       data:
@@ -587,6 +661,25 @@ definitions:
           $ref: '#/definitions/gateway.ProbeTool'
         type: array
     type: object
+  admin.testPersonaAccessRequest:
+    properties:
+      tool_name:
+        example: trino_query
+        type: string
+    type: object
+  admin.testPersonaAccessResponse:
+    properties:
+      allowed:
+        example: true
+        type: boolean
+      matched_pattern:
+        example: trino_*
+        type: string
+      source:
+        allOf:
+        - $ref: '#/definitions/persona.AccessSource'
+        example: allow
+    type: object
   admin.toolCallRequest:
     properties:
       connection:
@@ -629,6 +722,13 @@ definitions:
       connection:
         example: acme-warehouse
         type: string
+      hidden:
+        description: |-
+          Hidden is true when the tool is excluded from tools/list responses by
+          the platform-wide tools.allow / tools.deny visibility filter. Persona
+          authorization is independent and not reflected here.
+        example: false
+        type: boolean
       kind:
         example: trino
         type: string
@@ -674,6 +774,27 @@ definitions:
         additionalProperties:
           $ref: '#/definitions/admin.toolSchema'
         type: object
+    type: object
+  admin.toolVisibilityRequest:
+    properties:
+      hidden:
+        description: Hidden=true adds the tool to the global tools.deny list; false
+          removes it.
+        example: true
+        type: boolean
+    type: object
+  admin.toolVisibilityResponse:
+    properties:
+      deny:
+        items:
+          type: string
+        type: array
+      hidden:
+        example: true
+        type: boolean
+      tool_name:
+        example: trino_admin_kill
+        type: string
     type: object
   audit.BreakdownEntry:
     properties:
@@ -1304,6 +1425,16 @@ definitions:
         example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
         type: string
     type: object
+  persona.AccessSource:
+    enum:
+    - allow
+    - deny
+    - default
+    type: string
+    x-enum-varnames:
+    - AccessSourceAllow
+    - AccessSourceDeny
+    - AccessSourceDefault
   platform.ConnectionInstance:
     properties:
       config:
@@ -3857,6 +3988,47 @@ paths:
       summary: Update persona
       tags:
       - Personas
+  /admin/personas/{name}/test-access:
+    post:
+      consumes:
+      - application/json
+      description: Evaluates the named persona's allow/deny rules against a tool name
+        and returns the decision plus the matching pattern. Used by the admin Tools
+        page to preview "would persona X allow this tool?" without traversing every
+        persona.
+      parameters:
+      - description: Persona name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Tool to evaluate
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.testPersonaAccessRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.testPersonaAccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Preview a persona's decision for a tool
+      tags:
+      - Personas
   /admin/system/info:
     get:
       description: Returns platform identity, version, runtime feature availability,
@@ -3891,6 +4063,76 @@ paths:
       summary: List tools
       tags:
       - System
+  /admin/tools/{name}:
+    get:
+      description: 'Returns everything the admin Tools page needs to render a single
+        tool: kind, toolkit, connection, schema, per-persona allow/deny matrix with
+        matched pattern, hidden state, description-override status, recent audit aggregate,
+        and enrichment-rule count for gateway-proxied tools.'
+      parameters:
+      - description: Tool name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.ToolDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get aggregating tool detail
+      tags:
+      - Tools
+  /admin/tools/{name}/visibility:
+    put:
+      consumes:
+      - application/json
+      description: Adds or removes the named tool from the platform-wide tools.deny
+        list. The deny list controls visibility in tools/list responses; persona auth
+        gates execution independently. Read-modify-write through the standard config_entries
+        store, so the value is JSON-encoded as []string and persists across restarts.
+      parameters:
+      - description: Tool name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Visibility toggle
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.toolVisibilityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.toolVisibilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Toggle a tool's global visibility
+      tags:
+      - Tools
   /admin/tools/call:
     post:
       consumes:

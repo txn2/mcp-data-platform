@@ -1801,16 +1801,22 @@ Real-time platform health overview with configurable time ranges (1h, 6h, 24h, 7
 
 ## Tools
 
-### Overview Tab
-Connection grid showing toolkit type, name, and tools. Tool Inventory table with tool name, description, visibility status, kind, connection, and toolkit assignment.
+Master-detail layout: a left rail listing every registered tool (search by name, group by connection or kind, eye/eye-off icon for global-deny visibility) and a right pane with five tabs for the selected tool.
 
-### Explore Tab
-Interactive tool execution environment:
-- Tool browser grouped by connection with search filtering
-- Dynamic parameter form generated from JSON schema
-- Result display with rendered markdown tables and Raw JSON toggle
-- Semantic context: cross-enrichment enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
-- Execution history with duration, status, and replay
+### Overview Tab
+Editable description with override badge and reset (`tool.<name>.description` config entry; persists in `config_entries`, takes effect on next platform restart). Routing (toolkit, kind, connection). Persona allow/deny matrix with matched pattern and source (allow/deny/default). Raw input schema.
+
+### Try It Tab
+Dynamic parameter form generated from JSON schema. Result display with rendered markdown tables, Raw JSON toggle, and cross-enrichment blocks shown below the primary result (semantic context, query context, column context, storage context, metadata reference). Per-session execution history with replay; consumes replay intents from the audit-log Events drawer.
+
+### Activity Tab
+24-hour audit aggregate for this tool: call count, success rate, average duration. Link out to `/admin/audit?tool=<name>` for the full filtered audit log.
+
+### Enrichment Tab (gateway-proxied tools only)
+Lists cross-enrichment rules attached to this tool on its connection, with merge strategy and enabled state. Link out to the connection's enrichment drawer for rule edits.
+
+### Visibility Tab
+Global kill-switch toggle (read-modify-write of `tools.deny` config entry; cosmetic filter, persona auth still gates `tools/call`). Persona allow/deny matrix repeated for context. Preview form: enter any persona name and see its decision for this tool without editing rules (`POST /api/v1/admin/personas/{name}/test-access`).
 
 ## Audit Log
 

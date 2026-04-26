@@ -1472,4 +1472,78 @@ func TestApplyConfigEntry(t *testing.T) {
 	if cfg.Server.Description != "test description" {
 		t.Error("unknown key should not modify config")
 	}
+
+	// tool.<name>.description writes into Tools.DescriptionOverrides
+	// (lazy-init the map on first use).
+	cfg.ApplyConfigEntry("tool.trino_query.description", "custom desc")
+	if got := cfg.Tools.DescriptionOverrides["trino_query"]; got != "custom desc" {
+		t.Errorf("DescriptionOverrides[trino_query] = %q, want %q", got, "custom desc")
+	}
+
+	// Empty value removes the override.
+	cfg.ApplyConfigEntry("tool.trino_query.description", "")
+	if _, exists := cfg.Tools.DescriptionOverrides["trino_query"]; exists {
+		t.Error("empty value should remove the override")
+	}
+}
+
+func TestParseToolsDenyValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"empty", "", nil},
+		{"whitespace", "   ", nil},
+		{"valid array", `["a","b"]`, []string{"a", "b"}},
+		{"empty array", `[]`, []string{}},
+		{"invalid json", "not json", nil},
+		{"non-array json", `"a string"`, nil},
+	}
+	for _, tc := range tests {
+		got := parseToolsDenyValue(tc.value)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: parseToolsDenyValue(%q) got %v, want %v", tc.name, tc.value, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: parseToolsDenyValue(%q)[%d] = %q, want %q", tc.name, tc.value, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestApplyConfigEntry_ToolsDeny(t *testing.T) {
+	cfg := &Config{}
+	cfg.ApplyConfigEntry("tools.deny", `["trino_admin_kill","s3_delete"]`)
+	if len(cfg.Tools.Deny) != 2 || cfg.Tools.Deny[0] != "trino_admin_kill" {
+		t.Errorf("Tools.Deny = %v, want [trino_admin_kill s3_delete]", cfg.Tools.Deny)
+	}
+	cfg.ApplyConfigEntry("tools.deny", `[]`)
+	if len(cfg.Tools.Deny) != 0 {
+		t.Errorf("Tools.Deny after empty array = %v, want []", cfg.Tools.Deny)
+	}
+}
+
+func TestToolDescriptionKey(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantName string
+		wantOK   bool
+	}{
+		{"tool.trino_query.description", "trino_query", true},
+		{"tool.dev-mock__echo.description", "dev-mock__echo", true},
+		{"tool..description", "", false},
+		{"server.description", "", false},
+		{"tool.x.description-suffix", "", false},
+		{"", "", false},
+	}
+	for _, tc := range tests {
+		gotName, gotOK := toolDescriptionKey(tc.key)
+		if gotName != tc.wantName || gotOK != tc.wantOK {
+			t.Errorf("toolDescriptionKey(%q) = (%q, %v), want (%q, %v)",
+				tc.key, gotName, gotOK, tc.wantName, tc.wantOK)
+		}
+	}
 }

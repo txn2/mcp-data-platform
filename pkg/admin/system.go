@@ -118,6 +118,10 @@ type toolInfo struct {
 	Toolkit    string `json:"toolkit" example:"acme-warehouse"`
 	Kind       string `json:"kind" example:"trino"`
 	Connection string `json:"connection" example:"acme-warehouse"`
+	// Hidden is true when the tool is excluded from tools/list responses by
+	// the platform-wide tools.allow / tools.deny visibility filter. Persona
+	// authorization is independent and not reflected here.
+	Hidden bool `json:"hidden" example:"false"`
 }
 
 // toolListResponse wraps a list of tools.
@@ -140,6 +144,12 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 	// Build a title map from MCP ListTools if possible.
 	titleMap := h.buildToolTitleMap(r)
 
+	var allow, deny []string
+	if h.deps.Config != nil {
+		allow = h.deps.Config.Tools.Allow
+		deny = h.deps.Config.Tools.Deny
+	}
+
 	var tools []toolInfo
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
@@ -150,15 +160,17 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 					Toolkit:    tk.Name(),
 					Kind:       tk.Kind(),
 					Connection: tk.Connection(),
+					Hidden:     !middleware.IsToolVisible(name, allow, deny),
 				})
 			}
 		}
 	}
 	for _, pt := range h.deps.PlatformTools {
 		tools = append(tools, toolInfo{
-			Name:  pt.Name,
-			Title: titleMap[pt.Name],
-			Kind:  pt.Kind,
+			Name:   pt.Name,
+			Title:  titleMap[pt.Name],
+			Kind:   pt.Kind,
+			Hidden: !middleware.IsToolVisible(pt.Name, allow, deny),
 		})
 	}
 	if tools == nil {
