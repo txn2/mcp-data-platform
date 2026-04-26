@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -596,11 +597,19 @@ func (p *Platform) initConfigStore() error {
 }
 
 // buildConfigEntryMap extracts the current whitelisted config values as a key/value map.
+// Encodes tools.deny as a JSON array so it round-trips through the
+// string-valued config_entries store.
 func (p *Platform) buildConfigEntryMap() map[string]string {
-	return map[string]string{
+	m := map[string]string{
 		"server.description":        p.config.Server.Description,
 		"server.agent_instructions": p.config.Server.AgentInstructions,
 	}
+	if len(p.config.Tools.Deny) > 0 {
+		if buf, err := json.Marshal(p.config.Tools.Deny); err == nil {
+			m["tools.deny"] = string(buf)
+		}
+	}
+	return m
 }
 
 // applyConfigEntry updates a live config field for a whitelisted key.
@@ -1998,13 +2007,28 @@ func (p *Platform) addToolVisibilityMiddleware() {
 
 // addDescriptionOverrideMiddleware registers description override middleware.
 // Built-in overrides guide agents toward DataHub discovery; config overrides
-// can customize or extend them.
+// (loaded from the file or the database-backed config_entries store) can
+// customize or extend them.
+//
+// The dynamic variant re-resolves the override map on every tools/list call
+// so admin-API edits to tool.<name>.description take effect immediately,
+// without a platform restart. The cost is a tiny map allocation per
+// tools/list — negligible compared to the surrounding RPC.
 func (p *Platform) addDescriptionOverrideMiddleware() {
-	overrides := middleware.MergedDescriptionOverrides(p.config.Tools.DescriptionOverrides)
-	if len(overrides) == 0 {
+	// Snapshot through the runtime lock on every tools/list call so admin
+	// API edits to tool.<name>.description take effect immediately AND
+	// concurrent writes don't race the iteration in MergedDescriptionOverrides.
+	getOverrides := func() map[string]string {
+		return middleware.MergedDescriptionOverrides(p.config.ToolDescriptionOverridesSnapshot())
+	}
+	if len(getOverrides()) == 0 {
+		// No defaults and no overrides configured at startup. The map can
+		// later be populated via admin API, but skipping the middleware
+		// here matches the prior behavior for the empty-config case.
+		// Re-evaluate on the next platform restart.
 		return
 	}
-	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddleware(overrides))
+	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddlewareDynamic(getOverrides))
 }
 
 // addIconMiddleware registers icon injection middleware when icons are configured.

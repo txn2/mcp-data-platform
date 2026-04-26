@@ -27,9 +27,14 @@ import type {
   ToolSchemaMap,
   ToolCallRequest,
   ToolCallResponse,
+  ToolDetail,
+  ToolVisibilityRequest,
+  ToolVisibilityResponse,
   PersonaListResponse,
   PersonaDetail,
   PersonaCreateRequest,
+  PersonaTestAccessRequest,
+  PersonaTestAccessResult,
   AdminAssetListResponse,
   PromptListResponse,
   Prompt,
@@ -334,6 +339,71 @@ export function useCallTool() {
   });
 }
 
+// Aggregating per-tool detail used by the Tools master-detail page.
+export function useToolDetail(name: string | null) {
+  return useQuery({
+    queryKey: ["tools", "detail", name],
+    queryFn: () => apiFetch<ToolDetail>(`/tools/${encodeURIComponent(name!)}`),
+    enabled: !!name,
+  });
+}
+
+// Save a per-tool description override. Empty value reverts to default.
+export function useUpdateToolDescription(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (value: string) =>
+      apiFetch(
+        `/config/entries/${encodeURIComponent(`tool.${name}.description`)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ value }),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+    },
+  });
+}
+
+// Remove an existing description override (revert to default).
+export function useResetToolDescription(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(
+        `/config/entries/${encodeURIComponent(`tool.${name}.description`)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+    },
+  });
+}
+
+// Toggle a tool's membership in the platform-wide tools.deny list.
+export function useSetToolVisibility(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ToolVisibilityRequest) =>
+      apiFetch<ToolVisibilityResponse>(
+        `/tools/${encodeURIComponent(name)}/visibility`,
+        {
+          method: "PUT",
+          body: JSON.stringify(req),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      // Other admin surfaces still derive hidden state from /connections.
+      queryClient.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Personas
 // ---------------------------------------------------------------------------
@@ -390,6 +460,27 @@ export function useDeletePersona() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["personas"] });
     },
+  });
+}
+
+// Preview a persona's allow/deny decision for a single tool name without
+// editing persona rules. Returns matched pattern + source.
+export function useTestPersonaAccess() {
+  return useMutation({
+    mutationFn: ({
+      persona,
+      toolName,
+    }: {
+      persona: string;
+      toolName: string;
+    }) =>
+      apiFetch<PersonaTestAccessResult>(
+        `/personas/${encodeURIComponent(persona)}/test-access`,
+        {
+          method: "POST",
+          body: JSON.stringify({ tool_name: toolName } as PersonaTestAccessRequest),
+        },
+      ),
   });
 }
 

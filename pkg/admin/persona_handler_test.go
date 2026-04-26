@@ -699,3 +699,92 @@ func TestBuildPersonaFromRequest_NilTools(t *testing.T) {
 	assert.Len(t, p.Tools.Allow, 0)
 	assert.Len(t, p.Tools.Deny, 0)
 }
+
+func TestTestPersonaAccess(t *testing.T) {
+	makeHandler := func() *Handler {
+		p := &persona.Persona{
+			Name: "analyst",
+			Tools: persona.ToolRules{
+				Allow: []string{"trino_*"},
+				Deny:  []string{"trino_admin_*"},
+			},
+		}
+		return NewHandler(Deps{
+			PersonaRegistry: &mockPersonaRegistry{allResult: []*persona.Persona{p}},
+		}, nil)
+	}
+
+	postBody := func(t *testing.T, h *Handler, name string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		buf, err := json.Marshal(body)
+		require.NoError(t, err)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/admin/personas/"+name+"/test-access", strings.NewReader(string(buf)))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("returns allow decision with matched pattern", func(t *testing.T) {
+		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: "trino_query"})
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp testPersonaAccessResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.True(t, resp.Allowed)
+		assert.Equal(t, "trino_*", resp.MatchedPattern)
+		assert.Equal(t, persona.AccessSourceAllow, resp.Source)
+	})
+
+	t.Run("returns deny decision with matched pattern", func(t *testing.T) {
+		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: "trino_admin_kill"})
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp testPersonaAccessResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.False(t, resp.Allowed)
+		assert.Equal(t, "trino_admin_*", resp.MatchedPattern)
+		assert.Equal(t, persona.AccessSourceDeny, resp.Source)
+	})
+
+	t.Run("returns default-deny when no rule matches", func(t *testing.T) {
+		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: "datahub_search"})
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp testPersonaAccessResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.False(t, resp.Allowed)
+		assert.Empty(t, resp.MatchedPattern)
+		assert.Equal(t, persona.AccessSourceDefault, resp.Source)
+	})
+
+	t.Run("returns 404 for unknown persona", func(t *testing.T) {
+		w := postBody(t, makeHandler(), "ghost", testPersonaAccessRequest{ToolName: "trino_query"})
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("returns 400 for empty tool_name", func(t *testing.T) {
+		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: ""})
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "tool_name is required")
+	})
+
+	t.Run("returns 400 for invalid JSON", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/admin/personas/analyst/test-access", strings.NewReader("not json"))
+		w := httptest.NewRecorder()
+		makeHandler().ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("returns 503 when persona registry is unavailable", func(t *testing.T) {
+		// Without PersonaRegistry, registerPersonaRoutes() never registers
+		// the route, so the mux returns 404. Hit the handler method
+		// directly to exercise the 503 branch.
+		h := NewHandler(Deps{}, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/admin/personas/analyst/test-access", strings.NewReader(`{"tool_name":"x"}`))
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.testPersonaAccess(w, req)
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	})
+}

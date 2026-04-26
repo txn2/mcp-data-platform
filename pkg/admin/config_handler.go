@@ -17,10 +17,64 @@ import (
 // defaultChangelogLimit is the maximum number of changelog entries to return.
 const defaultChangelogLimit = 50
 
-// configEntryWhitelist defines the keys that can be set via the admin API.
+// configEntryWhitelist defines the static keys that can be set via the
+// admin API. Dynamic per-tool keys (tool.<name>.description) are accepted
+// in addition to these via isConfigKeyAllowed when the named tool exists
+// in the toolkit registry. The "tools.deny" key carries a JSON-encoded
+// []string and is normally written through the per-tool visibility
+// endpoint, but can also be edited directly via /config/entries.
 var configEntryWhitelist = map[string]bool{
 	"server.description":        true,
 	"server.agent_instructions": true,
+	"tools.deny":                true,
+}
+
+// toolDescriptionPrefix and toolDescriptionSuffix bracket the dynamic
+// per-tool description override key. A key like "tool.trino_query.description"
+// is editable iff the substring between them matches a registered tool name.
+const (
+	toolDescriptionPrefix = "tool."
+	toolDescriptionSuffix = ".description"
+)
+
+// extractToolNameFromDescriptionKey returns the tool name embedded in a
+// "tool.<name>.description" key, or ("", false) if the key does not match
+// the pattern.
+func extractToolNameFromDescriptionKey(key string) (string, bool) {
+	if len(key) <= len(toolDescriptionPrefix)+len(toolDescriptionSuffix) {
+		return "", false
+	}
+	if !strings.HasPrefix(key, toolDescriptionPrefix) || !strings.HasSuffix(key, toolDescriptionSuffix) {
+		return "", false
+	}
+	return key[len(toolDescriptionPrefix) : len(key)-len(toolDescriptionSuffix)], true
+}
+
+// isConfigKeyAllowed returns true if the key is editable via PUT/DELETE
+// /api/v1/admin/config/entries/{key}. Static whitelist always wins;
+// otherwise tool.<name>.description is allowed when <name> matches a
+// tool currently registered in the toolkit registry OR a platform-level
+// tool registered directly on the MCP server (platform_info,
+// list_connections, manage_prompt). A typo for an unregistered name is
+// rejected so config_entries doesn't accumulate orphan rows.
+func (h *Handler) isConfigKeyAllowed(key string) bool {
+	if configEntryWhitelist[key] {
+		return true
+	}
+	name, ok := extractToolNameFromDescriptionKey(key)
+	if !ok {
+		return false
+	}
+	if h.deps.ToolkitRegistry != nil &&
+		slices.Contains(h.deps.ToolkitRegistry.AllTools(), name) {
+		return true
+	}
+	for _, pt := range h.deps.PlatformTools {
+		if pt.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // sensitiveKeys contains key name patterns that should be redacted.
@@ -228,7 +282,7 @@ type setConfigEntryRequest struct {
 // setConfigEntry handles PUT /api/v1/admin/config/entries/{key}.
 func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	if !configEntryWhitelist[key] {
+	if !h.isConfigKeyAllowed(key) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("key %q is not editable", key))
 		return
 	}
@@ -267,7 +321,7 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 // deleteConfigEntry handles DELETE /api/v1/admin/config/entries/{key}.
 func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	if !configEntryWhitelist[key] {
+	if !h.isConfigKeyAllowed(key) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("key %q is not editable", key))
 		return
 	}
@@ -289,9 +343,12 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Revert to file default.
+	// Revert to file default if one exists; otherwise clear the live
+	// override (an empty value tells ApplyConfigEntry to remove it).
 	if fileVal, ok := h.deps.FileDefaults[key]; ok {
 		h.deps.Config.ApplyConfigEntry(key, fileVal)
+	} else {
+		h.deps.Config.ApplyConfigEntry(key, "")
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -148,15 +148,15 @@ Add custom authentication, rate limiting, or logging. Swap providers to integrat
 
 ## Admin Portal
 
-A built-in web dashboard for monitoring, auditing, and exploring the platform. Enable with `portal.enabled: true`.
+A built-in web dashboard for monitoring, auditing, and managing the platform. Enable with `portal.enabled: true`.
 
-![Admin Dashboard](docs/images/screenshots/admin-dashboard.png)
+![Admin Dashboard](docs/images/screenshots/light/admin-admin-dashboard-light.webp)
 
 **Dashboard** — Real-time activity timelines, top tools/users, performance percentiles, error monitoring, knowledge insight summary, and connection health.
 
-![Tools Explore](docs/images/screenshots/admin-tools-explore.png)
+![Admin Tools page](docs/images/screenshots/light/admin-admin-tools-overview-light.webp)
 
-**Tools Explore** — Interactive tool execution with auto-generated parameter forms, rendered results, and full semantic enrichment context (owners, tags, glossary terms, column metadata, lineage).
+**Tools** — Master-detail surface for the full tool inventory. Search and group by connection or kind; drill into any tool to see its routing, persona allow/deny matrix, 24h audit aggregate, and cross-enrichment rules. Edit the per-tool description override, run the tool inline with auto-generated forms, and toggle global visibility (`tools.deny`) without leaving the page.
 
 See the [Admin Portal documentation](https://mcp-data-platform.txn2.com/server/admin-portal/) for the complete visual guide.
 
@@ -413,8 +413,8 @@ resources:
 | `pkg/storage` | S3-compatible storage provider abstraction |
 | `pkg/portal` | Asset portal types, stores, and S3 client for AI-generated artifacts |
 | `pkg/resource` | Managed resources: scoped file uploads, REST API, MCP integration |
-| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge, Portal) |
-| `pkg/admin` | Admin REST API for knowledge management |
+| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge, Memory, Portal, Gateway) |
+| `pkg/admin` | Admin REST API for tools, personas, config, audit, knowledge, memory, connections, gateway, OAuth, and resources |
 | `pkg/client` | Platform client utilities |
 
 ---

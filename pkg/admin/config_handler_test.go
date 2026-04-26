@@ -669,3 +669,135 @@ func TestListEffectiveConfig(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }
+
+func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
+	makeHandler := func() (*Handler, *platform.Config, *mockConfigStore) {
+		cs := &mockConfigStore{mode: "database"}
+		cfg := testConfig()
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+			},
+		}
+		h := NewHandler(Deps{ConfigStore: cs, Config: cfg, ToolkitRegistry: reg}, nil)
+		return h, cfg, cs
+	}
+
+	t.Run("accepts tool.<known>.description and applies hot-reload", func(t *testing.T) {
+		h, cfg, cs := makeHandler()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/tool.trino_query.description",
+			strings.NewReader(`{"value":"custom desc"}`))
+		req.SetPathValue("key", "tool.trino_query.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, 1, cs.setCalls)
+		require.NotNil(t, cfg.Tools.DescriptionOverrides)
+		assert.Equal(t, "custom desc", cfg.Tools.DescriptionOverrides["trino_query"])
+	})
+
+	t.Run("rejects tool.<unknown>.description", func(t *testing.T) {
+		h, _, cs := makeHandler()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/tool.no_such_tool.description",
+			strings.NewReader(`{"value":"x"}`))
+		req.SetPathValue("key", "tool.no_such_tool.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, 0, cs.setCalls)
+	})
+
+	t.Run("rejects tool description key without registry", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/tool.trino_query.description",
+			strings.NewReader(`{"value":"x"}`))
+		req.SetPathValue("key", "tool.trino_query.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("accepts tool.<platform-tool>.description", func(t *testing.T) {
+		// Platform-level tools (platform_info, list_connections, manage_prompt)
+		// aren't owned by any toolkit, so they aren't in ToolkitRegistry.AllTools.
+		// The whitelist must still accept their description-override keys.
+		cs := &mockConfigStore{mode: "database"}
+		cfg := testConfig()
+		h := NewHandler(Deps{
+			ConfigStore: cs,
+			Config:      cfg,
+			ToolkitRegistry: &mockToolkitRegistry{
+				allResult: []mockToolkit{},
+			},
+			PlatformTools: []platform.ToolInfo{
+				{Name: "platform_info", Kind: "platform"},
+			},
+		}, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/tool.platform_info.description",
+			strings.NewReader(`{"value":"custom"}`))
+		req.SetPathValue("key", "tool.platform_info.description")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "custom", cfg.Tools.DescriptionOverrides["platform_info"])
+	})
+}
+
+func TestDeleteConfigEntry_ToolDescriptionOverride(t *testing.T) {
+	cs := &mockConfigStore{
+		mode: "database",
+		entries: map[string]*configstore.Entry{
+			"tool.trino_query.description": {Key: "tool.trino_query.description", Value: "old"},
+		},
+	}
+	cfg := testConfig()
+	cfg.Tools.DescriptionOverrides = map[string]string{"trino_query": "old"}
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+		},
+	}
+	h := NewHandler(Deps{ConfigStore: cs, Config: cfg, ToolkitRegistry: reg}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/admin/config/entries/tool.trino_query.description", http.NoBody)
+	req.SetPathValue("key", "tool.trino_query.description")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	_, exists := cfg.Tools.DescriptionOverrides["trino_query"]
+	assert.False(t, exists, "override should be removed from live config after delete")
+}
+
+func TestExtractToolNameFromDescriptionKey(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantName string
+		wantOK   bool
+	}{
+		{"tool.trino_query.description", "trino_query", true},
+		{"tool.dev-mock__echo.description", "dev-mock__echo", true},
+		{"server.description", "", false},
+		{"tool..description", "", false}, // empty name guarded by length check
+		{"tool.x.descriptionz", "", false},
+		{"prefix.tool.x.description", "", false},
+		{"", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.key, func(t *testing.T) {
+			gotName, gotOK := extractToolNameFromDescriptionKey(tc.key)
+			assert.Equal(t, tc.wantName, gotName)
+			assert.Equal(t, tc.wantOK, gotOK)
+		})
+	}
+}

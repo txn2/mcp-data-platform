@@ -459,3 +459,67 @@ func extractAuthor(r *http.Request) string {
 	slog.Warn("no user in request context for author extraction")
 	return "unknown"
 }
+
+// testPersonaAccessRequest is the body for POST /personas/{name}/test-access.
+type testPersonaAccessRequest struct {
+	ToolName string `json:"tool_name" example:"trino_query"`
+}
+
+// testPersonaAccessResponse mirrors persona.AccessDecision for the API.
+// We re-export it here so the OpenAPI generator picks up the field
+// descriptions and examples without coupling the persona package to
+// swagger annotations.
+type testPersonaAccessResponse struct {
+	Allowed        bool                 `json:"allowed" example:"true"`
+	MatchedPattern string               `json:"matched_pattern" example:"trino_*"`
+	Source         persona.AccessSource `json:"source" example:"allow"`
+}
+
+// testPersonaAccess handles POST /api/v1/admin/personas/{name}/test-access.
+//
+// @Summary      Preview a persona's decision for a tool
+// @Description  Evaluates the named persona's allow/deny rules against a tool name and returns the decision plus the matching pattern. Used by the admin Tools page to preview "would persona X allow this tool?" without traversing every persona.
+// @Tags         Personas
+// @Accept       json
+// @Produce      json
+// @Param        name  path  string                    true  "Persona name"
+// @Param        body  body  testPersonaAccessRequest  true  "Tool to evaluate"
+// @Success      200   {object}  testPersonaAccessResponse
+// @Failure      400   {object}  problemDetail
+// @Failure      404   {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/personas/{name}/test-access [post]
+func (h *Handler) testPersonaAccess(w http.ResponseWriter, r *http.Request) {
+	if h.deps.PersonaRegistry == nil {
+		writeError(w, http.StatusServiceUnavailable, "persona registry not available")
+		return
+	}
+	name := r.PathValue(pathKeyName)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "persona name is required")
+		return
+	}
+	p, ok := h.deps.PersonaRegistry.Get(name)
+	if !ok {
+		writeError(w, http.StatusNotFound, "persona not found")
+		return
+	}
+
+	var req testPersonaAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.ToolName == "" {
+		writeError(w, http.StatusBadRequest, "tool_name is required")
+		return
+	}
+
+	decision := persona.NewToolFilter(nil).WhyAllowed(p, req.ToolName)
+	writeJSON(w, http.StatusOK, testPersonaAccessResponse{
+		Allowed:        decision.Allowed,
+		MatchedPattern: decision.MatchedPattern,
+		Source:         decision.Source,
+	})
+}

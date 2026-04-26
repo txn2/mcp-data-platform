@@ -1,11 +1,14 @@
 package platform
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -74,6 +77,12 @@ type Config struct {
 	Elicitation   ElicitationConfig   `yaml:"elicitation"`
 	Workflow      WorkflowConfig      `yaml:"workflow"`
 	SessionGate   SessionGateConfig   `yaml:"session_gate"`
+
+	// runtimeMu guards fields that can be mutated at runtime via the admin
+	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
+	// loaded once from YAML and not protected here. Unexported so YAML
+	// marshaling ignores it.
+	runtimeMu sync.RWMutex
 }
 
 // defaultAdminPersona is the persona name that grants platform admin.
@@ -966,13 +975,127 @@ func applySessionDefaults(cfg *Config) {
 }
 
 // ApplyConfigEntry updates a live config field for a whitelisted config entry key.
+//
+// In addition to the static keys, any key matching tool.<name>.description
+// is treated as a per-tool description override and written into
+// Tools.DescriptionOverrides. An empty value removes the override so the
+// tool reverts to its default (built-in or file-config) description.
+//
+// The "tools.deny" key carries a JSON-encoded []string. An empty/blank
+// value clears the deny list. A malformed JSON value is logged and
+// IGNORED — the existing live slice is left untouched so a corrupt
+// config_entries row can't silently open up tools that were supposed to
+// be hidden by the file config.
+//
+// Writes to the runtime-mutable Tools.* fields go through the runtimeMu
+// lock so concurrent reads (notably the description-override middleware
+// and tools.deny visibility checks) see consistent state.
 func (c *Config) ApplyConfigEntry(key, value string) {
 	switch key {
 	case "server.description":
 		c.Server.Description = value
+		return
 	case "server.agent_instructions":
 		c.Server.AgentInstructions = value
+		return
+	case "tools.deny":
+		deny, err := parseToolsDenyValue(value)
+		if err != nil {
+			slog.Warn("ignoring malformed tools.deny config entry; live deny list unchanged",
+				"error", err)
+			return
+		}
+		c.SetToolsDeny(deny)
+		return
 	}
+	if name, ok := toolDescriptionKey(key); ok {
+		c.SetToolDescriptionOverride(name, value)
+	}
+}
+
+// SetToolDescriptionOverride writes a single per-tool description override
+// under the runtime lock. An empty value removes the override.
+func (c *Config) SetToolDescriptionOverride(name, value string) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	if c.Tools.DescriptionOverrides == nil {
+		c.Tools.DescriptionOverrides = make(map[string]string)
+	}
+	if value == "" {
+		delete(c.Tools.DescriptionOverrides, name)
+		return
+	}
+	c.Tools.DescriptionOverrides[name] = value
+}
+
+// ToolDescriptionOverridesSnapshot returns a shallow copy of the live
+// description overrides map. Callers may mutate the returned map without
+// affecting the live config.
+func (c *Config) ToolDescriptionOverridesSnapshot() map[string]string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	return maps.Clone(c.Tools.DescriptionOverrides)
+}
+
+// SetToolsDeny replaces the tools.deny slice atomically under the runtime lock.
+func (c *Config) SetToolsDeny(deny []string) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	c.Tools.Deny = deny
+}
+
+// ToolsDenySnapshot returns a copy of the current tools.deny slice.
+// Callers may mutate the returned slice without affecting the live config.
+func (c *Config) ToolsDenySnapshot() []string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	if len(c.Tools.Deny) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.Tools.Deny...)
+}
+
+// ToolsAllowSnapshot returns a copy of tools.allow. Currently allow is
+// not mutable at runtime, but callers should still go through this
+// accessor in case that changes.
+func (c *Config) ToolsAllowSnapshot() []string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	if len(c.Tools.Allow) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.Tools.Allow...)
+}
+
+// parseToolsDenyValue decodes the JSON-encoded []string stored in the
+// "tools.deny" config_entry. Returns (nil, nil) for empty/blank input
+// (an explicit empty deny list). Returns an error for malformed JSON or
+// non-array values so the caller can refuse to clobber the live slice.
+func parseToolsDenyValue(value string) ([]string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+		return nil, fmt.Errorf("tools.deny: %w", err)
+	}
+	return out, nil
+}
+
+// toolDescriptionKey returns the tool name embedded in a
+// "tool.<name>.description" config key, or ("", false) if the key does
+// not match the pattern.
+func toolDescriptionKey(key string) (string, bool) {
+	const prefix = "tool."
+	const suffix = ".description"
+	if len(key) <= len(prefix)+len(suffix) {
+		return "", false
+	}
+	if key[:len(prefix)] != prefix || key[len(key)-len(suffix):] != suffix {
+		return "", false
+	}
+	return key[len(prefix) : len(key)-len(suffix)], true
 }
 
 // Validate validates the configuration.

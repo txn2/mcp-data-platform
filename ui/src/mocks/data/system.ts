@@ -29,32 +29,32 @@ export const mockSystemInfo: SystemInfo = {
 
 export const mockTools: ToolInfo[] = [
   // acme-warehouse (trino) — production data warehouse
-  { name: "trino_query", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_describe_table", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_browse", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
-  { name: "trino_explain", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse" },
+  { name: "trino_query", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse", hidden: false },
+  { name: "trino_describe_table", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse", hidden: false },
+  { name: "trino_browse", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse", hidden: false },
+  { name: "trino_explain", toolkit: "acme-warehouse", kind: "trino", connection: "acme-warehouse", hidden: false },
   // acme-staging (trino) — staging environment
-  { name: "trino_query", toolkit: "acme-staging", kind: "trino", connection: "acme-staging" },
-  { name: "trino_describe_table", toolkit: "acme-staging", kind: "trino", connection: "acme-staging" },
+  { name: "trino_query", toolkit: "acme-staging", kind: "trino", connection: "acme-staging", hidden: false },
+  { name: "trino_describe_table", toolkit: "acme-staging", kind: "trino", connection: "acme-staging", hidden: false },
   // acme-catalog (datahub) — production metadata catalog
-  { name: "datahub_search", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
-  { name: "datahub_get_entity", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
-  { name: "datahub_get_schema", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
-  { name: "datahub_get_lineage", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
-  { name: "datahub_browse", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog" },
+  { name: "datahub_search", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
+  { name: "datahub_get_entity", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
+  { name: "datahub_get_schema", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
+  { name: "datahub_get_lineage", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
+  { name: "datahub_browse", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
   // acme-catalog-staging (datahub) — staging catalog
-  { name: "datahub_search", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging" },
-  { name: "datahub_get_entity", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging" },
+  { name: "datahub_search", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
+  { name: "datahub_get_entity", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
   // acme-data-lake (s3) — raw data lake
-  { name: "s3_list_objects", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake" },
-  { name: "s3_get_object", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake" },
-  { name: "s3_list_buckets", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake" },
+  { name: "s3_list_objects", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
+  { name: "s3_get_object", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
+  { name: "s3_list_buckets", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
   // acme-reports (s3) — generated reports
-  { name: "s3_list_objects", toolkit: "acme-reports", kind: "s3", connection: "acme-reports" },
-  { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports" },
+  { name: "s3_list_objects", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
+  { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
   // acme-platform (platform) — platform utilities
-  { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform" },
-  { name: "capture_insight", toolkit: "acme-platform", kind: "platform", connection: "acme-platform" },
+  { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
+  { name: "capture_insight", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
 ];
 
 export const mockConnections: ConnectionInfo[] = [

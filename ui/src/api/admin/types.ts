@@ -31,6 +31,8 @@ export interface ToolInfo {
   toolkit: string;
   kind: string;
   connection: string;
+  /** True when the tool is excluded from tools/list by tools.allow / tools.deny. */
+  hidden: boolean;
 }
 
 export interface ToolListResponse {
@@ -633,4 +635,64 @@ export interface MemoryStats {
   by_dimension: Record<string, number>;
   by_category: Record<string, number>;
   by_status: Record<string, number>;
+}
+
+// --- Tools master-detail (issue #340) ---
+
+export type PersonaAccessSource = "allow" | "deny" | "default";
+
+export interface ToolPersonaAccess {
+  persona: string;
+  /** End-to-end: tool rule allows AND connection rule allows. */
+  allowed: boolean;
+  matched_pattern?: string;
+  /** Source of the tool-rule decision (not the connection check). */
+  source: PersonaAccessSource;
+  /** Independent: whether this persona allows the tool's connection. */
+  connection_allowed: boolean;
+}
+
+export interface ToolActivityAggregate {
+  window_seconds: number;
+  call_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+}
+
+export interface ToolDetail {
+  name: string;
+  title?: string;
+  description: string;
+  toolkit_kind: string;
+  toolkit_name?: string;
+  connection?: string;
+  input_schema?: unknown;
+  personas: ToolPersonaAccess[];
+  hidden_by_global_deny: boolean;
+  global_deny_pattern?: string;
+  hidden_by_persona?: Record<string, boolean>;
+  description_overridden: boolean;
+  override_author?: string;
+  activity?: ToolActivityAggregate;
+  enrichment_rule_count: number;
+}
+
+export interface PersonaTestAccessRequest {
+  tool_name: string;
+}
+
+export interface PersonaTestAccessResult {
+  allowed: boolean;
+  matched_pattern: string;
+  source: PersonaAccessSource;
+}
+
+export interface ToolVisibilityRequest {
+  hidden: boolean;
+}
+
+export interface ToolVisibilityResponse {
+  tool_name: string;
+  hidden: boolean;
+  deny: string[];
 }

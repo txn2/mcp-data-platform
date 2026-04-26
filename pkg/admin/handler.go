@@ -257,7 +257,11 @@ func (h *Handler) registerSystemRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/system/info", h.getSystemInfo)
 	h.mux.HandleFunc("GET /api/v1/admin/tools", h.listTools)
 	h.mux.HandleFunc("GET /api/v1/admin/tools/schemas", h.getToolSchemas)
+	h.mux.HandleFunc("GET /api/v1/admin/tools/{name}", h.getToolDetail)
 	h.mux.HandleFunc("POST /api/v1/admin/tools/call", h.callTool)
+	if h.isMutable() {
+		h.mux.HandleFunc("PUT /api/v1/admin/tools/{name}/visibility", h.setToolVisibility)
+	}
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
 	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", h.getPublicBranding)
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
@@ -305,6 +309,7 @@ func (h *Handler) registerPersonaRoutes() {
 	}
 	h.mux.HandleFunc("GET /api/v1/admin/personas", h.listPersonas)
 	h.mux.HandleFunc("GET /api/v1/admin/personas/{name}", h.getPersona)
+	h.mux.HandleFunc("POST /api/v1/admin/personas/{name}/test-access", h.testPersonaAccess)
 	if h.isMutable() {
 		h.mux.HandleFunc("POST /api/v1/admin/personas", h.createPersona)
 		h.mux.HandleFunc("PUT /api/v1/admin/personas/{name}", h.updatePersona)

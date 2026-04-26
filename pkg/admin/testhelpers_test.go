@@ -338,14 +338,16 @@ var _ ConfigStore = (*mockConfigStore)(nil)
 // --- Mock PersonaStore ---
 
 type mockPersonaStore struct {
+	listResult  []platform.PersonaDefinition
+	listErr     error
 	setErr      error
 	deleteErr   error
 	setCalls    []platform.PersonaDefinition
 	deleteCalls []string
 }
 
-func (*mockPersonaStore) List(_ context.Context) ([]platform.PersonaDefinition, error) {
-	return nil, nil
+func (m *mockPersonaStore) List(_ context.Context) ([]platform.PersonaDefinition, error) {
+	return m.listResult, m.listErr
 }
 
 func (*mockPersonaStore) Get(_ context.Context, _ string) (*platform.PersonaDefinition, error) {
