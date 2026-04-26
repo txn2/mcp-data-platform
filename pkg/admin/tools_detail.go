@@ -139,12 +139,12 @@ func (h *Handler) getToolDetail(w http.ResponseWriter, r *http.Request) {
 		// Fall through to platform-level tools (platform_info,
 		// list_connections, manage_prompt) — these are registered
 		// directly on the MCP server and aren't owned by any toolkit.
-		if pt, ok := findPlatformTool(h.deps.PlatformTools, name); ok {
-			match = registry.ToolkitMatch{Kind: pt.Kind, Found: true}
-		} else {
+		pt, ok := findPlatformTool(h.deps.PlatformTools, name)
+		if !ok {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("tool %q not found", name))
 			return
 		}
+		match = registry.ToolkitMatch{Kind: pt.Kind, Found: true}
 	}
 
 	detail := ToolDetail{
