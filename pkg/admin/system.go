@@ -146,8 +146,11 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 
 	var allow, deny []string
 	if h.deps.Config != nil {
-		allow = h.deps.Config.Tools.Allow
-		deny = h.deps.Config.Tools.Deny
+		// Snapshot via accessors — tools.deny is mutated at runtime by
+		// the visibility endpoint and would otherwise race the iteration
+		// inside IsToolVisible.
+		allow = h.deps.Config.ToolsAllowSnapshot()
+		deny = h.deps.Config.ToolsDenySnapshot()
 	}
 
 	var tools []toolInfo
@@ -235,8 +238,8 @@ type connectionListResponse struct {
 func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	var allow, deny []string
 	if h.deps.Config != nil {
-		allow = h.deps.Config.Tools.Allow
-		deny = h.deps.Config.Tools.Deny
+		allow = h.deps.Config.ToolsAllowSnapshot()
+		deny = h.deps.Config.ToolsDenySnapshot()
 	}
 
 	var conns []connectionInfo

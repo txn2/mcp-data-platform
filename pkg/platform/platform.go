@@ -2015,8 +2015,11 @@ func (p *Platform) addToolVisibilityMiddleware() {
 // without a platform restart. The cost is a tiny map allocation per
 // tools/list — negligible compared to the surrounding RPC.
 func (p *Platform) addDescriptionOverrideMiddleware() {
+	// Snapshot through the runtime lock on every tools/list call so admin
+	// API edits to tool.<name>.description take effect immediately AND
+	// concurrent writes don't race the iteration in MergedDescriptionOverrides.
 	getOverrides := func() map[string]string {
-		return middleware.MergedDescriptionOverrides(p.config.Tools.DescriptionOverrides)
+		return middleware.MergedDescriptionOverrides(p.config.ToolDescriptionOverridesSnapshot())
 	}
 	if len(getOverrides()) == 0 {
 		// No defaults and no overrides configured at startup. The map can

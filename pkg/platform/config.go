@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -75,6 +77,12 @@ type Config struct {
 	Elicitation   ElicitationConfig   `yaml:"elicitation"`
 	Workflow      WorkflowConfig      `yaml:"workflow"`
 	SessionGate   SessionGateConfig   `yaml:"session_gate"`
+
+	// runtimeMu guards fields that can be mutated at runtime via the admin
+	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
+	// loaded once from YAML and not protected here. Unexported so YAML
+	// marshaling ignores it.
+	runtimeMu sync.RWMutex
 }
 
 // defaultAdminPersona is the persona name that grants platform admin.
@@ -978,6 +986,10 @@ func applySessionDefaults(cfg *Config) {
 // IGNORED — the existing live slice is left untouched so a corrupt
 // config_entries row can't silently open up tools that were supposed to
 // be hidden by the file config.
+//
+// Writes to the runtime-mutable Tools.* fields go through the runtimeMu
+// lock so concurrent reads (notably the description-override middleware
+// and tools.deny visibility checks) see consistent state.
 func (c *Config) ApplyConfigEntry(key, value string) {
 	switch key {
 	case "server.description":
@@ -993,19 +1005,66 @@ func (c *Config) ApplyConfigEntry(key, value string) {
 				"error", err)
 			return
 		}
-		c.Tools.Deny = deny
+		c.SetToolsDeny(deny)
 		return
 	}
 	if name, ok := toolDescriptionKey(key); ok {
-		if c.Tools.DescriptionOverrides == nil {
-			c.Tools.DescriptionOverrides = make(map[string]string)
-		}
-		if value == "" {
-			delete(c.Tools.DescriptionOverrides, name)
-			return
-		}
-		c.Tools.DescriptionOverrides[name] = value
+		c.SetToolDescriptionOverride(name, value)
 	}
+}
+
+// SetToolDescriptionOverride writes a single per-tool description override
+// under the runtime lock. An empty value removes the override.
+func (c *Config) SetToolDescriptionOverride(name, value string) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	if c.Tools.DescriptionOverrides == nil {
+		c.Tools.DescriptionOverrides = make(map[string]string)
+	}
+	if value == "" {
+		delete(c.Tools.DescriptionOverrides, name)
+		return
+	}
+	c.Tools.DescriptionOverrides[name] = value
+}
+
+// ToolDescriptionOverridesSnapshot returns a shallow copy of the live
+// description overrides map. Callers may mutate the returned map without
+// affecting the live config.
+func (c *Config) ToolDescriptionOverridesSnapshot() map[string]string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	return maps.Clone(c.Tools.DescriptionOverrides)
+}
+
+// SetToolsDeny replaces the tools.deny slice atomically under the runtime lock.
+func (c *Config) SetToolsDeny(deny []string) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	c.Tools.Deny = deny
+}
+
+// ToolsDenySnapshot returns a copy of the current tools.deny slice.
+// Callers may mutate the returned slice without affecting the live config.
+func (c *Config) ToolsDenySnapshot() []string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	if len(c.Tools.Deny) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.Tools.Deny...)
+}
+
+// ToolsAllowSnapshot returns a copy of tools.allow. Currently allow is
+// not mutable at runtime, but callers should still go through this
+// accessor in case that changes.
+func (c *Config) ToolsAllowSnapshot() []string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	if len(c.Tools.Allow) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.Tools.Allow...)
 }
 
 // parseToolsDenyValue decodes the JSON-encoded []string stored in the

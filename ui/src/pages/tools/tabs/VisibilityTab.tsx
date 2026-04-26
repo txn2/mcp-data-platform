@@ -6,6 +6,7 @@ import {
 } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { PersonaTestAccessResult, ToolDetail } from "@/api/admin/types";
+import { errorMessage } from "@/lib/utils";
 
 export function VisibilityTab({ detail }: { detail: ToolDetail }) {
   const setVisibility = useSetToolVisibility(detail.name);
@@ -105,7 +106,7 @@ export function VisibilityTab({ detail }: { detail: ToolDetail }) {
         </div>
         {setVisibility.isError && (
           <p className="mt-1 text-xs text-destructive">
-            Failed to save: {(setVisibility.error as Error).message}
+            Failed to save: {errorMessage(setVisibility.error)}
           </p>
         )}
       </section>
@@ -148,6 +149,14 @@ export function VisibilityTab({ detail }: { detail: ToolDetail }) {
                     </td>
                     <td className="px-3 py-1.5 text-xs text-muted-foreground">
                       {p.source}
+                      {!p.connection_allowed && (
+                        <span
+                          className="ml-1 text-yellow-700"
+                          title="Tool rule allows but the persona's connection rules deny this tool's connection."
+                        >
+                          · connection denied
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -189,7 +198,7 @@ export function VisibilityTab({ detail }: { detail: ToolDetail }) {
         </form>
         {testAccess.isError && (
           <p className="mt-1 text-xs text-destructive">
-            {(testAccess.error as Error).message}
+            {errorMessage(testAccess.error)}
           </p>
         )}
         {previewResult && !testAccess.isError && (

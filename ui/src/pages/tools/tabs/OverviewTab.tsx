@@ -6,6 +6,7 @@ import {
 } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { ToolDetail } from "@/api/admin/types";
+import { errorMessage } from "@/lib/utils";
 
 export function OverviewTab({ detail }: { detail: ToolDetail }) {
   return (
@@ -115,7 +116,7 @@ function DescriptionSection({ detail }: { detail: ToolDetail }) {
 
       {update.isError && (
         <p className="mt-1 text-xs text-destructive">
-          Failed to save: {(update.error as Error).message}
+          Failed to save: {errorMessage(update.error)}
         </p>
       )}
       {update.isSuccess && !editing && (
@@ -194,6 +195,14 @@ function PersonaMatrixSection({ detail }: { detail: ToolDetail }) {
                 </td>
                 <td className="px-3 py-1.5 text-xs text-muted-foreground">
                   {p.source}
+                  {!p.connection_allowed && (
+                    <span
+                      className="ml-1 text-yellow-700"
+                      title="Tool rule allows but the persona's connection rules deny this tool's connection. End-to-end the call would be denied."
+                    >
+                      · connection denied
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

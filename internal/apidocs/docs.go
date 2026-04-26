@@ -6340,6 +6340,9 @@ const docTemplate = `{
                 "allowed": {
                     "type": "boolean"
                 },
+                "connection_allowed": {
+                    "type": "boolean"
+                },
                 "matched_pattern": {
                     "type": "string"
                 },

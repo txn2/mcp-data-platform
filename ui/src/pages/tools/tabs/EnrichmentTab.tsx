@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { useEnrichmentRules } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { ToolDetail } from "@/api/admin/types";
+import { errorMessage } from "@/lib/utils";
 
 export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
   const connection = detail.connection ?? "";
@@ -24,7 +25,7 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
   if (error) {
     return (
       <p className="text-sm text-destructive">
-        Failed to load rules: {(error as Error).message}
+        Failed to load rules: {errorMessage(error)}
       </p>
     );
   }
@@ -89,9 +90,11 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        {enabledCount} of {rulesForTool.length} rules enabled.
-      </p>
+      {rulesForTool.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {enabledCount} of {rulesForTool.length} rules enabled.
+        </p>
+      )}
 
       <a
         href={drawerHref}

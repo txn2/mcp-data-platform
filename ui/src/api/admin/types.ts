@@ -643,9 +643,13 @@ export type PersonaAccessSource = "allow" | "deny" | "default";
 
 export interface ToolPersonaAccess {
   persona: string;
+  /** End-to-end: tool rule allows AND connection rule allows. */
   allowed: boolean;
   matched_pattern?: string;
+  /** Source of the tool-rule decision (not the connection check). */
   source: PersonaAccessSource;
+  /** Independent: whether this persona allows the tool's connection. */
+  connection_allowed: boolean;
 }
 
 export interface ToolActivityAggregate {

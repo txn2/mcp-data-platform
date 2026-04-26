@@ -92,12 +92,19 @@ type ToolDetail struct {
 	EnrichmentRuleCount int `json:"enrichment_rule_count"`
 }
 
-// ToolPersonaAccess records one persona's decision for the tool.
+// ToolPersonaAccess records one persona's end-to-end decision for the tool.
+//
+// Allowed reflects (tool allow/deny) AND (connection allow/deny). The
+// MatchedPattern / Source fields describe the tool-rule decision; when
+// the tool rule allows but the connection rule denies, ConnectionAllowed
+// is false and Allowed is false — surfaced separately so operators can
+// see both halves of the gate.
 type ToolPersonaAccess struct {
-	Persona        string               `json:"persona"`
-	Allowed        bool                 `json:"allowed"`
-	MatchedPattern string               `json:"matched_pattern,omitempty"`
-	Source         persona.AccessSource `json:"source"`
+	Persona           string               `json:"persona"`
+	Allowed           bool                 `json:"allowed"`
+	MatchedPattern    string               `json:"matched_pattern,omitempty"`
+	Source            persona.AccessSource `json:"source"`
+	ConnectionAllowed bool                 `json:"connection_allowed"`
 }
 
 // ToolActivityAggregate is the per-tool audit summary surfaced on the
@@ -162,7 +169,7 @@ func (h *Handler) getToolDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	h.fillToolPersonaMatrix(r.Context(), name, &detail)
 	if h.deps.Config != nil {
-		if pattern, hidden := matchGlobalDeny(h.deps.Config.Tools.Deny, name); hidden {
+		if pattern, hidden := matchGlobalDeny(h.deps.Config.ToolsDenySnapshot(), name); hidden {
 			detail.HiddenByGlobalDeny = true
 			detail.GlobalDenyPattern = pattern
 		}
@@ -210,7 +217,7 @@ func (h *Handler) fillToolPersonaMatrix(ctx context.Context, name string, d *Too
 	if err != nil {
 		return
 	}
-	filter := persona.NewToolFilter(persona.NewRegistry())
+	filter := persona.NewToolFilter(nil)
 	d.HiddenByPersona = make(map[string]bool, len(defs))
 	for _, def := range defs {
 		p := &persona.Persona{
@@ -219,15 +226,27 @@ func (h *Handler) fillToolPersonaMatrix(ctx context.Context, name string, d *Too
 				Allow: def.ToolsAllow,
 				Deny:  def.ToolsDeny,
 			},
+			Connections: persona.ConnectionRules{
+				Allow: def.ConnsAllow,
+				Deny:  def.ConnsDeny,
+			},
 		}
-		decision := filter.WhyAllowed(p, name)
+		toolDecision := filter.WhyAllowed(p, name)
+		// Connection check is independent. When the tool has no
+		// connection (platform-level tools), IsConnectionAllowed
+		// returns true unconditionally — see filter.go.
+		connectionAllowed := filter.IsConnectionAllowed(p, d.Connection)
+		// End-to-end Allowed mirrors what Authorizer.IsAuthorized would
+		// decide for a tools/call: tool rule AND connection rule.
+		allowed := toolDecision.Allowed && connectionAllowed
 		d.Personas = append(d.Personas, ToolPersonaAccess{
-			Persona:        def.Name,
-			Allowed:        decision.Allowed,
-			MatchedPattern: decision.MatchedPattern,
-			Source:         decision.Source,
+			Persona:           def.Name,
+			Allowed:           allowed,
+			MatchedPattern:    toolDecision.MatchedPattern,
+			Source:            toolDecision.Source,
+			ConnectionAllowed: connectionAllowed,
 		})
-		if !decision.Allowed {
+		if !allowed {
 			d.HiddenByPersona[def.Name] = true
 		}
 	}
@@ -246,6 +265,12 @@ func (h *Handler) fillDescriptionOverride(ctx context.Context, name string, d *T
 	}
 	entry, err := h.deps.ConfigStore.Get(ctx, toolDescriptionConfigKey(name))
 	if err != nil || entry == nil {
+		return
+	}
+	// An entry with empty value is treated by ApplyConfigEntry as a
+	// deletion — the live override is gone, so don't claim it's
+	// overridden in the UI just because a stale row exists.
+	if entry.Value == "" {
 		return
 	}
 	d.DescriptionOverridden = true
@@ -412,7 +437,7 @@ func (h *Handler) loadCurrentToolsDeny(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("loading tools.deny: %w", err)
 	}
 	if h.deps.Config != nil {
-		return append([]string(nil), h.deps.Config.Tools.Deny...), nil
+		return h.deps.Config.ToolsDenySnapshot(), nil
 	}
 	return nil, nil
 }

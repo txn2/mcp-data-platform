@@ -343,7 +343,7 @@ export function useCallTool() {
 export function useToolDetail(name: string | null) {
   return useQuery({
     queryKey: ["tools", "detail", name],
-    queryFn: () => apiFetch<ToolDetail>(`/tools/${name}`),
+    queryFn: () => apiFetch<ToolDetail>(`/tools/${encodeURIComponent(name!)}`),
     enabled: !!name,
   });
 }
@@ -353,10 +353,13 @@ export function useUpdateToolDescription(name: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (value: string) =>
-      apiFetch(`/config/entries/tool.${name}.description`, {
-        method: "PUT",
-        body: JSON.stringify({ value }),
-      }),
+      apiFetch(
+        `/config/entries/${encodeURIComponent(`tool.${name}.description`)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ value }),
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
       queryClient.invalidateQueries({ queryKey: ["tools"] });
@@ -369,7 +372,10 @@ export function useResetToolDescription(name: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch(`/config/entries/tool.${name}.description`, { method: "DELETE" }),
+      apiFetch(
+        `/config/entries/${encodeURIComponent(`tool.${name}.description`)}`,
+        { method: "DELETE" },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
       queryClient.invalidateQueries({ queryKey: ["tools"] });
@@ -382,10 +388,13 @@ export function useSetToolVisibility(name: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: ToolVisibilityRequest) =>
-      apiFetch<ToolVisibilityResponse>(`/tools/${name}/visibility`, {
-        method: "PUT",
-        body: JSON.stringify(req),
-      }),
+      apiFetch<ToolVisibilityResponse>(
+        `/tools/${encodeURIComponent(name)}/visibility`,
+        {
+          method: "PUT",
+          body: JSON.stringify(req),
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tools", "detail", name] });
       queryClient.invalidateQueries({ queryKey: ["tools"] });
@@ -466,7 +475,7 @@ export function useTestPersonaAccess() {
       toolName: string;
     }) =>
       apiFetch<PersonaTestAccessResult>(
-        `/personas/${persona}/test-access`,
+        `/personas/${encodeURIComponent(persona)}/test-access`,
         {
           method: "POST",
           body: JSON.stringify({ tool_name: toolName } as PersonaTestAccessRequest),
