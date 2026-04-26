@@ -1,5 +1,5 @@
 ---
-description: Why DataHub, Trino, and S3 form the foundation of mcp-data-platform. What each component does, why it was chosen, and how cross-injection wires them together.
+description: Why DataHub, Trino, and S3 form the foundation of mcp-data-platform. What each component does, why it was chosen, and how cross-enrichment wires them together.
 ---
 
 # The Data Stack: DataHub + Trino + S3
@@ -121,6 +121,55 @@ Amazon S3 (or any S3-compatible service like MinIO) is object storage. It stores
 
 ---
 
+## MCP Gateway: Third-Party MCP Integration
+
+### What is the MCP Gateway?
+
+The platform also acts as an **MCP client** against arbitrary upstream
+MCP servers and re-exposes their tools through its own MCP server. A
+third-party MCP — Salesforce Hosted MCP, a vendor's REST-wrapped MCP,
+an internal team's tool collection — becomes available to AI assistants
+under the platform's existing auth, persona, and audit envelope, with
+no code changes on the client side.
+
+### Why a Gateway?
+
+Composing third-party MCPs directly with the customer's data has three
+distinct values:
+
+1. **Proximity** — tools from external systems land next to warehouse
+   data and DataHub metadata, so an AI working in one session can
+   reason across vendor APIs and the customer's own data without
+   switching contexts or credentials.
+2. **Central control** — one auth flow, one persona model, one audit
+   log. Whether the AI calls a Trino query or a remote vendor's MCP
+   tool, the governance surface is identical.
+3. **Configurable cross-enrichment** — declarative rules join proxied
+   tool responses with warehouse / catalog context (e.g., a vendor's
+   "get customer" tool can be enriched with the matching row from
+   `mart.customers` automatically).
+
+### How it surfaces
+
+Tools from a gateway connection appear as `<connection>__<remote_tool>`
+in `tools/list` (e.g., `vendor__send_email`). Persona globs work the
+same way they do for native tools (`vendor__*`, `*_send_*`). Audit
+rows have `toolkit_kind=mcp` and `connection=<connection_name>`.
+
+### How operators use it
+
+Connections are created and authenticated in the admin portal — no
+YAML, no restarts. Authentication options include `none`, `bearer`,
+`api_key`, and `oauth` (with both `client_credentials` and
+`authorization_code` + PKCE grants). For `authorization_code` flows,
+encrypted refresh tokens persist in `gateway_oauth_tokens` so cron
+jobs and scheduled prompts run untouched after a one-time browser
+sign-in.
+
+See [Gateway Toolkit](../server/gateway.md) for the full reference.
+
+---
+
 ## How They Work Together
 
 ### What each component lacks
@@ -133,18 +182,18 @@ Amazon S3 (or any S3-compatible service like MinIO) is object storage. It stores
 
 ### Cross-injection fills the gaps
 
-**Trino + DataHub Cross-Injection**:
+**Trino + DataHub Cross-Enrichment**:
 
 - Query a table → Get schema + owners + tags + deprecation + quality
 - No extra calls. One request. Complete context.
 
-**DataHub + Trino Cross-Injection**:
+**DataHub + Trino Cross-Enrichment**:
 
 - Search DataHub → See which datasets are queryable
 - Get sample SQL for any discovered dataset
 - Know the row count and freshness
 
-**S3 + DataHub Cross-Injection**:
+**S3 + DataHub Cross-Enrichment**:
 
 - List objects → Get matching DataHub metadata
 - Know who owns those files and what they represent
@@ -213,7 +262,7 @@ graph TB
     subgraph "mcp-data-platform"
         Platform[Platform Bridge]
 
-        subgraph "Cross-Injection"
+        subgraph "Cross-Enrichment"
             Enrich[Enrichment Middleware]
         end
     end
@@ -240,13 +289,13 @@ The platform acts as a bridge, intercepting requests and responses to inject con
 
 <div class="grid cards" markdown>
 
--   :material-swap-horizontal: **See Cross-Injection in Action**
+-   :material-swap-horizontal: **See Cross-Enrichment in Action**
 
     ---
 
     Detailed examples of how Trino and DataHub enrich each other's responses.
 
-    [:octicons-arrow-right-24: Cross-injection overview](../cross-injection/overview.md)
+    [:octicons-arrow-right-24: Cross-injection overview](../cross-enrichment/overview.md)
 
 -   :material-server: **Deploy the Server**
 

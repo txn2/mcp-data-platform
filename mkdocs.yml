@@ -1,6 +1,6 @@
 site_name: txn2/mcp-data-platform
 site_url: https://mcp-data-platform.txn2.com
-site_description: Semantic data platform MCP server with bidirectional cross-injection
+site_description: Semantic data platform MCP server with bidirectional cross-enrichment
 site_author: Craig Johnston
 repo_url: https://github.com/txn2/mcp-data-platform
 repo_name: txn2/mcp-data-platform
@@ -47,18 +47,19 @@ nav:
     - Deployment: server/deployment.md
   - Features:
     - Tools: server/tools.md
-    - Cross-Injection:
-      - Overview: cross-injection/overview.md
-      - Trino to DataHub: cross-injection/trino-datahub.md
-      - DataHub to Trino: cross-injection/datahub-trino.md
-      - S3 Enrichment: cross-injection/s3.md
-      - Lineage Inheritance: cross-injection/lineage.md
+    - Cross-Enrichment:
+      - Overview: cross-enrichment/overview.md
+      - Trino to DataHub: cross-enrichment/trino-datahub.md
+      - DataHub to Trino: cross-enrichment/datahub-trino.md
+      - S3 Enrichment: cross-enrichment/s3.md
+      - Lineage Inheritance: cross-enrichment/lineage.md
     - Multi-Provider: server/multi-provider.md
     - Authentication:
       - Overview: auth/overview.md
       - OIDC: auth/oidc.md
       - API Keys: auth/api-keys.md
-      - OAuth 2.1 Server: auth/oauth-server.md
+      - OAuth 2.1 Server (inbound): auth/oauth-server.md
+      - OAuth to Upstream MCPs (outbound): auth/oauth-gateway.md
     - Personas:
       - Overview: personas/overview.md
       - Tool Filtering: personas/tool-filtering.md

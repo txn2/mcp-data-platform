@@ -1017,6 +1017,259 @@ Deletes a database-managed connection instance. Only available in database confi
 
 **Response:** `204 No Content` (no body)
 
+## Gateway Endpoints
+
+Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose
+their tools as `<connection_name>__<remote_tool>`. They use the standard
+[Connection Instance](#connection-instance-endpoints) CRUD endpoints with
+`kind=mcp`, plus the gateway-specific endpoints below for testing,
+re-discovery, OAuth flow, and cross-enrichment rules.
+
+See [Gateway Toolkit](gateway.md) for the full feature reference.
+
+### Test Connection
+
+```
+POST /api/v1/admin/gateway/connections/{name}/test
+```
+
+Dials the upstream MCP and returns its tool list **without saving** the
+connection. Used by the admin UI to validate credentials before persisting.
+
+The body is the same shape as `PUT /connection-instances/mcp/{name}`. The
+`[REDACTED]` placeholder is honored for sensitive fields so an existing
+connection can be re-tested without re-entering secrets.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "healthy": true,
+  "tools": [
+    {"name": "echo", "local_name": "vendor__echo", "description": "Echo input message"},
+    {"name": "add",  "local_name": "vendor__add",  "description": "Sum two integers"},
+    {"name": "now",  "local_name": "vendor__now",  "description": "Return current UTC time"}
+  ]
+}
+```
+
+`tools[].local_name` is what the proxied tool will surface as in
+`tools/list` once the connection is persisted (`<connection_name>__<remote_tool>`).
+On failure, the response carries `{"healthy": false, "error": "..."}`.
+
+### Refresh Connection
+
+```
+POST /api/v1/admin/gateway/connections/{name}/refresh
+```
+
+Re-dials a stored gateway connection and re-registers its tool catalog on
+the live MCP server. Use after an upstream changes its tool set.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "healthy": true,
+  "tools": ["echo", "add", "now"]
+}
+```
+
+The `tools` array here is just the remote tool names (no `local_name`
+because they're already registered with their gateway-prefixed names on
+the live server). On failure, `{"healthy": false, "error": "..."}`.
+
+### Begin OAuth Authorization-Code Flow
+
+```
+POST /api/v1/admin/gateway/connections/{name}/oauth-start
+```
+
+For connections configured with `auth_mode=oauth` and
+`oauth_grant=authorization_code`. Generates a PKCE verifier + state token,
+records them in the platform's PKCE state store (in-memory by default,
+Postgres-backed when a database is configured for multi-replica safety),
+and returns the upstream's authorization URL.
+
+The admin UI opens the returned `authorization_url` in a new tab. After
+the operator authenticates with the upstream provider, the upstream
+redirects to `/api/v1/admin/oauth/callback` (below) with the auth code
+and state.
+
+**Request Body** (optional):
+
+```json
+{
+  "return_url": "/portal/admin/connections"
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "authorization_url": "https://login.example.com/authorize?response_type=code&client_id=...&code_challenge_method=S256&code_challenge=...&state=...&redirect_uri=https%3A%2F%2Fplatform.example.com%2Fapi%2Fv1%2Fadmin%2Foauth%2Fcallback",
+  "state": "U9U-U5mpXbvIbRKOKUX2pGlx9KC3uUeqERo1e-kUcdc",
+  "redirect_uri": "https://platform.example.com/api/v1/admin/oauth/callback",
+  "expires_at": "2026-04-25T20:51:01Z"
+}
+```
+
+**Errors:**
+
+- `404 Not Found` — connection does not exist
+- `409 Conflict` — connection is not configured for `authorization_code` OAuth
+
+### OAuth Callback (public)
+
+```
+GET /api/v1/admin/oauth/callback?code=...&state=...
+```
+
+**Public endpoint** — does not require an admin auth header. The upstream
+OAuth provider redirects the operator's browser here after sign-in. The
+state token (carried in the query string) authenticates the callback by
+matching the prior `oauth-start` record.
+
+The handler exchanges `code` for tokens at the upstream's token endpoint,
+encrypts them at rest in `gateway_oauth_tokens` (AES-256-GCM via the
+platform's field encryptor when `ENCRYPTION_KEY` is set), and redirects
+the browser to the original `return_url` (or `/portal/admin/connections`
+by default).
+
+On error (missing/expired state, upstream error, token exchange failure)
+the handler renders an HTML error page so a stranded browser tab still
+gives a useful message.
+
+**Response:** `302 Found` on success; `400 Bad Request` (HTML) on error.
+
+### List Enrichment Rules
+
+```
+GET /api/v1/admin/gateway/connections/{name}/enrichment-rules
+```
+
+Lists cross-enrichment rules attached to a gateway connection. Optionally
+filter by tool name.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `tool` | Filter to rules whose `tool_name` matches |
+| `enabled` | `true` to return only enabled rules |
+
+**Response (`200 OK`):**
+
+```json
+[
+  {
+    "id": "01j3z7n7d6y2g3xq4y9k7m9c8q",
+    "connection_name": "vendor",
+    "tool_name": "vendor__get_contact",
+    "when_predicate": {"kind": "response_contains", "paths": ["$.email"]},
+    "enrich_action": {
+      "source": "trino",
+      "operation": "query",
+      "parameters": {
+        "connection": "warehouse",
+        "sql_template": "SELECT lifetime_value, last_order_at FROM mart.customers WHERE email = :email",
+        "email": "$.response.email"
+      }
+    },
+    "merge_strategy": {"kind": "path", "path": "warehouse_signals"},
+    "description": "Attach lifetime value + last-order date when the proxied response carries an email",
+    "enabled": true,
+    "created_by": "admin@example.com",
+    "created_at": "2026-04-15T14:30:00Z",
+    "updated_at": "2026-04-15T14:30:00Z"
+  }
+]
+```
+
+### Get Enrichment Rule
+
+```
+GET /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}
+```
+
+Returns a single rule by its server-assigned id. Same shape as a single
+element of the list response above.
+
+### Create Enrichment Rule
+
+```
+POST /api/v1/admin/gateway/connections/{name}/enrichment-rules
+```
+
+Creates a new rule on the named connection. Returns the persisted rule
+with its server-assigned `id`.
+
+### Update Enrichment Rule
+
+```
+PUT /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}
+```
+
+Replaces an existing rule. The `id` is server-assigned at create time.
+
+### Delete Enrichment Rule
+
+```
+DELETE /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}
+```
+
+**Response:** `204 No Content`
+
+### Dry-Run Enrichment Rule
+
+```
+POST /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run
+```
+
+Evaluates a rule against a sample tool call **without side effects** —
+runs the `when` predicate, evaluates JSONPath bindings, executes the
+read-only source operation, and returns what the merged response would
+look like. Used by the admin UI's rule editor preview pane.
+
+**Request Body:**
+
+```json
+{
+  "args": {"contact_id": "C-1234"},
+  "response": {"email": "ada@example.com", "name": "Ada Lovelace"},
+  "user": {"id": "u_123", "email": "alice@example.com"}
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "response": {
+    "email": "ada@example.com",
+    "name": "Ada Lovelace",
+    "warehouse_signals": [
+      {"lifetime_value": 4250.0, "last_order_at": "2026-03-19T10:14:22Z"}
+    ]
+  },
+  "warnings": [],
+  "fired": [
+    {
+      "rule_id": "01j3z7n7d6y2g3xq4y9k7m9c8q",
+      "matched": true,
+      "duration_ms": 142
+    }
+  ]
+}
+```
+
+`response` is the merged result the proxied tool would have returned if
+the rule had fired live. `warnings` carries any non-fatal binding /
+source errors. `fired` contains a per-rule trace (only the dry-run rule
+in this case; the live engine's same shape carries every rule that
+evaluated against the call).
+
 ## Knowledge Endpoints
 
 Knowledge endpoints require `knowledge.enabled: true` and a configured database. Without a database, endpoints return `409 Conflict`. For the full knowledge API reference, see [Knowledge Admin API](../knowledge/admin-api.md).

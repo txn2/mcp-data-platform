@@ -1,5 +1,5 @@
 ---
-description: How mcp-data-platform works. DataHub semantic layer, optional Trino and S3, cross-injection architecture, request flow for stdio and SSE transports.
+description: How mcp-data-platform works. DataHub semantic layer, optional Trino and S3, cross-enrichment architecture, request flow for stdio and SSE transports.
 ---
 
 # MCP Server Overview
@@ -14,7 +14,7 @@ DataHub is required. It's the semantic layer that gives meaning to your data. Tr
 - **Trino** - Run SQL queries (results include DataHub context automatically)
 - **S3** - Access files in object storage (with DataHub metadata when available)
 
-The difference from standalone tools: **cross-injection**. Query a table in Trino, get DataHub's business context in the response. Search DataHub, see which datasets are queryable.
+The difference from standalone tools: **cross-enrichment**. Query a table in Trino, get DataHub's business context in the response. Search DataHub, see which datasets are queryable.
 
 ## Architecture
 

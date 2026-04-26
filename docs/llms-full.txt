@@ -18,7 +18,7 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups.
 
-- **Cross-Injection**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
+- **Cross-Enrichment**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
 - **Enterprise Security**: Fail-closed authentication model, TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement.
 
@@ -44,7 +44,7 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 # Ecosystem
 
-mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-injection, authentication, and personas.
+mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-enrichment, authentication, and personas.
 
 ## mcp-datahub (https://github.com/txn2/mcp-datahub/)
 
@@ -92,7 +92,7 @@ S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any da
 
 **Why S3**: Infinite scale at low cost, any file format, direct querying via Trino, object versioning, S3-compatible (AWS, MinIO, Ceph).
 
-## Cross-injection fills the gaps
+## Cross-enrichment fills the gaps
 
 | Component | Answers | Limitation Alone |
 |-----------|---------|------------------|
@@ -100,7 +100,7 @@ S3 (Amazon S3, MinIO, or any S3-compatible service) is object storage for any da
 | Trino | "What's in this table?" | Doesn't know business context |
 | S3 | "What files exist?" | Just storage, no meaning |
 
-Cross-injection wires them together:
+Cross-enrichment wires them together:
 - Trino + DataHub: Query a table → Get schema + owners + tags + deprecation + quality
 - DataHub + Trino: Search DataHub → See which datasets are queryable with sample SQL
 - S3 + DataHub: List objects → Get matching metadata and ownership
@@ -548,7 +548,7 @@ Elicitation requires client-side support (MCP `elicitation/create` capability). 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `icons.enabled` | bool | `false` | Enable icon injection middleware |
+| `icons.enabled` | bool | `false` | Enable icon enrichment middleware |
 | `icons.tools.<name>.src` | string | - | Icon URI for a tool |
 | `icons.tools.<name>.mime_type` | string | - | Icon MIME type |
 | `icons.resources.<uri>.src` | string | - | Icon URI for a resource template |
@@ -617,7 +617,7 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `secret_access_key` | string | - | AWS secret access key |
 | `read_only` | bool | false | Restrict to read operations |
 
-## Cross-Injection Configuration
+## Cross-Enrichment Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -693,7 +693,8 @@ Authentication identifies who is making requests. Anonymous access is disabled b
 
 - **OIDC**: Human users via Keycloak, Auth0, Okta
 - **API Keys**: Service accounts, automation
-- **OAuth 2.1**: Claude Desktop authentication via upstream IdP
+- **OAuth 2.1 (inbound)**: Claude Desktop authentication via upstream IdP — see "OAuth 2.1 for Claude Desktop" below
+- **OAuth 2.1 (outbound)**: Gateway connections to upstream MCPs — `client_credentials` (M2M) and `authorization_code` + PKCE (browser sign-in). Encrypted refresh tokens persist across restarts. See "OAuth to Upstream MCPs" later in this document.
 
 ### OAuth 2.1 for Claude Desktop
 
@@ -826,20 +827,20 @@ A background goroutine runs every 24 hours and deletes rows older than `retentio
 
 ---
 
-# Cross-Injection
+# Cross-Enrichment
 
 When you query a Trino table, you get DataHub context in the response. When you search DataHub, you see which datasets are queryable. No extra calls.
 
 ## The Problem It Solves
 
-Without cross-injection:
+Without cross-enrichment:
 1. Query a table
 2. Search DataHub for that table
 3. Get entity details for owners and tags
 4. Check deprecation status
 5. Look up quality score
 
-Five calls to understand one table. With cross-injection, step 1 gives you everything.
+Five calls to understand one table. With cross-enrichment, step 1 gives you everything.
 
 ## What Gets Injected
 
@@ -1808,7 +1809,7 @@ Interactive tool execution environment:
 - Tool browser grouped by connection with search filtering
 - Dynamic parameter form generated from JSON schema
 - Result display with rendered markdown tables and Raw JSON toggle
-- Semantic context: cross-injection enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
+- Semantic context: cross-enrichment enrichment shown below results (owners, tags, glossary terms, column metadata, lineage)
 - Execution history with duration, status, and replay
 
 ## Audit Log
@@ -2020,7 +2021,7 @@ For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tuto
 | Server exits immediately | Configuration error | Validate YAML syntax |
 | 401 Unauthorized | Invalid credentials | Check token/key |
 | 403 Forbidden | Persona/tool mismatch | Check persona tool rules |
-| No enrichment data | Injection misconfigured | Enable injection settings |
+| No enrichment data | Enrichment misconfigured | Enable enrichment settings |
 | Slow responses | Performance bottleneck | Enable caching |
 | Connection refused | Service unreachable | Check connectivity |
 
@@ -2320,6 +2321,45 @@ The dry-run endpoint accepts a sample `{ args, response, user }` and returns the
 ## Failure isolation
 
 A gateway upstream that's unreachable at startup logs a warning, records zero tools for that connection, and does not block platform startup. Other connections keep working. A connection that becomes unhealthy at runtime returns tool-error results prefixed `upstream:<connection>:` so the LLM can self-correct, and the audit log captures the failure with the same event shape as a successful call.
+
+---
+
+# OAuth to Upstream MCPs
+
+When a gateway connection requires OAuth, the platform acts as the OAuth client to the upstream MCP. This is distinct from the inbound OAuth 2.1 server that lets Claude Desktop authenticate to the platform.
+
+## Supported grants
+
+- **client_credentials** (machine-to-machine): set `oauth_token_url`, `oauth_client_id`, `oauth_client_secret`, optional `oauth_scope`. Platform fetches and refreshes tokens automatically. No browser involved.
+- **authorization_code + PKCE** (browser sign-in): adds `oauth_authorization_url`. Operator clicks Connect in the admin portal once; the platform walks the PKCE flow per RFC 7636 (S256), persists encrypted refresh tokens, and refreshes the access token automatically thereafter — including for cron jobs and scheduled prompts.
+
+## Storage
+
+- `gateway_oauth_tokens` — access_token, refresh_token, expires_at, authenticated_by. AES-256-GCM via `ENCRYPTION_KEY`.
+- `oauth_pkce_states` — code_verifier (paired secret), state, redirect_uri. AES-256-GCM via `ENCRYPTION_KEY`. Rows expire after 10 min via server-side `NOW() + INTERVAL`.
+
+`ENCRYPTION_KEY` is required for production. Without it, the platform stores values in plaintext and logs a warning.
+
+## Multi-replica
+
+PKCE state must be visible across replicas (oauth-start may land on replica A, callback on replica B). The platform automatically uses the Postgres-backed PKCE store when a database is configured. Single-replica deployments fall back to in-memory.
+
+## Salesforce Hosted MCP
+
+Standard `authorization_code` + PKCE via an External Client App (ECA) with Web Server Flow enabled. Callback URL `https://<your-platform-host>/api/v1/admin/oauth/callback`, scopes `api refresh_token <mcp scope>`, authorization URL `https://login.salesforce.com/services/oauth2/authorize`, token URL `https://login.salesforce.com/services/oauth2/token`. Consumer key/secret become `oauth_client_id`/`oauth_client_secret`.
+
+---
+
+# Gateway Admin REST Endpoints
+
+In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (used for create/read/update/delete with `kind=mcp`), the gateway exposes:
+
+- `POST /api/v1/admin/gateway/connections/{name}/test` — dial the upstream without saving, return discovered tools. Used by the admin UI to validate credentials before persisting.
+- `POST /api/v1/admin/gateway/connections/{name}/refresh` — re-dial a saved connection and re-register its tool catalog on the live MCP server.
+- `POST /api/v1/admin/gateway/connections/{name}/oauth-start` — for `authorization_code` connections; returns the upstream's authorization URL with PKCE state. Operator opens this in a browser tab.
+- `GET /api/v1/admin/oauth/callback?code=…&state=…` — **public** endpoint (state token authenticates the callback). Upstream provider redirects here after sign-in. Platform exchanges the code for tokens and persists them encrypted.
+- `GET/POST/PUT/DELETE /api/v1/admin/gateway/connections/{name}/enrichment-rules[/{id}]` — cross-enrichment rule CRUD.
+- `POST /api/v1/admin/gateway/connections/{name}/enrichment-rules/{id}/dry-run` — preview a rule against sample data without side effects.
 
 ---
 

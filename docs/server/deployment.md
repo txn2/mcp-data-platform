@@ -658,6 +658,39 @@ kubectl get hpa -n mcp-data-platform
 - [ ] Runbooks for common issues
 - [ ] On-call rotation established
 
+### MCP gateway (if enabled)
+
+The [gateway toolkit](gateway.md) (kind `mcp`) has additional production
+requirements:
+
+- [ ] **`ENCRYPTION_KEY` is set** (32 bytes of key material; accepted
+      as 64 hex characters, 44-character base64, or 32 raw bytes).
+      Required for at-rest encryption of stored credentials, OAuth
+      access and refresh tokens (`gateway_oauth_tokens`), and PKCE
+      state (`oauth_pkce_states.code_verifier`). Without it the
+      platform logs a warning and stores those values in plaintext —
+      not acceptable in production.
+- [ ] **PostgreSQL is reachable from every replica** and shared.
+      Multi-replica deployments rely on the Postgres-backed PKCE state
+      store so an `oauth-start` on replica A and the redirect callback
+      on replica B can find each other. The platform automatically
+      uses Postgres when `database.dsn` is set.
+- [ ] **OAuth callback path** (`/api/v1/admin/oauth/callback`) is
+      reachable on the public-facing URL of the platform. The upstream
+      OAuth provider redirects the operator's browser here after
+      sign-in; the path is intentionally public (state token
+      authenticates the callback) and must be allowed through any
+      reverse-proxy auth.
+- [ ] **External Client App / OAuth client registration on each
+      upstream** lists the platform's `/api/v1/admin/oauth/callback`
+      URL as an allowed redirect URI. Required for `authorization_code`
+      grants (e.g. Salesforce Hosted MCP).
+- [ ] **`ENCRYPTION_KEY` rotation plan**. Rotating the key invalidates
+      every encrypted value in `connection_instances`, `gateway_oauth_tokens`,
+      and `oauth_pkce_states` — gateway connections will lose their
+      stored credentials and authorization_code connections will need
+      to be re-Connected through the portal. Plan accordingly.
+
 ---
 
 ## Monitoring Setup

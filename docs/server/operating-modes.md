@@ -19,9 +19,34 @@ mcp-data-platform supports three operating modes based on available infrastructu
 | Audit logging | noop (silent) | PostgreSQL | PostgreSQL |
 | Audit admin API | 409 Conflict | available | available |
 | Sessions | memory | database | database |
-| OAuth | available (memory store) | available (DB store) | available (DB store) |
+| OAuth (downstream clients) | available (memory store) | available (DB store) | available (DB store) |
+| MCP gateway connections | not loaded (no DB to read from) | loaded; bearer/api_key only | loaded; full feature set |
+| Gateway OAuth `client_credentials` | n/a | tokens in memory only (lost on restart) | tokens encrypted in DB |
+| Gateway OAuth `authorization_code` | n/a | tokens in memory only; works for the lifetime of the process, but **operator must Connect again after every restart** | encrypted refresh tokens persist across restarts |
 | Persona/auth key CRUD | read-only | read-only | enabled |
 | Config import | blocked | blocked | enabled |
+
+### MCP gateway requirements
+
+The gateway toolkit (kind `mcp`, see [Gateway Toolkit](gateway.md))
+requires a database for its full feature set:
+
+- **Connections** are stored in `connection_instances` rows and managed
+  through the admin portal — not in the YAML file. Without a database
+  there are no rows to load, and the gateway has no upstreams to proxy.
+- **OAuth `authorization_code` + PKCE** persists access and refresh
+  tokens in `gateway_oauth_tokens`, encrypted at rest with
+  `ENCRYPTION_KEY`. Without persistence, the operator would have to
+  re-authorize after every restart — defeating the purpose of the grant.
+- **Multi-replica deployments** additionally need the database for the
+  PKCE state store. The default in-memory store is single-replica only:
+  `oauth-start` may land on replica A while the upstream's redirect
+  lands the callback on replica B, and an in-memory store wouldn't see
+  the cross-replica state. The platform automatically uses the
+  Postgres-backed PKCE store when a database is configured.
+
+For production gateway deployments, run in **Bootstrap + DB Config** mode
+with `ENCRYPTION_KEY` set.
 
 ## Standalone (No Database)
 

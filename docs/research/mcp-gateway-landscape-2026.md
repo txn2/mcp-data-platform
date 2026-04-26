@@ -76,7 +76,7 @@ Things the survey could not find in any of the nine subjects:
 
 3. **Persona-aware tool filtering tied to structured audit.** Microsoft has Entra app roles, agentgateway has CEL policies, agentic-community has RBAC. None thread the same identity through tool filtering AND per-call audit metadata (user_id, persona, toolkit_kind, connection, duration_ms, correlation_id) the way we do.
 
-4. **Cross-toolkit semantic-layer injection.** Trino↔DataHub bidirectional cross-injection isn't a gateway feature per se, but it's the substrate the gateway's enrichment engine builds on. No surveyed project ships this kind of native semantic layer.
+4. **Cross-toolkit semantic-layer enrichment.** Trino↔DataHub bidirectional cross-enrichment isn't a gateway feature per se, but it's the substrate the gateway's enrichment engine builds on. No surveyed project ships this kind of native semantic layer.
 
 5. **Portal-first authoring of connections AND enrichment rules.** Most of the field is config-file or CLI driven. The portal pattern (admin REST API + admin UI for connection + enrichment-rule CRUD with dry-run) is a real operator-experience differentiator. agentic-community has a portal but it's IdP-management focused, not enrichment-authoring.
 

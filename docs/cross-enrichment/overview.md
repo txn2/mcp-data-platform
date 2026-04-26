@@ -2,15 +2,15 @@
 description: Automatic context enrichment between DataHub, Trino, and S3. Query a table, get business metadata. Search DataHub, see which datasets are queryable.
 ---
 
-# Cross-Injection
+# Cross-Enrichment
 
-Cross-injection is the key differentiator of mcp-data-platform. It automatically enriches tool responses with context from other services, without additional calls from the AI assistant.
+Cross-enrichment is the key differentiator of mcp-data-platform. It automatically attaches context from other services to tool responses, without additional calls from the AI assistant.
 
 ---
 
 ## The Problem It Solves
 
-Without cross-injection, understanding a single table requires multiple round-trips:
+Without cross-enrichment, understanding a single table requires multiple round-trips:
 
 ```mermaid
 sequenceDiagram
@@ -40,7 +40,7 @@ sequenceDiagram
 
 ---
 
-## With Cross-Injection
+## With Cross-Enrichment
 
 The same workflow becomes a single call:
 
@@ -317,7 +317,7 @@ When listing S3 objects, show matching DataHub metadata:
 
 ## Configuration
 
-Enable cross-injection in your configuration:
+Enable cross-enrichment in your configuration:
 
 ```yaml
 # Enable/disable specific enrichment paths
@@ -361,7 +361,7 @@ injection:
   datahub_query_enrichment: false
   s3_semantic_enrichment: false
 
-# Only DataHub toolkit, no cross-injection
+# Only DataHub toolkit, no cross-enrichment
 toolkits:
   datahub:
     primary:
@@ -369,7 +369,7 @@ toolkits:
       token: ${DATAHUB_TOKEN}
 ```
 
-### Full Cross-Injection
+### Full Cross-Enrichment
 
 Complete configuration with all services:
 
@@ -715,6 +715,30 @@ curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
 ```
 
 ---
+
+## Related: Gateway Cross-Enrichment Rules
+
+The [MCP gateway toolkit](../server/gateway.md) extends the
+cross-enrichment pattern to **third-party MCP responses**. Where the
+in-process enrichment above is hard-coded for native toolkits
+(Trino ↔ DataHub ↔ S3), the gateway exposes a **declarative rule
+engine** that lets operators configure, per proxied tool, how the
+response is augmented with warehouse / catalog context — without
+writing Go.
+
+Conceptually the same pattern (one source's response is enriched with
+another's) but with three differences:
+
+| | Native cross-enrichment | Gateway cross-enrichment rules |
+|---|---|---|
+| Configured by | Platform code | Operator, in the admin portal |
+| Trigger | Hard-coded per toolkit | JSONB predicate (`always`, `response_contains`) |
+| Source | DataHub or Trino client | DataHub `get_entity` / `get_glossary_term`, Trino `query` |
+| Bindings | Compile-time | JSONPath against `$.args`, `$.response`, `$.user` |
+| Scope | All native tool calls | Per-rule, attached to a proxied tool name |
+
+See [Cross-Enrichment Rules](../server/gateway.md#cross-enrichment-rules)
+for the rule schema, dry-run preview, and failure semantics.
 
 ## Next Steps
 

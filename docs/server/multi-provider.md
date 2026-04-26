@@ -121,7 +121,7 @@ storage:
   instance: data_lake  # Use the "data_lake" S3 instance
 ```
 
-## Cross-Injection with Multiple Providers
+## Cross-Enrichment with Multiple Providers
 
 When you have multiple instances, the semantic enrichment uses the configured provider instances:
 
@@ -260,5 +260,5 @@ toolkits:
 
 ## Next Steps
 
-- [Cross-Injection](../cross-injection/overview.md) - How enrichment works
+- [Cross-Enrichment](../cross-enrichment/overview.md) - How enrichment works
 - [Configuration Reference](../reference/configuration.md) - All configuration options

@@ -134,6 +134,16 @@ oauth:
 
 See [OAuth 2.1 Server](oauth-server.md) for complete setup instructions.
 
+### Outbound OAuth (Gateway → Upstream MCP)
+
+Distinct from the inbound flows above: when the platform proxies a
+third-party MCP via the [gateway toolkit](../server/gateway.md), the
+**platform** acts as an OAuth client to the **upstream** MCP. Both
+`client_credentials` and `authorization_code` + PKCE grants are
+supported, with encrypted refresh tokens persisted across restarts.
+See [OAuth to Upstream MCPs](oauth-gateway.md) for the full flow,
+storage model, and Salesforce setup walkthrough.
+
 ### Direct Bearer Token Flow
 
 For clients that already have a valid token (e.g., service accounts, API integrations):

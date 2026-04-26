@@ -27,18 +27,45 @@ This starts:
 | SeaweedFS (S3) | `:9000` | Portal asset storage |
 | Go API server | `http://localhost:8080` | Hot-reloads on `.go` file changes via air |
 | Vite UI | `http://localhost:5173/portal/` | Hot module replacement |
+| dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | Local mock for exercising the MCP gateway feature |
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 
 **API Key**: `acme-dev-key-2024`
+
+### MCP gateway dev fixture
+
+`make dev` automatically launches `cmd/dev-mcp-mock` and registers a
+gateway connection named **`dev-mock`** through the admin API. This is
+how the MCP gateway feature ships ready-to-explore in dev:
+
+- The mock serves a tiny MCP at `http://localhost:9181/mcp` with three
+  tools: `echo`, `add`, `now`.
+- It also serves an OAuth 2.1 provider at `http://localhost:9180`
+  (authorization_code + PKCE, refresh_token, and client_credentials
+  grants). The default access-token TTL is 1 hour; set
+  `ACCESS_TTL_SECONDS=10` in your `.env` to exercise refresh quickly.
+- The pre-registered `dev-mock` connection appears in the admin portal's
+  Connections page under kind `mcp` and surfaces three proxied tools:
+  `dev-mock__echo`, `dev-mock__add`, `dev-mock__now`.
+
+Switching the `dev-mock` connection to OAuth in the portal lets you
+walk the full PKCE flow against the in-process mock — no external
+provider needed. See [Gateway Toolkit](../docs/server/gateway.md) for
+the connection-config reference and OAuth grant types.
 
 Press **Ctrl-C** to stop all services.
 
 ### Stop and Clean Up
 
 ```bash
-make dev-down    # Stop Docker services and remove volumes
+make dev-down    # Stop Docker services + kill leftover host processes
 ```
+
+`dev-down` removes the Postgres / SeaweedFS volumes AND kills the host
+processes `dev/start.sh` spawned (air, the platform binary, vite,
+esbuild, dev-mcp-mock). Use this if a previous `make dev` left ports
+held by orphaned children.
 
 ## MSW Mode (No Backend)
 
