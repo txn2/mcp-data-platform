@@ -1,57 +1,96 @@
 {% extends "base.html" %}
 
+{# Resolve a page-specific title for og:title / twitter:title.
+   Homepage gets the marquee title; inner pages prepend the page title. #}
+{% if page and page.is_homepage %}
+  {% set social_title = config.site_name ~ " / the mcp data platform for ai" %}
+{% else %}
+  {% set social_title = page.title ~ " · " ~ config.site_name %}
+{% endif %}
+
+{% set og_image = config.site_url ~ "images/mcp-data-platform-og.png" %}
+{% set og_alt   = "mcp-data-platform / composable, semantic-first MCP server platform" %}
+
 {% block extrahead %}
-  {% if page and page.meta %}
-    {% set description = page.meta.description | default(config.site_description) %}
-    {% set page_title = page.title | default(config.site_name) %}
-    {% set page_url = page.canonical_url | default(config.site_url) %}
-  {% else %}
-    {% set description = config.site_description %}
-    {% set page_title = config.site_name %}
-    {% set page_url = config.site_url %}
-  {% endif %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap">
 
-  <!-- Open Graph -->
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="{{ page_title }} - mcp-data-platform">
-  <meta property="og:description" content="{{ description }}">
-  <meta property="og:url" content="{{ page_url }}">
-  <meta property="og:site_name" content="{{ config.site_name }}">
-  <meta property="og:image" content="{{ config.site_url }}images/logo.png">
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="{{ page_title }} - mcp-data-platform">
-  <meta name="twitter:description" content="{{ description }}">
-  <meta name="twitter:image" content="{{ config.site_url }}images/logo.png">
-
-  <!-- SEO -->
-  <meta name="description" content="{{ description }}">
+  <meta name="description" content="{{ config.site_description }}">
+  <meta name="keywords" content="mcp, model context protocol, mcp server, mcp platform, datahub, trino, s3, semantic layer, cross-enrichment, oauth 2.1, oidc, personas, audit logging, gateway, go, claude, ai assistant, composable, governance, data platform">
   <meta name="author" content="{{ config.site_author }}">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="{{ page_url }}">
 
-  <!-- JSON-LD Structured Data -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:title" content="{{ social_title }}">
+  <meta property="og:description" content="{{ config.site_description }}">
+  <meta property="og:image" content="{{ og_image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ og_alt }}">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="{{ page.canonical_url }}">
+  <meta name="twitter:title" content="{{ social_title }}">
+  <meta name="twitter:description" content="{{ config.site_description }}">
+  <meta name="twitter:image" content="{{ og_image }}">
+  <meta name="twitter:image:alt" content="{{ og_alt }}">
+  <meta name="twitter:creator" content="@cjimti">
+  <meta name="twitter:site" content="@cjimti">
+
+  <link rel="canonical" href="{{ page.canonical_url }}">
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "TechArticle",
-    "headline": "{{ page_title }}",
-    "description": "{{ description }}",
+    "@type": "SoftwareApplication",
+    "name": "mcp-data-platform",
+    "alternateName": "txn2/mcp-data-platform",
+    "description": "{{ config.site_description }}",
+    "url": "{{ config.site_url }}",
+    "image": "{{ og_image }}",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS, Windows",
+    "programmingLanguage": "Go",
+    "codeRepository": "https://github.com/txn2/mcp-data-platform",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
     "author": {
       "@type": "Person",
-      "name": "{{ config.site_author }}"
+      "name": "{{ config.site_author }}",
+      "url": "https://imti.co"
     },
     "publisher": {
       "@type": "Organization",
       "name": "txn2",
       "url": "https://txn2.com"
-    },
-    "url": "{{ page_url }}",
-    "mainEntityOfPage": "{{ page_url }}"
+    }
   }
   </script>
 
-  <!-- Load mermaid fullscreen BEFORE Material's bundle to capture diagram sources -->
+  {# Load mermaid fullscreen BEFORE Material's bundle to capture diagram sources. #}
   <script src="{{ 'javascripts/mermaid-fullscreen.js' | url }}"></script>
+{% endblock %}
+
+{# Inner-page skip-to-content. The homepage template overrides block header
+   wholesale and includes its own skiplink targeting #main. #}
+{% block header %}
+<a class="skiplink" href="#main">skip to content</a>
+{{ super() }}
+{% endblock %}
+
+{# Inner-page skip target. Material's <main data-md-component="main"> has no
+   id, so we drop a focusable anchor at the top of the content area. The
+   homepage template overrides block container wholesale and sets id="main"
+   on its own <main> element. #}
+{% block content %}
+<a id="main" tabindex="-1" class="skiplink-target" aria-hidden="true"></a>
+{{ super() }}
 {% endblock %}

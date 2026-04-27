@@ -1,98 +1,136 @@
 # mcp-data-platform
 
-> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for HTTP transport, and prompt injection protection.
+> Composable, semantic-first MCP server platform that composes mcp-datahub, mcp-trino, and mcp-s3 behind one endpoint with bidirectional cross-enrichment, OAuth 2.1 inbound and outbound, OIDC, role-based personas, audit logging, an admin and user portal, knowledge capture with DataHub write-back, a memory layer (PostgreSQL + pgvector), and a gateway toolkit that re-exposes any third-party MCP server through the same auth, persona, and audit pipeline.
 
-## Concepts
+mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub is the only required dependency (the semantic layer); add Trino for SQL and S3 for objects when ready. The platform turns a stack of toolkits into an enterprise-grade MCP server with cross-enrichment that injects business context into every response.
 
-- [The Data Stack](concepts/components.md): Why DataHub, Trino, and S3. What each component brings, why they were chosen, and how cross-enrichment makes them greater than the sum of parts.
+## MCP Server
 
-## Ecosystem
-
-- [Ecosystem](ecosystem/index.md): Suite of composable MCP servers (mcp-datahub, mcp-s3, mcp-trino) designed to work together as a data platform
-
-## Documentation
-
-- [Home](index.md): Introduction, quick start, and key features
-- [Server Overview](server/overview.md): What the platform does, architecture, request flow
-- [Installation](server/installation.md): Install via go install, Homebrew, Docker, or from source
-- [Configuration](server/configuration.md): YAML configuration with environment variable expansion, config versioning (apiVersion field, version lifecycle, migrate-config CLI), granular config entries system (per-key database overrides for whitelisted keys like server.description and server.agent_instructions, hot-reload without restart, file defaults as fallback), tool visibility filtering (allow/deny patterns for tools/list token reduction), tool description overrides (built-in and custom per-tool description replacement in tools/list), workflow gating (session-aware enforcement that agents call DataHub discovery before Trino queries, with escalation), prompts (three-tier: auto-registered platform-overview from description + toolkits, operator-configured with {placeholder} argument substitution, conditional workflow prompts registered when required toolkits are present; PromptDescriber interface for toolkit-registered prompts; operator override by name), resource templates, custom resources (static MCP resources from config: inline content or file path, URI/name/mime_type/description fields), managed resources (human-uploaded files with scope-based visibility, auto-enabled with database), progress notifications, client logging, elicitation (cost estimation, PII consent), icons (tool/resource/prompt visual metadata), admin API and portal, database, audit, session configuration, and browser session configuration (OIDC login with PKCE for portal UI, cookie-based sessions)
-- [Operating Modes](server/operating-modes.md): Two deployment modes — standalone (no database) and file + database (with per-key config overrides via config entries). Feature availability by mode, example configurations, decision guide
-- [User Portal](server/portal-user.md): User-facing portal pages. Activity analytics (personal tool usage, timeseries, top tools). Assets (AI-generated dashboards, reports, visualizations with grid/table view, content type filtering, asset viewer for HTML/JSX/SVG/Markdown/CSV). Collections (curated asset groups with sections, markdown descriptions, sharing). Resources (human-uploaded reference material with scope tabs, categories). Shared With Me (assets and collections shared by others with permission badges). Knowledge & Memory (personal insights and memories with status tracking). Prompts (personal and available prompt templates with scope badges)
-- [Admin Portal](server/admin-portal.md): Built-in web dashboard for monitoring and managing the platform. Configurable branding (portal.title, portal.logo with light/dark theme variants, dynamic favicon). Public viewer two-zone header with optional implementor brand (portal.implementor.name, portal.implementor.logo, portal.implementor.url). Public viewer supports light/dark mode toggle (system default, localStorage persistence), expiration countdown notice, per-share configurable notice_text (default: "Proprietary & Confidential. Only share with authorized viewers.", empty string hides notice), and per-share hide_expiration option. Collections: curated groups of assets organized into ordered sections with markdown descriptions, drag-and-drop reordering, configurable thumbnail sizes, and full sharing support (public links and user shares). Public collection viewer renders markdown with same fidelity as asset viewer (mermaid, GFM tables, code blocks) and opens assets in modal overlay. Collection API for CRUD, section management, config, and sharing. Dashboard with activity timelines, performance percentiles, error monitoring. Tools overview with connection grid and tool inventory. Interactive tool explorer with semantic enrichment display. Searchable audit log with event detail drawer. Knowledge insight governance with approve/reject workflow and changeset tracking. Settings pages for Connections (multi-connection toolkit expansion, DataHub Integration section, file/database/both source badges), Personas (source tracking, file-only delete protection, revert-to-file on delete), API Keys (source badges, file key delete protection), and Configuration entries (per-key database overrides with revert). File-to-database migration guide. Local dev with MSW mock data
-- [Admin API](server/admin-api.md): REST endpoints for system info, config management (config entries CRUD for whitelisted keys, config changelog), personas, auth keys, audit (events, stats, metrics/overview, metrics/enrichment, metrics/discovery), knowledge, connection instance CRUD (database-managed toolkit connections). Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at `/api/v1/admin/docs/`
-- [Tools](server/tools.md): All tools from DataHub, Trino, S3, Knowledge, and Portal toolkits. Includes trino_export for exporting query results directly to portal assets (CSV, JSON, Markdown, text) with formula injection escaping, sensitivity tag inheritance, idempotency, and size caps. Admin Tools page is a master-detail UI: search/group tool list, per-tool Overview / Try It / Activity / Enrichment / Visibility tabs, editable description overrides (`tool.<name>.description` config entry), `tools.deny` toggle, persona test-access preview
-- [Multi-Provider](server/multi-provider.md): Connect multiple instances of each service
-- [Audit Logging](server/audit.md): PostgreSQL-backed audit logging for tool calls. Schema, field reference (including enrichment_mode, enrichment_tokens_full, enrichment_tokens_dedup), parameter sanitization, retention, query examples (including enrichment token savings and discovery-before-query patterns), troubleshooting
-- [Deployment](server/deployment.md): Docker Compose and Kubernetes/Helm deployment guides
-- [Session Externalization](server/session-externalization.md): Externalize session state to PostgreSQL for zero-downtime restarts and horizontal scaling
-- [Gateway Toolkit](server/gateway.md): Re-expose third-party MCP servers through the platform's auth, persona, and audit pipeline. Connections authored via the admin portal (DB-backed, encrypted credentials). Tools surface as `<connection>__<remote_tool>`. OAuth 2.1 client_credentials and authorization_code+PKCE grants supported, with refresh tokens persisted encrypted (gateway_oauth_tokens) so cron jobs and scheduled prompts run untouched after a one-time browser sign-in. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups (predicates, JSONPath bindings, escaped ANSI-SQL literals, dry-run admin endpoint). Failure-isolated: unreachable upstreams never block startup or other tools
+- [Server Overview](https://mcp-data-platform.txn2.com/server/overview/): What the platform does, architecture, request flow
+- [Installation](https://mcp-data-platform.txn2.com/server/installation/): Install via go install, Homebrew, Docker, or from source
+- [Configuration](https://mcp-data-platform.txn2.com/server/configuration/): YAML configuration with environment variable expansion, config versioning (apiVersion, version lifecycle, migrate-config CLI), granular config entries (per-key database overrides for whitelisted keys with hot-reload), tool visibility filtering, tool description overrides (built-in and custom per-tool), workflow gating (session-aware enforcement that agents call DataHub discovery before Trino queries with escalation), prompts (auto-registered platform-overview from description + toolkits, operator-configured with placeholder argument substitution, conditional workflow prompts, PromptDescriber interface, operator override by name), resource templates, custom resources (static MCP resources from config), managed resources (human-uploaded files with scope-based visibility), progress notifications, client logging, elicitation (cost estimation, PII consent), icons, admin API and portal, database, audit, session configuration, and browser session configuration (OIDC login with PKCE for portal UI, cookie-based sessions)
+- [The Data Stack](https://mcp-data-platform.txn2.com/concepts/components/): Why DataHub, Trino, and S3, what each component brings, how cross-enrichment makes them greater than the sum of parts
+- [Operating Modes](https://mcp-data-platform.txn2.com/server/operating-modes/): Two deployment modes, standalone (no database) and file + database (with per-key config overrides via config entries). Feature availability by mode, example configurations, decision guide
+- [Deployment](https://mcp-data-platform.txn2.com/server/deployment/): Docker Compose and Kubernetes/Helm deployment guides
+- [Tools](https://mcp-data-platform.txn2.com/server/tools/): All tools from DataHub, Trino, S3, Knowledge, and Portal toolkits including trino_export for portal asset export
+- [Multi-Provider](https://mcp-data-platform.txn2.com/server/multi-provider/): Connect multiple instances of each service
+- [Audit Logging](https://mcp-data-platform.txn2.com/server/audit/): PostgreSQL-backed audit logging for tool calls. Schema, field reference (including enrichment_mode, enrichment_tokens_full, enrichment_tokens_dedup), parameter sanitization, retention, query examples, troubleshooting
+- [Session Externalization](https://mcp-data-platform.txn2.com/server/session-externalization/): Externalize session state to PostgreSQL for zero-downtime restarts and horizontal scaling
+- [Gateway Toolkit](https://mcp-data-platform.txn2.com/server/gateway/): Re-expose third-party MCP servers through the platform's auth, persona, and audit pipeline. Connections authored via the admin portal (DB-backed, encrypted credentials). Tools surface as connection__remote_tool. OAuth 2.1 client_credentials and authorization_code+PKCE grants supported, refresh tokens persisted encrypted (gateway_oauth_tokens) so cron jobs and scheduled prompts run untouched after one-time browser sign-in. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups (predicates, JSONPath bindings, escaped ANSI-SQL literals, dry-run admin endpoint). Failure-isolated, unreachable upstreams never block startup or other tools
 
 ## Cross-Enrichment
 
-- [Overview](cross-enrichment/overview.md): How automatic context enrichment works between services
-- [Trino to DataHub](cross-enrichment/trino-datahub.md): Trino results include DataHub metadata
-- [DataHub to Trino](cross-enrichment/datahub-trino.md): DataHub results show query availability
-- [S3 Enrichment](cross-enrichment/s3.md): S3 operations include semantic context
-- [Lineage Inheritance](cross-enrichment/lineage.md): Automatic column metadata inheritance from upstream datasets via DataHub lineage
-- [Session Dedup](cross-enrichment/overview.md#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
-- [Column Context Filtering](cross-enrichment/trino-datahub.md#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
-- [Schema Preview](cross-enrichment/datahub-trino.md#schema-preview): Adds bounded column-name+type preview to datahub_search query_context, eliminating intermediate datahub_get_schema calls (default: enabled, max 15 columns)
+- [Overview](https://mcp-data-platform.txn2.com/cross-enrichment/overview/): How automatic context enrichment works between services
+- [Trino to DataHub](https://mcp-data-platform.txn2.com/cross-enrichment/trino-datahub/): Trino results include DataHub metadata
+- [DataHub to Trino](https://mcp-data-platform.txn2.com/cross-enrichment/datahub-trino/): DataHub results show query availability
+- [S3 Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/s3/): S3 operations include semantic context
+- [Lineage Inheritance](https://mcp-data-platform.txn2.com/cross-enrichment/lineage/): Automatic column metadata inheritance from upstream datasets via DataHub lineage
+- [Session Dedup](https://mcp-data-platform.txn2.com/cross-enrichment/overview/#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
+- [Column Context Filtering](https://mcp-data-platform.txn2.com/cross-enrichment/trino-datahub/#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)
+- [Schema Preview](https://mcp-data-platform.txn2.com/cross-enrichment/datahub-trino/#schema-preview): Adds bounded column-name+type preview to datahub_search query_context, eliminating intermediate datahub_get_schema calls (default: enabled, max 15 columns)
 
 ## Authentication & Security
 
-- [Auth Overview](auth/overview.md): Fail-closed security model, stdio vs HTTP authentication
-- [OIDC](auth/oidc.md): Keycloak, Auth0, Okta, Azure AD setup with required claims
-- [API Keys](auth/api-keys.md): Service account authentication
-- [OAuth Server](auth/oauth-server.md): Built-in OAuth 2.1 for Claude Desktop + Keycloak integration (this platform as the OAuth provider)
-- [OAuth to Upstream MCPs](auth/oauth-gateway.md): OAuth-outbound from the platform to third-party MCP servers proxied through the gateway. Both `client_credentials` (M2M) and `authorization_code` + PKCE (browser sign-in) grants. Encrypted refresh tokens persist across restarts. Salesforce Hosted MCP setup walkthrough included
-- [Security Article](https://imti.co/mcp-defense/): MCP Defense - A Case Study in AI Security
+- [Auth Overview](https://mcp-data-platform.txn2.com/auth/overview/): Fail-closed security model, stdio vs HTTP authentication
+- [OIDC](https://mcp-data-platform.txn2.com/auth/oidc/): Keycloak, Auth0, Okta, Azure AD setup with required claims
+- [API Keys](https://mcp-data-platform.txn2.com/auth/api-keys/): Service account authentication
+- [OAuth Server](https://mcp-data-platform.txn2.com/auth/oauth-server/): Built-in OAuth 2.1 for Claude Desktop + Keycloak integration (this platform as the OAuth provider)
+- [OAuth to Upstream MCPs](https://mcp-data-platform.txn2.com/auth/oauth-gateway/): OAuth-outbound from the platform to third-party MCP servers proxied through the gateway. Both client_credentials (M2M) and authorization_code + PKCE (browser sign-in) grants. Encrypted refresh tokens persist across restarts. Salesforce Hosted MCP setup walkthrough included
 
 ## Personas
 
-- [Overview](personas/overview.md): Role-based tool access control with connection-level filtering
-- [Tool Filtering](personas/tool-filtering.md): Allow/deny patterns with wildcards. Distinction between persona-level filtering (security boundary) and global tool visibility (token optimization). Connection-level allow/deny patterns restrict which toolkit connections a persona can use
-- [Role Mapping](personas/role-mapping.md): Map OIDC roles to personas
+- [Overview](https://mcp-data-platform.txn2.com/personas/overview/): Role-based tool access control with connection-level filtering
+- [Tool Filtering](https://mcp-data-platform.txn2.com/personas/tool-filtering/): Allow/deny patterns with wildcards, distinction between persona-level filtering (security boundary) and global tool visibility (token optimization), connection-level allow/deny patterns
+- [Role Mapping](https://mcp-data-platform.txn2.com/personas/role-mapping/): Map OIDC roles to personas
 
-## Go Library
+## Administration
 
-- [Library Overview](library/overview.md): Build custom MCP servers using the Go library
-- [Quick Start](library/quickstart.md): Code examples for common patterns
-- [Architecture](library/architecture.md): Package structure, MCP protocol middleware, provider interfaces
-- [Extensibility](library/extensibility.md): Custom toolkits, providers, middleware
-
-## Managed Resources
-
-- [Overview](resources/overview.md): Human-uploaded reference material (samples, playbooks, templates, references) surfaced to AI assistants via MCP resources/list and resources/read. Three scopes: global (all users), persona (role-based), user (owner-only). PostgreSQL metadata + S3 blob storage. REST API at /api/v1/resources. Permission model: platform admins write global, persona admins write persona-scoped, any user writes own scope. URI scheme mcp://scope/category/filename. Portal Resources page for upload, browse, edit, delete. MCPManagedResourceMiddleware attaches managed resources to the MCP protocol. Auto-enabled when database is available
-
-## Memory Layer
-
-- [Overview](memory/overview.md): Persistent memory for agent and analyst sessions. Accumulates preferences, corrections, domain knowledge, and institutional facts across sessions. Backed by PostgreSQL + pgvector. Two scoping axes: user (ownership) and persona (visibility). LOCOMO dimensions (knowledge, event, entity, relationship, preference). memory_manage tool (remember, update, forget, list, review_stale). memory_recall tool (entity, semantic, graph, auto strategies). Cross-enrichment middleware auto-attaches memories to toolkit responses. Staleness watcher flags memories when referenced DataHub entities change. Correction chains via metadata.superseded_by
-- [Configuration](memory/configuration.md): Memory config reference. Embedding provider (Ollama nomic-embed-text 768-dim or noop). Staleness watcher interval and batch size. Persona opt-in via memory_* in tools.allow. pgvector extension setup. Migration from knowledge_insights
+- [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/): User-facing portal pages including activity analytics, assets, collections, resources, shared with me, knowledge & memory, and prompts
+- [Admin Portal](https://mcp-data-platform.txn2.com/server/admin-portal/): Built-in web dashboard for monitoring and managing the platform with configurable branding, public viewer two-zone header with optional implementor brand, light/dark mode toggle, expiration countdown, per-share notice text and hide-expiration option, collections with sharing, dashboard with activity timelines and percentiles, tools overview, interactive tool explorer with semantic enrichment display, searchable audit log, knowledge insight governance, settings pages for connections (multi-connection toolkit expansion, source badges), personas (source tracking, file-only delete protection), API keys, and configuration entries
+- [Admin API](https://mcp-data-platform.txn2.com/server/admin-api/): REST endpoints for system info, config management (config entries CRUD for whitelisted keys, config changelog), personas, auth keys, audit (events, stats, metrics/overview, metrics/enrichment, metrics/discovery), knowledge, connection instance CRUD. Authentication, operating mode behavior, request/response reference. Interactive Swagger UI at /api/v1/admin/docs/
 
 ## Knowledge Capture
 
-- [Overview](knowledge/overview.md): Tribal knowledge capture for data catalogs. capture_insight records domain knowledge during AI sessions (now backed by memory_records); apply_knowledge provides admin review, synthesis, and DataHub write-back with changeset tracking and rollback. Insight categories, lifecycle states, insight sources (user, agent_discovery, enrichment_gap), governance workflow, configuration, persona integration, AI agent guidance prompt for both user-provided and agent-discovered insights
-- [Governance Workflow](knowledge/governance.md): Active metadata management through human-in-the-loop curation. Bulk review, per-entity review, approve/reject actions, synthesize change proposals, apply changes to DataHub (update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document), changeset tracking, rollback. Column-level targeting via column:<fieldPath>. Agent-driven curated query creation via query_sql/query_description fields. Context document CRUD on datasets, glossaryTerms, glossaryNodes, containers. Complete end-to-end workflow example
-- [Admin API](knowledge/admin-api.md): REST endpoints for managing insights and changesets. List/filter/get/update insights, approve/reject status transitions, insight statistics. List/get changesets, rollback. Authentication, error responses, database schema reference
+- [Overview](https://mcp-data-platform.txn2.com/knowledge/overview/): Tribal knowledge capture for data catalogs. capture_insight records domain knowledge during AI sessions (backed by memory_records); apply_knowledge provides admin review, synthesis, and DataHub write-back with changeset tracking and rollback
+- [Governance Workflow](https://mcp-data-platform.txn2.com/knowledge/governance/): Active metadata management through human-in-the-loop curation with bulk review, approve/reject, synthesize change proposals, apply changes to DataHub, changeset tracking, rollback, column-level targeting, agent-driven curated query creation, context document CRUD
+- [Admin API](https://mcp-data-platform.txn2.com/knowledge/admin-api/): REST endpoints for managing insights and changesets
+
+## Memory Layer
+
+- [Overview](https://mcp-data-platform.txn2.com/memory/overview/): Persistent memory for agent and analyst sessions. Backed by PostgreSQL + pgvector. Two scoping axes (user ownership, persona visibility). LOCOMO dimensions (knowledge, event, entity, relationship, preference). memory_manage tool (remember, update, forget, list, review_stale). memory_recall tool (entity, semantic, graph, auto strategies). Cross-enrichment middleware auto-attaches memories to toolkit responses. Staleness watcher flags memories when referenced DataHub entities change. Correction chains via metadata.superseded_by
+- [Configuration](https://mcp-data-platform.txn2.com/memory/configuration/): Memory config reference, embedding provider (Ollama nomic-embed-text 768-dim or noop), staleness watcher interval and batch size, persona opt-in via memory_* in tools.allow, pgvector extension setup, migration from knowledge_insights
+
+## Managed Resources
+
+- [Overview](https://mcp-data-platform.txn2.com/resources/overview/): Human-uploaded reference material surfaced to AI assistants via MCP resources/list and resources/read. Three scopes (global, persona, user). PostgreSQL metadata + S3 blob storage. REST API at /api/v1/resources. URI scheme mcp://scope/category/filename. Portal Resources page for upload, browse, edit, delete
 
 ## MCP Apps
 
-- [Overview](mcpapps/overview.md): Interactive UI panels rendered inline in the MCP host. Built-in `platform-info` app embedded in the binary and auto-registers with zero config. Branding (brand_name, brand_url, logo_svg) via config. Custom apps still supported with assets_path.
-- [Configuration](mcpapps/configuration.md): MCP Apps enabled by default. platform-info built-in (no assets_path needed). Branding overrides via config block. Custom app registration with assets_path, CSP settings, and config injection. Disable with `mcpapps.enabled: false`.
-- [Development](mcpapps/development.md): Docker-based development with test harness. mcpapps-dev.yaml uses assets_path to override embedded HTML for live editing. Creating new apps, MCP Apps protocol.
-- [Tutorial](mcpapps/tutorial.md): Step-by-step guide building a platform-info app. Covers MCP Apps protocol, message handling, tool result parsing, test harness workflow, dark mode support. Deployment section explains built-in vs custom-asset vs override modes.
+- [Overview](https://mcp-data-platform.txn2.com/mcpapps/overview/): Interactive UI panels rendered inline in the MCP host. Built-in platform-info app embedded in the binary. Branding via config. Custom apps still supported with assets_path
+- [Configuration](https://mcp-data-platform.txn2.com/mcpapps/configuration/): MCP Apps enabled by default. Branding overrides via config block. Custom app registration with assets_path, CSP settings, and config injection
+- [Development](https://mcp-data-platform.txn2.com/mcpapps/development/): Docker-based development with test harness. mcpapps-dev.yaml uses assets_path to override embedded HTML for live editing
+- [Tutorial](https://mcp-data-platform.txn2.com/mcpapps/tutorial/): Step-by-step guide building a platform-info app
 
-## Examples
+## Go Library
 
-- [Examples Gallery](examples/index.md): Real-world configurations for enterprise governance, data democratization, and AI/ML workflows
+- [Library Overview](https://mcp-data-platform.txn2.com/library/overview/): Build custom MCP servers using the Go library
+- [Quick Start](https://mcp-data-platform.txn2.com/library/quickstart/): Code examples for common patterns
+- [Architecture](https://mcp-data-platform.txn2.com/library/architecture/): Package structure, MCP protocol middleware, provider interfaces
+- [Extensibility](https://mcp-data-platform.txn2.com/library/extensibility/): Custom toolkits, providers, middleware
 
 ## Reference
 
-- [Tools API](reference/tools-api.md): Complete tool specifications with parameters and responses
-- [Configuration](reference/configuration.md): Full YAML schema with all options including portal configuration and export settings (portal.export.*)
-- [Providers](reference/providers.md): Semantic, query, and storage provider interfaces
-- [Middleware](reference/middleware.md): Request processing chain including tool visibility middleware, description override middleware (built-in overrides for trino_query/trino_execute plus config-driven overrides), session-aware workflow gating (MCPRuleEnforcementMiddleware with SessionWorkflowTracker), icon enrichment middleware, client logging, progress notifications
+- [Tools API](https://mcp-data-platform.txn2.com/reference/tools-api/): Complete tool specifications with parameters and responses
+- [Configuration Reference](https://mcp-data-platform.txn2.com/reference/configuration/): Full YAML schema with all options including portal configuration and export settings
+- [Providers](https://mcp-data-platform.txn2.com/reference/providers/): Semantic, query, and storage provider interfaces
+- [Middleware](https://mcp-data-platform.txn2.com/reference/middleware/): Request processing chain including tool visibility, description override middleware, session-aware workflow gating, icon enrichment, client logging, progress notifications
 
-## Support
+## Key Capabilities
 
-- [Troubleshooting](support/troubleshooting.md): Common issues, error codes, debugging guide
+- Semantic first: every data response carries DataHub business context (owners, tags, glossary terms, quality scores, deprecation warnings) injected automatically at the protocol layer.
+- Composable toolkits: DataHub required, Trino and S3 optional, plus a Toolkit interface for custom integrations. Multi-instance per service with runtime selection and isolated failure domains.
+- Bidirectional cross-enrichment: Trino results include DataHub metadata; DataHub searches include query availability and sample SQL; S3 operations include semantic context; lineage inheritance fills column metadata from upstream datasets.
+- OAuth 2.1 inbound: built-in authorization server with PKCE and Dynamic Client Registration so Claude Desktop and any MCP client can sign in directly to the platform.
+- OAuth 2.1 outbound to upstream MCPs: client_credentials (M2M) and authorization_code+PKCE (browser sign-in) grants, encrypted refresh tokens persist across restarts.
+- OIDC discovery for Keycloak, Auth0, Okta, Azure AD; API keys for service accounts; fail-closed by default.
+- Role-based personas: map OIDC roles to personas with allow/deny tool patterns and connection-level filtering. Per-persona description overrides steer the model differently for different audiences.
+- Audit logging to PostgreSQL with user, persona, tool, sanitized parameters, duration, enrichment metrics, result hash. Searchable from the admin portal.
+- Admin and user portal: connections, personas, API keys, configuration entries, knowledge governance, audit, gateway, plus user-facing assets, collections, prompts, resources, activity.
+- Gateway toolkit: re-expose any third-party MCP server through the platform's auth, persona, audit pipeline. Tools surface as connection__remote_tool. Optional declarative cross-enrichment rules.
+- Knowledge capture: tribal knowledge from AI sessions written back to DataHub through human-in-the-loop governance with changeset rollback.
+- Memory layer (PostgreSQL + pgvector): persistent memory across sessions with semantic recall, entity recall, graph traversal, and staleness detection.
+- Managed resources: human-uploaded reference material with scope-based visibility (global, persona, user), surfaced to AI assistants via MCP resources/list.
+- MCP Apps: interactive UI panels rendered inline in the MCP host. Built-in platform-info app, custom apps via assets_path with CSP.
+- Two transports: stdio for desktop clients, http with OAuth 2.1 for hosted clients.
+- Two operating modes: standalone (no database) for stateless deployments, file + database for full feature set with per-key config overrides.
+
+## Quick Start
+
+```bash
+# Install
+go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
+
+# Minimal config (DataHub only)
+cat > platform.yaml <<EOF
+server:
+  name: mcp-data-platform
+  transport: stdio
+semantic:
+  provider: datahub
+  instance: primary
+EOF
+
+# Wire to Claude Code
+claude mcp add data-platform \
+  -e DATAHUB_URL=https://datahub.example.com/api/graphql \
+  -e DATAHUB_TOKEN=$TOKEN \
+  -- mcp-data-platform --config platform.yaml
+```
+
+## Optional
+
+- [Examples Gallery](https://mcp-data-platform.txn2.com/examples/): Real-world configurations for enterprise governance, data democratization, and AI/ML workflows
+- [Troubleshooting](https://mcp-data-platform.txn2.com/support/troubleshooting/): Common issues, error codes, debugging guide
+- [Ecosystem](https://mcp-data-platform.txn2.com/ecosystem/): Sister MCP projects (mcp-datahub, mcp-s3, mcp-trino) and how they compose
+- [GitHub Repository](https://github.com/txn2/mcp-data-platform): Source code, issues, and releases
+- [Security Article](https://imti.co/mcp-defense/): MCP Defense, a case study in AI security
