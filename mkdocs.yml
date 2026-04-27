@@ -100,6 +100,9 @@ nav:
     - Middleware: reference/middleware.md
   - Support:
     - Troubleshooting: support/troubleshooting.md
+    - Research:
+      - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md
+      - MCP Gateway Live End-to-End Test: research/mcp-gateway-livetest-2026.md
 
 extra:
   social:
@@ -111,8 +114,9 @@ extra:
 extra_css:
   - stylesheets/extra.css
 
-extra_javascript:
-  - javascripts/mermaid-fullscreen.js
+# mermaid-fullscreen.js is loaded by docs/overrides/main.html in <head>
+# (intentionally before Material's bundle so it captures diagram sources).
+# Do not also list it here, that would double-load the script.
 
 markdown_extensions:
   - abbr
