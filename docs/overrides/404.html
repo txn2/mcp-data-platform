@@ -1,0 +1,27 @@
+{% extends "main.html" %}
+
+{% block content %}
+<div class="md-content" data-md-component="content">
+  <article class="md-content__inner md-typeset">
+    <h1>404 / not found</h1>
+    <p>That page does not exist, or has moved.</p>
+
+    <h2>Quick links</h2>
+    <ul>
+      <li><a href="{{ config.site_url }}">home</a></li>
+      <li><a href="{{ config.site_url }}server/installation/">installation</a></li>
+      <li><a href="{{ config.site_url }}server/configuration/">configuration</a></li>
+      <li><a href="{{ config.site_url }}cross-enrichment/overview/">cross-enrichment</a></li>
+      <li><a href="{{ config.site_url }}auth/overview/">authentication</a></li>
+      <li><a href="{{ config.site_url }}server/gateway/">gateway toolkit</a></li>
+      <li><a href="{{ config.site_url }}library/overview/">go library</a></li>
+      <li><a href="{{ config.site_url }}reference/tools-api/">reference</a></li>
+      <li><a href="{{ config.site_url }}support/troubleshooting/">troubleshooting</a></li>
+    </ul>
+
+    <p>Or use the search box above to find what you are looking for.</p>
+
+    <p><a href="https://github.com/txn2/mcp-data-platform" class="md-button md-button--primary">view on github</a></p>
+  </article>
+</div>
+{% endblock %}

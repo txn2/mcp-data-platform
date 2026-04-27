@@ -1,40 +1,41 @@
 site_name: txn2/mcp-data-platform
 site_url: https://mcp-data-platform.txn2.com
-site_description: Semantic data platform MCP server with bidirectional cross-enrichment
+site_description: Composable, semantic-first MCP server platform composing DataHub, Trino, and S3 with cross-enrichment, OAuth 2.1, personas, and audit logging
 site_author: Craig Johnston
 repo_url: https://github.com/txn2/mcp-data-platform
 repo_name: txn2/mcp-data-platform
 edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2025 - 2026 Craig Johnston / Deasil Works, Inc.
 
 theme:
   name: material
   custom_dir: docs/overrides
   logo: images/logo.png
   favicon: images/logo.png
-  font:
-    text: Inter
-    code: JetBrains Mono
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+    scheme: slate
+  font: false
+  icon:
+    repo: fontawesome/brands/github
   features:
     - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
-    - navigation.expand
     - navigation.top
+    - navigation.footer
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
+    - content.code.annotate
     - content.tabs.link
+    - content.action.edit
+    - toc.follow
+    - announce.dismiss
 
 nav:
   - Home: index.md
@@ -68,6 +69,9 @@ nav:
       - Overview: knowledge/overview.md
       - Governance Workflow: knowledge/governance.md
       - Admin API: knowledge/admin-api.md
+    - Memory Layer:
+      - Overview: memory/overview.md
+      - Configuration: memory/configuration.md
     - Administration:
       - User Portal: server/portal-user.md
       - Admin Portal: server/admin-portal.md
@@ -96,6 +100,23 @@ nav:
     - Middleware: reference/middleware.md
   - Support:
     - Troubleshooting: support/troubleshooting.md
+    - Research:
+      - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md
+      - MCP Gateway Live End-to-End Test: research/mcp-gateway-livetest-2026.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/txn2/mcp-data-platform
+      name: mcp-data-platform on GitHub
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+# mermaid-fullscreen.js is loaded by docs/overrides/main.html in <head>
+# (intentionally before Material's bundle so it captures diagram sources).
+# Do not also list it here, that would double-load the script.
 
 markdown_extensions:
   - abbr
@@ -108,17 +129,25 @@ markdown_extensions:
   - toc:
       permalink: true
       toc_depth: 3
-  - pymdownx.arithmatex
-  - pymdownx.betterem
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
   - pymdownx.caret
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.keys
-  - pymdownx.magiclink
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: txn2
+      repo: mcp-data-platform
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.superfences:
@@ -131,19 +160,7 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 plugins:
   - search:
-      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
-
-extra_css:
-  - stylesheets/extra.css
-
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/txn2/mcp-data-platform
-  generator: false
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
