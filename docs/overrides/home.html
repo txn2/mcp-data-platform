@@ -1,0 +1,420 @@
+{% extends "main.html" %}
+
+{# Mark the body so CSS can target the homepage layout. #}
+{% block htmltitle %}
+  {{ super() }}
+{% endblock %}
+
+{% block site_meta %}
+  {{ super() }}
+  <meta name="page-template" content="home">
+{% endblock %}
+
+{# Replace Material's header with the txn2 rail. #}
+{% block header %}
+<header class="rail" data-md-component="header">
+  <a class="skiplink" href="#main">skip to content</a>
+  <a href="./" class="rail__brand" aria-label="mcp-data-platform home">
+    <span class="rail__mark" aria-hidden="true">◐</span>
+    <span class="rail__name">mcp-data-platform</span>
+    <span class="rail__sep" aria-hidden="true">·</span>
+    <span class="rail__sub">composable mcp data platform</span>
+  </a>
+  <div class="rail__meta">
+    <span class="rail__rel">v1.x</span>
+    <span class="rail__dot" aria-hidden="true">●</span>
+    <span data-clock>·· UTC</span>
+    <span class="rail__dot" aria-hidden="true">●</span>
+    <a href="https://txn2.com" class="rail__org">part of <em class="serif">txn2</em>&nbsp;↗</a>
+  </div>
+  <nav class="rail__nav" aria-label="primary">
+    <a href="./" aria-current="page">home</a>
+    <a href="server/installation/">install</a>
+    <a href="server/overview/">server</a>
+    <a href="library/overview/">library</a>
+    <a href="reference/tools-api/">reference</a>
+    <a href="https://github.com/txn2/mcp-data-platform" class="rail__cta">github&nbsp;↗</a>
+  </nav>
+</header>
+{% endblock %}
+
+{# No nav tabs on the homepage. #}
+{% block tabs %}{% endblock %}
+
+{# No announce. #}
+{% block announce %}{% endblock %}
+
+{# Replace the entire content area with the full-bleed homepage. #}
+{% block container %}
+<main id="main" class="page page--home" data-md-component="main">
+
+  {# BLUEPRINT GRID OVERLAY #}
+  <div class="blueprint" aria-hidden="true">
+    <div class="blueprint__grid"></div>
+    <div class="blueprint__crosshair blueprint__crosshair--tl"><span></span><span></span></div>
+    <div class="blueprint__crosshair blueprint__crosshair--tr"><span></span><span></span></div>
+    <div class="blueprint__crosshair blueprint__crosshair--bl"><span></span><span></span></div>
+    <div class="blueprint__crosshair blueprint__crosshair--br"><span></span><span></span></div>
+  </div>
+
+  {# HERO #}
+  <section class="hero">
+    <div class="hero__stamp">
+      <p class="hero__stamp__line">project / mcp-data-platform</p>
+      <p class="hero__stamp__line">org / txn2</p>
+      <p class="hero__stamp__line">est. 2025</p>
+      <p class="hero__stamp__line"><a href="https://pkg.go.dev/github.com/txn2/mcp-data-platform">pkg.go.dev&nbsp;↗</a></p>
+      <p class="hero__stamp__line hero__stamp__line--ok">apache 2.0 · semantic first</p>
+    </div>
+
+    <div class="hero__main">
+      <a class="hero__mark" href="https://github.com/txn2/mcp-data-platform" aria-label="mcp-data-platform on GitHub">
+        <svg class="hero__mark__svg" viewBox="10 10 80 80" role="img" aria-label="mcp-data-platform symbol">
+          <path class="hero__mark__path hero__mark__path--base" d="M50,83.333C31.59,83.333 16.667,68.408 16.667,50C16.667,31.588 31.591,16.667 50,16.667C68.408,16.667 83.333,31.589 83.333,50L90,50C90,27.91 72.09,10 50,10C27.909,10 10,27.91 10,50C10,72.09 27.909,90 50,90L50,83.333Z M50,70C38.954,70 30,61.045 30,50C30,38.952 38.954,30 50,30C61.045,30 70,38.952 70,50L76.667,50C76.667,35.273 64.727,23.333 50,23.333C35.272,23.333 23.333,35.273 23.333,50C23.333,64.727 35.272,76.667 50,76.667L50,70Z M50,56.667C46.318,56.667 43.333,53.682 43.333,50C43.333,46.318 46.318,43.333 50,43.333C53.682,43.333 56.667,46.318 56.667,50L63.333,50C63.333,42.637 57.363,36.667 50,36.667C42.635,36.667 36.667,42.637 36.667,50C36.667,57.363 42.635,63.333 50,63.333L50,56.667Z"/>
+          <path class="hero__mark__path hero__mark__path--accent" d="M56.667,56.667 H90 V90 H56.667 Z"/>
+        </svg>
+      </a>
+
+      <h1 class="hero__display">
+        <span class="hero__row hero__row--1">
+          <em class="serif">mcp-data-platform</em>
+        </span>
+        <span class="hero__row hero__row--2">
+          <span class="outline">semantic platform</span>
+        </span>
+        <span class="hero__row hero__row--3">
+          <em class="serif">for ai.</em>
+        </span>
+      </h1>
+    </div>
+
+    <div class="hero__intro">
+      <p class="hero__lede">
+        <span class="dropcap">m</span>cp-data-platform is the composable MCP server platform for AI assistants that need data with context. Compose <a href="https://mcp-datahub.txn2.com">mcp-datahub</a>, <a href="https://mcp-trino.txn2.com">mcp-trino</a>, and <a href="https://mcp-s3.txn2.com">mcp-s3</a> behind one endpoint with bidirectional cross-enrichment. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. <strong>Semantic first</strong>: every data response includes business context from the semantic layer.
+      </p>
+      <p class="hero__lede hero__lede--muted">
+        OAuth 2.1 inbound, OAuth 2.1 outbound to upstream MCPs, OIDC, API keys, role-based personas, audit logging, admin portal, and a gateway toolkit that re-exposes any third-party MCP server through the same auth pipeline. Run as a single binary or import as a Go library to compose your own platform. Apache 2.0.
+      </p>
+    </div>
+
+    <aside class="hero__ticker" aria-hidden="true">
+      <div class="ticker">
+        <div class="ticker__track">
+          <span>semantic first</span><span>·</span>
+          <span>cross-enrichment</span><span>·</span>
+          <span>composable mcp toolkits</span><span>·</span>
+          <span>oauth 2.1 inbound &amp; outbound</span><span>·</span>
+          <span>oidc &amp; api keys</span><span>·</span>
+          <span>role-based personas</span><span>·</span>
+          <span>tool filtering</span><span>·</span>
+          <span>audit logging</span><span>·</span>
+          <span>admin portal</span><span>·</span>
+          <span>gateway toolkit</span><span>·</span>
+          <span>knowledge capture</span><span>·</span>
+          <span>memory layer</span><span>·</span>
+          <span>managed resources</span><span>·</span>
+          <span>mcp apps</span><span>·</span>
+          <span>apache 2.0</span><span>·</span>
+          <span>semantic first</span><span>·</span>
+          <span>cross-enrichment</span><span>·</span>
+          <span>composable mcp toolkits</span><span>·</span>
+          <span>oauth 2.1 inbound &amp; outbound</span><span>·</span>
+          <span>oidc &amp; api keys</span><span>·</span>
+          <span>role-based personas</span><span>·</span>
+          <span>tool filtering</span><span>·</span>
+          <span>audit logging</span><span>·</span>
+          <span>admin portal</span><span>·</span>
+          <span>gateway toolkit</span><span>·</span>
+          <span>knowledge capture</span><span>·</span>
+          <span>memory layer</span><span>·</span>
+          <span>managed resources</span><span>·</span>
+          <span>mcp apps</span><span>·</span>
+          <span>apache 2.0</span><span>·</span>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  {# FLAGSHIP / PRIMARY DEMO #}
+  <section class="section section--flagship" id="install">
+    <header class="section__head">
+      <p class="section__index">§ 01 / install · run</p>
+      <h2 class="section__title">
+        Two ways to <em class="serif">use it.</em>
+      </h2>
+      <p class="section__lede">
+        Run mcp-data-platform as a standalone server with a YAML config and wire it to Claude, Cursor, or any MCP client. Or import the Go packages and compose a custom platform with your own toolkits, providers, and middleware. Same orchestration, two surfaces.
+      </p>
+    </header>
+
+    <div class="flagship">
+      <article class="flagship__card flagship__card--server">
+        <header class="flagship__head">
+          <p class="flagship__id">SRV-001 · go · <a class="flagship__url" href="server/overview/">server docs ↗</a></p>
+          <h3 class="flagship__name">standalone platform</h3>
+          <p class="flagship__tag">One binary, one YAML. Composes DataHub, Trino, S3 behind one MCP endpoint.</p>
+        </header>
+        <div class="flagship__body">
+          <p>Install with <code>go install</code>, Docker, or grab a release. Point it at DataHub via YAML config. Add Trino for SQL and S3 for objects when you are ready. Cross-enrichment is on by default. Run over <code>stdio</code> for Claude Desktop, or <code>http</code> with OAuth 2.1 for hosted MCP clients.</p>
+        </div>
+        <div class="flagship__demo">
+          <div class="terminal">
+            <div class="terminal__bar">
+              <span></span><span></span><span></span>
+              <em>~ / mcp-data-platform</em>
+            </div>
+<pre class="terminal__body"><span class="t-prompt">$</span> go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
+
+<span class="t-prompt">$</span> claude mcp add data-platform \
+    -e DATAHUB_URL=https://datahub.example.com/api/graphql \
+    -e DATAHUB_TOKEN=<span class="t-ok">$TOKEN</span> \
+    -- mcp-data-platform --config platform.yaml
+<span class="t-mute">  added: data-platform (datahub + trino + s3, semantic on)</span>
+
+<span class="t-prompt">$</span> claude
+<span class="t-mute"># ask: describe the orders table with owners and quality</span></pre>
+          </div>
+        </div>
+        <footer class="flagship__foot">
+          <a class="btn btn--accent" href="server/installation/">install &amp; run →</a>
+          <a class="btn" href="server/configuration/">configuration ↗</a>
+          <a class="btn" href="https://github.com/txn2/mcp-data-platform" aria-label="mcp-data-platform source on GitHub">source ↗</a>
+        </footer>
+      </article>
+
+      <article class="flagship__card flagship__card--lib">
+        <header class="flagship__head">
+          <p class="flagship__id">LIB-002 · go · <a class="flagship__url" href="library/overview/">library docs ↗</a></p>
+          <h3 class="flagship__name">go library</h3>
+          <p class="flagship__tag">Compose a custom platform. Bring your own toolkits and middleware.</p>
+        </header>
+        <div class="flagship__body">
+          <p><code>platform.New</code> returns a configured platform from a YAML config or functional options. The <em class="serif">ToolkitRegistry</em> loads DataHub, Trino, S3 and any custom toolkits. Wire <code>Use</code> middleware for redaction, audit, or transformation, then call <code>Run</code> to start the MCP server. No forking required.</p>
+        </div>
+        <div class="flagship__demo">
+          <div class="terminal">
+            <div class="terminal__bar">
+              <span></span><span></span><span></span>
+              <em>~ / library</em>
+            </div>
+<pre class="terminal__body"><span class="t-prompt">$</span> go get github.com/txn2/mcp-data-platform
+
+<span class="t-mute">// main.go</span>
+p, err := platform.New(ctx,
+    platform.WithConfigFile(<span class="t-ok">"platform.yaml"</span>),
+    platform.WithToolkit(myToolkit),
+)
+
+p.Use(audit.Middleware)
+p.Use(redact.Middleware)
+p.Run(ctx)</pre>
+          </div>
+        </div>
+        <footer class="flagship__foot">
+          <a class="btn btn--accent" href="library/quickstart/">library quickstart →</a>
+          <a class="btn" href="library/extensibility/">extensibility ↗</a>
+          <a class="btn" href="https://pkg.go.dev/github.com/txn2/mcp-data-platform" aria-label="mcp-data-platform on pkg.go.dev">pkg.go.dev ↗</a>
+        </footer>
+      </article>
+    </div>
+  </section>
+
+  {# WHAT MCP-DATA-PLATFORM DOES / STACK LIST #}
+  <section class="section section--stack" id="features">
+    <header class="section__head">
+      <p class="section__index">§ 02 / what it does</p>
+      <h2 class="section__title">
+        A platform of <em class="serif">tools</em>. Plus context.
+      </h2>
+      <p class="section__lede">
+        mcp-data-platform composes the txn2 MCP toolkits behind one server, then wraps them in the operational layer enterprises need: auth, personas, audit, knowledge, and a gateway for third-party MCPs. Semantic context flows automatically between services so AI responses arrive with meaning, not just rows.
+      </p>
+    </header>
+
+    <ol class="stack">
+      <li class="stack__row">
+        <span class="stack__num">001</span>
+        <div class="stack__main">
+          <a class="stack__name" href="cross-enrichment/overview/">semantic cross-enrichment</a>
+          <p class="stack__desc">Trino results include DataHub metadata (owners, tags, glossary terms, quality scores, deprecation). DataHub searches show query availability and sample SQL. S3 operations include semantic context. Lineage inheritance fills in column metadata from upstream datasets. Session dedup avoids repeating context already sent.</p>
+        </div>
+        <span class="stack__tag">enrichment</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">002</span>
+        <div class="stack__main">
+          <a class="stack__name" href="server/multi-provider/">composable toolkits</a>
+          <p class="stack__desc">DataHub is the only required dependency (the semantic layer). Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
+        </div>
+        <span class="stack__tag">compose</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">003</span>
+        <div class="stack__main">
+          <a class="stack__name" href="auth/overview/">oauth 2.1, oidc, api keys</a>
+          <p class="stack__desc">OAuth 2.1 server for inbound (Claude Desktop talks OAuth to the platform). OAuth 2.1 client for outbound to upstream MCPs through the gateway, with encrypted refresh tokens persisted across restarts. OIDC discovery for Keycloak, Auth0, Okta, Azure AD. API keys for service accounts. Fail-closed by default.</p>
+        </div>
+        <span class="stack__tag">auth</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">004</span>
+        <div class="stack__main">
+          <a class="stack__name" href="personas/overview/">personas &amp; tool filtering</a>
+          <p class="stack__desc">Map OIDC roles to personas. Each persona has allow/deny patterns for tools and connections. Analysts get read access. Admins get everything. Connection-level filtering restricts which toolkit instances a persona can use. Description overrides per persona steer the model differently for different audiences.</p>
+        </div>
+        <span class="stack__tag">authz</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">005</span>
+        <div class="stack__main">
+          <a class="stack__name" href="server/audit/">audit &amp; observability</a>
+          <p class="stack__desc">Every tool call is logged to PostgreSQL with user, persona, tool, parameters (sanitized), duration, enrichment metrics, and result hash. SOC2 and HIPAA-friendly retention. Searchable from the admin portal with event-detail drawers. Activity dashboards for personas, tools, and connections. Discovery-before-query workflow gating with escalation.</p>
+        </div>
+        <span class="stack__tag">audit</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">006</span>
+        <div class="stack__main">
+          <a class="stack__name" href="server/gateway/">gateway toolkit</a>
+          <p class="stack__desc">Re-expose any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Connections authored in the admin portal (DB-backed, encrypted credentials). Tools surface as <code>&lt;connection&gt;__&lt;remote_tool&gt;</code>. OAuth 2.1 client_credentials and authorization_code+PKCE grants. Optional declarative cross-enrichment joins proxied responses with Trino or DataHub.</p>
+        </div>
+        <span class="stack__tag">gateway</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">007</span>
+        <div class="stack__main">
+          <a class="stack__name" href="server/admin-portal/">admin &amp; user portal</a>
+          <p class="stack__desc">Built-in web dashboard. Admins manage connections, personas, API keys, configuration entries, audit, knowledge, and gateway connections. Users see their activity, prompts, assets, collections, resources, and shared work. Configurable branding (light/dark logos, implementor brand, public-share notices). Markdown asset viewer with mermaid, GFM tables, and code highlighting.</p>
+        </div>
+        <span class="stack__tag">portal</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row">
+        <span class="stack__num">008</span>
+        <div class="stack__main">
+          <a class="stack__name" href="knowledge/overview/">knowledge &amp; memory</a>
+          <p class="stack__desc">Capture tribal knowledge during AI sessions and write it back to DataHub through a human-in-the-loop governance workflow with changeset rollback. Persistent memory layer (PostgreSQL + pgvector) accumulates preferences, corrections, and domain knowledge across sessions, with staleness detection when referenced entities change.</p>
+        </div>
+        <span class="stack__tag">knowledge</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+      <li class="stack__row stack__row--more">
+        <span class="stack__num">···</span>
+        <div class="stack__main">
+          <a class="stack__name" href="ecosystem/">part of the txn2 mcp data platform</a>
+          <p class="stack__desc">Sister projects: <a href="https://mcp-datahub.txn2.com">mcp-datahub</a> for metadata catalogs, <a href="https://mcp-trino.txn2.com">mcp-trino</a> for federated SQL, <a href="https://mcp-s3.txn2.com">mcp-s3</a> for object storage. mcp-data-platform composes all three plus the operational layer that turns them into a platform.</p>
+        </div>
+        <span class="stack__tag">+ ecosystem</span>
+        <span class="stack__year" aria-hidden="true">↗</span>
+      </li>
+    </ol>
+  </section>
+
+  {# CODA / sister projects, context #}
+  <section class="section section--coda">
+    <div class="coda">
+      <p class="coda__kicker">// open source</p>
+      <p class="coda__big">
+        mcp-data-platform is one of several open source components by <a href="https://imti.co"><em class="serif">Craig Johnston</em></a>, sponsored by <a href="https://deasil.works"><em class="serif">Deasil Works, Inc.</em></a> and <a href="https://plexara.io"><em class="serif">Plexara</em></a>. Released under the Apache 2.0 license. Built to give AI assistants a safe, composable, semantic-first bridge to your data infrastructure.
+      </p>
+      <div class="coda__cta">
+        <a class="btn btn--big" href="https://github.com/txn2/mcp-data-platform">github.com/txn2/mcp-data-platform →</a>
+        <a class="btn" href="https://txn2.com">txn2.com ↗</a>
+        <a class="btn" href="https://pkg.go.dev/github.com/txn2/mcp-data-platform">pkg.go.dev ↗</a>
+        <a class="btn" href="https://github.com/txn2/mcp-data-platform/releases">releases ↗</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+{% endblock %}
+
+{# Custom homepage footer replaces Material's. Class names prefixed
+   home-footer to avoid global collision with markdown class="footer". #}
+{% block footer %}
+<footer class="home-footer">
+  <div class="home-footer__rule" aria-hidden="true"></div>
+  <div class="home-footer__inner">
+    <div class="home-footer__col">
+      <p class="home-footer__label">about</p>
+      <p class="home-footer__text">A composable, semantic-first MCP server platform by <a href="https://imti.co">Craig Johnston</a>, part of the <a href="https://txn2.com">txn2</a> open source organization, sponsored by <a href="https://deasil.works">Deasil Works, Inc.</a> and <a href="https://plexara.io">Plexara</a>.</p>
+    </div>
+    <div class="home-footer__col">
+      <p class="home-footer__label">docs</p>
+      <ul class="home-footer__links">
+        <li><a href="server/installation/">installation</a></li>
+        <li><a href="server/configuration/">configuration</a></li>
+        <li><a href="cross-enrichment/overview/">cross-enrichment</a></li>
+        <li><a href="auth/overview/">authentication</a></li>
+        <li><a href="server/gateway/">gateway</a></li>
+        <li><a href="reference/tools-api/">reference</a></li>
+        <li><a href="support/troubleshooting/">troubleshooting</a></li>
+      </ul>
+    </div>
+    <div class="home-footer__col">
+      <p class="home-footer__label">interfaces</p>
+      <ul class="home-footer__links">
+        <li><a href="server/overview/">standalone server</a></li>
+        <li><a href="library/overview/">go library</a></li>
+        <li><a href="server/admin-portal/">admin portal</a></li>
+        <li><a href="server/admin-api/">admin api</a></li>
+        <li><a href="https://pkg.go.dev/github.com/txn2/mcp-data-platform">pkg.go.dev</a></li>
+        <li><a href="ecosystem/">ecosystem</a></li>
+      </ul>
+    </div>
+    <div class="home-footer__col">
+      <p class="home-footer__label">code</p>
+      <ul class="home-footer__links">
+        <li><a href="https://github.com/txn2/mcp-data-platform">github.com/txn2/mcp-data-platform</a></li>
+        <li><a href="https://github.com/txn2/mcp-data-platform/releases">releases</a></li>
+        <li><a href="https://github.com/txn2/mcp-data-platform/issues">issues</a></li>
+        <li><a href="https://github.com/txn2/mcp-data-platform/blob/main/LICENSE">apache 2.0</a></li>
+      </ul>
+    </div>
+    <div class="home-footer__col home-footer__col--meta">
+      <p class="home-footer__label">txn2 / org</p>
+      <p class="home-footer__text"><a href="https://txn2.com">txn2.com&nbsp;↗</a><br>
+      <span class="home-footer__links__sub">canonical home of the txn2 open source organization</span></p>
+      <p class="home-footer__mono">apache 2.0 license <span class="dot">·</span> <span data-clock>·· UTC</span></p>
+    </div>
+  </div>
+  <div class="home-footer__base">
+    <p>© 2025-2026 · <a href="https://txn2.com">txn2</a> · mcp-data-platform released under Apache 2.0.</p>
+    <p class="home-footer__base__tag"><a href="https://txn2.com">design · txn2.com&nbsp;↗</a></p>
+  </div>
+</footer>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  // Live UTC clock for rail/footer.
+  // Guarded against duplicate registration: Material's instant-nav rehydrates
+  // the body on every navigation back to the homepage; without this guard a
+  // fresh setInterval handle leaks each visit.
+  (function () {
+    if (window.__mcpDataPlatformClock) {
+      window.__mcpDataPlatformClock.tick();
+      return;
+    }
+    function tick() {
+      var now = new Date();
+      var hh = String(now.getUTCHours()).padStart(2, '0');
+      var mm = String(now.getUTCMinutes()).padStart(2, '0');
+      var stamp = hh + ':' + mm + ' UTC';
+      document.querySelectorAll('[data-clock]').forEach(function (el) {
+        el.textContent = stamp;
+      });
+    }
+    tick();
+    var handle = setInterval(tick, 30 * 1000);
+    window.__mcpDataPlatformClock = { tick: tick, handle: handle };
+  })();
+</script>
+{% endblock %}
