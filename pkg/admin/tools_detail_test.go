@@ -299,6 +299,43 @@ func TestGetToolDetail_DegradesOnDependencyFailures(t *testing.T) {
 	assert.Nil(t, d.Activity)
 }
 
+// TestGetToolDetail_ActivityZeroRows covers fillToolActivity's
+// "querier returns zero rows" branch — the explicit guard added when
+// the breakdown was switched from top-N scan to ToolName-scoped query
+// (#343 bug 2). The handler must not panic and Activity must remain
+// nil so the UI renders "no data" rather than a zero-filled card.
+func TestGetToolDetail_ActivityZeroRows(t *testing.T) {
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+		},
+	}
+	// Querier responds successfully but with an empty result set —
+	// this is the shape we'll get for any tool that has zero calls
+	// in the recent window (ToolName filter narrows to one row at most;
+	// no calls = no row).
+	metrics := &mockAuditMetricsQuerier{breakdownResult: nil}
+
+	h := NewHandler(Deps{
+		Config:              testConfig(),
+		ToolkitRegistry:     reg,
+		MCPServer:           newTestMCPServer(),
+		AuditMetricsQuerier: metrics,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/tools/trino_query", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var d ToolDetail
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
+	assert.Nil(t, d.Activity,
+		"Activity must remain nil when the querier returns zero rows "+
+			"so the UI shows 'no data' rather than a zero-filled card")
+}
+
 func TestGetToolDetail_EmptyName(t *testing.T) {
 	// Hitting /tools/ (no path value) is a 404 from the mux, not the handler.
 	// The empty-name guard is exercised by routing through the handler with
@@ -572,4 +609,69 @@ func TestSetToolVisibility_ConcurrentAddsAreSerialized(t *testing.T) {
 	assert.ElementsMatch(t, toolNames, decoded,
 		"every concurrent toggle must be reflected in the final deny list "+
 			"(lost-update race? saw %v, want %v)", decoded, toolNames)
+}
+
+// TestSetToolVisibility_SameToolFlapStaysConsistent stresses the lock
+// against the "same tool flapped between hidden=true and hidden=false
+// many times concurrently" pathology. The end state must be one of the
+// two valid outcomes (in deny list or not), the JSON value must parse
+// to a clean []string, and the deny list must NOT contain duplicate
+// entries or partial-write garbage. Different from
+// _ConcurrentAddsAreSerialized which only catches dropped writes
+// across distinct keys; this catches corruption from interleaved
+// reads of the same key.
+func TestSetToolVisibility_SameToolFlapStaysConsistent(t *testing.T) {
+	cfg := testConfig()
+	cs := &mockConfigStore{mode: "database"}
+
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          cfg,
+		ConfigStore:     cs,
+		ToolkitRegistry: reg,
+		MCPServer:       newTestMCPServer(),
+	}, nil)
+
+	const flaps = 32
+	var wg sync.WaitGroup
+	for i := range flaps {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			hidden := idx%2 == 0
+			body := `{"hidden":false}`
+			if hidden {
+				body = `{"hidden":true}`
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+				"/api/v1/admin/tools/trino_query/visibility",
+				strings.NewReader(body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+		}(i)
+	}
+	wg.Wait()
+
+	// Final state must parse cleanly and either contain the tool
+	// exactly once or not at all — never duplicated, never garbage.
+	stored := cs.entries["tools.deny"]
+	require.NotNil(t, stored)
+	var decoded []string
+	require.NoError(t, json.Unmarshal([]byte(stored.Value), &decoded),
+		"final tools.deny value must parse as []string after concurrent flap")
+
+	count := 0
+	for _, name := range decoded {
+		if name == "trino_query" {
+			count++
+		}
+	}
+	assert.LessOrEqual(t, count, 1,
+		"concurrent flap must not duplicate the tool in the deny list (saw %d copies in %v)",
+		count, decoded)
 }

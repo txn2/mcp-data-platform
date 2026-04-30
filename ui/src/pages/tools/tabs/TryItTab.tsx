@@ -19,19 +19,20 @@ export function TryItTab({
 
   const {
     history,
-    setHistory,
     latestResult,
-    setLatestResult,
     showRaw,
-    setShowRaw,
     historyOpen,
-    setHistoryOpen,
     replayParams,
-    setReplayParams,
     replaySource,
-    setReplaySource,
     formVersion,
-    bumpFormVersion,
+    addHistoryEntry,
+    updateHistoryEntry,
+    clearHistory,
+    setLatestResult,
+    toggleRaw,
+    toggleHistory,
+    applyReplay,
+    dismissReplay,
   } = session;
 
   const schema = schemasData?.schemas[detail.name] ?? null;
@@ -47,7 +48,7 @@ export function TryItTab({
       response: null,
       is_loading: true,
     };
-    setHistory((prev) => [entry, ...prev]);
+    addHistoryEntry(entry);
     setLatestResult(null);
 
     const properties = schema.parameters.properties ?? {};
@@ -62,13 +63,7 @@ export function TryItTab({
       {
         onSuccess: (data) => {
           setLatestResult(data);
-          setHistory((prev) =>
-            prev.map((h) =>
-              h.id === entryId
-                ? { ...h, response: data, is_loading: false }
-                : h,
-            ),
-          );
+          updateHistoryEntry(entryId, { response: data, is_loading: false });
         },
         onError: () => {
           const errorResp: ToolCallResponse = {
@@ -77,24 +72,14 @@ export function TryItTab({
             duration_ms: 0,
           };
           setLatestResult(errorResp);
-          setHistory((prev) =>
-            prev.map((h) =>
-              h.id === entryId
-                ? { ...h, response: errorResp, is_loading: false }
-                : h,
-            ),
-          );
+          updateHistoryEntry(entryId, { response: errorResp, is_loading: false });
         },
       },
     );
   }
 
   function handleReplay(entry: HistoryEntry) {
-    setReplayParams(entry.parameters);
-    setReplaySource(null);
-    setLatestResult(null);
-    setShowRaw(false);
-    bumpFormVersion();
+    applyReplay({ params: entry.parameters, source: null });
   }
 
   if (!schema) {
@@ -119,10 +104,7 @@ export function TryItTab({
           </span>
           <button
             type="button"
-            onClick={() => {
-              setReplaySource(null);
-              setReplayParams(null);
-            }}
+            onClick={dismissReplay}
             className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Dismiss"
           >
@@ -145,13 +127,13 @@ export function TryItTab({
           result={latestResult}
           toolKind={schema.kind}
           showRaw={showRaw}
-          onToggleRaw={() => setShowRaw((v) => !v)}
+          onToggleRaw={toggleRaw}
         />
       )}
 
       <div className="rounded-lg border bg-card">
         <button
-          onClick={() => setHistoryOpen((v) => !v)}
+          onClick={toggleHistory}
           className="flex w-full items-center justify-between border-b p-3 text-sm font-medium"
         >
           <span>
@@ -221,7 +203,7 @@ export function TryItTab({
                 </table>
                 <div className="flex justify-end border-t p-2">
                   <button
-                    onClick={() => setHistory([])}
+                    onClick={clearHistory}
                     className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     Clear

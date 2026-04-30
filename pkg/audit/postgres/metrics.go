@@ -141,11 +141,11 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 		OrderBy("count DESC").
 		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 
-	q, qargs, qerr := qb.ToSql()
-	if qerr != nil {
-		return "", nil, fmt.Errorf("building breakdown query: %w", qerr)
+	query, args, err = qb.ToSql()
+	if err != nil {
+		return "", nil, fmt.Errorf("building breakdown query: %w", err)
 	}
-	return q, qargs, nil
+	return query, args, nil
 }
 
 // Breakdown returns audit event counts grouped by a dimension.

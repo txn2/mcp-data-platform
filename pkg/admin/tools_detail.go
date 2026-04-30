@@ -335,6 +335,13 @@ func toolDescriptionConfigKey(toolName string) string {
 // kill-switch. The value stored in config_entries is a JSON-encoded
 // []string. Centralized so the live-config hot-reload path and the
 // admin UI agree.
+//
+// CONCURRENCY: any code path that mutates this entry must hold
+// Handler.toolsDenyMu across the read-modify-write critical section
+// (load → modify → save → ApplyConfigEntry). The single mutator today
+// is setToolVisibility; future bulk-hide / YAML-import / similar
+// handlers must participate in the same lock or they recreate the
+// lost-update race fixed in #343.
 const toolsDenyConfigKey = "tools.deny"
 
 // toolVisibilityRequest is the body for PUT /admin/tools/{name}/visibility.
@@ -371,41 +378,55 @@ func (h *Handler) setToolVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serialize the read-modify-write of the tools.deny config entry —
-	// without this lock, concurrent toggles can each load the same
-	// starting list, append independently, and the second writer
-	// overwrites the first (#343). The lock is held across load → modify
-	// → save AND the in-memory ApplyConfigEntry refresh so a concurrent
-	// reader can't observe a half-applied state.
-	h.toolsDenyMu.Lock()
-	defer h.toolsDenyMu.Unlock()
-
-	deny, err := h.loadCurrentToolsDeny(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load current tools.deny")
+	updated, status, errMsg := h.applyToolVisibilityChange(r, name, req.Hidden)
+	if errMsg != "" {
+		writeError(w, status, errMsg)
 		return
 	}
 
-	updated := updateDenyList(deny, name, req.Hidden)
-	encoded, err := json.Marshal(updated)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to encode tools.deny")
-		return
-	}
-
-	if err := h.deps.ConfigStore.Set(r.Context(), toolsDenyConfigKey, string(encoded), extractAuthor(r)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save tools.deny")
-		return
-	}
-	if h.deps.Config != nil {
-		h.deps.Config.ApplyConfigEntry(toolsDenyConfigKey, string(encoded))
-	}
-
+	// writeJSON happens AFTER the critical section. The mutex is
+	// released by applyToolVisibilityChange. Slow clients writing the
+	// HTTP response no longer block other admins from toggling
+	// visibility — and slow DB I/O is the only thing serialized.
 	writeJSON(w, http.StatusOK, toolVisibilityResponse{
 		ToolName: name,
 		Hidden:   req.Hidden,
 		Deny:     updated,
 	})
+}
+
+// applyToolVisibilityChange performs the read-modify-write of the
+// tools.deny config entry under Handler.toolsDenyMu. Returns the
+// updated deny list on success, or (status, message) on failure.
+//
+// Splitting this out of setToolVisibility keeps the response write
+// (writeJSON) outside the lock — a slow HTTP client must not block
+// other admins from toggling visibility. The lock covers only the
+// load → modify → save → ApplyConfigEntry sequence, which is the
+// full atomicity boundary needed to defeat the lost-update race
+// fixed in #343.
+func (h *Handler) applyToolVisibilityChange(r *http.Request, name string, hidden bool) (deny []string, status int, errMsg string) {
+	h.toolsDenyMu.Lock()
+	defer h.toolsDenyMu.Unlock()
+
+	deny, err := h.loadCurrentToolsDeny(r.Context())
+	if err != nil {
+		return nil, http.StatusInternalServerError, "failed to load current tools.deny"
+	}
+
+	updated := updateDenyList(deny, name, hidden)
+	encoded, err := json.Marshal(updated)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "failed to encode tools.deny"
+	}
+
+	if err := h.deps.ConfigStore.Set(r.Context(), toolsDenyConfigKey, string(encoded), extractAuthor(r)); err != nil {
+		return nil, http.StatusInternalServerError, "failed to save tools.deny"
+	}
+	if h.deps.Config != nil {
+		h.deps.Config.ApplyConfigEntry(toolsDenyConfigKey, string(encoded))
+	}
+	return updated, http.StatusOK, ""
 }
 
 // parseVisibilityRequest validates the request preconditions and decodes the

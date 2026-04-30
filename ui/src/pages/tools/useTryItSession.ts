@@ -17,25 +17,58 @@ import type { ToolCallResponse } from "@/api/admin/types";
  * "select a different tool from the list" UX. State is intentionally
  * NOT persisted to storage — replays of test calls should not survive
  * a page reload.
+ *
+ * The returned shape is intent-based, not setter-based: callers invoke
+ * named actions (`addHistoryEntry`, `clearHistory`, `applyReplay`,
+ * `dismissReplay`, etc.) rather than receiving raw `useState` setters.
+ * This locks down the API surface and prevents inconsistent partial
+ * updates from drifting in over time.
  */
 export interface TryItSession {
+  // ── State ────────────────────────────────────────────────────────
   history: HistoryEntry[];
-  setHistory: React.Dispatch<React.SetStateAction<HistoryEntry[]>>;
   latestResult: ToolCallResponse | null;
-  setLatestResult: React.Dispatch<
-    React.SetStateAction<ToolCallResponse | null>
-  >;
   showRaw: boolean;
-  setShowRaw: React.Dispatch<React.SetStateAction<boolean>>;
   historyOpen: boolean;
-  setHistoryOpen: React.Dispatch<React.SetStateAction<boolean>>;
   replayParams: Record<string, unknown> | null;
-  setReplayParams: React.Dispatch<
-    React.SetStateAction<Record<string, unknown> | null>
-  >;
   replaySource: ReplaySource | null;
-  setReplaySource: React.Dispatch<React.SetStateAction<ReplaySource | null>>;
   formVersion: number;
+
+  // ── History actions ──────────────────────────────────────────────
+  /** Prepend a new entry to the history (called when a tool call starts). */
+  addHistoryEntry: (entry: HistoryEntry) => void;
+  /** Patch a single history entry by id (called when a call completes). */
+  updateHistoryEntry: (id: string, patch: Partial<HistoryEntry>) => void;
+  /** Empty the history list. */
+  clearHistory: () => void;
+
+  // ── Result actions ───────────────────────────────────────────────
+  /** Replace the displayed latest result; pass null to clear. */
+  setLatestResult: (result: ToolCallResponse | null) => void;
+  /** Toggle the raw-JSON view. */
+  toggleRaw: () => void;
+  /** Toggle the history list's collapse state. */
+  toggleHistory: () => void;
+
+  // ── Replay actions ───────────────────────────────────────────────
+  /**
+   * Apply a replay context (params + optional audit-event source).
+   * Clears the latest result and raw view, and bumps formVersion so
+   * the form re-renders with the new initial values.
+   */
+  applyReplay: (args: {
+    params: Record<string, unknown>;
+    source: ReplaySource | null;
+  }) => void;
+  /** Clear the replay banner and any pending replay params. */
+  dismissReplay: () => void;
+
+  // ── Form re-render token ─────────────────────────────────────────
+  /**
+   * Force ToolForm to re-mount its uncontrolled fields. Used when
+   * replayParams change but their object identity wouldn't (e.g.
+   * replaying the same audit event twice). Counter, not a setter.
+   */
   bumpFormVersion: () => void;
 }
 
@@ -67,11 +100,42 @@ export function useTryItSession(toolName: string): TryItSession {
   >(null);
   const [replaySource, setReplaySource] = useState<ReplaySource | null>(null);
   const [formVersion, setFormVersion] = useState(0);
+
+  // ── Action implementations ─────────────────────────────────────────
+  const addHistoryEntry = (entry: HistoryEntry) =>
+    setHistory((prev) => [entry, ...prev]);
+
+  const updateHistoryEntry = (id: string, patch: Partial<HistoryEntry>) =>
+    setHistory((prev) =>
+      prev.map((h) => (h.id === id ? { ...h, ...patch } : h)),
+    );
+
+  const clearHistory = () => setHistory([]);
+
+  const toggleRaw = () => setShowRaw((v) => !v);
+  const toggleHistory = () => setHistoryOpen((v) => !v);
+
   const bumpFormVersion = () => setFormVersion((v) => v + 1);
 
-  // Reset session state when the selected tool changes. Tab toggles do
-  // NOT trigger this — the hook only re-fires the reset on toolName
-  // change because that's the only dependency.
+  const applyReplay = (args: {
+    params: Record<string, unknown>;
+    source: ReplaySource | null;
+  }) => {
+    setReplayParams(args.params);
+    setReplaySource(args.source);
+    setLatestResult(null);
+    setShowRaw(false);
+    setFormVersion((v) => v + 1);
+  };
+
+  const dismissReplay = () => {
+    setReplayParams(null);
+    setReplaySource(null);
+  };
+
+  // ── Reset on tool change ──────────────────────────────────────────
+  // Tab toggles do NOT trigger this — the hook only re-fires the reset
+  // on toolName change because that's the only dependency.
   useEffect(() => {
     setHistory([]);
     setLatestResult(null);
@@ -81,9 +145,9 @@ export function useTryItSession(toolName: string): TryItSession {
     setFormVersion((v) => v + 1);
   }, [toolName]);
 
-  // Consume a replay intent from the inspector store (set by EventDrawer).
-  // Only fires when the requested tool matches the current one;
-  // intents for other tools stay in the store for the matching mount.
+  // ── Replay intent from EventDrawer ────────────────────────────────
+  // Only fires when the requested tool matches the current one; intents
+  // for other tools stay in the store for the matching mount.
   const consumedRef = useRef<string | null>(null);
   useEffect(() => {
     if (consumedRef.current === toolName) return;
@@ -102,19 +166,26 @@ export function useTryItSession(toolName: string): TryItSession {
   }, [replayIntent, consumeReplayIntent, toolName]);
 
   return {
+    // State
     history,
-    setHistory,
     latestResult,
-    setLatestResult,
     showRaw,
-    setShowRaw,
     historyOpen,
-    setHistoryOpen,
     replayParams,
-    setReplayParams,
     replaySource,
-    setReplaySource,
     formVersion,
+    // History actions
+    addHistoryEntry,
+    updateHistoryEntry,
+    clearHistory,
+    // Result actions
+    setLatestResult,
+    toggleRaw,
+    toggleHistory,
+    // Replay actions
+    applyReplay,
+    dismissReplay,
+    // Form re-render token
     bumpFormVersion,
   };
 }
