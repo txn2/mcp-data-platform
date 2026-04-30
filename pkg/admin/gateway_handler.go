@@ -132,32 +132,12 @@ type testGatewayConnectionResponse struct {
 // @Router       /admin/gateway/connections/{name}/test [post]
 func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
-
-	var req testGatewayConnectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	cfg, ok := h.parseTestConnectionConfig(w, r, name)
+	if !ok {
 		return
 	}
-	if req.Config == nil {
-		req.Config = map[string]any{}
-	}
-
-	// Merge redacted credentials from the stored row if any sensitive field
-	// came in as "[REDACTED]".
-	if hasRedactedValues(req.Config) && h.deps.ConnectionStore != nil {
-		existing, err := h.deps.ConnectionStore.Get(r.Context(), gatewaykit.Kind, name)
-		if err == nil && existing != nil {
-			req.Config = mergeRedactedFields(req.Config, existing.Config)
-		}
-	}
-
-	cfg, err := gatewaykit.ParseConfig(req.Config)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if h.shortCircuitUnauthorizedAuthCode(w, name, cfg) {
 		return
-	}
-	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = name
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), cfg.ConnectTimeout)
@@ -175,6 +155,70 @@ func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) 
 		Healthy: true,
 		Tools:   tools,
 	})
+}
+
+// parseTestConnectionConfig decodes the request body, merges any redacted
+// fields from the stored row, parses the config, and applies defaults.
+// Writes the appropriate HTTP error and returns ok=false on any failure path.
+func (h *Handler) parseTestConnectionConfig(w http.ResponseWriter, r *http.Request, name string) (gatewaykit.Config, bool) {
+	var req testGatewayConnectionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return gatewaykit.Config{}, false
+	}
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+	if hasRedactedValues(req.Config) && h.deps.ConnectionStore != nil {
+		existing, err := h.deps.ConnectionStore.Get(r.Context(), gatewaykit.Kind, name)
+		if err == nil && existing != nil {
+			req.Config = mergeRedactedFields(req.Config, existing.Config)
+		}
+	}
+	cfg, err := gatewaykit.ParseConfig(req.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return gatewaykit.Config{}, false
+	}
+	if cfg.ConnectionName == "" {
+		cfg.ConnectionName = name
+	}
+	return cfg, true
+}
+
+// shortCircuitUnauthorizedAuthCode handles the special case where a Test
+// click hits an authorization_code OAuth connection with no stored token.
+// Probe would fail with a cryptic upstream error; instead we return a
+// clear 200 message pointing the operator at the Connect button. Returns
+// true when it wrote a response (caller must stop).
+func (h *Handler) shortCircuitUnauthorizedAuthCode(w http.ResponseWriter, name string, cfg gatewaykit.Config) bool {
+	if cfg.AuthMode != gatewaykit.AuthModeOAuth ||
+		cfg.OAuth.Grant != gatewaykit.OAuthGrantAuthorizationCode ||
+		h.connectionHasOAuthToken(name) {
+		return false
+	}
+	writeJSON(w, http.StatusOK, testGatewayConnectionResponse{
+		Healthy: false,
+		Error:   "Not connected: this OAuth connection needs browser sign-in before it can be tested. Use the Connect button in the OAuth status panel to authorize, then test again.",
+	})
+	return true
+}
+
+// connectionHasOAuthToken reports whether the live gateway toolkit has an
+// authorized OAuth token for the named connection. Used by the test
+// endpoint to short-circuit authorization_code connections that cannot be
+// probed without a stored token. Returns false when no toolkit is wired,
+// the connection is not registered, or the toolkit reports needs_reauth.
+func (h *Handler) connectionHasOAuthToken(name string) bool {
+	tk := h.findGatewayToolkit()
+	if tk == nil {
+		return false
+	}
+	status := tk.Status(name)
+	if status == nil || status.OAuth == nil {
+		return false
+	}
+	return !status.OAuth.NeedsReauth
 }
 
 // refreshGatewayConnectionResponse reports the post-refresh tool set.

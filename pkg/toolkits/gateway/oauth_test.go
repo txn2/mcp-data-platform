@@ -750,6 +750,103 @@ func TestReacquireOAuthToken_UnhealthyClientError(t *testing.T) {
 	}
 }
 
+// TestStatus_PlaceholderReturnsOAuthNeedsReauth proves the admin UI fix
+// for the "Connect button missing" bug: when an authorization_code OAuth
+// connection has been saved but never authorized, AddConnection records
+// a placeholder upstream with client == nil. Status() must still surface
+// the OAuth field — populated as NeedsReauth=true — so the admin UI can
+// render the Connect button.
+func TestStatus_PlaceholderReturnsOAuthNeedsReauth(t *testing.T) {
+	// Token endpoint that always 401s, simulating the "no refresh token
+	// yet, browser sign-in required" state. AddConnection's discover()
+	// fails, the toolkit creates a placeholder, and Status() must report
+	// the placeholder as needs_reauth so the UI knows to prompt Connect.
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	cfg := map[string]any{
+		"endpoint":                "https://upstream.example.com/mcp",
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	st := tk.Status("vendor")
+	require.NotNil(t, st, "Status must return a snapshot for the placeholder")
+	assert.False(t, st.Healthy, "placeholder is not healthy (no live client)")
+	assert.Equal(t, AuthModeOAuth, st.AuthMode)
+	require.NotNil(t, st.OAuth,
+		"OAuth field must be populated for placeholders so the admin UI can show Connect")
+	assert.True(t, st.OAuth.NeedsReauth, "placeholder must report NeedsReauth=true")
+	assert.False(t, st.OAuth.TokenAcquired)
+	assert.Equal(t, OAuthGrantAuthorizationCode, st.OAuth.Grant)
+}
+
+// TestStatus_PlaceholderWithStoredTokenReportsAuthorized covers the post-
+// restart case: the token store has a valid token, AddConnection's dial
+// fails because the upstream is unreachable, so a placeholder is kept.
+// Status() must reflect that the operator has already authorized (so the
+// UI does NOT push them through Connect again) — only the upstream is
+// sick.
+func TestStatus_PlaceholderWithStoredTokenReportsAuthorized(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"a","refresh_token":"r","expires_in":3600}`))
+	})
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(deadUpstream.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName:  "vendor",
+		AccessToken:     "stored-acc",
+		RefreshToken:    "stored-ref",
+		ExpiresAt:       time.Now().Add(time.Hour),
+		AuthenticatedBy: "admin@example.com",
+		AuthenticatedAt: time.Now().UTC(),
+	}))
+	tk.SetTokenStore(store)
+
+	cfg := map[string]any{
+		"endpoint":                deadUpstream.URL,
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	// Dial will fail because deadUpstream returns 503; placeholder retained.
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	st := tk.Status("vendor")
+	require.NotNil(t, st)
+	require.NotNil(t, st.OAuth, "OAuth status must surface even when upstream is unreachable")
+	assert.False(t, st.OAuth.NeedsReauth,
+		"already authorized — UI should not push Connect again")
+	assert.True(t, st.OAuth.HasRefreshToken)
+	assert.Equal(t, "admin@example.com", st.OAuth.AuthenticatedBy)
+}
+
 func TestStatus_OAuthFieldsPopulated(t *testing.T) {
 	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

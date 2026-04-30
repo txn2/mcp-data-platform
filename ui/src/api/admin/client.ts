@@ -30,8 +30,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || res.statusText);
+    const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    const detail = (typeof body.detail === "string" && body.detail)
+      || (typeof body.error === "string" && body.error)
+      || (typeof body.message === "string" && body.message)
+      || res.statusText;
+    throw new ApiError(res.status, detail);
   }
 
   return res.json() as Promise<T>;
