@@ -23,11 +23,27 @@ type ConnectionInstance struct {
 }
 
 // ConnectionStore manages connection instance persistence.
+//
+// Implementations must declare via Persistent() whether they back saves
+// with durable storage. Code that auto-activates features based on the
+// presence of a connection store (e.g. mergeDBConnectionsIntoConfig)
+// uses this signal instead of a type assertion against a specific stub
+// — so adding a new transient/test implementation in the future does
+// not silently flip auto-enable behavior on for code paths that assume
+// persistence.
 type ConnectionStore interface {
 	List(ctx context.Context) ([]ConnectionInstance, error)
 	Get(ctx context.Context, kind, name string) (*ConnectionInstance, error)
 	Set(ctx context.Context, inst ConnectionInstance) error
 	Delete(ctx context.Context, kind, name string) error
+
+	// Persistent reports whether the store survives process restarts.
+	// True for database-backed implementations, false for noop / in-memory
+	// stubs. The platform uses this to decide whether to auto-activate
+	// features whose state would be lost without persistence (e.g. the
+	// mcp gateway toolkit, where authcode-grant connections rely on the
+	// token store keeping refresh tokens across restarts).
+	Persistent() bool
 }
 
 // PostgresConnectionStore implements ConnectionStore backed by PostgreSQL.
@@ -126,6 +142,9 @@ func (s *PostgresConnectionStore) Set(ctx context.Context, inst ConnectionInstan
 	return nil
 }
 
+// Persistent reports that PostgreSQL-backed storage survives restarts.
+func (*PostgresConnectionStore) Persistent() bool { return true }
+
 // Delete removes a connection instance by kind and name.
 func (s *PostgresConnectionStore) Delete(ctx context.Context, kind, name string) error {
 	result, err := s.db.ExecContext(ctx,
@@ -167,3 +186,6 @@ func (*NoopConnectionStore) Set(_ context.Context, _ ConnectionInstance) error {
 func (*NoopConnectionStore) Delete(_ context.Context, _, _ string) error {
 	return ErrConnectionNotFound
 }
+
+// Persistent reports that the noop store has no durable backing.
+func (*NoopConnectionStore) Persistent() bool { return false }

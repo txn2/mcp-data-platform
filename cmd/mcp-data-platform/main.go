@@ -750,7 +750,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.AuditMetricsQuerier = p.AuditStore()
 	}
 
-	wireGatewayTokenStore(p)
+	p.WireGatewayTokenStore()
 	if engine := wireEnrichmentEngine(p); engine != nil {
 		deps.EnrichmentEngine = engine
 	}
@@ -804,21 +804,6 @@ func wireEnrichmentEngine(p *platform.Platform) *enrichment.Engine {
 		gw.SetEnrichmentEngine(engine)
 	}
 	return engine
-}
-
-// wireGatewayTokenStore attaches the platform's persistent OAuth token
-// store to every live gateway toolkit so authorization_code grants
-// survive process restarts. No-op when no database is configured.
-func wireGatewayTokenStore(p *platform.Platform) {
-	store := p.GatewayTokenStore()
-	if store == nil {
-		return
-	}
-	for _, tk := range p.ToolkitRegistry().All() {
-		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
-			gw.SetTokenStore(store)
-		}
-	}
 }
 
 // registerEnrichmentSources binds source adapters to the platform's

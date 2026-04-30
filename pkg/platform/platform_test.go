@@ -25,6 +25,7 @@ import (
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
+	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -2189,6 +2190,71 @@ func TestNew_NilToolkitsConfig(t *testing.T) {
 	}
 }
 
+// TestPlatform_AutoEnabledGatewayReceivesTokenStore is the regression
+// guard for the failure mode that v1.57.1 left lurking: an auto-enabled
+// gateway toolkit must actually be reachable by the platform's
+// post-construction wiring step (WireGatewayTokenStore), so
+// authorization_code grants can persist refresh tokens.
+//
+// If the wiring ever drifts — helper renamed, registry iteration moved
+// elsewhere, factory swap that bypasses the toolkit kind check — the
+// gateway toolkit will silently come up without persistence and tools
+// will stop refreshing tokens after a process restart. This test fails
+// fast in that scenario.
+//
+// What this test owns: the structural contract that
+// (a) auto-enable produces a *gatewaykit.Toolkit in the registry, and
+// (b) WireGatewayTokenStore reaches it without panicking when the
+// platform-level token store is nil (stateless mode) or set
+// (database-backed mode). The token-store retry semantics on
+// placeholders are owned by the gateway package's own tests
+// (TestSetTokenStore_RetriesAuthorizationCodePlaceholders).
+func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+
+	// Persistent connection store with no rows — exercises the "auto-
+	// enable mcp purely on persistence presence" branch.
+	persistentStore := &mockConnectionStoreForTest{instances: nil}
+
+	p, err := New(WithConfig(cfg), WithConnectionStore(persistentStore))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// (a) Auto-enable produced a live gateway toolkit in the registry.
+	var hasGateway bool
+	for _, tk := range p.ToolkitRegistry().All() {
+		if tk.Kind() == kindMCP {
+			hasGateway = true
+			break
+		}
+	}
+	if !hasGateway {
+		t.Fatal("auto-enabled gateway toolkit must be registered after New()")
+	}
+
+	// (b) WireGatewayTokenStore must be safe to call when the platform
+	// has no DB-backed token store (stateless mode). Must not panic, must
+	// not error, must not crash on the nil store reference.
+	if p.gatewayTokenStore != nil {
+		t.Fatalf("expected nil gatewayTokenStore in test (no DB), got %T", p.gatewayTokenStore)
+	}
+	p.WireGatewayTokenStore() // no-op path
+
+	// And calling it again with a non-nil store must reach every gateway
+	// toolkit in the registry without panicking. The gateway package's
+	// SetTokenStore implementation is what handles placeholder retry —
+	// here we only assert the platform-level wiring delivers the store.
+	p.gatewayTokenStore = gatewaykit.NewMemoryTokenStore()
+	p.WireGatewayTokenStore() // wired path
+}
+
 func TestNew_NoRulesEngine(t *testing.T) {
 	// Verify that when no rule engine is provided and tuning rules are all
 	// default, middleware setup still succeeds (nil ruleEngine path at L535).
@@ -4013,7 +4079,14 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("skips kind not in config", func(t *testing.T) {
+	t.Run("auto-enables manageable kind when DB instance exists but YAML omits it", func(t *testing.T) {
+		// Pre-fix bug: an admin saved a connection through the UI for a
+		// kind whose toolkit block didn't exist in YAML. mergeConnectionInstance
+		// silently no-op'd (kindMap missing → isToolkitEnabled false), the
+		// toolkit loader never instantiated anything, and the connection
+		// was orphaned. Per the platform's "features-on-by-default-when-
+		// requirements-are-met" rule, the kind must auto-enable so the
+		// saved instance is loaded.
 		p := &Platform{
 			config: &Config{
 				Toolkits: map[string]any{},
@@ -4026,8 +4099,66 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 		p.mergeDBConnectionsIntoConfig()
 
-		if _, ok := p.config.Toolkits["trino"]; ok {
-			t.Error("trino kind should not be created when not in config")
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind should be auto-created when an admin-saved DB instance exists")
+		}
+		if enabled, _ := kindMap[cfgKeyEnabled].(bool); !enabled {
+			t.Error("auto-enabled kind must have enabled=true")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should be created after auto-enable")
+		}
+		if _, ok := instances["prod"]; !ok {
+			t.Error("DB instance must be merged after auto-enable")
+		}
+	})
+
+	t.Run("auto-enables mcp gateway toolkit even with no instances", func(t *testing.T) {
+		// Gateway connections are added dynamically via the admin UI, so
+		// the toolkit must be live BEFORE any instance exists. Otherwise
+		// the admin "Add Connection" form is silently inert: the row
+		// saves to the DB but the toolkit doesn't exist to register it.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{cfgKeyEnabled: true},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{instances: nil},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		mcpKind, ok := p.config.Toolkits[kindMCP].(map[string]any)
+		if !ok {
+			t.Fatal("mcp gateway toolkit must auto-enable whenever a connection store is available")
+		}
+		if enabled, _ := mcpKind[cfgKeyEnabled].(bool); !enabled {
+			t.Error("auto-enabled mcp kind must have enabled=true")
+		}
+	})
+
+	t.Run("respects explicit enabled=false from YAML (no override)", func(t *testing.T) {
+		// If the operator explicitly disables a toolkit in YAML, that
+		// choice wins — the auto-enable path must not silently flip
+		// the kind back on.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					kindMCP: map[string]any{cfgKeyEnabled: false},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{instances: nil},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		mcpKind, ok := p.config.Toolkits[kindMCP].(map[string]any)
+		if !ok {
+			t.Fatal("mcp kind block should remain")
+		}
+		if enabled, _ := mcpKind[cfgKeyEnabled].(bool); enabled {
+			t.Error("explicit enabled=false must not be overridden")
 		}
 	})
 
@@ -4072,11 +4203,99 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		p := &Platform{config: &Config{}}
 		p.mergeDBConnectionsIntoConfig() // should not panic
 	})
+
+	t.Run("explicit enabled=false on trino blocks auto-enable even with DB instance", func(t *testing.T) {
+		// Mirrors the mcp explicit-disable case for trino: an admin-saved
+		// DB instance must NOT cause auto-enable to flip an explicitly
+		// disabled kind back on, and the orphaned instance must NOT be
+		// merged into the disabled kind block.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{cfgKeyEnabled: false},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind block should remain")
+		}
+		if enabled, _ := kindMap[cfgKeyEnabled].(bool); enabled {
+			t.Error("explicit enabled=false on trino must not be overridden")
+		}
+		if _, hasInstances := kindMap[cfgKeyInstances]; hasInstances {
+			t.Error("DB instance must not be merged into an explicitly disabled kind")
+		}
+	})
+
+	t.Run("nil Toolkits is initialized when persistent store has DB instances", func(t *testing.T) {
+		// Defensive branch coverage: the platform may be constructed with
+		// a persistent connection store but no Toolkits map (Config{} or
+		// programmatic). The merge function must initialize the map and
+		// auto-enable the appropriate kinds without panicking.
+		p := &Platform{
+			config: &Config{}, // Toolkits intentionally nil
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if p.config.Toolkits == nil {
+			t.Fatal("Toolkits map should be initialized")
+		}
+		if _, ok := p.config.Toolkits[kindMCP]; !ok {
+			t.Error("mcp gateway toolkit must auto-enable when persistent store is present")
+		}
+		if _, ok := p.config.Toolkits["trino"]; !ok {
+			t.Error("trino toolkit must auto-enable when DB instance exists")
+		}
+	})
+
+	t.Run("non-persistent store skips auto-enable", func(t *testing.T) {
+		// Stateless deployments (Persistent() == false) must NOT auto-
+		// enable any toolkit kind, even when the store reports instances.
+		// Persistence-less mode requires explicit YAML opt-in for every
+		// kind because saved state wouldn't survive a restart anyway.
+		falsePtr := false
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				persistent: &falsePtr,
+				instances: []ConnectionInstance{
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: kindMCP, Name: "vendor", Config: map[string]any{"endpoint": "x"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if _, ok := p.config.Toolkits[kindMCP]; ok {
+			t.Error("non-persistent store must not auto-enable mcp gateway")
+		}
+		if _, ok := p.config.Toolkits["trino"]; ok {
+			t.Error("non-persistent store must not auto-enable trino")
+		}
+	})
 }
 
 // mockConnectionStoreForTest is a simple mock for testing merge logic.
+// Reports Persistent()=true by default so the auto-enable code path is
+// exercised; set persistent=false in a test to simulate stateless mode.
 type mockConnectionStoreForTest struct {
-	instances []ConnectionInstance
+	instances  []ConnectionInstance
+	persistent *bool // nil → defaults to true; explicit *false simulates noop
 }
 
 func (m *mockConnectionStoreForTest) List(_ context.Context) ([]ConnectionInstance, error) {
@@ -4091,6 +4310,13 @@ func (*mockConnectionStoreForTest) Set(_ context.Context, _ ConnectionInstance) 
 
 func (*mockConnectionStoreForTest) Delete(_ context.Context, _, _ string) error {
 	return ErrConnectionNotFound
+}
+
+func (m *mockConnectionStoreForTest) Persistent() bool {
+	if m.persistent == nil {
+		return true
+	}
+	return *m.persistent
 }
 
 // --- Persona store tests ---

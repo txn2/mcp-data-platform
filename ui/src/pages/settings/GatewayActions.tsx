@@ -11,6 +11,7 @@ import {
   useReacquireGatewayOAuth,
   useStartGatewayOAuth,
 } from "@/api/admin/hooks";
+import { ApiError } from "@/api/admin/client";
 import type {
   EnrichmentRule,
   EnrichmentRuleBody,
@@ -160,10 +161,35 @@ export function GatewayActionBar({
 // ---------------------------------------------------------------------------
 
 function OAuthStatusCard({ connectionName }: { connectionName: string }) {
-  const { data: status } = useGatewayConnectionStatus(connectionName);
+  const { data: status, error } = useGatewayConnectionStatus(connectionName);
   const reacquire = useReacquireGatewayOAuth();
   const startOAuth = useStartGatewayOAuth();
   const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Surface the "gateway toolkit is not registered" failure mode (HTTP 409
+  // from /gateway/connections/{name}/status). Without this, the card
+  // silently disappears and the operator has no signal that their saved
+  // connection is inert because the gateway toolkit has been explicitly
+  // disabled in platform.yaml. Auto-enable handles the no-config case;
+  // this branch handles the explicit-disable case.
+  if (error instanceof ApiError && error.status === 409) {
+    return (
+      <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-3 text-xs dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="h-3.5 w-3.5" />
+          <span className="font-semibold">Gateway toolkit disabled</span>
+        </div>
+        <p className="mt-1.5">
+          This connection is saved in the database but not active: the gateway
+          toolkit has been explicitly disabled in <code>platform.yaml</code>.
+          Remove <code>toolkits.mcp.enabled: false</code> (or set it to{" "}
+          <code>true</code>) and restart the platform to activate this
+          connection. Tools from this upstream will not be available until
+          then.
+        </p>
+      </div>
+    );
+  }
 
   if (!status || status.auth_mode !== "oauth" || !status.oauth) {
     return null;

@@ -306,4 +306,21 @@ func TestNoopConnectionStore(t *testing.T) {
 		err := store.Delete(context.Background(), "trino", "prod")
 		assert.True(t, errors.Is(err, ErrConnectionNotFound))
 	})
+
+	t.Run("Persistent reports false", func(t *testing.T) {
+		// Drives the auto-enable guard in mergeDBConnectionsIntoConfig:
+		// stateless deployments must NOT auto-activate features whose
+		// state would be lost on restart.
+		assert.False(t, store.Persistent())
+	})
+}
+
+// TestPostgresConnectionStore_Persistent covers the trivial
+// Persistent()=true contract that drives auto-enable behavior in
+// mergeDBConnectionsIntoConfig. Without persistence-aware reporting,
+// the auto-enable rule cannot distinguish a real database-backed
+// deployment from a stateless one.
+func TestPostgresConnectionStore_Persistent(t *testing.T) {
+	store := &PostgresConnectionStore{}
+	assert.True(t, store.Persistent())
 }

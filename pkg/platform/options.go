@@ -50,6 +50,12 @@ type Options struct {
 
 	// SessionStore (optional, will be created from config if not provided).
 	SessionStore session.Store
+
+	// ConnectionStore (optional, will be created from config if not provided).
+	// Allows tests to inject a controlled instance store without standing
+	// up a real database, and lets advanced embedders provide alternative
+	// persistence backends.
+	ConnectionStore ConnectionStore
 }
 
 // Option is a functional option for configuring the platform.
@@ -136,5 +142,19 @@ func WithRuleEngine(engine *tuning.RuleEngine) Option {
 func WithSessionStore(store session.Store) Option {
 	return func(o *Options) {
 		o.SessionStore = store
+	}
+}
+
+// WithConnectionStore sets the connection store.
+//
+// When supplied, the platform skips its own connection-store
+// initialization (which derives Postgres vs noop from the database
+// configuration) and uses the injected store directly. The store's
+// Persistent() return value still drives auto-enable behavior, so
+// stateless test stubs that report Persistent()=false reproduce the
+// no-database deployment shape.
+func WithConnectionStore(store ConnectionStore) Option {
+	return func(o *Options) {
+		o.ConnectionStore = store
 	}
 }
