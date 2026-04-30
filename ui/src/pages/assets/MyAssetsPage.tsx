@@ -10,8 +10,16 @@ const VIEW_STORAGE_KEY = "asset-view-mode";
 type ViewMode = "grid" | "table";
 
 function getStoredViewMode(): ViewMode {
-  const stored = localStorage.getItem(VIEW_STORAGE_KEY);
-  return stored === "table" ? "table" : "grid";
+  // Defensive: jsdom-based test environments and SSR contexts can
+  // either omit localStorage entirely or stub a partial object. The
+  // try/catch survives both. Default is "grid" — the safer fallback
+  // when persistence is unavailable.
+  try {
+    const stored = globalThis.localStorage?.getItem(VIEW_STORAGE_KEY);
+    return stored === "table" ? "table" : "grid";
+  } catch {
+    return "grid";
+  }
 }
 
 interface Props {

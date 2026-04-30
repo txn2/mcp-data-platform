@@ -236,7 +236,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             OAuth status
           </span>
-          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-xs font-medium font-mono">
+          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-[11px] font-medium font-mono">
             {oauth.grant}
           </span>
         </div>
