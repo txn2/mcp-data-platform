@@ -791,6 +791,178 @@ func TestStatus_PlaceholderReturnsOAuthNeedsReauth(t *testing.T) {
 	assert.True(t, st.OAuth.NeedsReauth, "placeholder must report NeedsReauth=true")
 	assert.False(t, st.OAuth.TokenAcquired)
 	assert.Equal(t, OAuthGrantAuthorizationCode, st.OAuth.Grant)
+	assert.NotEmpty(t, st.OAuth.LastError,
+		"placeholder must surface the dial error via LastError so operators "+
+			"can see WHY the upstream rejected — issue #349")
+}
+
+// TestAddConnection_PlaceholderRecordsLastError proves the fix for #349:
+// when an authorization_code connection's dial fails, the placeholder
+// upstream stores the discover() error string in its lastError field
+// so Status() can surface the actual upstream rejection reason — not
+// just the silent "awaiting reauth" warning operators were getting before.
+func TestAddConnection_PlaceholderRecordsLastError(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	})
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	cfg := map[string]any{
+		"endpoint":                "https://upstream.example.com/mcp",
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	// Direct field access (same package) — proves the placeholder
+	// captured the error string for later Status() retrieval.
+	tk.mu.RLock()
+	u := tk.connections["vendor"]
+	tk.mu.RUnlock()
+	require.NotNil(t, u, "placeholder must exist")
+	require.Nil(t, u.client, "placeholder must have nil client")
+	assert.NotEmpty(t, u.lastError, "placeholder must record the dial error")
+}
+
+// TestSetTokenStore_PlaceholderRetryUpdatesLastError proves the
+// retry-after-store-wired path also keeps lastError fresh. Without this,
+// Status() would surface a stale error from AddConnection time even
+// after a retry produced a different (or the same) failure.
+func TestSetTokenStore_PlaceholderRetryUpdatesLastError(t *testing.T) {
+	// Token endpoint that succeeds — refresh works.
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "valid", RefreshToken: "valid-r", ExpiresIn: 3600,
+		})
+	})
+	// Upstream that always returns 503 — initialize / list-tools always fail
+	// even when the token is present and refresh works.
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(deadUpstream.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	cfg := map[string]any{
+		"endpoint":                deadUpstream.URL,
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	// First Add — placeholder with the original (no-token) error.
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+	tk.mu.RLock()
+	originalErr := tk.connections["vendor"].lastError
+	tk.mu.RUnlock()
+	require.NotEmpty(t, originalErr)
+
+	// Pre-seed token store and wire it. Retry will run, will succeed at
+	// fetching a token, but will fail at dialing the dead upstream.
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "valid",
+		RefreshToken:   "valid-r",
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}))
+	tk.SetTokenStore(store)
+
+	// Placeholder must remain (sick upstream) but lastError must reflect
+	// the most recent failure — likely a 503 from the dead upstream
+	// rather than the original "no token" error.
+	tk.mu.RLock()
+	u := tk.connections["vendor"]
+	tk.mu.RUnlock()
+	require.NotNil(t, u)
+	require.Nil(t, u.client, "placeholder must remain when retry fails")
+	assert.NotEmpty(t, u.lastError, "lastError must remain populated after retry")
+}
+
+// TestRecordPlaceholderError_DefensiveBranches covers the no-op paths
+// of recordPlaceholderError: missing connection (concurrent removal)
+// and already-promoted-to-live (concurrent retry success). Neither path
+// should panic or mutate unrelated state.
+func TestRecordPlaceholderError_DefensiveBranches(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// (a) Missing connection — must be a silent no-op.
+	tk.recordPlaceholderError("does-not-exist", errors.New("ignored"))
+
+	// (b) Connection exists but is already live (client != nil). Pre-
+	// existing lastError (if any) must NOT be overwritten — the live
+	// client owns the connection's status now.
+	tk.mu.Lock()
+	tk.connections["live"] = &upstream{
+		name:      "live",
+		config:    Config{ConnectionName: "live", AuthMode: AuthModeOAuth},
+		client:    &upstreamClient{cfg: Config{}},
+		lastError: "stale",
+	}
+	tk.mu.Unlock()
+
+	tk.recordPlaceholderError("live", errors.New("should be ignored"))
+
+	tk.mu.RLock()
+	got := tk.connections["live"].lastError
+	tk.mu.RUnlock()
+	assert.Equal(t, "stale", got,
+		"recordPlaceholderError must not overwrite a live connection's lastError")
+}
+
+// TestStatus_PlaceholderSurfaceLastErrorPrecedence verifies that the
+// placeholder's lastError takes precedence over the token-source's
+// Status().LastError when surfacing through ConnectionStatus.OAuth. The
+// placeholder error is the one operators need to see.
+func TestStatus_PlaceholderSurfaceLastErrorPrecedence(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	tk.mu.Lock()
+	tk.connections["vendor"] = &upstream{
+		name: "vendor",
+		config: Config{
+			ConnectionName: "vendor",
+			AuthMode:       AuthModeOAuth,
+			OAuth: OAuthConfig{
+				Grant:        OAuthGrantAuthorizationCode,
+				TokenURL:     "https://idp.example.com/token",
+				ClientID:     "id",
+				ClientSecret: "sec",
+			},
+		},
+		desc:      "Awaiting OAuth authorization",
+		lastError: "connect to https://upstream.example.com/mcp: HTTP 401 Unauthorized",
+	}
+	tk.mu.Unlock()
+
+	st := tk.Status("vendor")
+	require.NotNil(t, st)
+	require.NotNil(t, st.OAuth)
+	assert.Equal(t,
+		"connect to https://upstream.example.com/mcp: HTTP 401 Unauthorized",
+		st.OAuth.LastError,
+		"Status() must surface the placeholder's lastError so operators "+
+			"see WHY the upstream rejected")
 }
 
 // TestStatus_PlaceholderWithStoredTokenReportsAuthorized covers the post-

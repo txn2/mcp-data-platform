@@ -108,12 +108,32 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 				slog.Warn("gateway: retry placeholder after token store wired",
 					logKeyConnection, p.cfg.ConnectionName,
 					logKeyError, err)
+				// Update the placeholder's lastError so Status() reflects
+				// the most recent rejection reason. Without this, the UI
+				// would still show the original placeholder error from
+				// AddConnection time, even after a retry surfaced a new
+				// upstream rejection.
+				t.recordPlaceholderError(p.name, err)
 				return
 			}
 			t.installLiveConnection(p.name, p.cfg, client, tools)
 		}(p)
 	}
 	wg.Wait()
+}
+
+// recordPlaceholderError updates a placeholder's lastError so Status()
+// reflects the most recent dial / discover failure. No-op when the
+// connection no longer exists (concurrent removal) or has already been
+// promoted to a live client.
+func (t *Toolkit) recordPlaceholderError(name string, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	u, ok := t.connections[name]
+	if !ok || u.client != nil {
+		return
+	}
+	u.lastError = err.Error()
 }
 
 // installLiveConnection promotes a placeholder to a live upstream by
@@ -171,6 +191,13 @@ type upstream struct {
 	tools     []*mcp.Tool // cached definitions from discovery
 	toolNames []string
 	desc      string
+	// lastError captures the most recent dial / discover error when the
+	// connection is in placeholder state (client == nil). Surfaced via
+	// Status().OAuth.LastError so the admin UI can show the operator the
+	// actual upstream rejection reason — instead of leaving them to guess
+	// at a silent "awaiting reauth" warning. Cleared when the connection
+	// becomes live; never set on a healthy upstream.
+	lastError string
 }
 
 // New builds a Toolkit with the given default connection name and no
@@ -311,13 +338,19 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		// failure modes, keep the existing behavior of bubbling the
 		// error so retries from the admin path can succeed.
 		if cfg.AuthMode == AuthModeOAuth && cfg.OAuth.Grant == OAuthGrantAuthorizationCode {
+			// Include the discover() error in BOTH the warning log and
+			// the placeholder's lastError. Operators clicking Connect
+			// otherwise see only "awaiting reauth" with no clue WHY the
+			// upstream rejected — the error gets lost between layers.
 			slog.Warn("gateway: oauth authorization_code connection awaiting reauth",
 				logKeyConnection, cfg.ConnectionName,
-				logKeyEndpoint, cfg.Endpoint)
+				logKeyEndpoint, cfg.Endpoint,
+				logKeyError, err)
 			t.connections[name] = &upstream{
-				name:   name,
-				config: cfg,
-				desc:   "Awaiting OAuth authorization",
+				name:      name,
+				config:    cfg,
+				desc:      "Awaiting OAuth authorization",
+				lastError: err.Error(),
 			}
 			return nil
 		}
@@ -423,6 +456,15 @@ func (t *Toolkit) Status(name string) *ConnectionStatus {
 		// the admin UI can drive the next step.
 		src := newOAuthTokenSource(u.config.OAuth, name, t.tokenStore)
 		s := src.Status()
+		// Surface the placeholder's last dial error so the admin UI can
+		// show the operator WHY the upstream rejected — instead of just
+		// "needs reauth" with no clue what's broken. The token-source
+		// Status() never sets LastError for a fresh placeholder (it has
+		// no access/refresh attempts of its own to record), so the
+		// placeholder's stored error wins here.
+		if u.lastError != "" {
+			s.LastError = u.lastError
+		}
 		cs.OAuth = &s
 	}
 	return cs
