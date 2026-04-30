@@ -365,6 +365,89 @@ func TestGetGatewayConnectionStatus_ReturnsStatus(t *testing.T) {
 	assert.Nil(t, status.OAuth)
 }
 
+// TestConnectionHasOAuthToken_NoToolkitReturnsFalse covers the early-out
+// path where the gateway toolkit isn't registered at all (e.g. config-mode
+// deployments). The check must conservatively report "no token" so the
+// short-circuit message still tells the operator how to proceed.
+func TestConnectionHasOAuthToken_NoToolkitReturnsFalse(t *testing.T) {
+	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{}}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: &mockConnectionStore{},
+		ToolkitRegistry: reg,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+	}, nil)
+	assert.False(t, h.connectionHasOAuthToken("anything"))
+}
+
+// TestConnectionHasOAuthToken_UnknownConnectionReturnsFalse covers the case
+// where the toolkit exists but the named connection has not been added —
+// Status() returns nil and we must report "no token".
+func TestConnectionHasOAuthToken_UnknownConnectionReturnsFalse(t *testing.T) {
+	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
+	assert.False(t, h.connectionHasOAuthToken("does-not-exist"))
+}
+
+// TestConnectionHasOAuthToken_NonOAuthConnectionReturnsFalse covers a
+// bearer/api_key/none connection: Status returns OAuth=nil and we treat
+// that as "not authorized" for the purposes of the test short-circuit.
+func TestConnectionHasOAuthToken_NonOAuthConnectionReturnsFalse(t *testing.T) {
+	url := upstreamMCP(t)
+	h, tk := gatewayHandlerDeps(t, &mockConnectionStore{})
+	require.NoError(t, tk.AddConnection("plain", map[string]any{
+		"endpoint":        url,
+		"connection_name": "plain",
+		"connect_timeout": "3s",
+		"call_timeout":    "3s",
+	}))
+	assert.False(t, h.connectionHasOAuthToken("plain"))
+}
+
+// TestTestGatewayConnection_AuthCodeUnauthorizedReturnsFriendlyMessage
+// proves the admin UX fix: a Test-connection click on an OAuth
+// authorization_code connection that has no stored token must return a
+// 200 with a clear "click Connect first" message instead of letting the
+// upstream dial fail with a cryptic OAuth error.
+func TestTestGatewayConnection_AuthCodeUnauthorizedReturnsFriendlyMessage(t *testing.T) {
+	cfg := map[string]any{
+		"endpoint":                "https://upstream.example.com/mcp",
+		"connection_name":         "vendor",
+		"auth_mode":               gatewaykit.AuthModeOAuth,
+		"oauth_grant":             gatewaykit.OAuthGrantAuthorizationCode,
+		"oauth_token_url":         "https://idp.example.com/token",
+		"oauth_authorization_url": "https://idp.example.com/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	store := &mockConnectionStore{
+		getResult: &platform.ConnectionInstance{
+			Kind: gatewaykit.Kind, Name: "vendor", Config: cfg,
+		},
+	}
+	h, tk := gatewayHandlerDeps(t, store)
+	// Mirror the post-save state: AddConnection records a placeholder
+	// because dial fails (no token yet).
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	body, _ := json.Marshal(testGatewayConnectionRequest{Config: cfg})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/test",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code,
+		"unauthorized authcode is a domain-level outcome, not an HTTP failure")
+	var resp testGatewayConnectionResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.False(t, resp.Healthy)
+	assert.Contains(t, resp.Error, "Connect",
+		"error message must point the operator at the Connect button")
+	assert.Empty(t, resp.Tools)
+}
+
 func TestReacquireGatewayOAuth_NotFound(t *testing.T) {
 	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
 	req := httptest.NewRequestWithContext(context.Background(),

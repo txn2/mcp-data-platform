@@ -392,6 +392,13 @@ type ConnectionStatus struct {
 
 // Status returns a status snapshot for the named connection. Returns nil
 // when the connection is not registered.
+//
+// For oauth connections the OAuth field is always populated when present:
+// for live clients it reflects the live token source's state; for awaiting-
+// reauth placeholders (client == nil) it is synthesized from the persisted
+// token store so the admin UI can render the Connect button or show the
+// "authorized but upstream unreachable" state without needing a successful
+// upstream dial.
 func (t *Toolkit) Status(name string) *ConnectionStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -405,8 +412,17 @@ func (t *Toolkit) Status(name string) *ConnectionStatus {
 		AuthMode: u.config.AuthMode,
 		Tools:    append([]string(nil), u.toolNames...),
 	}
-	if u.client != nil && u.client.oauth != nil {
+	switch {
+	case u.client != nil && u.client.oauth != nil:
 		s := u.client.oauth.Status()
+		cs.OAuth = &s
+	case u.config.AuthMode == AuthModeOAuth:
+		// Placeholder for an oauth connection with no live client (e.g.
+		// authorization_code awaiting first Connect, or a dial failure
+		// post-restart). Build a status view from the persisted store so
+		// the admin UI can drive the next step.
+		src := newOAuthTokenSource(u.config.OAuth, name, t.tokenStore)
+		s := src.Status()
 		cs.OAuth = &s
 	}
 	return cs
