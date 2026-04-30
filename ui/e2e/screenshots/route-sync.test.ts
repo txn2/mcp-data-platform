@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { routes } from "./route-manifest";
+import { routes, excludedRoutes } from "./route-manifest";
 
 describe("route manifest sync", () => {
   it("covers all pageTitles routes from AppShell", () => {
@@ -30,14 +30,19 @@ describe("route manifest sync", () => {
 
     const missing: string[] = [];
     for (const key of routeKeys) {
-      if (!manifestPaths.has(key)) {
+      // A route is "covered" if it's either in the live manifest OR
+      // explicitly in the excludedRoutes set (with a documented reason).
+      // The exclusion list lets us track known infra constraints
+      // (e.g. CodeMirror's headless-mode crash) without losing the
+      // bug-detection power of this test for accidental gaps.
+      if (!manifestPaths.has(key) && !excludedRoutes.has(key)) {
         missing.push(key);
       }
     }
 
     expect(
       missing,
-      `Routes in AppShell pageTitles missing from screenshot manifest: ${missing.join(", ")}. Add entries to route-manifest.ts.`,
+      `Routes in AppShell pageTitles missing from screenshot manifest: ${missing.join(", ")}. Add entries to route-manifest.ts (or to excludedRoutes if intentionally not captured).`,
     ).toEqual([]);
   });
 

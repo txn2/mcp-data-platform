@@ -171,7 +171,7 @@ function PersonaCard({
       {/* Header */}
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-sm font-semibold">{persona.display_name}</h3>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+        <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
           {persona.name}
         </span>
       </div>
@@ -200,7 +200,7 @@ function PersonaCard({
               {detail.allow_tools.map((t) => (
                 <span
                   key={t}
-                  className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-mono text-green-800"
+                  className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono text-green-800"
                 >
                   {t}
                 </span>
@@ -212,7 +212,7 @@ function PersonaCard({
               {detail.deny_tools.map((t) => (
                 <span
                   key={t}
-                  className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-mono text-red-800"
+                  className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-800"
                 >
                   {t}
                 </span>
@@ -361,7 +361,7 @@ function DetailDrawer({
                 {detail.tools.map((t) => (
                   <span
                     key={t}
-                    className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                    className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
                   >
                     {t}
                   </span>

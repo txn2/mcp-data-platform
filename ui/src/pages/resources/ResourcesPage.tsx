@@ -236,14 +236,14 @@ export function ResourcesPage({ admin }: Props) {
                     </td>
                     {admin && (
                       <td className="px-4 py-2.5">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap inline-flex items-center gap-0.5 ${scopeBadgeColor(r.scope)}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap inline-flex items-center gap-0.5 ${scopeBadgeColor(r.scope)}`}>
                           <ScopeIcon className="h-2.5 w-2.5" />
                           {scopeLabel(r.scope, r.scope_id)}
                         </span>
                       </td>
                     )}
                     <td className="px-4 py-2.5">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${categoryColor(r.category)}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${categoryColor(r.category)}`}>
                         {r.category}
                       </span>
                     </td>
@@ -251,12 +251,12 @@ export function ResourcesPage({ admin }: Props) {
                     <td className="px-4 py-2.5 max-w-0">
                       <div className="flex flex-wrap gap-1">
                         {r.tags.slice(0, 3).map((t) => (
-                          <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
+                          <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
                             {t}
                           </span>
                         ))}
                         {r.tags.length > 3 && (
-                          <span className="text-[10px] text-muted-foreground">+{r.tags.length - 3}</span>
+                          <span className="text-xs text-muted-foreground">+{r.tags.length - 3}</span>
                         )}
                       </div>
                     </td>
@@ -584,7 +584,7 @@ function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: { resour
         {r.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {r.tags.map((t) => (
-              <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground inline-flex items-center gap-1">
+              <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground inline-flex items-center gap-1">
                 <Tag className="h-2.5 w-2.5" />{t}
               </span>
             ))}

@@ -40,7 +40,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
         <button
           type="button"
           onClick={onRetry}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium hover:bg-red-100 dark:hover:bg-red-900/30"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900/30"
         >
           <RefreshCw className="h-3 w-3" />
           Retry
@@ -142,7 +142,7 @@ export function ConfigEditorPage({ configKey, label, description }: Props) {
             <p className="mt-1 text-xs text-muted-foreground">{description}</p>
           </div>
           {hasOverride && (
-            <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-[10px] font-medium text-primary">
+            <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
               <Database className="mr-1 inline-block h-2.5 w-2.5" />
               Database override
             </span>
@@ -151,7 +151,7 @@ export function ConfigEditorPage({ configKey, label, description }: Props) {
 
         <div className="flex items-center gap-2">
           {entry?.updated_by && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               Updated by {entry.updated_by}
               {entry.updated_at &&
                 ` · ${new Date(entry.updated_at).toLocaleDateString()}`}

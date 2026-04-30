@@ -155,21 +155,13 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
     tabs: ["overview", "knowledge", "memory", "changesets"],
   },
-  // NOTE: admin-description and admin-agent-instructions are excluded because
-  // the MarkdownEditor (CodeMirror) crashes in headless mode due to duplicate
-  // @codemirror/state instances. Re-enable once the portal fixes this.
-  // {
-  //   slug: "admin-description",
-  //   path: "/portal/admin/description",
-  //   category: "admin",
-  //   waitFor: ".cm-editor",
-  // },
-  // {
-  //   slug: "admin-agent-instructions",
-  //   path: "/portal/admin/agent-instructions",
-  //   category: "admin",
-  //   waitFor: ".cm-editor",
-  // },
+  // admin-description and admin-agent-instructions are intentionally
+  // excluded from screenshot capture (see excludedRoutes below) — the
+  // MarkdownEditor (CodeMirror) crashes in headless mode due to
+  // duplicate @codemirror/state instances. Re-enable once the portal
+  // fixes this. The excludedRoutes registration below is what keeps
+  // the route-sync test green: it documents the gap as intentional
+  // rather than masking it as a missing manifest entry.
   {
     slug: "admin-connections",
     path: "/portal/admin/connections",
@@ -213,3 +205,18 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
 ];
+
+/**
+ * Routes intentionally NOT captured in screenshot runs. Documented
+ * here so the route-sync test can distinguish "missing manifest entry
+ * (bug)" from "deliberately excluded (known infra constraint)."
+ *
+ * Each entry MUST include the AppShell pageTitles key (without the
+ * /portal prefix) and a reason. When re-enabling a route, remove its
+ * key from this set AND add a normal entry to `routes` above.
+ */
+export const excludedRoutes: ReadonlySet<string> = new Set([
+  // CodeMirror crash in headless mode (duplicate @codemirror/state instances).
+  "/admin/description",
+  "/admin/agent-instructions",
+]);

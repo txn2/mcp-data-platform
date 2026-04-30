@@ -205,7 +205,7 @@ export function PersonasPanel() {
                 <span className="text-sm font-medium truncate">{p.display_name}</span>
                 {p.source && (
                   <span className={cn(
-                    "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
+                    "shrink-0 rounded px-1 py-0 text-xs font-medium",
                     p.source === "file" ? "bg-muted text-muted-foreground" :
                     "bg-primary/10 text-primary",
                   )}>
@@ -213,8 +213,8 @@ export function PersonasPanel() {
                   </span>
                 )}
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground truncate">{p.name}</span>
-              <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground truncate">{p.name}</span>
+              <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                 <span>{p.roles.length} roles</span>
                 <span>{p.tool_count} tools</span>
               </div>
@@ -356,12 +356,12 @@ function PersonaViewer({
             <p className="mt-1 text-sm text-muted-foreground">{detail.description}</p>
           )}
           {detail.source === "both" && (
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               This persona is managed in the database. A fallback version also exists in the config file and can be removed once database management is confirmed.
             </p>
           )}
           {detail.source === "file" && !isReadOnly && (
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               This persona is defined in the config file. Editing will create a database override.
             </p>
           )}
@@ -450,7 +450,7 @@ function PersonaViewer({
         <Collapsible title={`Resolved Tools (${detail.tools.length})`} defaultOpen={false}>
           <div className="flex flex-wrap gap-1">
             {detail.tools.map((t) => (
-              <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{t}</span>
+              <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground">{t}</span>
             ))}
           </div>
         </Collapsible>
@@ -555,7 +555,7 @@ function PersonaEditor({
             {isCreate ? "New Persona" : `Edit: ${draft.displayName}`}
           </h2>
           {dirty && (
-            <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+            <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
               <AlertCircle className="h-3 w-3" />
               Unsaved
             </span>
@@ -600,7 +600,7 @@ function PersonaEditor({
                 placeholder="my-persona"
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono outline-none ring-ring focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
               />
-              <p className="mt-1 text-[10px] text-muted-foreground">Unique identifier. Lowercase, hyphens allowed. Cannot be changed after creation.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Unique identifier. Lowercase, hyphens allowed. Cannot be changed after creation.</p>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium">Display Name</label>
@@ -674,7 +674,7 @@ function PersonaEditor({
 
         {/* Connection Access */}
         <EditSection icon={Cable} title="Connection Access">
-          <p className="text-[10px] text-muted-foreground mb-3">
+          <p className="text-xs text-muted-foreground mb-3">
             Connection-level access controls work alongside tool access. A tool call must pass both checks. If the allow list is empty, all connections are permitted. Deny rules override allow rules.
           </p>
           <div className="space-y-4">
@@ -811,7 +811,7 @@ function ToolPatternEditor({
           </span>
         ))}
         {patterns.length === 0 && (
-          <span className="text-[10px] text-muted-foreground italic">No patterns — {variant === "green" ? "no tools allowed" : "nothing denied"}</span>
+          <span className="text-xs text-muted-foreground italic">No patterns — {variant === "green" ? "no tools allowed" : "nothing denied"}</span>
         )}
       </div>
 
@@ -855,12 +855,12 @@ function ToolPatternEditor({
             {Object.entries(filteredGroups).sort(([a], [b]) => a.localeCompare(b)).map(([kind, tools]) => (
               <div key={kind}>
                 <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5 border-b">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kind}</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{kind}</span>
                   <button
                     type="button"
                     onClick={() => addWildcard(kind)}
                     disabled={patterns.includes(`${kind}_*`)}
-                    className="text-[10px] font-mono text-primary hover:underline disabled:opacity-30 disabled:no-underline"
+                    className="text-xs font-mono text-primary hover:underline disabled:opacity-30 disabled:no-underline"
                   >
                     {kind}_*
                   </button>
@@ -965,7 +965,7 @@ function ConnectionPatternEditor({
           </span>
         ))}
         {patterns.length === 0 && (
-          <span className="text-[10px] text-muted-foreground italic">
+          <span className="text-xs text-muted-foreground italic">
             {variant === "green" ? "None (all connections permitted)" : "Nothing denied"}
           </span>
         )}
@@ -1011,7 +1011,7 @@ function ConnectionPatternEditor({
             {Object.entries(filteredGroups).sort(([a], [b]) => a.localeCompare(b)).map(([kind, conns]) => (
               <div key={kind}>
                 <div className="bg-muted/30 px-3 py-1.5 border-b">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kind}</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{kind}</span>
                 </div>
                 {conns.map((c) => {
                   const connId = c.connection;
@@ -1054,7 +1054,7 @@ function ConnectionPatternEditor({
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-2">
-      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="text-sm font-medium truncate">{value}</p>
     </div>
   );

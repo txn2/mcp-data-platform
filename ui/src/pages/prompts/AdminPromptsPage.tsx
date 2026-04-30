@@ -407,7 +407,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                       </td>
                       <td className="px-4 py-2 text-right">
                         {p.scope === "system" ? (
-                          <span className="text-[10px] text-muted-foreground">read-only</span>
+                          <span className="text-xs text-muted-foreground">read-only</span>
                         ) : deleteConfirm === p.id ? (
                           <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => handleDelete(p.id)} className="text-xs text-red-500 hover:text-red-400">Confirm</button>

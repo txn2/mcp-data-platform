@@ -215,7 +215,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
                       {share.shared_with_user_id || share.shared_with_email ? (
                         <span className="text-muted-foreground">
                           User: {share.shared_with_email || share.shared_with_user_id}
-                          <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${share.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                          <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${share.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                             {share.permission === "editor" ? "Editor" : "Viewer"}
                           </span>
                         </span>

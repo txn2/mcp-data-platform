@@ -85,15 +85,15 @@ function SortableItem({
       <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       <span className="flex-1 truncate">{item.assetName || item.asset_id}</span>
       {item.assetContentType && (
-        <span className="text-[10px] text-muted-foreground shrink-0">{item.assetContentType}</span>
+        <span className="text-xs text-muted-foreground shrink-0">{item.assetContentType}</span>
       )}
       <button onClick={onPreview} className="text-muted-foreground hover:text-foreground shrink-0" title="Preview">
         <Eye className="h-3 w-3" />
       </button>
       {confirmDelete ? (
         <span className="flex items-center gap-1 shrink-0">
-          <button onClick={onRemove} className="text-[10px] text-destructive font-medium hover:underline">Remove</button>
-          <button onClick={() => setConfirmDelete(false)} className="text-[10px] text-muted-foreground hover:underline">Cancel</button>
+          <button onClick={onRemove} className="text-xs text-destructive font-medium hover:underline">Remove</button>
+          <button onClick={() => setConfirmDelete(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
         </span>
       ) : (
         <button onClick={() => setConfirmDelete(true)} className="text-muted-foreground hover:text-destructive shrink-0" title="Remove">
@@ -207,7 +207,7 @@ function AssetBrowserModal({
                     {a.tags.length > 0 && (
                       <div className="flex gap-1 mt-0.5">
                         {a.tags.slice(0, 3).map((t) => (
-                          <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">{t}</span>
+                          <span key={t} className="text-xs px-1 py-0.5 rounded bg-muted text-muted-foreground">{t}</span>
                         ))}
                       </div>
                     )}
@@ -319,7 +319,7 @@ function SortableSection({
         >
           <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
           <span className="text-sm font-medium truncate">{displayTitle}</span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {itemCount} {itemCount === 1 ? "asset" : "assets"}
           </span>
         </button>

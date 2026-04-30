@@ -131,7 +131,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                       <span className="text-muted-foreground truncate block">{item.shared_by}</span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                         {item.permission === "editor" ? "Editor" : "Viewer"}
                       </span>
                     </td>
@@ -246,14 +246,14 @@ export function SharedWithMePage({ onNavigate }: Props) {
                   )}
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(item.asset.content_type)}`}
+                      className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(item.asset.content_type)}`}
                     >
                       {item.asset.content_type}
                     </span>
                     {item.asset.tags.slice(0, 3).map((t) => (
                       <span
                         key={t}
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                        className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
                       >
                         {t}
                       </span>
@@ -262,7 +262,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       Shared by {item.shared_by}
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                         {item.permission === "editor" ? "Editor" : "Viewer"}
                       </span>
                     </span>
@@ -311,7 +311,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(item.asset.content_type)}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(item.asset.content_type)}`}>
                         {item.asset.content_type}
                       </span>
                     </td>
@@ -320,13 +320,13 @@ export function SharedWithMePage({ onNavigate }: Props) {
                         {item.asset.tags.slice(0, 3).map((t) => (
                           <span
                             key={t}
-                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
+                            className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
                           >
                             {t}
                           </span>
                         ))}
                         {item.asset.tags.length > 3 && (
-                          <span className="text-[10px] text-muted-foreground">+{item.asset.tags.length - 3}</span>
+                          <span className="text-xs text-muted-foreground">+{item.asset.tags.length - 3}</span>
                         )}
                       </div>
                     </td>
@@ -334,7 +334,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                       <span className="text-muted-foreground truncate block">{item.shared_by}</span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                         {item.permission === "editor" ? "Editor" : "Viewer"}
                       </span>
                     </td>

@@ -143,7 +143,7 @@ export function ConnectionsPanel() {
             .map(([kind, items]) => (
               <div key={kind}>
                 <div className="bg-muted/30 px-4 py-1.5 border-b">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {kind}
                   </span>
                 </div>
@@ -164,7 +164,7 @@ export function ConnectionsPanel() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium truncate">{c.name}</span>
                         <span className={cn(
-                          "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
+                          "shrink-0 rounded px-1 py-0 text-xs font-medium",
                           c.source === "file" ? "bg-muted text-muted-foreground" :
                           "bg-primary/10 text-primary",
                         )}>
@@ -172,12 +172,12 @@ export function ConnectionsPanel() {
                         </span>
                       </div>
                       {c.description && (
-                        <span className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                        <span className="mt-0.5 text-xs text-muted-foreground truncate">
                           {c.description}
                         </span>
                       )}
                       {c.tools && c.tools.length > 0 && (
-                        <span className="mt-0.5 text-[10px] text-muted-foreground">
+                        <span className="mt-0.5 text-xs text-muted-foreground">
                           {c.tools.length} tools
                         </span>
                       )}
@@ -298,7 +298,7 @@ function ConnectionViewer({
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">{connection.name}</h2>
-            <span className={cn("rounded-full px-2.5 py-0.5 text-[10px] font-medium", kindColor(connection.kind))}>
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", kindColor(connection.kind))}>
               {connection.kind}
             </span>
           </div>
@@ -306,7 +306,7 @@ function ConnectionViewer({
             <p className="mt-1 text-sm text-muted-foreground">{connection.description}</p>
           )}
           {connection.source === "both" && (
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               This connection is managed in the database. A fallback version also exists in the config file and can be removed once database management is confirmed.
             </p>
           )}
@@ -367,7 +367,7 @@ function ConnectionViewer({
             <button
               type="button"
               onClick={() => setShowSensitive((v) => !v)}
-              className="ml-auto text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
             >
               {showSensitive ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
               {showSensitive ? "Hide sensitive" : "Show sensitive"}
@@ -618,7 +618,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Connection type. Cannot be changed after creation.
             </p>
           </div>
@@ -632,7 +632,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
               placeholder="my-connection"
               className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono outline-none ring-ring focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Unique name within this kind. Cannot be changed after creation.
             </p>
           </div>
@@ -679,7 +679,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-2">
-      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="text-sm font-medium truncate">{value}</p>
     </div>
   );
@@ -727,7 +727,7 @@ function ConfigField({
           mono && "font-mono",
         )}
       />
-      {help && <p className="mt-1 text-[10px] text-muted-foreground">{help}</p>}
+      {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
     </div>
   );
 }
@@ -764,7 +764,7 @@ function ConfigToggle({
       </button>
       <div>
         <label className="text-xs font-medium">{label}</label>
-        {help && <p className="text-[10px] text-muted-foreground">{help}</p>}
+        {help && <p className="text-xs text-muted-foreground">{help}</p>}
       </div>
     </div>
   );
@@ -853,7 +853,7 @@ function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
         />
         <div className="mt-4">
           <label className="mb-1 block text-xs font-medium">Catalog Mapping</label>
-          <p className="mb-2 text-[10px] text-muted-foreground">
+          <p className="mb-2 text-xs text-muted-foreground">
             Maps this connection's catalog names to DataHub catalog names. For example, if this connection uses catalog "rdbms" but DataHub knows it as "postgres", add rdbms → postgres.
           </p>
           <KeyValueEditor
@@ -1045,7 +1045,7 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
             <option value="api_key">API key</option>
             <option value="oauth">OAuth 2.1</option>
           </select>
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             Bearer sends Authorization header; API key sends X-API-Key; OAuth obtains a managed bearer token via client_credentials or authorization_code+PKCE.
           </p>
         </div>
@@ -1069,7 +1069,7 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
       )}
       {config.auth_mode === "oauth" && (
         <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             OAuth 2.1
           </div>
           <div>
@@ -1082,7 +1082,7 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
               <option value="client_credentials">client_credentials (machine-to-machine)</option>
               <option value="authorization_code">authorization_code + PKCE (browser sign-in)</option>
             </select>
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Use authorization_code for upstreams that require a human sign-in (Salesforce Hosted MCP, etc.). After saving the connection, click Connect to authorize once — the platform refreshes the token automatically thereafter.
             </p>
           </div>
@@ -1160,7 +1160,7 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
           <option value="untrusted">Untrusted (default)</option>
           <option value="trusted">Trusted</option>
         </select>
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Reserved for future content-fencing of upstream responses. Leave at "untrusted" unless you control the upstream.
         </p>
       </div>
