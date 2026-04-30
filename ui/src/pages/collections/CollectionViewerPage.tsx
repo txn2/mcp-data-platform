@@ -190,7 +190,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
                       </p>
                     )}
                     {item.asset_content_type && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(item.asset_content_type)}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(item.asset_content_type)}`}>
                         {item.asset_content_type}
                       </span>
                     )}

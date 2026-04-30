@@ -181,14 +181,14 @@ export function MyAssetsPage({ onNavigate }: Props) {
                   )}
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(asset.content_type)}`}
+                      className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(asset.content_type)}`}
                     >
                       {asset.content_type}
                     </span>
                     {asset.tags.slice(0, 3).map((t) => (
                       <span
                         key={t}
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                        className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
                       >
                         {t}
                       </span>
@@ -197,7 +197,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                   {(asset.collections ?? []).length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-2">
                       {(asset.collections ?? []).slice(0, 2).map((c) => (
-                        <span key={c.id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary inline-flex items-center gap-0.5">
+                        <span key={c.id} className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary inline-flex items-center gap-0.5">
                           <FolderOpen className="h-2.5 w-2.5 shrink-0" />
                           {c.name}
                         </span>
@@ -250,7 +250,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(asset.content_type)}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(asset.content_type)}`}>
                         {asset.content_type}
                       </span>
                     </td>
@@ -259,13 +259,13 @@ export function MyAssetsPage({ onNavigate }: Props) {
                         {asset.tags.slice(0, 3).map((t) => (
                           <span
                             key={t}
-                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
+                            className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
                           >
                             {t}
                           </span>
                         ))}
                         {asset.tags.length > 3 && (
-                          <span className="text-[10px] text-muted-foreground">+{asset.tags.length - 3}</span>
+                          <span className="text-xs text-muted-foreground">+{asset.tags.length - 3}</span>
                         )}
                       </div>
                     </td>
@@ -274,7 +274,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                         {(asset.collections ?? []).slice(0, 2).map((c) => (
                           <span
                             key={c.id}
-                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary truncate max-w-[100px] inline-flex items-center gap-0.5"
+                            className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary truncate max-w-[100px] inline-flex items-center gap-0.5"
                             onClick={(e) => { e.stopPropagation(); onNavigate(`/collections/${c.id}`); }}
                             role="button"
                             tabIndex={0}
@@ -285,7 +285,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                           </span>
                         ))}
                         {(asset.collections ?? []).length > 2 && (
-                          <span className="text-[10px] text-muted-foreground">+{(asset.collections ?? []).length - 2}</span>
+                          <span className="text-xs text-muted-foreground">+{(asset.collections ?? []).length - 2}</span>
                         )}
                       </div>
                     </td>

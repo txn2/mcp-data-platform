@@ -141,12 +141,12 @@ export function CollectionsPage({ onNavigate }: Props) {
                   {tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-2">
                       {tags.slice(0, 4).map((t) => (
-                        <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                        <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
                           {t}
                         </span>
                       ))}
                       {tags.length > 4 && (
-                        <span className="text-[10px] text-muted-foreground">+{tags.length - 4}</span>
+                        <span className="text-xs text-muted-foreground">+{tags.length - 4}</span>
                       )}
                     </div>
                   )}
@@ -193,12 +193,12 @@ export function CollectionsPage({ onNavigate }: Props) {
                     <td className="px-4 py-2.5 max-w-0">
                       <div className="flex flex-wrap gap-1">
                         {tags.slice(0, 4).map((t) => (
-                          <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]">
+                          <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]">
                             {t}
                           </span>
                         ))}
                         {tags.length > 4 && (
-                          <span className="text-[10px] text-muted-foreground">+{tags.length - 4}</span>
+                          <span className="text-xs text-muted-foreground">+{tags.length - 4}</span>
                         )}
                       </div>
                     </td>

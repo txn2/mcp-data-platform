@@ -62,7 +62,7 @@ export function VersionHistoryPanel({
               <span className="font-medium">
                 v{v.version}
                 {v.version === currentVersion && (
-                  <span className="ml-1.5 text-[10px] text-primary font-normal">(current)</span>
+                  <span className="ml-1.5 text-xs text-primary font-normal">(current)</span>
                 )}
               </span>
               <span className="text-muted-foreground">

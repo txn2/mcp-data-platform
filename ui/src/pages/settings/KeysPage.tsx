@@ -189,7 +189,7 @@ export function KeysPage() {
                       <span className={cn(k.expired && "line-through")}>{k.name}</span>
                       {k.source && (
                         <span className={cn(
-                          "shrink-0 rounded px-1 py-0 text-[9px] font-medium",
+                          "shrink-0 rounded px-1 py-0 text-xs font-medium",
                           k.source === "file" ? "bg-muted text-muted-foreground" :
                           "bg-primary/10 text-primary",
                         )}>
@@ -197,7 +197,7 @@ export function KeysPage() {
                         </span>
                       )}
                       {k.expired && (
-                        <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                        <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
                           Expired
                         </span>
                       )}
@@ -214,7 +214,7 @@ export function KeysPage() {
                       {k.roles.map((r) => (
                         <span
                           key={r}
-                          className="rounded-full border bg-muted/50 px-2 py-0.5 text-[10px] font-medium"
+                          className="rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium"
                         >
                           {r}
                         </span>
@@ -230,21 +230,21 @@ export function KeysPage() {
                   {!isReadOnly && (
                     <td className="px-5 py-3">
                       {k.source === "file" ? (
-                        <span className="text-[10px] text-muted-foreground italic">config file</span>
+                        <span className="text-xs text-muted-foreground italic">config file</span>
                       ) : deleteConfirm === k.name ? (
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleDelete(k.name)}
                             disabled={deleteMutation.isPending}
-                            className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
                           >
                             {deleteMutation.isPending ? "..." : "Confirm"}
                           </button>
                           <button
                             type="button"
                             onClick={() => setDeleteConfirm(null)}
-                            className="inline-flex items-center rounded border px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-muted"
+                            className="inline-flex items-center rounded border px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted"
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -253,7 +253,7 @@ export function KeysPage() {
                         <button
                           type="button"
                           onClick={() => setDeleteConfirm(k.name)}
-                          className="inline-flex items-center gap-1 rounded border border-transparent px-2 py-1 text-[10px] text-muted-foreground hover:border-red-200 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
+                          className="inline-flex items-center gap-1 rounded border border-transparent px-2 py-1 text-xs text-muted-foreground hover:border-red-200 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
                         >
                           <Trash2 className="h-3 w-3" />
                           Delete
@@ -454,7 +454,7 @@ function AddKeyForm({
                   {draft.roles.map((r) => (
                     <span
                       key={r}
-                      className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-[10px] font-medium"
+                      className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium"
                     >
                       {r}
                       <button
@@ -546,7 +546,7 @@ function RoleBrowser({ onSelect }: { onSelect: (role: string) => void }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-[10px] text-primary hover:underline"
+        className="text-xs text-primary hover:underline"
       >
         {open ? "Hide available roles" : "Browse available roles"}
       </button>

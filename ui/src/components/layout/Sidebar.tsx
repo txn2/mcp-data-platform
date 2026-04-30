@@ -153,7 +153,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
 
       <nav className="flex-1 space-y-1 overflow-auto p-2">
         {!effectiveCollapsed && (
-          <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             User
           </p>
         )}
@@ -180,7 +180,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
           <>
             <div className="my-2 border-t" />
             {!effectiveCollapsed && (
-              <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Admin
               </p>
             )}

@@ -133,7 +133,7 @@ export function GatewayActionBar({
           <div className="mt-0.5">{testResult.message}</div>
           {testResult.tools && testResult.tools.length > 0 && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-[10px] uppercase tracking-wider opacity-70">
+              <summary className="cursor-pointer text-xs uppercase tracking-wider opacity-70">
                 Discovered tools
               </summary>
               <ul className="mt-1 space-y-0.5 font-mono">
@@ -141,7 +141,7 @@ export function GatewayActionBar({
                   <li key={t.local_name}>
                     {t.local_name}
                     {t.description && (
-                      <span className="ml-2 text-[10px] opacity-70 font-sans">{t.description}</span>
+                      <span className="ml-2 text-xs opacity-70 font-sans">{t.description}</span>
                     )}
                   </li>
                 ))}
@@ -233,10 +233,10 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             OAuth status
           </span>
-          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-[9px] font-medium font-mono">
+          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-xs font-medium font-mono">
             {oauth.grant}
           </span>
         </div>
@@ -247,7 +247,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
               onClick={handleConnect}
               disabled={startOAuth.isPending}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium disabled:opacity-50",
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50",
                 oauth.needs_reauth
                   ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -262,7 +262,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
               type="button"
               onClick={handleReacquire}
               disabled={reacquire.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", reacquire.isPending && "animate-spin")} />
               {reacquire.isPending ? "Refreshing..." : "Refresh now"}
@@ -272,7 +272,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
       </div>
 
       {oauth.needs_reauth && (
-        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
           <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
         </div>
       )}
@@ -280,7 +280,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
       <OAuthStatusGrid status={oauth} />
 
       {oauth.authenticated_by && (
-        <div className="text-[10px] text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           Authorized by{" "}
           <span className="font-mono">{oauth.authenticated_by}</span>
           {oauth.authenticated_at && <> {formatRelative(oauth.authenticated_at)}</>}
@@ -288,7 +288,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
       )}
 
       {oauth.last_error && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+        <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
           <span className="font-medium">Last error:</span> {oauth.last_error}
         </div>
       )}
@@ -296,7 +296,7 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
       {actionMsg && (
         <div
           className={cn(
-            "rounded border px-2 py-1 text-[10px]",
+            "rounded border px-2 py-1 text-xs",
             actionMsg.ok
               ? "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
               : "border-destructive/30 bg-destructive/10 text-destructive",
@@ -338,7 +338,7 @@ function OAuthStatusGrid({ status }: { status: GatewayOAuthStatus }) {
     },
   ];
   return (
-    <div className="grid grid-cols-2 gap-2 text-[10px]">
+    <div className="grid grid-cols-2 gap-2 text-xs">
       {items.map((it) => (
         <div key={it.label} className="flex items-center gap-1.5">
           {it.icon}
@@ -471,7 +471,7 @@ function RuleListItem({
             <span className="font-mono text-xs">{rule.tool_name}</span>
             <span
               className={cn(
-                "rounded px-1.5 py-0 text-[9px] font-medium",
+                "rounded px-1.5 py-0 text-xs font-medium",
                 rule.enabled
                   ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
                   : "bg-muted text-muted-foreground",
@@ -483,7 +483,7 @@ function RuleListItem({
           {rule.description && (
             <p className="mt-1 text-xs text-muted-foreground">{rule.description}</p>
           )}
-          <p className="mt-1 text-[10px] text-muted-foreground font-mono">
+          <p className="mt-1 text-xs text-muted-foreground font-mono">
             {rule.enrich_action.source}.{rule.enrich_action.operation} →{" "}
             {rule.merge_strategy.path || "enrichment"}
           </p>
@@ -492,7 +492,7 @@ function RuleListItem({
           <button
             type="button"
             onClick={onEdit}
-            className="rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             Edit
           </button>
@@ -504,14 +504,14 @@ function RuleListItem({
                   await del.mutateAsync(rule.id);
                   setConfirmDelete(false);
                 }}
-                className="rounded-md bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground hover:bg-destructive/90"
+                className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >
                 Confirm
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+                className="rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
               >
                 Cancel
               </button>
@@ -520,7 +520,7 @@ function RuleListItem({
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="rounded-md border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+              className="rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -769,7 +769,7 @@ function DryRunPanel({ connectionName, ruleId }: { connectionName: string; ruleI
           {result.fired && result.fired.length > 0 && (
             <div className="rounded-md border px-3 py-2 text-xs">
               <div className="font-semibold mb-1">Trace</div>
-              <ul className="space-y-1 font-mono text-[10px]">
+              <ul className="space-y-1 font-mono text-xs">
                 {result.fired.map((f) => (
                   <li key={f.rule_id} className="flex items-center gap-2">
                     {f.skipped ? (
@@ -801,7 +801,7 @@ function DryRunPanel({ connectionName, ruleId }: { connectionName: string; ruleI
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
               Merged response
             </div>
-            <pre className="rounded-md border bg-muted/30 p-2 text-[10px] font-mono overflow-x-auto">
+            <pre className="rounded-md border bg-muted/30 p-2 text-xs font-mono overflow-x-auto">
               {JSON.stringify(result.response, null, 2)}
             </pre>
           </div>
@@ -827,10 +827,10 @@ function Field({
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </label>
-        {hint && <span className="text-[10px] text-muted-foreground">{hint}</span>}
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       {children}
     </div>
@@ -875,7 +875,7 @@ function JSONField<T>({
         value={text}
         onChange={(e) => handleChange(e.target.value)}
       />
-      {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </Field>
   );
 }

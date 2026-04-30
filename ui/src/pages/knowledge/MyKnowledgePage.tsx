@@ -75,7 +75,7 @@ function BadgeLabel({ status }: { status: string }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}
     >
       {badge.label}
     </span>
@@ -106,7 +106,7 @@ function InsightCard({ insight }: { insight: Insight }) {
             <span
               key={urn}
               title={urn}
-              className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+              className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
             >
               {formatEntityUrn(urn)}
             </span>
@@ -149,7 +149,7 @@ function MemoryCard({ record }: { record: MemoryRecord }) {
             <span
               key={urn}
               title={urn}
-              className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+              className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
             >
               {formatEntityUrn(urn)}
             </span>
