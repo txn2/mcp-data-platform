@@ -886,15 +886,21 @@ func TestSetTokenStore_PlaceholderRetryUpdatesLastError(t *testing.T) {
 	}))
 	tk.SetTokenStore(store)
 
-	// Placeholder must remain (sick upstream) but lastError must reflect
-	// the most recent failure — likely a 503 from the dead upstream
-	// rather than the original "no token" error.
+	// Placeholder must remain (sick upstream) and lastError must have
+	// CHANGED to reflect the most recent failure — the dead-upstream
+	// 503 surfaced during retry, not the original "no token" error.
+	// Asserting NotEqual (instead of just NotEmpty) is what actually
+	// proves the retry path called recordPlaceholderError; a non-empty
+	// check would pass even if recordPlaceholderError did nothing.
 	tk.mu.RLock()
 	u := tk.connections["vendor"]
 	tk.mu.RUnlock()
 	require.NotNil(t, u)
 	require.Nil(t, u.client, "placeholder must remain when retry fails")
-	assert.NotEmpty(t, u.lastError, "lastError must remain populated after retry")
+	require.NotEmpty(t, u.lastError, "lastError must remain populated after retry")
+	assert.NotEqual(t, originalErr, u.lastError,
+		"retry path must update lastError to the new failure (was %q, still %q)",
+		originalErr, u.lastError)
 }
 
 // TestRecordPlaceholderError_DefensiveBranches covers the no-op paths
@@ -905,8 +911,17 @@ func TestRecordPlaceholderError_DefensiveBranches(t *testing.T) {
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
 
-	// (a) Missing connection — must be a silent no-op.
-	tk.recordPlaceholderError("does-not-exist", errors.New("ignored"))
+	// (a) Missing connection — must be a silent no-op AND must NOT
+	// create a new entry in the connections map. A buggy implementation
+	// that fell through into "set lastError on a fresh upstream" would
+	// have inserted a phantom placeholder; we explicitly guard against
+	// that here.
+	tk.recordPlaceholderError("does-not-exist", "ignored")
+	tk.mu.RLock()
+	_, exists := tk.connections["does-not-exist"]
+	tk.mu.RUnlock()
+	assert.False(t, exists,
+		"recordPlaceholderError must not create entries for missing connections")
 
 	// (b) Connection exists but is already live (client != nil). Pre-
 	// existing lastError (if any) must NOT be overwritten — the live
@@ -920,7 +935,7 @@ func TestRecordPlaceholderError_DefensiveBranches(t *testing.T) {
 	}
 	tk.mu.Unlock()
 
-	tk.recordPlaceholderError("live", errors.New("should be ignored"))
+	tk.recordPlaceholderError("live", "should be ignored")
 
 	tk.mu.RLock()
 	got := tk.connections["live"].lastError

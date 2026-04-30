@@ -113,7 +113,7 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 				// would still show the original placeholder error from
 				// AddConnection time, even after a retry surfaced a new
 				// upstream rejection.
-				t.recordPlaceholderError(p.name, err)
+				t.recordPlaceholderError(p.name, err.Error())
 				return
 			}
 			t.installLiveConnection(p.name, p.cfg, client, tools)
@@ -126,14 +126,18 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 // reflects the most recent dial / discover failure. No-op when the
 // connection no longer exists (concurrent removal) or has already been
 // promoted to a live client.
-func (t *Toolkit) recordPlaceholderError(name string, err error) {
+//
+// Takes the message as a string rather than an error so the call site
+// owns formatting decisions (e.g. wrapping, context prefixing); the
+// helper itself stores raw display text without further interpretation.
+func (t *Toolkit) recordPlaceholderError(name, msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	u, ok := t.connections[name]
 	if !ok || u.client != nil {
 		return
 	}
-	u.lastError = err.Error()
+	u.lastError = msg
 }
 
 // installLiveConnection promotes a placeholder to a live upstream by
@@ -195,8 +199,14 @@ type upstream struct {
 	// connection is in placeholder state (client == nil). Surfaced via
 	// Status().OAuth.LastError so the admin UI can show the operator the
 	// actual upstream rejection reason — instead of leaving them to guess
-	// at a silent "awaiting reauth" warning. Cleared when the connection
-	// becomes live; never set on a healthy upstream.
+	// at a silent "awaiting reauth" warning.
+	//
+	// Lifecycle: set by addParsedConnection at placeholder creation time
+	// and refreshed by recordPlaceholderError when SetTokenStore's retry
+	// path produces a new failure. On successful promotion to live,
+	// installLiveConnection REPLACES the entire upstream struct with a
+	// fresh value (so lastError starts at the zero string ""); there is
+	// no in-place clear. Live connections never set or read this field.
 	lastError string
 }
 
