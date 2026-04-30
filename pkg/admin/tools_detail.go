@@ -277,10 +277,15 @@ func (h *Handler) fillDescriptionOverride(ctx context.Context, name string, d *T
 	d.OverrideAuthor = entry.UpdatedBy
 }
 
-// fillToolActivity queries the audit Breakdown aggregator grouped by
-// tool_name within the recent window, finds the row for this tool,
-// and records its count + success rate + avg duration. Failures
-// degrade silently — Activity stays nil and the UI renders "no data".
+// fillToolActivity queries the audit Breakdown aggregator scoped to this
+// tool within the recent window and records its count + success rate +
+// avg duration. Failures degrade silently — Activity stays nil and the
+// UI renders "no data".
+//
+// Uses the per-tool ToolName filter (#343 bug 2) so low-frequency tools
+// on busy platforms still report accurate counts. Without it, the prior
+// implementation scanned the top-N breakdown and any tool below rank
+// toolsDetailBreakdownLimit appeared inactive even when it had calls.
 func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDetail) {
 	if h.deps.AuditMetricsQuerier == nil {
 		return
@@ -292,21 +297,17 @@ func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDeta
 		Limit:     toolsDetailBreakdownLimit,
 		StartTime: &from,
 		EndTime:   &now,
+		ToolName:  name,
 	})
-	if err != nil {
+	if err != nil || len(rows) == 0 {
 		return
 	}
-	for _, row := range rows {
-		if row.Dimension != name {
-			continue
-		}
-		d.Activity = &ToolActivityAggregate{
-			WindowSeconds: int64(toolsDetailRecentWindow / time.Second),
-			CallCount:     row.Count,
-			SuccessRate:   row.SuccessRate,
-			AvgDurationMs: row.AvgDurationMS,
-		}
-		return
+	row := rows[0]
+	d.Activity = &ToolActivityAggregate{
+		WindowSeconds: int64(toolsDetailRecentWindow / time.Second),
+		CallCount:     row.Count,
+		SuccessRate:   row.SuccessRate,
+		AvgDurationMs: row.AvgDurationMS,
 	}
 }
 
@@ -369,6 +370,15 @@ func (h *Handler) setToolVisibility(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	// Serialize the read-modify-write of the tools.deny config entry —
+	// without this lock, concurrent toggles can each load the same
+	// starting list, append independently, and the second writer
+	// overwrites the first (#343). The lock is held across load → modify
+	// → save AND the in-memory ApplyConfigEntry refresh so a concurrent
+	// reader can't observe a half-applied state.
+	h.toolsDenyMu.Lock()
+	defer h.toolsDenyMu.Unlock()
 
 	deny, err := h.loadCurrentToolsDeny(r.Context())
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -259,6 +260,12 @@ var _ APIKeyManager = (*mockAPIKeyManager)(nil)
 // --- Mock ConfigStore ---
 
 type mockConfigStore struct {
+	// mu guards entries, changelog, and setCalls so the mock can be
+	// safely shared across goroutines in concurrency tests
+	// (e.g. the visibility-lock test for #343 bug 1). Single-goroutine
+	// tests pay no measurable cost — Mutex.Lock on uncontended use is
+	// a single CAS.
+	mu           sync.Mutex
 	mode         string
 	entries      map[string]*configstore.Entry
 	changelog    []configstore.ChangelogEntry
@@ -271,6 +278,8 @@ type mockConfigStore struct {
 }
 
 func (m *mockConfigStore) Get(_ context.Context, key string) (*configstore.Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.getErr != nil {
 		return nil, m.getErr
 	}
@@ -283,6 +292,8 @@ func (m *mockConfigStore) Get(_ context.Context, key string) (*configstore.Entry
 }
 
 func (m *mockConfigStore) Set(_ context.Context, key, value, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.setCalls++
 	if m.setErr != nil {
 		return m.setErr
@@ -295,6 +306,8 @@ func (m *mockConfigStore) Set(_ context.Context, key, value, _ string) error {
 }
 
 func (m *mockConfigStore) Delete(_ context.Context, key, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.deleteErr != nil {
 		return m.deleteErr
 	}
@@ -308,6 +321,8 @@ func (m *mockConfigStore) Delete(_ context.Context, key, _ string) error {
 }
 
 func (m *mockConfigStore) List(_ context.Context) ([]configstore.Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
@@ -319,6 +334,8 @@ func (m *mockConfigStore) List(_ context.Context) ([]configstore.Entry, error) {
 }
 
 func (m *mockConfigStore) Changelog(_ context.Context, _ int) ([]configstore.ChangelogEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.changelogErr != nil {
 		return nil, m.changelogErr
 	}

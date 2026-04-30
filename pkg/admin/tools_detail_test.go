@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -508,4 +509,67 @@ func TestSetToolVisibility(t *testing.T) {
 		h.setToolVisibility(w, req)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
+}
+
+// TestSetToolVisibility_ConcurrentAddsAreSerialized proves the fix for
+// #343 bug 1: parallel toggles on different tool names must not lose
+// each other's writes.
+//
+// Pre-fix, two admins toggling visibility on different tools at the
+// same time could each load the same starting list (e.g. []), append
+// their own tool, and the second writer would overwrite the first —
+// silently dropping one of the changes. The fix adds an in-process
+// mutex around the load → modify → save critical section.
+//
+// The test fires N concurrent PUT calls each toggling a different
+// tool to hidden=true and asserts the final deny list contains every
+// one of them. Without the lock, the test fails non-deterministically;
+// with the lock it passes every run. -race must be on (see Makefile).
+func TestSetToolVisibility_ConcurrentAddsAreSerialized(t *testing.T) {
+	cfg := testConfig()
+	cs := &mockConfigStore{mode: "database"}
+
+	// Register a synthetic toolkit exposing 8 tool names so concurrent
+	// PUTs against different paths are all valid against toolExists.
+	toolNames := []string{
+		"trino_query", "trino_execute", "datahub_search", "datahub_get_entity",
+		"s3_list", "s3_get", "memory_recall", "memory_save",
+	}
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: toolNames},
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          cfg,
+		ConfigStore:     cs,
+		ToolkitRegistry: reg,
+		MCPServer:       newTestMCPServer(),
+	}, nil)
+
+	var wg sync.WaitGroup
+	for _, name := range toolNames {
+		wg.Add(1)
+		go func(toolName string) {
+			defer wg.Done()
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+				"/api/v1/admin/tools/"+toolName+"/visibility",
+				strings.NewReader(`{"hidden":true}`))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code,
+				"concurrent visibility toggle for %s must succeed", toolName)
+		}(name)
+	}
+	wg.Wait()
+
+	// All N tools must end up in the deny list. Pre-fix, this assertion
+	// would fail because of the lost-update race.
+	stored := cs.entries["tools.deny"]
+	require.NotNil(t, stored, "tools.deny entry must exist after concurrent writes")
+	var decoded []string
+	require.NoError(t, json.Unmarshal([]byte(stored.Value), &decoded))
+	assert.ElementsMatch(t, toolNames, decoded,
+		"every concurrent toggle must be reflected in the final deny list "+
+			"(lost-update race? saw %v, want %v)", decoded, toolNames)
 }

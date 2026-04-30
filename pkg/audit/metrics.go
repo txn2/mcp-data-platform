@@ -76,6 +76,13 @@ type BreakdownFilter struct {
 	StartTime *time.Time
 	EndTime   *time.Time
 	UserID    string
+	// ToolName scopes the aggregation to a specific tool. Set when a
+	// caller wants per-tool stats regardless of breakdown ranking — on
+	// platforms with more than Limit distinct tools active in the
+	// window, low-frequency tools would otherwise fall off the top-N
+	// breakdown and appear as "no calls recorded" even when they have
+	// activity (#343 bug 2).
+	ToolName string
 }
 
 // MetricsFilter provides common filtering for aggregate metric queries.

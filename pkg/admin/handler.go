@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -154,6 +155,17 @@ type Handler struct {
 	publicMux  *http.ServeMux
 	deps       Deps
 	authMiddle func(http.Handler) http.Handler
+	// toolsDenyMu serializes read-modify-write of the tools.deny config
+	// entry across concurrent setToolVisibility calls. Without it, two
+	// admins toggling visibility on different tools could each load the
+	// same starting list, modify their own copy, and the second writer
+	// overwrites the first — silently losing one of the changes (#343).
+	//
+	// In-process serialization is sufficient for single-replica
+	// deployments. Multi-replica deployments would additionally need a
+	// row-level DB lock or version-token CAS at the config_entries layer;
+	// that's a separate concern not addressed here.
+	toolsDenyMu sync.Mutex
 }
 
 // statusResponse is a generic status response.
