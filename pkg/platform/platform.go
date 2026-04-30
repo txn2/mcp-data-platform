@@ -228,7 +228,7 @@ func New(opts ...Option) (*Platform, error) {
 // initializeComponents initializes all platform components.
 func (p *Platform) initializeComponents(opts *Options) error {
 	// Initialize data infrastructure first (database + config store)
-	if err := p.initDataInfra(); err != nil {
+	if err := p.initDataInfra(opts); err != nil {
 		return err
 	}
 	if err := p.initProviders(opts); err != nil {
@@ -267,11 +267,11 @@ func (p *Platform) initializeComponents(opts *Options) error {
 }
 
 // initDataInfra initializes the database and config store.
-func (p *Platform) initDataInfra() error {
+func (p *Platform) initDataInfra(opts *Options) error {
 	if err := p.initDatabase(); err != nil {
 		return err
 	}
-	if err := p.initConnectionStore(); err != nil {
+	if err := p.initConnectionStore(opts); err != nil {
 		return err
 	}
 	p.initPersonaStore()
@@ -412,7 +412,17 @@ func (p *Platform) initDatabase() error {
 // initConnectionStore initializes the connection instance store.
 // When a database is available, it uses PostgreSQL with field-level encryption
 // for sensitive config values. The encryption key comes from ENCRYPTION_KEY env var.
-func (p *Platform) initConnectionStore() error {
+//
+// An injected store (opts.ConnectionStore) wins over the default
+// resolution — used by tests to inject a controlled mock without
+// standing up a real database, and by embedders that supply their
+// own backend.
+func (p *Platform) initConnectionStore(opts *Options) error {
+	if opts != nil && opts.ConnectionStore != nil {
+		p.connectionStore = opts.ConnectionStore
+		slog.Info("connection store: injected", "persistent", opts.ConnectionStore.Persistent())
+		return nil
+	}
 	if p.db == nil {
 		p.connectionStore = &NoopConnectionStore{}
 		slog.Info("connection store: noop (no database)")
@@ -495,6 +505,31 @@ func (p *Platform) EnrichmentStore() enrichment.Store {
 // authorization_code connections won't survive restart in that case.
 func (p *Platform) GatewayTokenStore() gatewaykit.TokenStore {
 	return p.gatewayTokenStore
+}
+
+// WireGatewayTokenStore attaches the persistent OAuth token store to
+// every live gateway toolkit in the registry so authorization_code
+// grants survive process restarts. No-op when no database is configured.
+//
+// Lives on Platform (not in cmd/main.go) so the post-construction wiring
+// step is part of the platform contract — testable without spinning up
+// a full main, and discoverable for any future entry-point that builds
+// a Platform.
+//
+// Calling SetTokenStore on a gateway toolkit that already has placeholder
+// authorization_code connections will retry their dial path so persisted
+// tokens come live without requiring an additional admin action. This is
+// what makes auto-enabled gateway toolkits work on a fresh boot.
+func (p *Platform) WireGatewayTokenStore() {
+	store := p.gatewayTokenStore
+	if store == nil {
+		return
+	}
+	for _, tk := range p.toolkitRegistry.All() {
+		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
+			gw.SetTokenStore(store)
+		}
+	}
 }
 
 // DB returns the platform's database handle, or nil when running
@@ -2616,14 +2651,18 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 	if p.connectionStore == nil {
 		return
 	}
-	// Skip the auto-enable path when the connection store is the noop
-	// stub (i.e. the platform is running stateless without a database).
-	// Without persistence, gateway connections wouldn't survive a
-	// restart anyway, and the admin UI's "Add Connection" form would
-	// silently discard saves into the noop store. In that mode the
+	// Skip the auto-enable path when the store has no durable backing
+	// (stateless mode). Without persistence, gateway connections
+	// wouldn't survive a restart anyway, and the admin UI's "Add
+	// Connection" form would silently discard saves. In that mode the
 	// operator must opt in via YAML, the same way they would for
 	// trino / s3 / datahub.
-	if _, isNoop := p.connectionStore.(*NoopConnectionStore); isNoop {
+	//
+	// Uses the interface contract Persistent() rather than a type
+	// assertion against *NoopConnectionStore, so future transient or
+	// test-only implementations don't accidentally toggle auto-enable
+	// behavior on or off.
+	if !p.connectionStore.Persistent() {
 		return
 	}
 
@@ -2662,12 +2701,17 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 // enabled=true so the toolkit loader will instantiate it. Idempotent and
 // non-overriding: if the operator has already declared the kind block
 // (enabled OR disabled), their explicit choice is respected.
+//
+// Logs at Debug, not Info: this is the platform's documented default
+// behavior, not an exceptional condition that requires operator
+// attention. Operators who want to silence the path entirely can set
+// the kind explicitly in YAML (with either enabled state).
 func (p *Platform) autoEnableToolkitKind(kind string) {
 	if _, exists := p.config.Toolkits[kind]; exists {
 		return
 	}
 	p.config.Toolkits[kind] = map[string]any{cfgKeyEnabled: true}
-	slog.Info("auto-enabled toolkit kind (requirements met, no explicit YAML)",
+	slog.Debug("auto-enabled toolkit kind (requirements met, no explicit YAML)",
 		"kind", kind)
 }
 
