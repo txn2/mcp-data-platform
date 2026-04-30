@@ -514,6 +514,74 @@ func TestBreakdown_WithUserID(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestBreakdown_WithToolName proves the per-tool filter (#343 bug 2):
+// when ToolName is set, the SQL WHERE clause includes a tool_name match
+// so callers asking for stats on a specific tool no longer have to
+// scan a top-N breakdown. Without this filter, low-frequency tools on
+// busy platforms fell off the breakdown rank and rendered as
+// "no calls recorded" in the admin Tools detail page.
+func TestBreakdown_WithToolName(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("low_frequency_tool", 3, 1.0, 12.0)
+	// The tool_name argument must appear in the args list — proves
+	// the filter actually made it into the WHERE clause.
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "low_frequency_tool").
+		WillReturnRows(rows)
+
+	result, err := store.Breakdown(context.Background(), audit.BreakdownFilter{
+		GroupBy:   audit.BreakdownByToolName,
+		StartTime: &start,
+		EndTime:   &now,
+		ToolName:  "low_frequency_tool",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "low_frequency_tool", result[0].Dimension)
+	assert.Equal(t, 3, result[0].Count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBreakdown_WithToolNameAndUserID covers the combined filter case
+// — both UserID and ToolName scopes apply simultaneously, both args
+// reach the SQL.
+func TestBreakdown_WithToolNameAndUserID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
+		AddRow("trino_query", 7, 0.85, 145.0)
+	mock.ExpectQuery("SELECT").
+		WithArgs(start, now, "user-42", "trino_query").
+		WillReturnRows(rows)
+
+	result, err := store.Breakdown(context.Background(), audit.BreakdownFilter{
+		GroupBy:   audit.BreakdownByToolName,
+		StartTime: &start,
+		EndTime:   &now,
+		UserID:    "user-42",
+		ToolName:  "trino_query",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestOverview_WithUserID(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

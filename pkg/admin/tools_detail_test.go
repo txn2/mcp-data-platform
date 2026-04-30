@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -298,6 +299,43 @@ func TestGetToolDetail_DegradesOnDependencyFailures(t *testing.T) {
 	assert.Nil(t, d.Activity)
 }
 
+// TestGetToolDetail_ActivityZeroRows covers fillToolActivity's
+// "querier returns zero rows" branch — the explicit guard added when
+// the breakdown was switched from top-N scan to ToolName-scoped query
+// (#343 bug 2). The handler must not panic and Activity must remain
+// nil so the UI renders "no data" rather than a zero-filled card.
+func TestGetToolDetail_ActivityZeroRows(t *testing.T) {
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+		},
+	}
+	// Querier responds successfully but with an empty result set —
+	// this is the shape we'll get for any tool that has zero calls
+	// in the recent window (ToolName filter narrows to one row at most;
+	// no calls = no row).
+	metrics := &mockAuditMetricsQuerier{breakdownResult: nil}
+
+	h := NewHandler(Deps{
+		Config:              testConfig(),
+		ToolkitRegistry:     reg,
+		MCPServer:           newTestMCPServer(),
+		AuditMetricsQuerier: metrics,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodGet, "/api/v1/admin/tools/trino_query", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var d ToolDetail
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
+	assert.Nil(t, d.Activity,
+		"Activity must remain nil when the querier returns zero rows "+
+			"so the UI shows 'no data' rather than a zero-filled card")
+}
+
 func TestGetToolDetail_EmptyName(t *testing.T) {
 	// Hitting /tools/ (no path value) is a 404 from the mux, not the handler.
 	// The empty-name guard is exercised by routing through the handler with
@@ -508,4 +546,132 @@ func TestSetToolVisibility(t *testing.T) {
 		h.setToolVisibility(w, req)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
+}
+
+// TestSetToolVisibility_ConcurrentAddsAreSerialized proves the fix for
+// #343 bug 1: parallel toggles on different tool names must not lose
+// each other's writes.
+//
+// Pre-fix, two admins toggling visibility on different tools at the
+// same time could each load the same starting list (e.g. []), append
+// their own tool, and the second writer would overwrite the first —
+// silently dropping one of the changes. The fix adds an in-process
+// mutex around the load → modify → save critical section.
+//
+// The test fires N concurrent PUT calls each toggling a different
+// tool to hidden=true and asserts the final deny list contains every
+// one of them. Without the lock, the test fails non-deterministically;
+// with the lock it passes every run. -race must be on (see Makefile).
+func TestSetToolVisibility_ConcurrentAddsAreSerialized(t *testing.T) {
+	cfg := testConfig()
+	cs := &mockConfigStore{mode: "database"}
+
+	// Register a synthetic toolkit exposing 8 tool names so concurrent
+	// PUTs against different paths are all valid against toolExists.
+	toolNames := []string{
+		"trino_query", "trino_execute", "datahub_search", "datahub_get_entity",
+		"s3_list", "s3_get", "memory_recall", "memory_save",
+	}
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: toolNames},
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          cfg,
+		ConfigStore:     cs,
+		ToolkitRegistry: reg,
+		MCPServer:       newTestMCPServer(),
+	}, nil)
+
+	var wg sync.WaitGroup
+	for _, name := range toolNames {
+		wg.Add(1)
+		go func(toolName string) {
+			defer wg.Done()
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+				"/api/v1/admin/tools/"+toolName+"/visibility",
+				strings.NewReader(`{"hidden":true}`))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code,
+				"concurrent visibility toggle for %s must succeed", toolName)
+		}(name)
+	}
+	wg.Wait()
+
+	// All N tools must end up in the deny list. Pre-fix, this assertion
+	// would fail because of the lost-update race.
+	stored := cs.entries["tools.deny"]
+	require.NotNil(t, stored, "tools.deny entry must exist after concurrent writes")
+	var decoded []string
+	require.NoError(t, json.Unmarshal([]byte(stored.Value), &decoded))
+	assert.ElementsMatch(t, toolNames, decoded,
+		"every concurrent toggle must be reflected in the final deny list "+
+			"(lost-update race? saw %v, want %v)", decoded, toolNames)
+}
+
+// TestSetToolVisibility_SameToolFlapStaysConsistent stresses the lock
+// against the "same tool flapped between hidden=true and hidden=false
+// many times concurrently" pathology. The end state must be one of the
+// two valid outcomes (in deny list or not), the JSON value must parse
+// to a clean []string, and the deny list must NOT contain duplicate
+// entries or partial-write garbage. Different from
+// _ConcurrentAddsAreSerialized which only catches dropped writes
+// across distinct keys; this catches corruption from interleaved
+// reads of the same key.
+func TestSetToolVisibility_SameToolFlapStaysConsistent(t *testing.T) {
+	cfg := testConfig()
+	cs := &mockConfigStore{mode: "database"}
+
+	reg := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          cfg,
+		ConfigStore:     cs,
+		ToolkitRegistry: reg,
+		MCPServer:       newTestMCPServer(),
+	}, nil)
+
+	const flaps = 32
+	var wg sync.WaitGroup
+	for i := range flaps {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			hidden := idx%2 == 0
+			body := `{"hidden":false}`
+			if hidden {
+				body = `{"hidden":true}`
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+				"/api/v1/admin/tools/trino_query/visibility",
+				strings.NewReader(body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+		}(i)
+	}
+	wg.Wait()
+
+	// Final state must parse cleanly and either contain the tool
+	// exactly once or not at all — never duplicated, never garbage.
+	stored := cs.entries["tools.deny"]
+	require.NotNil(t, stored)
+	var decoded []string
+	require.NoError(t, json.Unmarshal([]byte(stored.Value), &decoded),
+		"final tools.deny value must parse as []string after concurrent flap")
+
+	count := 0
+	for _, name := range decoded {
+		if name == "trino_query" {
+			count++
+		}
+	}
+	assert.LessOrEqual(t, count, 1,
+		"concurrent flap must not duplicate the tool in the deny list (saw %d copies in %v)",
+		count, decoded)
 }

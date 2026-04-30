@@ -97,16 +97,16 @@ func clampBreakdownLimit(limit int) int {
 	return limit
 }
 
-// Breakdown returns audit event counts grouped by a dimension.
-func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
-	if !audit.ValidBreakdownDimensions[filter.GroupBy] {
-		return nil, fmt.Errorf("invalid breakdown dimension: %q", filter.GroupBy)
-	}
-
+// buildBreakdownQuery composes the SQL for Store.Breakdown. Extracted so
+// the caller stays under the cyclomatic-complexity limit even as the
+// filter set grows (UserID, ToolName, future scopes). Returns the
+// finished SQL string and its positional arguments.
+func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any, err error) {
 	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
 	limit := clampBreakdownLimit(filter.Limit)
 
-	// col is validated against ValidBreakdownDimensions — safe for column reference.
+	// col is validated against ValidBreakdownDimensions in Breakdown
+	// before this helper is called — safe for column reference here.
 	col := string(filter.GroupBy)
 
 	// For user_id, display email when available so humans see names, not UUIDs.
@@ -127,14 +127,36 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 	if filter.UserID != "" {
 		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
 	}
+	if filter.ToolName != "" {
+		// Per-tool scoping: callers asking for stats on a specific tool
+		// no longer have to scan a top-N breakdown. Important for the
+		// admin Tools detail page (#343 bug 2) — without this filter,
+		// platforms with more than Limit distinct tools active in the
+		// window dropped low-frequency tools off the breakdown and
+		// rendered them as "no calls recorded" in the UI.
+		qb = qb.Where(sq.Eq{"tool_name": filter.ToolName})
+	}
 
 	qb = qb.GroupBy("dimension").
 		OrderBy("count DESC").
 		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 
-	query, args, err := qb.ToSql()
+	query, args, err = qb.ToSql()
 	if err != nil {
-		return nil, fmt.Errorf("building breakdown query: %w", err)
+		return "", nil, fmt.Errorf("building breakdown query: %w", err)
+	}
+	return query, args, nil
+}
+
+// Breakdown returns audit event counts grouped by a dimension.
+func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+	if !audit.ValidBreakdownDimensions[filter.GroupBy] {
+		return nil, fmt.Errorf("invalid breakdown dimension: %q", filter.GroupBy)
+	}
+
+	query, args, err := buildBreakdownQuery(filter)
+	if err != nil {
+		return nil, err
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)

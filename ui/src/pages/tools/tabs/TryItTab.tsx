@@ -1,75 +1,42 @@
-import { useEffect, useRef, useState } from "react";
 import { useCallTool, useToolSchemas } from "@/api/admin/hooks";
-import { useInspectorStore } from "@/stores/inspector";
-import type { ReplayIntent } from "@/stores/inspector";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
 import { ToolForm } from "../ToolForm";
 import { ToolResult } from "../ToolResult";
 import type { ToolCallResponse, ToolDetail } from "@/api/admin/types";
+import type { HistoryEntry, TryItSession } from "../useTryItSession";
 import { X } from "lucide-react";
 
-interface HistoryEntry {
-  id: string;
-  timestamp: string;
-  parameters: Record<string, unknown>;
-  response: ToolCallResponse | null;
-  is_loading: boolean;
-}
-
-export function TryItTab({ detail }: { detail: ToolDetail }) {
+export function TryItTab({
+  detail,
+  session,
+}: {
+  detail: ToolDetail;
+  session: TryItSession;
+}) {
   const { data: schemasData } = useToolSchemas();
   const callTool = useCallTool();
-  // Peek at the intent — only consume when the tool matches the current
-  // selection so we don't drop someone else's pending replay.
-  const replayIntent = useInspectorStore((s) => s.replayIntent);
-  const consumeReplayIntent = useInspectorStore((s) => s.consumeReplayIntent);
 
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [latestResult, setLatestResult] = useState<ToolCallResponse | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(true);
-  const [replayParams, setReplayParams] = useState<
-    Record<string, unknown> | null
-  >(null);
-  const [replaySource, setReplaySource] = useState<{
-    event_id: string;
-    event_timestamp: string;
-  } | null>(null);
-  const [formVersion, setFormVersion] = useState(0);
+  const {
+    history,
+    latestResult,
+    showRaw,
+    historyOpen,
+    replayParams,
+    replaySource,
+    formVersion,
+    addHistoryEntry,
+    updateHistoryEntry,
+    clearHistory,
+    setLatestResult,
+    toggleRaw,
+    toggleHistory,
+    applyReplay,
+    dismissReplay,
+  } = session;
 
   const schema = schemasData?.schemas[detail.name] ?? null;
   const connection = detail.connection ?? "";
-
-  // Reset session state when the selected tool changes.
-  useEffect(() => {
-    setHistory([]);
-    setLatestResult(null);
-    setShowRaw(false);
-    setReplayParams(null);
-    setReplaySource(null);
-    setFormVersion((v) => v + 1);
-  }, [detail.name]);
-
-  // Consume a replay intent from the inspector store (set by EventDrawer).
-  // Only fires when the requested tool matches the currently-selected one;
-  // intents for other tools stay in the store for the matching mount.
-  const consumedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (consumedRef.current === detail.name) return;
-    const intent: ReplayIntent | null = replayIntent;
-    if (!intent || intent.tool_name !== detail.name) return;
-    consumeReplayIntent();
-    consumedRef.current = detail.name;
-    setReplayParams(intent.parameters);
-    setReplaySource({
-      event_id: intent.event_id,
-      event_timestamp: intent.event_timestamp,
-    });
-    setLatestResult(null);
-    setShowRaw(false);
-    setFormVersion((v) => v + 1);
-  }, [replayIntent, consumeReplayIntent, detail.name]);
 
   function handleSubmit(params: Record<string, unknown>) {
     if (!schema) return;
@@ -81,7 +48,7 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
       response: null,
       is_loading: true,
     };
-    setHistory((prev) => [entry, ...prev]);
+    addHistoryEntry(entry);
     setLatestResult(null);
 
     const properties = schema.parameters.properties ?? {};
@@ -96,13 +63,7 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
       {
         onSuccess: (data) => {
           setLatestResult(data);
-          setHistory((prev) =>
-            prev.map((h) =>
-              h.id === entryId
-                ? { ...h, response: data, is_loading: false }
-                : h,
-            ),
-          );
+          updateHistoryEntry(entryId, { response: data, is_loading: false });
         },
         onError: () => {
           const errorResp: ToolCallResponse = {
@@ -111,24 +72,14 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
             duration_ms: 0,
           };
           setLatestResult(errorResp);
-          setHistory((prev) =>
-            prev.map((h) =>
-              h.id === entryId
-                ? { ...h, response: errorResp, is_loading: false }
-                : h,
-            ),
-          );
+          updateHistoryEntry(entryId, { response: errorResp, is_loading: false });
         },
       },
     );
   }
 
   function handleReplay(entry: HistoryEntry) {
-    setReplayParams(entry.parameters);
-    setReplaySource(null);
-    setLatestResult(null);
-    setShowRaw(false);
-    setFormVersion((v) => v + 1);
+    applyReplay({ params: entry.parameters, source: null });
   }
 
   if (!schema) {
@@ -153,10 +104,7 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
           </span>
           <button
             type="button"
-            onClick={() => {
-              setReplaySource(null);
-              setReplayParams(null);
-            }}
+            onClick={dismissReplay}
             className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Dismiss"
           >
@@ -179,13 +127,13 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
           result={latestResult}
           toolKind={schema.kind}
           showRaw={showRaw}
-          onToggleRaw={() => setShowRaw((v) => !v)}
+          onToggleRaw={toggleRaw}
         />
       )}
 
       <div className="rounded-lg border bg-card">
         <button
-          onClick={() => setHistoryOpen((v) => !v)}
+          onClick={toggleHistory}
           className="flex w-full items-center justify-between border-b p-3 text-sm font-medium"
         >
           <span>
@@ -255,7 +203,7 @@ export function TryItTab({ detail }: { detail: ToolDetail }) {
                 </table>
                 <div className="flex justify-end border-t p-2">
                   <button
-                    onClick={() => setHistory([])}
+                    onClick={clearHistory}
                     className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     Clear

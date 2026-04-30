@@ -277,10 +277,15 @@ func (h *Handler) fillDescriptionOverride(ctx context.Context, name string, d *T
 	d.OverrideAuthor = entry.UpdatedBy
 }
 
-// fillToolActivity queries the audit Breakdown aggregator grouped by
-// tool_name within the recent window, finds the row for this tool,
-// and records its count + success rate + avg duration. Failures
-// degrade silently — Activity stays nil and the UI renders "no data".
+// fillToolActivity queries the audit Breakdown aggregator scoped to this
+// tool within the recent window and records its count + success rate +
+// avg duration. Failures degrade silently — Activity stays nil and the
+// UI renders "no data".
+//
+// Uses the per-tool ToolName filter (#343 bug 2) so low-frequency tools
+// on busy platforms still report accurate counts. Without it, the prior
+// implementation scanned the top-N breakdown and any tool below rank
+// toolsDetailBreakdownLimit appeared inactive even when it had calls.
 func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDetail) {
 	if h.deps.AuditMetricsQuerier == nil {
 		return
@@ -292,21 +297,17 @@ func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDeta
 		Limit:     toolsDetailBreakdownLimit,
 		StartTime: &from,
 		EndTime:   &now,
+		ToolName:  name,
 	})
-	if err != nil {
+	if err != nil || len(rows) == 0 {
 		return
 	}
-	for _, row := range rows {
-		if row.Dimension != name {
-			continue
-		}
-		d.Activity = &ToolActivityAggregate{
-			WindowSeconds: int64(toolsDetailRecentWindow / time.Second),
-			CallCount:     row.Count,
-			SuccessRate:   row.SuccessRate,
-			AvgDurationMs: row.AvgDurationMS,
-		}
-		return
+	row := rows[0]
+	d.Activity = &ToolActivityAggregate{
+		WindowSeconds: int64(toolsDetailRecentWindow / time.Second),
+		CallCount:     row.Count,
+		SuccessRate:   row.SuccessRate,
+		AvgDurationMs: row.AvgDurationMS,
 	}
 }
 
@@ -334,6 +335,13 @@ func toolDescriptionConfigKey(toolName string) string {
 // kill-switch. The value stored in config_entries is a JSON-encoded
 // []string. Centralized so the live-config hot-reload path and the
 // admin UI agree.
+//
+// CONCURRENCY: any code path that mutates this entry must hold
+// Handler.toolsDenyMu across the read-modify-write critical section
+// (load → modify → save → ApplyConfigEntry). The single mutator today
+// is setToolVisibility; future bulk-hide / YAML-import / similar
+// handlers must participate in the same lock or they recreate the
+// lost-update race fixed in #343.
 const toolsDenyConfigKey = "tools.deny"
 
 // toolVisibilityRequest is the body for PUT /admin/tools/{name}/visibility.
@@ -370,32 +378,55 @@ func (h *Handler) setToolVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deny, err := h.loadCurrentToolsDeny(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load current tools.deny")
+	updated, status, errMsg := h.applyToolVisibilityChange(r, name, req.Hidden)
+	if errMsg != "" {
+		writeError(w, status, errMsg)
 		return
 	}
 
-	updated := updateDenyList(deny, name, req.Hidden)
-	encoded, err := json.Marshal(updated)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to encode tools.deny")
-		return
-	}
-
-	if err := h.deps.ConfigStore.Set(r.Context(), toolsDenyConfigKey, string(encoded), extractAuthor(r)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save tools.deny")
-		return
-	}
-	if h.deps.Config != nil {
-		h.deps.Config.ApplyConfigEntry(toolsDenyConfigKey, string(encoded))
-	}
-
+	// writeJSON happens AFTER the critical section. The mutex is
+	// released by applyToolVisibilityChange. Slow clients writing the
+	// HTTP response no longer block other admins from toggling
+	// visibility — and slow DB I/O is the only thing serialized.
 	writeJSON(w, http.StatusOK, toolVisibilityResponse{
 		ToolName: name,
 		Hidden:   req.Hidden,
 		Deny:     updated,
 	})
+}
+
+// applyToolVisibilityChange performs the read-modify-write of the
+// tools.deny config entry under Handler.toolsDenyMu. Returns the
+// updated deny list on success, or (status, message) on failure.
+//
+// Splitting this out of setToolVisibility keeps the response write
+// (writeJSON) outside the lock — a slow HTTP client must not block
+// other admins from toggling visibility. The lock covers only the
+// load → modify → save → ApplyConfigEntry sequence, which is the
+// full atomicity boundary needed to defeat the lost-update race
+// fixed in #343.
+func (h *Handler) applyToolVisibilityChange(r *http.Request, name string, hidden bool) (deny []string, status int, errMsg string) {
+	h.toolsDenyMu.Lock()
+	defer h.toolsDenyMu.Unlock()
+
+	deny, err := h.loadCurrentToolsDeny(r.Context())
+	if err != nil {
+		return nil, http.StatusInternalServerError, "failed to load current tools.deny"
+	}
+
+	updated := updateDenyList(deny, name, hidden)
+	encoded, err := json.Marshal(updated)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "failed to encode tools.deny"
+	}
+
+	if err := h.deps.ConfigStore.Set(r.Context(), toolsDenyConfigKey, string(encoded), extractAuthor(r)); err != nil {
+		return nil, http.StatusInternalServerError, "failed to save tools.deny"
+	}
+	if h.deps.Config != nil {
+		h.deps.Config.ApplyConfigEntry(toolsDenyConfigKey, string(encoded))
+	}
+	return updated, http.StatusOK, ""
 }
 
 // parseVisibilityRequest validates the request preconditions and decodes the

@@ -9,6 +9,7 @@ import { TryItTab } from "./tabs/TryItTab";
 import { ActivityTab } from "./tabs/ActivityTab";
 import { EnrichmentTab } from "./tabs/EnrichmentTab";
 import { VisibilityTab } from "./tabs/VisibilityTab";
+import { useTryItSession, type TryItSession } from "./useTryItSession";
 
 export type ToolDetailTab =
   | "overview"
@@ -33,6 +34,11 @@ interface ToolDetailProps {
 
 export function ToolDetail({ toolName, tab, onTabChange }: ToolDetailProps) {
   const { data, isLoading, error } = useToolDetail(toolName);
+  // Try It session state lives here, at ToolDetail's level, so it
+  // survives tab switches. TryItTab receives it as a prop. Without
+  // this, clicking Activity → Try It would unmount TryItTab and
+  // wipe its history list (#343 bug 3).
+  const tryItSession = useTryItSession(toolName);
 
   if (isLoading) {
     return (
@@ -102,7 +108,11 @@ export function ToolDetail({ toolName, tab, onTabChange }: ToolDetailProps) {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        <ToolDetailTabBody detail={data} tab={effectiveTab} />
+        <ToolDetailTabBody
+          detail={data}
+          tab={effectiveTab}
+          tryItSession={tryItSession}
+        />
       </div>
     </div>
   );
@@ -111,15 +121,17 @@ export function ToolDetail({ toolName, tab, onTabChange }: ToolDetailProps) {
 function ToolDetailTabBody({
   detail,
   tab,
+  tryItSession,
 }: {
   detail: ToolDetailDTO;
   tab: ToolDetailTab;
+  tryItSession: TryItSession;
 }) {
   switch (tab) {
     case "overview":
       return <OverviewTab detail={detail} />;
     case "tryit":
-      return <TryItTab detail={detail} />;
+      return <TryItTab detail={detail} session={tryItSession} />;
     case "activity":
       return <ActivityTab detail={detail} />;
     case "enrichment":
