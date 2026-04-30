@@ -2593,10 +2593,48 @@ func (p *Platform) ConnectionSources() *ConnectionSourceMap {
 
 // mergeDBConnectionsIntoConfig loads DB connection instances and merges them
 // into p.config.Toolkits so the toolkit loader creates clients for them.
+//
+// Implements the "features-on-by-default-when-requirements-are-met" rule:
+//
+//  1. The mcp gateway toolkit auto-enables whenever a connection store is
+//     available — gateway connections are added dynamically through the
+//     admin UI, there's no YAML 'instances' block to gate on, and forcing
+//     operators to copy `toolkits.mcp.enabled: true` boilerplate before
+//     they can save their first connection makes the admin UI silently
+//     inert. The "Add Connection" form already exposes mcp as an option;
+//     saving must produce a working connection without further config.
+//
+//  2. Trino and S3 toolkit kinds auto-enable when an operator saves their
+//     first DB instance via the admin UI. Pre-fix, the saved row was
+//     orphaned: the kind block didn't exist, isToolkitEnabled returned
+//     false, mergeConnectionInstance was a no-op, and the toolkit loader
+//     never instantiated anything.
+//
+// Operator-set values are never overridden — if the YAML explicitly sets
+// `toolkits.mcp.enabled: false`, that wins.
 func (p *Platform) mergeDBConnectionsIntoConfig() {
 	if p.connectionStore == nil {
 		return
 	}
+	// Skip the auto-enable path when the connection store is the noop
+	// stub (i.e. the platform is running stateless without a database).
+	// Without persistence, gateway connections wouldn't survive a
+	// restart anyway, and the admin UI's "Add Connection" form would
+	// silently discard saves into the noop store. In that mode the
+	// operator must opt in via YAML, the same way they would for
+	// trino / s3 / datahub.
+	if _, isNoop := p.connectionStore.(*NoopConnectionStore); isNoop {
+		return
+	}
+
+	if p.config.Toolkits == nil {
+		p.config.Toolkits = make(map[string]any)
+	}
+
+	// (1) The gateway toolkit needs no instance config to be useful —
+	// auto-enable so the admin UI's "Add Connection" path produces a
+	// live toolkit on the next request.
+	p.autoEnableToolkitKind(kindMCP)
 
 	instances, err := p.connectionStore.List(context.Background())
 	if err != nil {
@@ -2607,19 +2645,30 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		return
 	}
 
-	if p.config.Toolkits == nil {
-		p.config.Toolkits = make(map[string]any)
-	}
-
 	// Only merge connections for kinds that support DB management.
 	// Datahub is single-instance and managed via YAML only.
 	manageableKinds := map[string]bool{kindTrino: true, kindS3: true, kindMCP: true}
 
 	for _, inst := range instances {
 		if manageableKinds[inst.Kind] {
+			// (2) Auto-enable the kind so the merge actually has effect.
+			p.autoEnableToolkitKind(inst.Kind)
 			mergeConnectionInstance(p.config.Toolkits, inst)
 		}
 	}
+}
+
+// autoEnableToolkitKind ensures p.config.Toolkits[kind] exists with
+// enabled=true so the toolkit loader will instantiate it. Idempotent and
+// non-overriding: if the operator has already declared the kind block
+// (enabled OR disabled), their explicit choice is respected.
+func (p *Platform) autoEnableToolkitKind(kind string) {
+	if _, exists := p.config.Toolkits[kind]; exists {
+		return
+	}
+	p.config.Toolkits[kind] = map[string]any{cfgKeyEnabled: true}
+	slog.Info("auto-enabled toolkit kind (requirements met, no explicit YAML)",
+		"kind", kind)
 }
 
 // mergeConnectionInstance merges a single DB connection instance into the

@@ -4013,7 +4013,14 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("skips kind not in config", func(t *testing.T) {
+	t.Run("auto-enables manageable kind when DB instance exists but YAML omits it", func(t *testing.T) {
+		// Pre-fix bug: an admin saved a connection through the UI for a
+		// kind whose toolkit block didn't exist in YAML. mergeConnectionInstance
+		// silently no-op'd (kindMap missing → isToolkitEnabled false), the
+		// toolkit loader never instantiated anything, and the connection
+		// was orphaned. Per the platform's "features-on-by-default-when-
+		// requirements-are-met" rule, the kind must auto-enable so the
+		// saved instance is loaded.
 		p := &Platform{
 			config: &Config{
 				Toolkits: map[string]any{},
@@ -4026,8 +4033,66 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 		p.mergeDBConnectionsIntoConfig()
 
-		if _, ok := p.config.Toolkits["trino"]; ok {
-			t.Error("trino kind should not be created when not in config")
+		kindMap, ok := p.config.Toolkits["trino"].(map[string]any)
+		if !ok {
+			t.Fatal("trino kind should be auto-created when an admin-saved DB instance exists")
+		}
+		if enabled, _ := kindMap[cfgKeyEnabled].(bool); !enabled {
+			t.Error("auto-enabled kind must have enabled=true")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should be created after auto-enable")
+		}
+		if _, ok := instances["prod"]; !ok {
+			t.Error("DB instance must be merged after auto-enable")
+		}
+	})
+
+	t.Run("auto-enables mcp gateway toolkit even with no instances", func(t *testing.T) {
+		// Gateway connections are added dynamically via the admin UI, so
+		// the toolkit must be live BEFORE any instance exists. Otherwise
+		// the admin "Add Connection" form is silently inert: the row
+		// saves to the DB but the toolkit doesn't exist to register it.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"trino": map[string]any{cfgKeyEnabled: true},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{instances: nil},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		mcpKind, ok := p.config.Toolkits[kindMCP].(map[string]any)
+		if !ok {
+			t.Fatal("mcp gateway toolkit must auto-enable whenever a connection store is available")
+		}
+		if enabled, _ := mcpKind[cfgKeyEnabled].(bool); !enabled {
+			t.Error("auto-enabled mcp kind must have enabled=true")
+		}
+	})
+
+	t.Run("respects explicit enabled=false from YAML (no override)", func(t *testing.T) {
+		// If the operator explicitly disables a toolkit in YAML, that
+		// choice wins — the auto-enable path must not silently flip
+		// the kind back on.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					kindMCP: map[string]any{cfgKeyEnabled: false},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{instances: nil},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		mcpKind, ok := p.config.Toolkits[kindMCP].(map[string]any)
+		if !ok {
+			t.Fatal("mcp kind block should remain")
+		}
+		if enabled, _ := mcpKind[cfgKeyEnabled].(bool); enabled {
+			t.Error("explicit enabled=false must not be overridden")
 		}
 	})
 
