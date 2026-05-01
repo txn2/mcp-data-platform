@@ -37,12 +37,18 @@ const (
 	logKeyConnection = "connection"
 	logKeyEndpoint   = "endpoint"
 	logKeyError      = "error"
-	logKeyGrantType  = "grant_type"
 
 	// LogKeyTokenURLHost is the structured-log field name used when
 	// emitting an IdP host. Exported so external packages don't
 	// duplicate the literal and risk drift.
 	LogKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
+
+	// LogKeyGrantType is the structured-log field name used when
+	// emitting an OAuth grant_type. Exported so the admin handler
+	// (which performs the authorization_code exchange) and the
+	// gateway token source (which performs refresh / acquire) emit
+	// the same field name across the full OAuth lifecycle.
+	LogKeyGrantType = "grant_type"
 )
 
 // Toolkit is a gateway that proxies tools from one or more upstream MCP

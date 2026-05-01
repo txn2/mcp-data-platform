@@ -301,6 +301,12 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
         </div>
       )}
 
+      {oauth.refresh_token_revoked && !oauth.needs_reauth && (
+        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+          <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid. Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
+        </div>
+      )}
+
       <OAuthStatusGrid status={oauth} />
 
       {oauth.authenticated_by && (

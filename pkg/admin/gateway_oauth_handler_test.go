@@ -455,15 +455,6 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
-// TestURLHost verifies urlHost falls back to the raw string when the
-// input cannot be parsed as a URL with a host (so logs always show
-// something, even if the operator misconfigured the URL).
-func TestURLHost(t *testing.T) {
-	assert.Equal(t, "idp.example.com", urlHost("https://idp.example.com/realms/x"))
-	assert.Equal(t, "not a url", urlHost("not a url"))
-	assert.Equal(t, "", urlHost(""))
-}
-
 // TestGatewayOAuthCallback_MissingCode covers the callback path where
 // the IdP redirects back without an `error` and without a `code` —
 // observed in the wild when an operator manually replays a callback URL

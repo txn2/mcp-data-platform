@@ -38,6 +38,12 @@ const (
 	// and background workloads keep working without further interaction.
 	OAuthGrantAuthorizationCode = "authorization_code"
 
+	// OAuthGrantRefreshToken is the grant type used to mint a new
+	// access token from a previously-stored refresh token. Not a user-
+	// selectable grant for connection config — internal use only by
+	// the token source's refresh path.
+	OAuthGrantRefreshToken = "refresh_token"
+
 	// TrustLevelUntrusted is the default. Upstream responses are treated as
 	// untrusted content (reserved for future enforcement).
 	TrustLevelUntrusted = "untrusted"

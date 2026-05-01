@@ -52,6 +52,14 @@ type OAuthStatus struct {
 	// means: no stored token, or the refresh token has been revoked.
 	// The admin UI surfaces a "Connect" button when this is true.
 	NeedsReauth bool `json:"needs_reauth,omitempty"`
+	// RefreshTokenRevoked is true when the most recent refresh attempt
+	// got a definitive RFC 6749 §5.2 invalid_grant response — meaning
+	// the IdP has invalidated the stored refresh token (idle session
+	// timeout, admin revocation, password change, etc.) and the
+	// operator must complete a fresh browser-side authorization. The
+	// admin UI uses this to distinguish "click Connect to reauthorize"
+	// from a transient "click Reacquire to retry" state.
+	RefreshTokenRevoked bool `json:"refresh_token_revoked,omitempty"`
 }
 
 // oauthTokenSource holds the state for a single connection's OAuth flow.
@@ -71,13 +79,14 @@ type oauthTokenSource struct {
 	client         *http.Client
 	store          TokenStore // nil for client_credentials grants
 
-	mu        sync.Mutex
-	state     tokenState
-	loaded    bool
-	loadErr   error
-	lastError string
-	authedBy  string
-	authedAt  time.Time
+	mu                  sync.Mutex
+	state               tokenState
+	loaded              bool
+	loadErr             error
+	lastError           string
+	refreshTokenRevoked bool
+	authedBy            string
+	authedAt            time.Time
 }
 
 // newOAuthTokenSource builds a token source backed by http.DefaultClient
@@ -110,7 +119,7 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 	if t.state.AccessToken != "" && time.Until(t.state.ExpiresAt) > expiryBuffer {
 		slog.Debug("gateway/oauth: cached access token still valid",
 			logKeyConnection, t.connectionName,
-			"expires_in", time.Until(t.state.ExpiresAt).Round(time.Second))
+			"expires_in_seconds", int(time.Until(t.state.ExpiresAt).Seconds()))
 		return t.state.AccessToken, nil
 	}
 	// Try refresh first if we have a refresh token.
@@ -119,6 +128,7 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 			logKeyConnection, t.connectionName)
 		if err := t.refreshLocked(ctx); err == nil {
 			t.persistLocked(ctx)
+			t.refreshTokenRevoked = false
 			return t.state.AccessToken, nil
 		} else if errors.Is(err, errRefreshTokenRevoked) {
 			// IdP definitively said the refresh token is dead. Clear the
@@ -129,12 +139,12 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 			// already-known-dead credential.
 			slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
 				logKeyConnection, t.connectionName,
-				"err", err)
-			t.clearStaleStateLocked(ctx)
+				logKeyError, err)
+			t.clearStaleStateLocked()
 		} else {
 			slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
 				logKeyConnection, t.connectionName,
-				"err", err)
+				logKeyError, err)
 		}
 	}
 	// authorization_code with no usable refresh path: needs human re-auth.
@@ -158,31 +168,45 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 
 // clearStaleStateLocked drops the in-memory token state AND deletes the
 // persisted row from the store after the IdP has signaled the refresh
-// token is dead (invalid_grant / invalid_token at 400). Caller must
-// hold t.mu.
+// token is dead (RFC 6749 §5.2 invalid_grant at 400). Caller must hold
+// t.mu; refreshTokenRevoked is also set so Status() can surface the
+// distinction to the admin UI without a separate query.
 //
-// Best-effort: a failed Delete is logged in lastError but not bubbled
-// to the caller — the in-memory clear alone is enough to stop the
-// retry loop within this process; the row will eventually be replaced
-// on the next successful IngestOAuthToken (Connect flow).
-func (t *oauthTokenSource) clearStaleStateLocked(ctx context.Context) {
+// The Delete uses a fresh context with a short timeout rather than the
+// caller's ctx — the cleanup is best-effort, and a tool-call ctx that
+// expired during the upstream's slow rejection must NOT also kill the
+// cleanup that prevents the dead refresh from being replayed.
+//
+// Best-effort: a failed Delete is recorded BOTH on lastError (for the
+// admin Status panel) AND via slog.Warn (for log-aggregator alerts)
+// but is not returned to the caller — the in-memory clear alone is
+// enough to stop the retry loop within this process; the row will
+// eventually be replaced on the next successful IngestOAuthToken
+// (Connect flow).
+func (t *oauthTokenSource) clearStaleStateLocked() {
 	t.state = tokenState{}
 	t.authedBy = ""
 	t.authedAt = time.Time{}
+	t.refreshTokenRevoked = true
 	if t.store == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), staleCleanupTimeout)
+	defer cancel()
 	if err := t.store.Delete(ctx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
-		// Surface the persistence failure both as Status.LastError (for
-		// the admin UI) AND as a slog.Warn (for log-aggregator alerts).
-		// Without the slog line, a misbehaving DB or encryption layer
-		// could swallow stale tokens silently per restart.
 		t.lastError = "clear stale token: " + err.Error()
 		slog.Warn("gateway/oauth: failed to delete stale token row",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
 	}
 }
+
+// staleCleanupTimeout bounds the Delete call inside
+// clearStaleStateLocked so a slow / hung token store cannot block the
+// connection's mutex (held by Token / Reacquire / Status). Five
+// seconds is generous for any healthy postgres; anything slower
+// indicates the operator should be looking at the DB anyway.
+const staleCleanupTimeout = 5 * time.Second
 
 // ensureLoadedLocked reads the persisted token row (if any) into the
 // in-memory state. Caller must hold t.mu. Subsequent calls are no-ops.
@@ -264,6 +288,7 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 	t.authedBy = in.AuthenticatedBy
 	t.authedAt = time.Now().UTC()
 	t.lastError = ""
+	t.refreshTokenRevoked = false
 	t.loaded = true
 	t.persistLocked(ctx)
 	if t.lastError != "" {
@@ -276,6 +301,11 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 // still valid. For client_credentials this re-runs the grant; for
 // authorization_code it attempts a refresh — re-running the full grant
 // requires a browser, which Reacquire cannot do.
+//
+// Mirrors Token()'s dead-refresh handling: if refreshLocked returns an
+// errRefreshTokenRevoked-wrapped error the persisted row is cleared so
+// the next manual Connect (or implicit Token() call) starts fresh
+// instead of replaying the dead credential.
 func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -289,10 +319,17 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 		}
 		if err := t.refreshLocked(ctx); err != nil {
 			t.lastError = err.Error()
+			if errors.Is(err, errRefreshTokenRevoked) {
+				slog.Info("gateway/oauth: Reacquire — refresh token rejected by IdP, clearing stale state",
+					logKeyConnection, t.connectionName,
+					logKeyError, err)
+				t.clearStaleStateLocked()
+			}
 			return err
 		}
 		t.persistLocked(ctx)
 		t.lastError = ""
+		t.refreshTokenRevoked = false
 		return nil
 	}
 	if err := t.acquireLocked(ctx); err != nil {
@@ -311,18 +348,19 @@ func (t *oauthTokenSource) Status() OAuthStatus {
 	needsReauth := t.cfg.Grant == OAuthGrantAuthorizationCode &&
 		t.state.AccessToken == "" && t.state.RefreshToken == ""
 	return OAuthStatus{
-		Configured:      true,
-		TokenAcquired:   t.state.AccessToken != "",
-		ExpiresAt:       t.state.ExpiresAt,
-		LastRefreshedAt: t.state.LastRefreshedAt,
-		HasRefreshToken: t.state.RefreshToken != "",
-		LastError:       t.lastError,
-		Grant:           t.cfg.Grant,
-		TokenURL:        t.cfg.TokenURL,
-		Scope:           t.cfg.Scope,
-		AuthenticatedBy: t.authedBy,
-		AuthenticatedAt: t.authedAt,
-		NeedsReauth:     needsReauth,
+		Configured:          true,
+		TokenAcquired:       t.state.AccessToken != "",
+		ExpiresAt:           t.state.ExpiresAt,
+		LastRefreshedAt:     t.state.LastRefreshedAt,
+		HasRefreshToken:     t.state.RefreshToken != "",
+		LastError:           t.lastError,
+		Grant:               t.cfg.Grant,
+		TokenURL:            t.cfg.TokenURL,
+		Scope:               t.cfg.Scope,
+		AuthenticatedBy:     t.authedBy,
+		AuthenticatedAt:     t.authedAt,
+		NeedsReauth:         needsReauth,
+		RefreshTokenRevoked: t.refreshTokenRevoked,
 	}
 }
 
@@ -343,8 +381,8 @@ func (t *oauthTokenSource) acquireLocked(ctx context.Context) error {
 // subsequent process restart picks up the freshest credentials.
 func (t *oauthTokenSource) refreshLocked(ctx context.Context) error {
 	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", t.state.RefreshToken)
+	form.Set("grant_type", OAuthGrantRefreshToken)
+	form.Set(OAuthGrantRefreshToken, t.state.RefreshToken)
 	form.Set("client_id", t.cfg.ClientID)
 	form.Set("client_secret", t.cfg.ClientSecret)
 	if t.cfg.Scope != "" {
@@ -379,11 +417,11 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	req.Header.Set("Accept", "application/json")
 
 	grantType := form.Get("grant_type")
-	tokenHost := tokenHostForLog(t.cfg.TokenURL)
+	tokenHost := URLHost(t.cfg.TokenURL)
 	exchangeStart := time.Now()
 	slog.Debug("gateway/oauth: token exchange start",
 		logKeyConnection, t.connectionName,
-		logKeyGrantType, grantType,
+		LogKeyGrantType, grantType,
 		LogKeyTokenURLHost, tokenHost,
 		"client_id", t.cfg.ClientID)
 
@@ -392,10 +430,10 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	if err != nil {
 		slog.Warn("gateway/oauth: token request transport error",
 			logKeyConnection, t.connectionName,
-			logKeyGrantType, grantType,
+			LogKeyGrantType, grantType,
 			LogKeyTokenURLHost, tokenHost,
 			"duration", time.Since(exchangeStart),
-			"err", err)
+			logKeyError, err)
 		return fmt.Errorf("oauth: token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -407,16 +445,16 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("gateway/oauth: non-200 from token endpoint",
 			logKeyConnection, t.connectionName,
-			logKeyGrantType, grantType,
+			LogKeyGrantType, grantType,
 			LogKeyTokenURLHost, tokenHost,
 			"status", resp.StatusCode,
 			"duration", time.Since(exchangeStart),
 			"body_excerpt", trimBody(body))
-		return interpretTokenError(resp.StatusCode, body)
+		return interpretTokenError(grantType, resp.StatusCode, body)
 	}
 	slog.Info("gateway/oauth: token exchange success",
 		logKeyConnection, t.connectionName,
-		logKeyGrantType, grantType,
+		LogKeyGrantType, grantType,
 		LogKeyTokenURLHost, tokenHost,
 		"duration", time.Since(exchangeStart))
 
@@ -451,9 +489,12 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 // further access tokens, and the operator must complete a fresh
 // browser-side authorization to recover.
 //
-// Wrapped by interpretTokenError when the upstream returns 400 with
-// error="invalid_token" or error="invalid_grant" (the OAuth-RFC-6749
-// signals that mean "this credential is dead, stop retrying it").
+// Wrapped by interpretTokenError ONLY when grantType == "refresh_token"
+// AND the upstream returns 400 with error="invalid_grant" (RFC 6749
+// §5.2). Other grant types receive the same status/code verbatim —
+// invalid_grant on a code-exchange or client_credentials request has a
+// different meaning (bad code, bad client_secret) that callers must not
+// confuse with a dead refresh.
 //
 // Callers (Token(), Reacquire()) detect this with errors.Is and clear
 // the persisted state — without that step, every subsequent restart
@@ -464,15 +505,15 @@ var errRefreshTokenRevoked = errors.New("oauth: refresh token revoked by issuer"
 // interpretTokenError tries to parse a structured OAuth error from the
 // upstream's response body, falling back to status code + raw body.
 //
-// Returns an error wrapping errRefreshTokenRevoked for the canonical
-// "your refresh token is dead, stop using it" responses (RFC 6749
-// §5.2: invalid_grant; §5.2 + RFC 6750 §3.1: invalid_token). Other
-// errors are passed through verbatim — they may be transient (5xx,
-// network) and the caller should NOT clear stored credentials.
-func interpretTokenError(status int, body []byte) error {
+// grantType is the value of the form's grant_type — passed through so
+// the sentinel-wrapping is scoped to the only grant where it makes
+// sense (refresh_token). Other grants get the verbatim status/code —
+// they may signal transient or operator-config errors that the caller
+// must NOT respond to by deleting stored credentials.
+func interpretTokenError(grantType string, status int, body []byte) error {
 	var tr tokenResponse
 	if jerr := json.Unmarshal(body, &tr); jerr == nil && tr.Error != "" {
-		if isRefreshDeadError(status, tr.Error) {
+		if grantType == OAuthGrantRefreshToken && isRefreshDeadError(status, tr.Error) {
 			// revive's string-format rule prefers messages start with
 			// recognizable %s/%v rather than %w; opening the format
 			// with the IdP's literal status/code keeps the rule happy
@@ -485,34 +526,29 @@ func interpretTokenError(status int, body []byte) error {
 	return fmt.Errorf("oauth: token endpoint returned %d: %s", status, trimBody(body))
 }
 
-// statusBadRequest is named so revive's add-constant rule doesn't flag
-// the bare 400 in isRefreshDeadError. The standard library's
-// http.StatusBadRequest would be ideal but pulling net/http in here for
-// a single integer constant would inflate this package's import graph
-// for no real benefit.
-const statusBadRequest = 400
-
 // isRefreshDeadError reports whether the IdP's structured error
-// indicates the refresh token cannot be used. Per RFC 6749 §5.2, both
-// invalid_grant and invalid_token are returned as 400 with these
-// error codes; we treat both as definitively dead so the caller can
-// clear state without ambiguity.
+// indicates the refresh token cannot be used. RFC 6749 §5.2 defines
+// invalid_grant as the canonical "the provided refresh token is
+// invalid, expired, revoked, or doesn't match" signal — that's the
+// only error code we treat as definitively dead. Other codes
+// (invalid_request, invalid_client, etc.) and other status classes
+// (5xx, network) may be transient and the caller must NOT clear
+// stored credentials on a transient signal.
 func isRefreshDeadError(status int, errCode string) bool {
-	if status != statusBadRequest {
-		return false
-	}
-	switch errCode {
-	case "invalid_grant", "invalid_token":
-		return true
-	}
-	return false
+	return status == http.StatusBadRequest && errCode == "invalid_grant"
 }
 
-// tokenHostForLog returns the host portion of u so logs can show
-// "which IdP" without dragging the full URL (which contains the path,
-// and sometimes query) into log files. Falls back to the raw value
-// when parsing fails so logs are never empty.
-func tokenHostForLog(u string) string {
+// URLHost returns the host portion of u so logs can show "which IdP"
+// without dragging the full URL (which contains the path, and
+// sometimes query) into log files. Falls back to the raw value when
+// parsing fails so logs are never empty.
+//
+// Exported so packages composing with this one (admin handlers,
+// orchestration code) emit the same shape of host-only field as
+// internal exchange / refresh logs — operators can grep one
+// connection's full lifecycle by `token_url_host=<host>` regardless
+// of which package emitted the line.
+func URLHost(u string) string {
 	parsed, err := url.Parse(u)
 	if err != nil || parsed.Host == "" {
 		return u

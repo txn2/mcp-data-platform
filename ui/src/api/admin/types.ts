@@ -522,6 +522,7 @@ export interface GatewayOAuthStatus {
   authenticated_by?: string;
   authenticated_at?: string;
   needs_reauth?: boolean;
+  refresh_token_revoked?: boolean;
 }
 
 export interface GatewayOAuthStartResponse {

@@ -156,7 +156,7 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		logKeyStartedBy, startedBy,
 		logKeyStatePrefix, truncateForLog(state),
 		logKeyRedirectURI, redirectURI,
-		"authorization_url_host", urlHost(cfg.OAuth.AuthorizationURL),
+		"authorization_url_host", gatewaykit.URLHost(cfg.OAuth.AuthorizationURL),
 		"return_url", body.ReturnURL,
 		"ttl", pkceTTL)
 
@@ -193,17 +193,6 @@ func truncateForLog(s string) string {
 		return s
 	}
 	return s[:truncateLen] + "…"
-}
-
-// urlHost returns just the host portion of u, falling back to the
-// raw string when parsing fails. Used in logs to show "which IdP"
-// without dragging the full path/query into log files.
-func urlHost(u string) string {
-	parsed, err := url.Parse(u)
-	if err != nil || parsed.Host == "" {
-		return u
-	}
-	return parsed.Host
 }
 
 // clientIP returns the originating client's address, honoring
@@ -457,7 +446,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	pending *PKCEState, code string,
 ) (*authCodeTokenResponse, error) {
 	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
+	form.Set("grant_type", gatewaykit.OAuthGrantAuthorizationCode)
 	form.Set("code", code)
 	form.Set("client_id", oc.ClientID)
 	form.Set("client_secret", oc.ClientSecret)
@@ -474,14 +463,21 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	req.Header.Set("Accept", "application/json")
 
 	exchangeStart := time.Now()
+	tokenHost := gatewaykit.URLHost(oc.TokenURL)
+	// Emit grant_type on every admin-side exchange log so operators can
+	// grep one connection's full lifecycle (admin code-exchange +
+	// gateway refresh) by `grant_type=*` regardless of which package
+	// emitted the line.
 	slog.Debug("oauth-exchange: posting authorization_code grant",
-		gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
+		gatewaykit.LogKeyTokenURLHost, tokenHost,
+		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		"client_id", oc.ClientID,
 		logKeyRedirectURI, pending.redirectURI)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		slog.Error("oauth-exchange: token request transport error",
-			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			logKeyDuration, time.Since(exchangeStart),
 			logKeyError, err)
 		return nil, fmt.Errorf("token request: %w", err)
@@ -490,7 +486,8 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("oauth-exchange: non-200 from token endpoint",
-			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			"status", resp.StatusCode,
 			logKeyDuration, time.Since(exchangeStart),
 			"body_excerpt", trimOAuthBody(bodyBytes))
@@ -499,23 +496,28 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	var tr authCodeTokenResponse
 	if jerr := json.Unmarshal(bodyBytes, &tr); jerr != nil {
 		slog.Error("oauth-exchange: decode response failed",
-			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL), logKeyError, jerr)
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			logKeyError, jerr)
 		return nil, fmt.Errorf("decode token response: %w", jerr)
 	}
 	if tr.Error != "" {
 		slog.Warn("oauth-exchange: structured error in token response",
-			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			"idp_error", tr.Error,
 			"idp_error_description", tr.ErrorDesc)
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {
 		slog.Warn("oauth-exchange: token response missing access_token",
-			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL))
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode)
 		return nil, errors.New("token response missing access_token")
 	}
 	slog.Info("oauth-exchange: success",
-		gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
+		gatewaykit.LogKeyTokenURLHost, tokenHost,
+		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		logKeyDuration, time.Since(exchangeStart),
 		"access_token_len", len(tr.AccessToken),
 		"refresh_token_present", tr.RefreshToken != "",
@@ -591,17 +593,20 @@ func pkceChallenge(verifier string) string {
 // the IdP doesn't reject the request with invalid_request.
 func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirectURI string) string {
 	q := url.Values{}
+	// Required RFC 6749 §4.1.1 + RFC 7636 §4.3 parameters first.
 	q.Set("response_type", "code")
 	q.Set("client_id", cfg.ClientID)
 	q.Set("redirect_uri", redirectURI)
 	q.Set("state", state)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
-	if cfg.Prompt != "" {
-		q.Set("prompt", cfg.Prompt)
-	}
+	// Optional parameters last, co-located so the conditional block
+	// reads as one section rather than scattered throughout the URL.
 	if cfg.Scope != "" {
 		q.Set("scope", cfg.Scope)
+	}
+	if cfg.Prompt != "" {
+		q.Set("prompt", cfg.Prompt)
 	}
 
 	sep := "?"
