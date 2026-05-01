@@ -347,12 +347,8 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 		return err
 	}
 	t.lastError = ""
-	// Symmetry with the auth_code branch: a client_credentials
-	// reacquire clears any prior dead-refresh signal too. For pure
-	// client_credentials connections the field is never set true so
-	// this is a no-op; defensive against future refactors that allow
-	// mixed grant usage on a single source.
-	t.refreshTokenRevoked = false
+	// refreshTokenRevoked was already cleared inside
+	// applyTokenResponseLocked (called via acquireLocked → exchangeLocked).
 	return nil
 }
 
@@ -388,7 +384,8 @@ func (t *oauthTokenSource) reacquireAuthCodeLocked(ctx context.Context) error {
 			logKeyError, err)
 	}
 	t.lastError = ""
-	t.refreshTokenRevoked = false
+	// refreshTokenRevoked was already cleared inside
+	// applyTokenResponseLocked (called via refreshLocked → exchangeLocked).
 	return nil
 }
 
