@@ -252,7 +252,13 @@ func TestGatewayOAuthCallback_UnknownState(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "expired or unknown")
 }
 
-func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
+// runOAuthCallbackErrorCase drives the start → callback flow against
+// the real handler with the given callback query and asserts the
+// response. Shared between TestGatewayOAuthCallback subtests so each
+// case is a one-liner that documents what's being tested instead of
+// duplicating ~25 lines of setup.
+func runOAuthCallbackErrorCase(t *testing.T, callbackQuery, wantBodySubstr string) {
+	t.Helper()
 	store := &mockConnectionStore{
 		getResult: &platform.ConnectionInstance{
 			Kind: gatewaykit.Kind, Name: "vendor",
@@ -270,13 +276,19 @@ func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
 	var startResp startGatewayOAuthResponse
 	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
 
-	cbURL := "/api/v1/admin/oauth/callback?error=access_denied&error_description=denied&state=" +
-		url.QueryEscape(startResp.State)
+	cbURL := "/api/v1/admin/oauth/callback?" + callbackQuery +
+		"&state=" + url.QueryEscape(startResp.State)
 	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody)
 	cbW := httptest.NewRecorder()
 	h.ServeHTTP(cbW, cbReq)
 	assert.Equal(t, http.StatusBadRequest, cbW.Code)
-	assert.Contains(t, cbW.Body.String(), "access_denied")
+	assert.Contains(t, cbW.Body.String(), wantBodySubstr)
+}
+
+func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
+	runOAuthCallbackErrorCase(t,
+		"error=access_denied&error_description=denied",
+		"access_denied")
 }
 
 func TestPKCEChallenge_Deterministic(t *testing.T) {
@@ -387,7 +399,7 @@ func TestSafeReturnURL(t *testing.T) {
 		`/\evil.example.com/x`:           "/portal/admin/connections", // backslash-protocol-relative
 		`/\\evil.example.com/x`:          "/portal/admin/connections",
 		"https://evil.example.com/x":     "/portal/admin/connections",
-		"javascript:alert(1)":            "/portal/admin/connections", //nolint:gosec // G203 false positive: test data string, not executed
+		"javascript:alert(1)":            "/portal/admin/connections",
 		"portal/admin":                   "/portal/admin/connections",
 		"/path?next=javascript:alert(1)": "/portal/admin/connections", // colon anywhere → reject
 		// accepted forms
@@ -460,27 +472,8 @@ func TestClientIP(t *testing.T) {
 // observed in the wild when an operator manually replays a callback URL
 // after the code has already been consumed.
 func TestGatewayOAuthCallback_MissingCode(t *testing.T) {
-	store := &mockConnectionStore{
-		getResult: &platform.ConnectionInstance{
-			Kind: gatewaykit.Kind, Name: "vendor",
-			Config: authCodeConnectionConfig("https://auth/", "https://t/"),
-		},
-	}
-	h, _ := gatewayOAuthHandlerWithToolkit(t, store)
-
-	startReq := httptest.NewRequestWithContext(context.Background(),
-		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/oauth-start", http.NoBody)
-	startReq.Host = "platform.example.com"
-	startW := httptest.NewRecorder()
-	h.ServeHTTP(startW, startReq)
-	require.Equal(t, http.StatusOK, startW.Code)
-	var startResp startGatewayOAuthResponse
-	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
-
-	cbURL := "/api/v1/admin/oauth/callback?state=" + url.QueryEscape(startResp.State)
-	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody)
-	cbW := httptest.NewRecorder()
-	h.ServeHTTP(cbW, cbReq)
-	assert.Equal(t, http.StatusBadRequest, cbW.Code)
-	assert.Contains(t, cbW.Body.String(), "missing code")
+	// Empty query (just state) — IdP returned neither error nor code,
+	// observed in the wild when an operator manually replays a
+	// callback URL after the code has already been consumed.
+	runOAuthCallbackErrorCase(t, "", "missing code")
 }

@@ -297,13 +297,15 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
 
       {oauth.needs_reauth && (
         <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
-        </div>
-      )}
-
-      {oauth.refresh_token_revoked && !oauth.needs_reauth && (
-        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid. Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
+          {oauth.refresh_token_revoked ? (
+            <>
+              <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid (idle session timeout, password change, or admin revocation). Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
+            </>
+          ) : (
+            <>
+              <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
+            </>
+          )}
         </div>
       )}
 

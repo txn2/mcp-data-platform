@@ -186,25 +186,34 @@ func TestClearStaleStateLocked_NilStoreIsSafe(t *testing.T) {
 	defer src.mu.Unlock()
 	src.state.AccessToken = "x"
 	src.state.RefreshToken = "y"
-	src.clearStaleStateLocked()
+	src.clearStaleStateLocked(context.Background())
 	assert.Empty(t, src.state.AccessToken)
 	assert.Empty(t, src.state.RefreshToken)
 }
 
-// TestClearStaleStateLocked_DeleteErrorRecorded covers the Delete-error
-// branch: when the store rejects the delete with anything other than
-// ErrTokenNotFound, the failure is recorded on lastError so operators
-// can see persistence problems through Status.
-func TestClearStaleStateLocked_DeleteErrorRecorded(t *testing.T) {
+// TestClearStaleStateLocked_DeleteErrorPreservesCallerLastError verifies
+// the contract that clearStaleStateLocked never overwrites the
+// caller's lastError on Delete failure. The caller (Token / Reacquire)
+// has already recorded the IdP rejection error — that's what operators
+// need to see in Status. Cleanup-side failures go to slog.Warn only,
+// so they're visible in logs without clobbering the diagnostic chain.
+func TestClearStaleStateLocked_DeleteErrorPreservesCallerLastError(t *testing.T) {
 	src := newOAuthTokenSource(OAuthConfig{
 		Grant: OAuthGrantAuthorizationCode,
 	}, "test", &erroringDeleteStore{})
 	src.mu.Lock()
 	defer src.mu.Unlock()
+	const callerErr = "oauth: 400 invalid_grant: revoked (oauth: refresh token revoked by issuer)"
+	src.lastError = callerErr
 	src.state.RefreshToken = "doomed"
-	src.clearStaleStateLocked()
-	assert.Contains(t, src.lastError, "clear stale token",
-		"Delete failures must surface on lastError so Status can show them")
+	src.clearStaleStateLocked(context.Background())
+	assert.Equal(t, callerErr, src.lastError,
+		"clearStaleStateLocked must preserve caller's lastError so Status "+
+			"shows the IdP rejection, not the cleanup-side Delete failure")
+	assert.True(t, src.refreshTokenRevoked,
+		"refreshTokenRevoked must still be set to true even when Delete fails")
+	assert.Empty(t, src.state.RefreshToken,
+		"in-memory refresh token must still be cleared even when Delete fails")
 }
 
 // erroringDeleteStore is a minimal TokenStore that returns a non-
@@ -1521,16 +1530,21 @@ func TestStatus_OAuthFieldsPopulated(t *testing.T) {
 
 // TestReacquire_RefreshDeadClearsStaleState mirrors Token()'s
 // dead-refresh handling on the manual Reacquire path. When an admin
-// clicks Reacquire while the IdP has revoked the refresh token, the
-// persisted row must be deleted — without this, the same dead
-// credential would be replayed on the next implicit Token() call,
-// producing IdP audit-log noise the operator already triggered
-// the cleanup for via Reacquire.
+// clicks Reacquire while the IdP has revoked the refresh token:
+//   - the IdP rejection error must be returned to the caller,
+//   - the persisted row must be deleted (so subsequent Token() calls
+//     don't replay the dead credential and spam the IdP audit log),
+//   - Status must surface BOTH RefreshTokenRevoked=true (so the UI can
+//     show a distinct "click Connect" panel) AND NeedsReauth=true
+//     (so the existing UI logic moves the operator past Reacquire),
+//   - lastError must contain the IdP-rejection text (with the wrapped
+//     sentinel suffix) so operators see the actual cause, not a
+//     generic "needs reauth" message.
 func TestReacquire_RefreshDeadClearsStaleState(t *testing.T) {
 	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"revoked"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"session_idle_timeout"}`))
 	})
 
 	store := NewMemoryTokenStore()
@@ -1550,42 +1564,170 @@ func TestReacquire_RefreshDeadClearsStaleState(t *testing.T) {
 
 	err := src.Reacquire(context.Background())
 	require.Error(t, err, "Reacquire must propagate the IdP rejection")
+	assert.ErrorIs(t, err, errRefreshTokenRevoked,
+		"returned error must wrap errRefreshTokenRevoked so admin handlers can react via errors.Is")
 
-	// The row must be GONE — proves Reacquire ran the same
+	// The persisted row must be gone — proves Reacquire ran the same
 	// stale-state cleanup as Token() would have.
 	_, getErr := store.Get(context.Background(), "vendor")
 	assert.ErrorIs(t, getErr, ErrTokenNotFound,
-		"Reacquire must delete the persisted row when refresh is definitively dead — "+
-			"otherwise the same dead refresh replays on the next Token() call")
+		"Reacquire must delete the persisted row when refresh is definitively dead "+
+			"so the same dead refresh doesn't replay on the next Token() call")
 
-	// Status must now report the revoked state so the admin UI can
-	// switch the operator from "Reacquire" prompts to "Connect".
+	// Status must report the FULL recovery posture so the UI can render
+	// the right messaging without ambiguity.
 	st := src.Status()
 	assert.True(t, st.RefreshTokenRevoked,
-		"Status.RefreshTokenRevoked must be true after Reacquire surfaces a definitive rejection")
+		"RefreshTokenRevoked must be true so the UI can show 'IdP revoked your token' messaging")
+	assert.True(t, st.NeedsReauth,
+		"NeedsReauth must be true so the UI replaces the Reacquire affordance with Connect")
+	assert.False(t, st.HasRefreshToken,
+		"HasRefreshToken must be false after the cleanup — the row is gone")
+	assert.False(t, st.TokenAcquired,
+		"TokenAcquired must be false after the cleanup — in-memory state is empty")
+	assert.Contains(t, st.LastError, "invalid_grant",
+		"LastError must contain the IdP rejection text (operators need to see the actual cause)")
+	assert.Contains(t, st.LastError, "session_idle_timeout",
+		"LastError must include the IdP error_description for diagnostic context")
 }
 
-// TestStatus_RefreshTokenRevokedClearedOnSuccess proves the
-// RefreshTokenRevoked flag flips back to false after a successful
-// IngestTokenResponse (operator completed a fresh Connect flow). A
-// sticky-true would lock the admin UI into "click Connect" forever
-// even after recovery.
-func TestStatus_RefreshTokenRevokedClearedOnSuccess(t *testing.T) {
+// TestStatus_RefreshTokenRevokedFullRecoveryCycle proves the full
+// state-machine cycle the admin UI depends on:
+//
+//   - revoked refresh -> RefreshTokenRevoked flips true,
+//     NeedsReauth flips true, store row is gone;
+//   - operator runs Connect -> IngestTokenResponse with fresh tokens
+//     -> RefreshTokenRevoked flips back to false, NeedsReauth flips
+//     to false, TokenAcquired and HasRefreshToken flip to true.
+//
+// A sticky-true RefreshTokenRevoked would lock the UI into the
+// revoked-panel forever even after recovery; a missed flip on the
+// happy-path side would leave the panel stale across restarts.
+func TestStatus_RefreshTokenRevokedFullRecoveryCycle(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "old",
+		RefreshToken:   "stale",
+		ExpiresAt:      time.Now().Add(-time.Hour),
+	}))
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", store)
+
+	// Phase 1: trigger the dead-refresh cleanup via the real refresh
+	// path (NOT by direct field mutation — we exercise the production
+	// state machine, not its internals).
+	require.Error(t, src.Reacquire(context.Background()))
+	pre := src.Status()
+	require.True(t, pre.RefreshTokenRevoked, "phase 1: RefreshTokenRevoked should be true")
+	require.True(t, pre.NeedsReauth, "phase 1: NeedsReauth should be true")
+
+	// Phase 2: simulate the operator completing a fresh Connect flow
+	// through the real IngestTokenResponse path.
+	require.NoError(t, src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken:     "fresh",
+		RefreshToken:    "fresh-r",
+		ExpiresIn:       3600,
+		AuthenticatedBy: "ops@example.com",
+	}))
+
+	post := src.Status()
+	assert.False(t, post.RefreshTokenRevoked,
+		"phase 2: RefreshTokenRevoked must clear after a successful IngestTokenResponse")
+	assert.False(t, post.NeedsReauth,
+		"phase 2: NeedsReauth must clear — the connection is fully authorized again")
+	assert.True(t, post.TokenAcquired, "phase 2: TokenAcquired must reflect the new access token")
+	assert.True(t, post.HasRefreshToken, "phase 2: HasRefreshToken must reflect the new refresh token")
+	assert.Empty(t, post.LastError,
+		"phase 2: LastError must clear — the operator successfully recovered")
+	assert.Equal(t, "ops@example.com", post.AuthenticatedBy,
+		"phase 2: AuthenticatedBy must record who completed the fresh Connect flow")
+}
+
+// TestIngestTokenResponse_RejectsEmptyAccessToken proves the boundary
+// guard added to IngestTokenResponse. An empty access token would
+// silently flip TokenAcquired=true on the admin status panel, hiding
+// upstream bugs in callers that produce no token but still call
+// IngestTokenResponse.
+func TestIngestTokenResponse_RejectsEmptyAccessToken(t *testing.T) {
 	src := newOAuthTokenSource(OAuthConfig{
 		Grant: OAuthGrantAuthorizationCode,
 	}, "vendor", nil)
 
-	src.mu.Lock()
-	src.refreshTokenRevoked = true // simulate a previous dead-refresh observation
-	src.mu.Unlock()
-
-	require.NoError(t, src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
-		AccessToken:  "fresh",
-		RefreshToken: "fresh-r",
-		ExpiresIn:    3600,
-	}))
+	err := src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "access_token is required")
 
 	st := src.Status()
-	assert.False(t, st.RefreshTokenRevoked,
-		"successful IngestTokenResponse must clear RefreshTokenRevoked so the UI returns to normal")
+	assert.False(t, st.TokenAcquired,
+		"failed IngestTokenResponse must NOT mutate state — "+
+			"an empty access_token cannot flip TokenAcquired to true")
 }
+
+// TestEnsureLoadedLocked_TransientErrorRetries verifies the bug fix:
+// a transient store error on first load must NOT mark the source
+// loaded. Subsequent calls retry rather than locking the source into
+// "no token" state when postgres has the row.
+func TestEnsureLoadedLocked_TransientErrorRetries(t *testing.T) {
+	store := &flakyGetStore{}
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	// First load: store returns a transient error.
+	src.mu.Lock()
+	src.ensureLoadedLocked(context.Background())
+	loadedAfterFailure := src.loaded
+	lastErrAfterFailure := src.lastError
+	src.mu.Unlock()
+
+	assert.False(t, loadedAfterFailure,
+		"transient store error must NOT mark source loaded — otherwise the source is "+
+			"permanently locked into empty state until process restart")
+	assert.Contains(t, lastErrAfterFailure, "load token",
+		"transient load error must surface on lastError so Status shows the cause")
+
+	// Second load: store now returns the row successfully.
+	store.healed = true
+	src.mu.Lock()
+	src.ensureLoadedLocked(context.Background())
+	state := src.state
+	src.mu.Unlock()
+
+	assert.Equal(t, "real-access", state.AccessToken,
+		"after the store heals, the next ensureLoadedLocked call must succeed")
+	assert.Equal(t, "real-refresh", state.RefreshToken,
+		"after the store heals, the persisted refresh token must be loaded")
+}
+
+// flakyGetStore returns a transient error on the first Get and the
+// real row on subsequent calls (after `healed` is set). Used to
+// exercise ensureLoadedLocked's retry-on-transient-error contract.
+type flakyGetStore struct{ healed bool }
+
+func (s *flakyGetStore) Get(_ context.Context, _ string) (*PersistedToken, error) {
+	if !s.healed {
+		return nil, errors.New("simulated transient DB error")
+	}
+	return &PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "real-access",
+		RefreshToken:   "real-refresh",
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}, nil
+}
+func (*flakyGetStore) Set(_ context.Context, _ PersistedToken) error { return nil }
+func (*flakyGetStore) Delete(_ context.Context, _ string) error      { return nil }

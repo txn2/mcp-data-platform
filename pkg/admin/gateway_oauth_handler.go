@@ -440,6 +440,27 @@ type authCodeTokenResponse struct {
 	ErrorDesc    string `json:"error_description,omitempty"`
 }
 
+// codeExchangeTimeout bounds the admin's authorization_code POST to the
+// upstream's token endpoint. Without this, http.DefaultClient (Timeout: 0)
+// plus an IdP that accepts the connection then hangs would keep the
+// OAuth callback handler open until the platform's outer HTTP server
+// timeout — minutes at worst — making the Connect button spin
+// indefinitely. 30s is generous for any healthy IdP.
+const codeExchangeTimeout = 30 * time.Second
+
+// maxCodeExchangeBodyBytes caps the response read from the token
+// endpoint to prevent a misbehaving IdP from OOMing the platform
+// with an unbounded stream. OAuth token responses are KB at most;
+// 1 MiB is a generous ceiling.
+const maxCodeExchangeBodyBytes = 1 << 20
+
+// codeExchangeClient is the HTTP client used for admin-side
+// authorization_code exchanges. Distinct from http.DefaultClient so
+// any package-level mutation of DefaultClient cannot affect token
+// exchanges, and so we have a clean place to attach the explicit
+// timeout above.
+var codeExchangeClient = &http.Client{Timeout: codeExchangeTimeout}
+
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
 // upstream's token endpoint and returns the parsed response.
 func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
@@ -473,7 +494,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		"client_id", oc.ClientID,
 		logKeyRedirectURI, pending.redirectURI)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := codeExchangeClient.Do(req)
 	if err != nil {
 		slog.Error("oauth-exchange: token request transport error",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
@@ -483,7 +504,16 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		return nil, fmt.Errorf("token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	// Bound the body read so a misbehaving IdP that streams indefinitely
+	// cannot OOM the platform.
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCodeExchangeBodyBytes))
+	if readErr != nil {
+		slog.Error("oauth-exchange: read response body failed",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			logKeyError, readErr)
+		return nil, fmt.Errorf("read token response: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("oauth-exchange: non-200 from token endpoint",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,

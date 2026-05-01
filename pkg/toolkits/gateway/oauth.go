@@ -82,21 +82,37 @@ type oauthTokenSource struct {
 	mu                  sync.Mutex
 	state               tokenState
 	loaded              bool
-	loadErr             error
 	lastError           string
 	refreshTokenRevoked bool
 	authedBy            string
 	authedAt            time.Time
 }
 
-// newOAuthTokenSource builds a token source backed by http.DefaultClient
-// for the OAuth token exchange. Pass a non-nil store to enable persistent
-// authorization_code flows; pass nil for client_credentials.
+// defaultTokenExchangeTimeout bounds every token-endpoint POST. Without
+// this, http.DefaultClient (Timeout: 0) plus a Keycloak/Auth0 endpoint
+// that accepts the connection then hangs would keep the OAuth callback
+// open for the platform's full server timeout. 30s is generous for any
+// healthy IdP — TLS handshake + form POST + token mint typically fits
+// in <2s; tail latency at 30s indicates the IdP itself is unhealthy.
+const defaultTokenExchangeTimeout = 30 * time.Second
+
+// maxTokenResponseBytes caps the response body read from a token
+// endpoint. Real responses are KB at most; a 1 MiB ceiling prevents an
+// OOM if a misbehaving (or malicious) IdP streams indefinitely.
+const maxTokenResponseBytes = 1 << 20
+
+// newOAuthTokenSource builds a token source with a dedicated http.Client
+// that has an explicit overall timeout (defaultTokenExchangeTimeout).
+// Pass a non-nil store to enable persistent authorization_code flows;
+// pass nil for client_credentials.
+//
+// The client is NOT shared with http.DefaultClient — sharing would let
+// any package-level mutation of DefaultClient affect token exchanges.
 func newOAuthTokenSource(cfg OAuthConfig, connection string, store TokenStore) *oauthTokenSource {
 	return &oauthTokenSource{
 		cfg:            cfg,
 		connectionName: connection,
-		client:         http.DefaultClient,
+		client:         &http.Client{Timeout: defaultTokenExchangeTimeout},
 		store:          store,
 	}
 }
@@ -126,11 +142,13 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 	if t.state.RefreshToken != "" {
 		slog.Debug("gateway/oauth: cached token expired, attempting refresh",
 			logKeyConnection, t.connectionName)
-		if err := t.refreshLocked(ctx); err == nil {
+		err := t.refreshLocked(ctx)
+		switch {
+		case err == nil:
 			t.persistLocked(ctx)
 			t.refreshTokenRevoked = false
 			return t.state.AccessToken, nil
-		} else if errors.Is(err, errRefreshTokenRevoked) {
+		case errors.Is(err, errRefreshTokenRevoked):
 			// IdP definitively said the refresh token is dead. Clear the
 			// in-memory state AND the persisted row so subsequent restarts
 			// don't replay the same dead token against the IdP. Without
@@ -140,8 +158,13 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 			slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
 				logKeyConnection, t.connectionName,
 				logKeyError, err)
-			t.clearStaleStateLocked()
-		} else {
+			t.clearStaleStateLocked(ctx)
+			// Also clear lastError — Token() falls through below and
+			// sets the generic "needs reauth" message; preserving
+			// the wrapped sentinel from refreshLocked here just
+			// confuses operators since the cleanup already ran.
+			t.lastError = ""
+		default:
 			slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
 				logKeyConnection, t.connectionName,
 				logKeyError, err)
@@ -166,95 +189,6 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 	return t.state.AccessToken, nil
 }
 
-// clearStaleStateLocked drops the in-memory token state AND deletes the
-// persisted row from the store after the IdP has signaled the refresh
-// token is dead (RFC 6749 §5.2 invalid_grant at 400). Caller must hold
-// t.mu; refreshTokenRevoked is also set so Status() can surface the
-// distinction to the admin UI without a separate query.
-//
-// The Delete uses a fresh context with a short timeout rather than the
-// caller's ctx — the cleanup is best-effort, and a tool-call ctx that
-// expired during the upstream's slow rejection must NOT also kill the
-// cleanup that prevents the dead refresh from being replayed.
-//
-// Best-effort: a failed Delete is recorded BOTH on lastError (for the
-// admin Status panel) AND via slog.Warn (for log-aggregator alerts)
-// but is not returned to the caller — the in-memory clear alone is
-// enough to stop the retry loop within this process; the row will
-// eventually be replaced on the next successful IngestOAuthToken
-// (Connect flow).
-func (t *oauthTokenSource) clearStaleStateLocked() {
-	t.state = tokenState{}
-	t.authedBy = ""
-	t.authedAt = time.Time{}
-	t.refreshTokenRevoked = true
-	if t.store == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), staleCleanupTimeout)
-	defer cancel()
-	if err := t.store.Delete(ctx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
-		t.lastError = "clear stale token: " + err.Error()
-		slog.Warn("gateway/oauth: failed to delete stale token row",
-			logKeyConnection, t.connectionName,
-			logKeyError, err)
-	}
-}
-
-// staleCleanupTimeout bounds the Delete call inside
-// clearStaleStateLocked so a slow / hung token store cannot block the
-// connection's mutex (held by Token / Reacquire / Status). Five
-// seconds is generous for any healthy postgres; anything slower
-// indicates the operator should be looking at the DB anyway.
-const staleCleanupTimeout = 5 * time.Second
-
-// ensureLoadedLocked reads the persisted token row (if any) into the
-// in-memory state. Caller must hold t.mu. Subsequent calls are no-ops.
-func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) {
-	if t.loaded || t.store == nil {
-		t.loaded = true
-		return
-	}
-	t.loaded = true
-	rec, err := t.store.Get(ctx, t.connectionName)
-	if err != nil {
-		if !errors.Is(err, ErrTokenNotFound) {
-			t.loadErr = err
-		}
-		return
-	}
-	t.state = tokenState{
-		AccessToken:     rec.AccessToken,
-		RefreshToken:    rec.RefreshToken,
-		ExpiresAt:       rec.ExpiresAt,
-		LastRefreshedAt: rec.UpdatedAt,
-	}
-	t.authedBy = rec.AuthenticatedBy
-	t.authedAt = rec.AuthenticatedAt
-}
-
-// persistLocked writes the current token state back to the store. Used
-// after a successful refresh so the new access/refresh tokens survive
-// process restarts. Caller must hold t.mu.
-func (t *oauthTokenSource) persistLocked(ctx context.Context) {
-	if t.store == nil {
-		return
-	}
-	if err := t.store.Set(ctx, PersistedToken{
-		ConnectionName:  t.connectionName,
-		AccessToken:     t.state.AccessToken,
-		RefreshToken:    t.state.RefreshToken,
-		ExpiresAt:       t.state.ExpiresAt,
-		Scope:           t.cfg.Scope,
-		AuthenticatedBy: t.authedBy,
-		AuthenticatedAt: t.authedAt,
-	}); err != nil {
-		// Log but don't fail the token return — we still have a usable
-		// in-memory token, the persistence is for restart durability.
-		t.lastError = "persist token: " + err.Error()
-	}
-}
-
 // IngestTokenResponseInput collects the result of an out-of-band OAuth
 // exchange (e.g. the platform's authorization-code callback handler).
 // Used to keep IngestTokenResponse to a single argument.
@@ -269,7 +203,15 @@ type IngestTokenResponseInput struct {
 // IngestTokenResponse stores a token set obtained out-of-band into the
 // source's state and persistent store. AuthenticatedBy is the operator
 // who completed the browser flow; recorded for the admin status panel.
+//
+// Returns an error WITHOUT mutating any state when in.AccessToken is
+// empty — an empty token would silently flip TokenAcquired=true on the
+// admin status panel even though no credential was actually granted,
+// hiding upstream bugs in the calling code.
 func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTokenResponseInput) error {
+	if in.AccessToken == "" {
+		return errors.New("oauth: IngestTokenResponse: access_token is required")
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.state.AccessToken = in.AccessToken
@@ -318,13 +260,17 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 			return err
 		}
 		if err := t.refreshLocked(ctx); err != nil {
-			t.lastError = err.Error()
 			if errors.Is(err, errRefreshTokenRevoked) {
 				slog.Info("gateway/oauth: Reacquire — refresh token rejected by IdP, clearing stale state",
 					logKeyConnection, t.connectionName,
 					logKeyError, err)
-				t.clearStaleStateLocked()
+				t.clearStaleStateLocked(ctx)
 			}
+			// Set lastError AFTER clearStaleStateLocked so its
+			// best-effort cleanup-error reporting (via the dedicated
+			// slog.Warn) can't clobber the IdP rejection text that
+			// operators actually need to see in Status.
+			t.lastError = err.Error()
 			return err
 		}
 		t.persistLocked(ctx)
@@ -376,13 +322,28 @@ func (t *oauthTokenSource) acquireLocked(ctx context.Context) error {
 	return t.exchangeLocked(ctx, form)
 }
 
+// grantTypeRefreshToken is the value of the OAuth `grant_type` form
+// parameter for refresh-token exchanges (RFC 6749 §6). Internal — not
+// exposed as a configurable grant since you cannot start an OAuth
+// flow with a refresh-token grant; it only follows an earlier
+// authorization_code or client_credentials acquisition.
+const grantTypeRefreshToken = "refresh_token"
+
+// formFieldRefreshToken is the form-field NAME (RFC 6749 §6) carrying
+// the refresh token VALUE in the POST body. Distinct from
+// grantTypeRefreshToken — they happen to share the literal "refresh_token"
+// per RFC, but they are different OAuth concepts and we name them
+// separately so a future divergence (or a typo) doesn't silently fan
+// out between the two callsites.
+const formFieldRefreshToken = "refresh_token"
+
 // refreshLocked uses a refresh_token grant. Caller must hold t.mu.
 // Persists the rotated refresh token (if any) back to the store so a
 // subsequent process restart picks up the freshest credentials.
 func (t *oauthTokenSource) refreshLocked(ctx context.Context) error {
 	form := url.Values{}
-	form.Set("grant_type", OAuthGrantRefreshToken)
-	form.Set(OAuthGrantRefreshToken, t.state.RefreshToken)
+	form.Set("grant_type", grantTypeRefreshToken)
+	form.Set(formFieldRefreshToken, t.state.RefreshToken)
 	form.Set("client_id", t.cfg.ClientID)
 	form.Set("client_secret", t.cfg.ClientSecret)
 	if t.cfg.Scope != "" {
@@ -438,7 +399,11 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	// Bound the body read so a misbehaving (or malicious) IdP that
+	// streams indefinitely cannot OOM the platform. Real OAuth token
+	// responses are KB at most; maxTokenResponseBytes (1 MiB) is a
+	// generous ceiling.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if err != nil {
 		return fmt.Errorf("oauth: read response: %w", err)
 	}
@@ -513,7 +478,7 @@ var errRefreshTokenRevoked = errors.New("oauth: refresh token revoked by issuer"
 func interpretTokenError(grantType string, status int, body []byte) error {
 	var tr tokenResponse
 	if jerr := json.Unmarshal(body, &tr); jerr == nil && tr.Error != "" {
-		if grantType == OAuthGrantRefreshToken && isRefreshDeadError(status, tr.Error) {
+		if grantType == grantTypeRefreshToken && isRefreshDeadError(status, tr.Error) {
 			// revive's string-format rule prefers messages start with
 			// recognizable %s/%v rather than %w; opening the format
 			// with the IdP's literal status/code keeps the rule happy
@@ -565,4 +530,111 @@ func trimBody(body []byte) string {
 		return string(body)
 	}
 	return string(body[:trimBodyLimit]) + "..."
+}
+
+// staleCleanupTimeout bounds the Delete call inside
+// clearStaleStateLocked so a slow / hung token store cannot block the
+// connection's mutex (held by Token / Reacquire / Status). Five
+// seconds is generous for any healthy postgres; anything slower
+// indicates the operator should be looking at the DB anyway.
+const staleCleanupTimeout = 5 * time.Second
+
+// clearStaleStateLocked drops the in-memory token state AND deletes the
+// persisted row from the store after the IdP has signaled the refresh
+// token is dead (RFC 6749 §5.2 invalid_grant at 400). Caller must hold
+// t.mu; refreshTokenRevoked is also set so Status() can surface the
+// distinction to the admin UI without a separate query.
+//
+// The Delete uses a fresh context derived from context.Background()
+// with a short timeout rather than mutating the caller's ctx — the
+// cleanup is best-effort and a tool-call ctx that expired during the
+// upstream's slow rejection must NOT also kill the cleanup that
+// prevents the dead refresh from being replayed. We accept ctx as a
+// parameter (even though we don't pass it down) so contextcheck can
+// see the parent context exists; ctx is reserved for future use
+// (e.g. carrying trace IDs into the cleanup log).
+//
+// IMPORTANT: this method does NOT touch t.lastError on Delete failure
+// so the caller's already-recorded error (the IdP rejection text) is
+// preserved for Status display. The Delete failure is surfaced via a
+// dedicated slog.Warn for log-aggregator alerts.
+func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
+	t.state = tokenState{}
+	t.authedBy = ""
+	t.authedAt = time.Time{}
+	t.refreshTokenRevoked = true
+	if t.store == nil {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), staleCleanupTimeout)
+	defer cancel()
+	if err := t.store.Delete(cleanupCtx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
+		slog.Warn("gateway/oauth: failed to delete stale token row",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
+	}
+}
+
+// ensureLoadedLocked reads the persisted token row (if any) into the
+// in-memory state. Caller must hold t.mu.
+//
+// On success or ErrTokenNotFound the source is marked loaded so
+// subsequent calls are no-ops. On a transient store error
+// (DB hiccup, encryption-service blip) the source is NOT marked
+// loaded so the next call retries — leaving an unloaded source with
+// a real persisted row would lock the operator into "click Connect"
+// even though the row exists.
+func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) {
+	if t.loaded {
+		return
+	}
+	if t.store == nil {
+		t.loaded = true
+		return
+	}
+	rec, err := t.store.Get(ctx, t.connectionName)
+	if err != nil {
+		if errors.Is(err, ErrTokenNotFound) {
+			t.loaded = true
+			return
+		}
+		// Transient store error — leave loaded=false so the next call
+		// retries. Surface the failure on lastError so Status shows it.
+		t.lastError = "load token: " + err.Error()
+		slog.Warn("gateway/oauth: failed to load persisted token (will retry)",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
+		return
+	}
+	t.state = tokenState{
+		AccessToken:     rec.AccessToken,
+		RefreshToken:    rec.RefreshToken,
+		ExpiresAt:       rec.ExpiresAt,
+		LastRefreshedAt: rec.UpdatedAt,
+	}
+	t.authedBy = rec.AuthenticatedBy
+	t.authedAt = rec.AuthenticatedAt
+	t.loaded = true
+}
+
+// persistLocked writes the current token state back to the store. Used
+// after a successful refresh so the new access/refresh tokens survive
+// process restarts. Caller must hold t.mu.
+func (t *oauthTokenSource) persistLocked(ctx context.Context) {
+	if t.store == nil {
+		return
+	}
+	if err := t.store.Set(ctx, PersistedToken{
+		ConnectionName:  t.connectionName,
+		AccessToken:     t.state.AccessToken,
+		RefreshToken:    t.state.RefreshToken,
+		ExpiresAt:       t.state.ExpiresAt,
+		Scope:           t.cfg.Scope,
+		AuthenticatedBy: t.authedBy,
+		AuthenticatedAt: t.authedAt,
+	}); err != nil {
+		// Log but don't fail the token return — we still have a usable
+		// in-memory token; persistence is for restart durability only.
+		t.lastError = "persist token: " + err.Error()
+	}
 }
