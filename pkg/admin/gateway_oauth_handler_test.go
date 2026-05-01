@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -476,4 +478,85 @@ func TestGatewayOAuthCallback_MissingCode(t *testing.T) {
 	// observed in the wild when an operator manually replays a
 	// callback URL after the code has already been consumed.
 	runOAuthCallbackErrorCase(t, "", "missing code")
+}
+
+// TestExchangeAuthorizationCode_OversizeBodyDetected proves the
+// admin-side counterpart to TestExchangeLocked_OversizeBodyDetected
+// in pkg/toolkits/gateway. The admin code-exchange is the operator's
+// FIRST point of contact during a Connect flow — a malicious or
+// misbehaving IdP that streams more than maxCodeExchangeBodyBytes
+// must be rejected with an explicit cap-exceeded error rather than
+// silently parsing a truncated JSON document (which an attacker
+// could exploit to feed attacker-controlled fields into the
+// freshly-stored token row).
+func TestExchangeAuthorizationCode_OversizeBodyDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// 2 MiB — twice the 1 MiB cap.
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 2<<20))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := gatewaykit.OAuthConfig{
+		Grant:        gatewaykit.OAuthGrantAuthorizationCode,
+		TokenURL:     srv.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	pending := &PKCEState{
+		codeVerifier: "v-x",
+		redirectURI:  "https://platform.example.com/cb",
+	}
+
+	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds",
+		"oversize body must surface as an explicit cap-exceeded error — "+
+			"silently parsing a truncated JSON response would let a malicious "+
+			"IdP inject attacker-controlled fields into the freshly-stored token")
+}
+
+// TestExchangeAuthorizationCode_DoesNotFollowRedirects proves the
+// admin-side counterpart to TestExchangeLocked_DoesNotFollowRedirects
+// in pkg/toolkits/gateway. The admin POST carries client_secret +
+// authorization_code + code_verifier — a misconfigured or compromised
+// IdP that 3xx-redirects must NOT cause the platform to forward those
+// credentials to the redirect target.
+func TestExchangeAuthorizationCode_DoesNotFollowRedirects(t *testing.T) {
+	var attackerHits atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "stolen",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	t.Cleanup(attacker.Close)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, attacker.URL+"/token", http.StatusFound)
+	}))
+	t.Cleanup(idp.Close)
+
+	cfg := gatewaykit.OAuthConfig{
+		Grant:        gatewaykit.OAuthGrantAuthorizationCode,
+		TokenURL:     idp.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	pending := &PKCEState{
+		codeVerifier: "v-x",
+		redirectURI:  "https://platform.example.com/cb",
+	}
+
+	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
+	require.Error(t, err,
+		"a 3xx response must surface as an error — the redirect target must not be hit")
+	assert.Equal(t, int32(0), attackerHits.Load(),
+		"redirect target must NEVER receive the credential-bearing POST. "+
+			"Following redirects on the token endpoint would leak the "+
+			"client_secret + authorization_code + code_verifier to the redirect target")
 }
