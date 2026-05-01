@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -241,13 +243,19 @@ func TestExchangeLocked_TransportError(t *testing.T) {
 	closedURL := srv.URL
 	srv.Close()
 
-	src := newOAuthTokenSource(OAuthConfig{
-		Grant:        OAuthGrantClientCredentials,
-		TokenURL:     closedURL + "/token",
-		ClientID:     "id",
-		ClientSecret: "sec",
-	}, "test", nil)
-	src.client = &http.Client{Timeout: 500 * time.Millisecond}
+	// Use the constructor variant rather than assigning src.client
+	// after construction — that would be an unsynchronized write to a
+	// field production code reads under the source's mutex.
+	src := newOAuthTokenSourceWithClient(
+		OAuthConfig{
+			Grant:        OAuthGrantClientCredentials,
+			TokenURL:     closedURL + "/token",
+			ClientID:     "id",
+			ClientSecret: "sec",
+		},
+		"test", nil,
+		&http.Client{Timeout: 500 * time.Millisecond},
+	)
 	_, err := src.Token(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "oauth: token request",
@@ -526,7 +534,7 @@ func TestToken_RefreshDeadClearsState(t *testing.T) {
 
 	// Persisted row must be gone — proves clearStaleStateLocked ran.
 	_, getErr := store.Get(context.Background(), "vendor")
-	assert.ErrorIs(t, getErr, ErrTokenNotFound,
+	require.ErrorIs(t, getErr, ErrTokenNotFound,
 		"persisted token row must be deleted after IdP signals invalid_grant")
 
 	// In-memory state must also be clear so a subsequent call doesn't
@@ -1564,13 +1572,13 @@ func TestReacquire_RefreshDeadClearsStaleState(t *testing.T) {
 
 	err := src.Reacquire(context.Background())
 	require.Error(t, err, "Reacquire must propagate the IdP rejection")
-	assert.ErrorIs(t, err, errRefreshTokenRevoked,
+	require.ErrorIs(t, err, errRefreshTokenRevoked,
 		"returned error must wrap errRefreshTokenRevoked so admin handlers can react via errors.Is")
 
 	// The persisted row must be gone — proves Reacquire ran the same
 	// stale-state cleanup as Token() would have.
 	_, getErr := store.Get(context.Background(), "vendor")
-	assert.ErrorIs(t, getErr, ErrTokenNotFound,
+	require.ErrorIs(t, getErr, ErrTokenNotFound,
 		"Reacquire must delete the persisted row when refresh is definitively dead "+
 			"so the same dead refresh doesn't replay on the next Token() call")
 
@@ -1731,3 +1739,178 @@ func (s *flakyGetStore) Get(_ context.Context, _ string) (*PersistedToken, error
 }
 func (*flakyGetStore) Set(_ context.Context, _ PersistedToken) error { return nil }
 func (*flakyGetStore) Delete(_ context.Context, _ string) error      { return nil }
+
+// TestToken_TransientRefreshErrorReturnedDirectly proves the bug fix
+// for the misleading "click Connect" error: when refreshLocked fails
+// with a transient signal (5xx, network), Token() must return the
+// ACTUAL error, not the generic "no valid refresh token" message
+// that historically led operators to invalidate working credentials.
+//
+// The refresh token must remain in state and store so the next call
+// can succeed without operator intervention.
+func TestToken_TransientRefreshErrorReturnedDirectly(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("upstream busy"))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "still-valid",
+		RefreshToken:   "still-valid-r",
+		ExpiresAt:      time.Now().Add(-time.Hour),
+	}))
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", store)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "503",
+		"transient refresh failure must return the actual IdP error, not the "+
+			"generic 'needs reauth' message that wrongly tells operators to invalidate "+
+			"a working refresh token")
+	assert.NotContains(t, err.Error(), "requires reauthentication",
+		"a transient 503 must NOT surface as 'requires reauthentication' — the "+
+			"refresh token is still valid and the right action is to retry, not to Connect")
+
+	// Refresh token must still be in state (in-memory) AND in the
+	// store — operators waiting out a transient blip must not lose
+	// their authorization.
+	require.True(t, src.Status().HasRefreshToken,
+		"transient failure must NOT clear the in-memory refresh token")
+	rec, getErr := store.Get(context.Background(), "vendor")
+	require.NoError(t, getErr)
+	assert.Equal(t, "still-valid-r", rec.RefreshToken,
+		"transient failure must NOT delete the persisted refresh token row")
+}
+
+// TestToken_LastErrorClearedOnCacheHit proves that a successful
+// cached-token return clears any stale lastError. Previously, a prior
+// persistLocked Set failure (recorded on lastError) would persist on
+// Status forever even though every subsequent Token() call was
+// succeeding via the cache — misleading the admin UI into showing a
+// degraded-connection indicator on a fully healthy connection.
+func TestToken_LastErrorClearedOnCacheHit(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantClientCredentials,
+	}, "vendor", nil)
+
+	src.mu.Lock()
+	src.state.AccessToken = "cached"
+	src.state.ExpiresAt = time.Now().Add(time.Hour)
+	src.lastError = "stale: previous persist failure"
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "cached", tok)
+	assert.Empty(t, src.Status().LastError,
+		"successful cache hit must clear stale lastError so Status reflects current state")
+}
+
+// TestToken_LastErrorClearedOnRefreshSuccess is the parallel proof
+// for the refresh-success branch: a stale lastError from a prior
+// failure must not persist after a successful refresh.
+func TestToken_LastErrorClearedOnRefreshSuccess(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "fresh",
+			"refresh_token": "fresh-r",
+			"expires_in":    3600,
+			"token_type":    "Bearer",
+		})
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", NewMemoryTokenStore())
+
+	src.mu.Lock()
+	src.state.RefreshToken = "stale-but-revivable"
+	src.state.ExpiresAt = time.Now().Add(-time.Hour) // forces refresh
+	src.lastError = "stale: from a previous transient failure"
+	src.loaded = true
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "fresh", tok)
+	assert.Empty(t, src.Status().LastError,
+		"successful refresh must clear stale lastError so Status reflects current state")
+}
+
+// TestExchangeLocked_OversizeBodyDetected proves the truncation-detection
+// fix: when an IdP streams more than maxTokenResponseBytes, exchangeLocked
+// must REJECT with an explicit error rather than silently parsing a
+// truncated JSON document (which a malicious IdP could exploit to feed
+// attacker-controlled fields).
+func TestExchangeLocked_OversizeBodyDetected(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Stream 2 MiB — twice the 1 MiB cap.
+		w.WriteHeader(http.StatusOK)
+		junk := bytes.Repeat([]byte("x"), 2<<20)
+		_, _ = w.Write(junk)
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantClientCredentials,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", nil)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds",
+		"oversize body must surface as an explicit cap-exceeded error, not as a JSON decode error on truncated data")
+}
+
+// TestExchangeLocked_DoesNotFollowRedirects proves the redirect
+// hardening: a token endpoint that 3xx-redirects to an attacker URL
+// must NOT cause the platform to forward the credential-bearing POST
+// to the redirect target. The 3xx surfaces as a non-200 response, the
+// redirect Location header is treated as the body, and the caller
+// gets a regular non-200 error.
+func TestExchangeLocked_DoesNotFollowRedirects(t *testing.T) {
+	var attackerHits atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "stolen",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	t.Cleanup(attacker.Close)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, attacker.URL+"/token", http.StatusFound)
+	}))
+	t.Cleanup(idp.Close)
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantClientCredentials,
+		TokenURL:     idp.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", nil)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err,
+		"a 3xx response must surface as an error — the redirect target must not be hit")
+	assert.Equal(t, int32(0), attackerHits.Load(),
+		"redirect target must NEVER receive the credential-bearing POST. "+
+			"Following redirects on the token endpoint is a credential-leak vector")
+}

@@ -457,9 +457,16 @@ const maxCodeExchangeBodyBytes = 1 << 20
 // codeExchangeClient is the HTTP client used for admin-side
 // authorization_code exchanges. Distinct from http.DefaultClient so
 // any package-level mutation of DefaultClient cannot affect token
-// exchanges, and so we have a clean place to attach the explicit
-// timeout above.
-var codeExchangeClient = &http.Client{Timeout: codeExchangeTimeout}
+// exchanges, and CheckRedirect refuses to follow 3xx so a
+// misconfigured or compromised IdP cannot redirect the
+// credential-bearing POST (client_secret, authorization_code,
+// code_verifier) to an attacker URL.
+var codeExchangeClient = &http.Client{
+	Timeout: codeExchangeTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
 // upstream's token endpoint and returns the parsed response.
@@ -503,16 +510,32 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 			logKeyError, err)
 		return nil, fmt.Errorf("token request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	// Bound the body read so a misbehaving IdP that streams indefinitely
-	// cannot OOM the platform.
-	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCodeExchangeBodyBytes))
+	// Drain remaining bytes before close so net/http can pool the
+	// underlying TCP connection. With LimitReader capping the read,
+	// any oversize body would otherwise leave bytes on the wire and
+	// drop the connection — every refresh would then re-handshake.
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	// Read up to maxCodeExchangeBodyBytes+1 so we can DETECT
+	// truncation rather than silently parse a truncated JSON document
+	// (which a malicious IdP could exploit to feed attacker-controlled
+	// fields into the token row).
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCodeExchangeBodyBytes+1))
 	if readErr != nil {
 		slog.Error("oauth-exchange: read response body failed",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			logKeyError, readErr)
 		return nil, fmt.Errorf("read token response: %w", readErr)
+	}
+	if int64(len(bodyBytes)) > maxCodeExchangeBodyBytes {
+		slog.Warn("oauth-exchange: token response exceeds size cap",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			"limit_bytes", maxCodeExchangeBodyBytes)
+		return nil, fmt.Errorf("token response exceeds %d-byte cap (likely misbehaving IdP)", maxCodeExchangeBodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("oauth-exchange: non-200 from token endpoint",

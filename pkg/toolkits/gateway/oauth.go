@@ -101,18 +101,51 @@ const defaultTokenExchangeTimeout = 30 * time.Second
 // OOM if a misbehaving (or malicious) IdP streams indefinitely.
 const maxTokenResponseBytes = 1 << 20
 
+// newTokenExchangeHTTPClient returns the http.Client used for OAuth
+// token-endpoint POSTs. Centralized so the gateway and any other
+// composing package use identical security-hardened configuration:
+//
+//   - Timeout: bounds the total request duration (security: slow IdP
+//     can't pin a goroutine indefinitely).
+//   - CheckRedirect: ErrUseLastResponse — DO NOT follow redirects.
+//     RFC 6749 doesn't specify token-endpoint redirect handling, but
+//     following them lets a misconfigured or compromised IdP redirect
+//     a credential-bearing POST (client_secret, refresh_token,
+//     authorization_code) to an attacker URL. The redirect surfaces as
+//     a 3xx response which the caller treats as an error.
+func newTokenExchangeHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: defaultTokenExchangeTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // newOAuthTokenSource builds a token source with a dedicated http.Client
-// that has an explicit overall timeout (defaultTokenExchangeTimeout).
-// Pass a non-nil store to enable persistent authorization_code flows;
-// pass nil for client_credentials.
+// hardened against follow-the-redirect credential leaks and slow-loris
+// hangs. Pass a non-nil store to enable persistent authorization_code
+// flows; pass nil for client_credentials.
 //
 // The client is NOT shared with http.DefaultClient — sharing would let
 // any package-level mutation of DefaultClient affect token exchanges.
 func newOAuthTokenSource(cfg OAuthConfig, connection string, store TokenStore) *oauthTokenSource {
+	return newOAuthTokenSourceWithClient(cfg, connection, store, newTokenExchangeHTTPClient())
+}
+
+// newOAuthTokenSourceWithClient is the constructor variant that takes
+// a custom http.Client. Used by tests to point the source at a fake /
+// closed token server without mutating the source's `client` field
+// after construction (which would be an unsynchronized write to a
+// field the production code reads under t.mu).
+func newOAuthTokenSourceWithClient(cfg OAuthConfig, connection string, store TokenStore, client *http.Client) *oauthTokenSource {
+	if client == nil {
+		client = newTokenExchangeHTTPClient()
+	}
 	return &oauthTokenSource{
 		cfg:            cfg,
 		connectionName: connection,
-		client:         &http.Client{Timeout: defaultTokenExchangeTimeout},
+		client:         client,
 		store:          store,
 	}
 }
@@ -132,10 +165,14 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 
 	t.ensureLoadedLocked(ctx)
 
+	// Cached path: token still valid. Clear lastError — any prior
+	// failure (e.g. an old persistLocked Set error) is no longer
+	// the current operational state and must not stick on Status.
 	if t.state.AccessToken != "" && time.Until(t.state.ExpiresAt) > expiryBuffer {
 		slog.Debug("gateway/oauth: cached access token still valid",
 			logKeyConnection, t.connectionName,
 			"expires_in_seconds", int(time.Until(t.state.ExpiresAt).Seconds()))
+		t.lastError = ""
 		return t.state.AccessToken, nil
 	}
 	// Try refresh first if we have a refresh token.
@@ -147,27 +184,35 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 		case err == nil:
 			t.persistLocked(ctx)
 			t.refreshTokenRevoked = false
+			// Clear lastError on success — preserving a stale failure
+			// message after a successful refresh would mislead
+			// operators into thinking the connection is degraded.
+			t.lastError = ""
 			return t.state.AccessToken, nil
 		case errors.Is(err, errRefreshTokenRevoked):
 			// IdP definitively said the refresh token is dead. Clear the
 			// in-memory state AND the persisted row so subsequent restarts
-			// don't replay the same dead token against the IdP. Without
-			// this, every redeploy after the IdP's session-idle window
-			// produces a noisy REFRESH_TOKEN_ERROR audit event for an
-			// already-known-dead credential.
+			// don't replay the same dead token against the IdP.
 			slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
 				logKeyConnection, t.connectionName,
 				logKeyError, err)
 			t.clearStaleStateLocked(ctx)
-			// Also clear lastError — Token() falls through below and
-			// sets the generic "needs reauth" message; preserving
-			// the wrapped sentinel from refreshLocked here just
-			// confuses operators since the cleanup already ran.
+			// Fall through to the auth_code branch below: state is
+			// now empty so the generic "needs reauth" message is
+			// the correct user-facing answer.
 			t.lastError = ""
 		default:
+			// Transient failure: 503/network/timeout/etc. The refresh
+			// token is still valid in state and store — we must NOT
+			// fall through to the "needs reauth" branch (which would
+			// tell the operator to click Connect, invalidating a
+			// working credential). Return the actual error so the
+			// caller can decide to retry.
 			slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
 				logKeyConnection, t.connectionName,
 				logKeyError, err)
+			t.lastError = err.Error()
+			return "", err
 		}
 	}
 	// authorization_code with no usable refresh path: needs human re-auth.
@@ -218,17 +263,18 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 	if in.RefreshToken != "" {
 		t.state.RefreshToken = in.RefreshToken
 	}
+	now := time.Now().UTC()
 	if in.ExpiresIn > 0 {
-		t.state.ExpiresAt = time.Now().Add(time.Duration(in.ExpiresIn) * time.Second)
+		t.state.ExpiresAt = now.Add(time.Duration(in.ExpiresIn) * time.Second)
 	} else {
-		t.state.ExpiresAt = time.Now().Add(1 * time.Hour)
+		t.state.ExpiresAt = now.Add(1 * time.Hour)
 	}
-	t.state.LastRefreshedAt = time.Now()
+	t.state.LastRefreshedAt = now
 	if in.Scope != "" {
 		t.cfg.Scope = in.Scope
 	}
 	t.authedBy = in.AuthenticatedBy
-	t.authedAt = time.Now().UTC()
+	t.authedAt = now
 	t.lastError = ""
 	t.refreshTokenRevoked = false
 	t.loaded = true
@@ -283,6 +329,12 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 		return err
 	}
 	t.lastError = ""
+	// Symmetry with the auth_code branch: a client_credentials
+	// reacquire clears any prior dead-refresh signal too. For pure
+	// client_credentials connections the field is never set true so
+	// this is a no-op; defensive against future refactors that allow
+	// mixed grant usage on a single source.
+	t.refreshTokenRevoked = false
 	return nil
 }
 
@@ -354,7 +406,7 @@ func (t *oauthTokenSource) refreshLocked(ctx context.Context) error {
 
 // tokenResponse is the standard OAuth 2.1 token endpoint response.
 type tokenResponse struct {
-	AccessToken      string `json:"access_token"` //nolint:gosec // G117 false positive: this is the OAuth response shape, not a hardcoded credential
+	AccessToken      string `json:"access_token"` //nolint:gosec // G101 false positive: JSON field name on response struct, not a credential value
 	TokenType        string `json:"token_type"`
 	ExpiresIn        int    `json:"expires_in"`
 	RefreshToken     string `json:"refresh_token,omitempty"`
@@ -364,21 +416,41 @@ type tokenResponse struct {
 }
 
 // exchangeLocked POSTs the form to the token endpoint and updates t.state
-// on success. Caller must hold t.mu.
+// on success. Caller must hold t.mu. The transport / read / parse stages
+// are split into helpers below so each function stays under
+// gocyclo's complexity ceiling AND each stage has a clear name in
+// stack traces / pprof.
 func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) error {
+	grantType := form.Get("grant_type")
+	tokenHost := URLHost(t.cfg.TokenURL)
+	body, err := t.postTokenRequest(ctx, form, grantType, tokenHost)
+	if err != nil {
+		return err
+	}
+	tr, err := decodeTokenResponse(body)
+	if err != nil {
+		return err
+	}
+	t.applyTokenResponseLocked(tr)
+	return nil
+}
+
+// postTokenRequest performs the HTTP POST, drains and bounds the body,
+// and translates non-2xx into a structured error. Returns the (capped)
+// raw body on success so the caller can JSON-decode it.
+func (t *oauthTokenSource) postTokenRequest(
+	ctx context.Context, form url.Values, grantType, tokenHost string,
+) ([]byte, error) {
 	// #nosec G107 G704 -- the token URL comes from operator-authored
-	// connection config, not from request input; the OAuth feature is
-	// useless without it being a runtime parameter.
+	// connection config, not from request input.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.cfg.TokenURL,
 		strings.NewReader(form.Encode()))
 	if err != nil {
-		return fmt.Errorf("oauth: build request: %w", err)
+		return nil, fmt.Errorf("oauth: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	grantType := form.Get("grant_type")
-	tokenHost := URLHost(t.cfg.TokenURL)
 	exchangeStart := time.Now()
 	slog.Debug("gateway/oauth: token exchange start",
 		logKeyConnection, t.connectionName,
@@ -386,7 +458,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 		LogKeyTokenURLHost, tokenHost,
 		"client_id", t.cfg.ClientID)
 
-	// #nosec G107 G704 -- TokenURL is operator-authored connection config, not user input.
+	// #nosec G107 G704 -- TokenURL is operator-authored connection config.
 	resp, err := t.client.Do(req)
 	if err != nil {
 		slog.Warn("gateway/oauth: token request transport error",
@@ -395,17 +467,19 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 			LogKeyTokenURLHost, tokenHost,
 			"duration", time.Since(exchangeStart),
 			logKeyError, err)
-		return fmt.Errorf("oauth: token request: %w", err)
+		return nil, fmt.Errorf("oauth: token request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	// Drain remaining bytes before close so net/http can pool the
+	// connection. Without the drain, an oversize body leaves bytes on
+	// the wire and every refresh re-handshakes TCP+TLS.
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
-	// Bound the body read so a misbehaving (or malicious) IdP that
-	// streams indefinitely cannot OOM the platform. Real OAuth token
-	// responses are KB at most; maxTokenResponseBytes (1 MiB) is a
-	// generous ceiling.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
+	body, err := readCappedBody(resp.Body, maxTokenResponseBytes)
 	if err != nil {
-		return fmt.Errorf("oauth: read response: %w", err)
+		return nil, t.logAndWrapBodyError(err, grantType, tokenHost)
 	}
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("gateway/oauth: non-200 from token endpoint",
@@ -415,38 +489,84 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 			"status", resp.StatusCode,
 			"duration", time.Since(exchangeStart),
 			"body_excerpt", trimBody(body))
-		return interpretTokenError(grantType, resp.StatusCode, body)
+		return nil, interpretTokenError(grantType, resp.StatusCode, body)
 	}
 	slog.Info("gateway/oauth: token exchange success",
 		logKeyConnection, t.connectionName,
 		LogKeyGrantType, grantType,
 		LogKeyTokenURLHost, tokenHost,
 		"duration", time.Since(exchangeStart))
+	return body, nil
+}
 
+// logAndWrapBodyError is the small helper used by postTokenRequest to
+// log and return body-read errors (transport read failure OR oversize-
+// body cap exceeded). Kept tiny so postTokenRequest stays readable.
+func (t *oauthTokenSource) logAndWrapBodyError(err error, grantType, tokenHost string) error {
+	if errors.Is(err, errTokenResponseTooLarge) {
+		slog.Warn("gateway/oauth: token response exceeds size cap",
+			logKeyConnection, t.connectionName,
+			LogKeyGrantType, grantType,
+			LogKeyTokenURLHost, tokenHost,
+			"limit_bytes", maxTokenResponseBytes)
+	}
+	return err
+}
+
+// errTokenResponseTooLarge is the sentinel for "IdP returned more than
+// maxTokenResponseBytes." Wrapped (not the user-facing message) so
+// callers can detect the cap-exceeded case without string matching.
+var errTokenResponseTooLarge = errors.New("oauth: response exceeds size cap")
+
+// readCappedBody reads up to limit+1 bytes and rejects with
+// errTokenResponseTooLarge if the +1 byte was reached. The +1 lets us
+// detect truncation rather than silently parse a partial JSON
+// document; without it, a malicious IdP could feed attacker-controlled
+// fields by stuffing extra bytes after the genuine response.
+func readCappedBody(r io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("oauth: read response: %w", err)
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("oauth: %d-byte cap exceeded (likely misbehaving idp): %w", limit, errTokenResponseTooLarge)
+	}
+	return body, nil
+}
+
+// decodeTokenResponse parses an OAuth-2.1 token response body and
+// validates the minimum fields the platform requires before treating
+// the exchange as successful.
+func decodeTokenResponse(body []byte) (tokenResponse, error) {
 	var tr tokenResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return fmt.Errorf("oauth: decode response: %w", err)
+		return tokenResponse{}, fmt.Errorf("oauth: decode response: %w", err)
 	}
 	if tr.Error != "" {
-		return fmt.Errorf("oauth: %s: %s", tr.Error, tr.ErrorDescription)
+		return tokenResponse{}, fmt.Errorf("oauth: %s: %s", tr.Error, tr.ErrorDescription)
 	}
 	if tr.AccessToken == "" {
-		return errors.New("oauth: token response missing access_token")
+		return tokenResponse{}, errors.New("oauth: token response missing access_token")
 	}
+	return tr, nil
+}
 
+// applyTokenResponseLocked writes a valid token response into the
+// source's in-memory state. Caller must hold t.mu.
+func (t *oauthTokenSource) applyTokenResponseLocked(tr tokenResponse) {
+	now := time.Now().UTC()
 	t.state.AccessToken = tr.AccessToken
 	if tr.RefreshToken != "" {
 		t.state.RefreshToken = tr.RefreshToken
 	}
 	if tr.ExpiresIn > 0 {
-		t.state.ExpiresAt = time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second)
+		t.state.ExpiresAt = now.Add(time.Duration(tr.ExpiresIn) * time.Second)
 	} else {
 		// Default to one hour when the upstream omits expires_in. Spec
 		// recommends always including it but real implementations vary.
-		t.state.ExpiresAt = time.Now().Add(1 * time.Hour)
+		t.state.ExpiresAt = now.Add(1 * time.Hour)
 	}
-	t.state.LastRefreshedAt = time.Now()
-	return nil
+	t.state.LastRefreshedAt = now
 }
 
 // errRefreshTokenRevoked indicates the IdP definitively rejected a
@@ -566,6 +686,10 @@ func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
 	if t.store == nil {
 		return
 	}
+	// nolint:contextcheck // intentional: caller's ctx may already be
+	// expiring (the rejection we're cleaning up after often arrives
+	// just before deadline). The cleanup must outlive the caller's
+	// ctx to actually delete the dead row.
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), staleCleanupTimeout)
 	defer cancel()
 	if err := t.store.Delete(cleanupCtx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
