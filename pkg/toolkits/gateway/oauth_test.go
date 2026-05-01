@@ -1697,11 +1697,16 @@ func TestEnsureLoadedLocked_TransientErrorRetries(t *testing.T) {
 
 	// First load: store returns a transient error.
 	src.mu.Lock()
-	src.ensureLoadedLocked(context.Background())
+	firstErr := src.ensureLoadedLocked(context.Background())
 	loadedAfterFailure := src.loaded
 	lastErrAfterFailure := src.lastError
 	src.mu.Unlock()
 
+	require.Error(t, firstErr,
+		"transient store error must be returned so callers can propagate it "+
+			"instead of falling through to grant-specific reauth messaging")
+	assert.Contains(t, firstErr.Error(), "load token",
+		"returned error must identify itself as a load failure")
 	assert.False(t, loadedAfterFailure,
 		"transient store error must NOT mark source loaded — otherwise the source is "+
 			"permanently locked into empty state until process restart")
@@ -1711,7 +1716,8 @@ func TestEnsureLoadedLocked_TransientErrorRetries(t *testing.T) {
 	// Second load: store now returns the row successfully.
 	store.healed = true
 	src.mu.Lock()
-	src.ensureLoadedLocked(context.Background())
+	require.NoError(t, src.ensureLoadedLocked(context.Background()),
+		"after the store heals, ensureLoadedLocked must return nil")
 	state := src.state
 	src.mu.Unlock()
 
@@ -1913,4 +1919,43 @@ func TestExchangeLocked_DoesNotFollowRedirects(t *testing.T) {
 	assert.Equal(t, int32(0), attackerHits.Load(),
 		"redirect target must NEVER receive the credential-bearing POST. "+
 			"Following redirects on the token endpoint is a credential-leak vector")
+}
+
+// TestToken_LoadErrorPropagatedNotMasked proves the bug fix for the
+// transient-load masking: when ensureLoadedLocked fails with a
+// non-NotFound store error AND the source has no in-memory state
+// yet, Token() must return the actual load error — NOT fall through
+// to "click Connect" which would mislead operators into invalidating
+// a refresh token that's still safely stored in the DB.
+func TestToken_LoadErrorPropagatedNotMasked(t *testing.T) {
+	store := &flakyGetStore{} // returns transient error on first Get
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load token",
+		"transient load failures must surface as load-token errors, not generic 'needs reauth' messages")
+	assert.NotContains(t, err.Error(), "requires reauthentication",
+		"transient DB error must NOT be reported as 'requires reauthentication' — "+
+			"the refresh token is still safely stored, the issue is the DB")
+	assert.NotContains(t, err.Error(), "click Connect",
+		"operators must not be told to click Connect when the actual problem is the store")
+}
+
+// TestReacquire_LoadErrorPropagatedNotMasked is the parallel proof
+// for Reacquire() — same masking bug, same fix.
+func TestReacquire_LoadErrorPropagatedNotMasked(t *testing.T) {
+	store := &flakyGetStore{}
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	err := src.Reacquire(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load token",
+		"Reacquire must propagate load failures verbatim, not mask them with 'no refresh token'")
+	assert.NotContains(t, err.Error(), "click Connect",
+		"transient DB error must not be reported as 'no refresh token; click Connect'")
 }

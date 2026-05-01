@@ -432,7 +432,7 @@ func (h *Handler) completeOAuthExchange(ctx context.Context, pending *PKCEState,
 
 // authCodeTokenResponse is the parsed token-endpoint response.
 type authCodeTokenResponse struct {
-	AccessToken  string `json:"access_token"` //nolint:gosec // OAuth response shape, not a credential
+	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	ExpiresIn    int    `json:"expires_in,omitempty"`
 	Scope        string `json:"scope,omitempty"`

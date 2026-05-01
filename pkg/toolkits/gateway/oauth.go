@@ -163,7 +163,13 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.ensureLoadedLocked(ctx)
+	// Propagate transient load errors verbatim instead of falling
+	// through to grant-specific reauth messaging — operators must
+	// see "DB unreachable" not "click Connect" when the store is
+	// the actual problem.
+	if err := t.ensureLoadedLocked(ctx); err != nil {
+		return "", err
+	}
 
 	// Cached path: token still valid. Clear lastError — any prior
 	// failure (e.g. an old persistLocked Set error) is no longer
@@ -297,7 +303,13 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.ensureLoadedLocked(ctx)
+	// Propagate transient load errors instead of falling through to
+	// the "no refresh token; click Connect" message — operators must
+	// see "DB unreachable" not "click Connect" when the store is
+	// the actual problem.
+	if err := t.ensureLoadedLocked(ctx); err != nil {
+		return err
+	}
 
 	if t.cfg.Grant == OAuthGrantAuthorizationCode {
 		if t.state.RefreshToken == "" {
@@ -338,11 +350,15 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 	return nil
 }
 
-// Status snapshots the current state for the admin endpoint.
+// Status snapshots the current state for the admin endpoint. A
+// transient store error during the implicit load is recorded on
+// lastError so it surfaces in the response (operators see the actual
+// cause); the returned snapshot reports "no token" until the next
+// retry succeeds.
 func (t *oauthTokenSource) Status() OAuthStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.ensureLoadedLocked(context.Background())
+	_ = t.ensureLoadedLocked(context.Background())
 	needsReauth := t.cfg.Grant == OAuthGrantAuthorizationCode &&
 		t.state.AccessToken == "" && t.state.RefreshToken == ""
 	return OAuthStatus{
@@ -406,7 +422,7 @@ func (t *oauthTokenSource) refreshLocked(ctx context.Context) error {
 
 // tokenResponse is the standard OAuth 2.1 token endpoint response.
 type tokenResponse struct {
-	AccessToken      string `json:"access_token"` //nolint:gosec // G101 false positive: JSON field name on response struct, not a credential value
+	AccessToken      string `json:"access_token"`
 	TokenType        string `json:"token_type"`
 	ExpiresIn        int    `json:"expires_in"`
 	RefreshToken     string `json:"refresh_token,omitempty"`
@@ -686,13 +702,13 @@ func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
 	if t.store == nil {
 		return
 	}
-	// nolint:contextcheck // intentional: caller's ctx may already be
-	// expiring (the rejection we're cleaning up after often arrives
-	// just before deadline). The cleanup must outlive the caller's
-	// ctx to actually delete the dead row.
+	// Intentional: caller's ctx may already be expiring (the rejection
+	// we're cleaning up after often arrives just before deadline).
+	// The cleanup must outlive the caller's ctx to actually delete
+	// the dead row.
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), staleCleanupTimeout)
 	defer cancel()
-	if err := t.store.Delete(cleanupCtx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
+	if err := t.store.Delete(cleanupCtx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) { //nolint:contextcheck // intentional: cleanupCtx is deliberately non-inherited so the cleanup outlives the caller's ctx
 		slog.Warn("gateway/oauth: failed to delete stale token row",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
@@ -700,35 +716,37 @@ func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
 }
 
 // ensureLoadedLocked reads the persisted token row (if any) into the
-// in-memory state. Caller must hold t.mu.
+// in-memory state. Caller must hold t.mu. Returns nil on success
+// (including ErrTokenNotFound — empty row is a valid load result).
 //
-// On success or ErrTokenNotFound the source is marked loaded so
-// subsequent calls are no-ops. On a transient store error
-// (DB hiccup, encryption-service blip) the source is NOT marked
-// loaded so the next call retries — leaving an unloaded source with
-// a real persisted row would lock the operator into "click Connect"
-// even though the row exists.
-func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) {
+// On a transient store error (DB hiccup, encryption-service blip) the
+// source is NOT marked loaded so the next call retries; the error is
+// also returned so the caller propagates it instead of falling through
+// to grant-specific logic and producing a misleading "click Connect"
+// message that hides the actual DB problem.
+func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) error {
 	if t.loaded {
-		return
+		return nil
 	}
 	if t.store == nil {
 		t.loaded = true
-		return
+		return nil
 	}
 	rec, err := t.store.Get(ctx, t.connectionName)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
 			t.loaded = true
-			return
+			return nil
 		}
 		// Transient store error — leave loaded=false so the next call
-		// retries. Surface the failure on lastError so Status shows it.
+		// retries. Surface the failure on lastError so Status shows it,
+		// AND return it so the caller doesn't fall through to a
+		// misleading grant-specific error.
 		t.lastError = "load token: " + err.Error()
 		slog.Warn("gateway/oauth: failed to load persisted token (will retry)",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
-		return
+		return fmt.Errorf("oauth: load token: %w", err)
 	}
 	t.state = tokenState{
 		AccessToken:     rec.AccessToken,
@@ -739,6 +757,7 @@ func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) {
 	t.authedBy = rec.AuthenticatedBy
 	t.authedAt = rec.AuthenticatedAt
 	t.loaded = true
+	return nil
 }
 
 // persistLocked writes the current token state back to the store. Used

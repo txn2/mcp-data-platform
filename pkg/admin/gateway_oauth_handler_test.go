@@ -316,9 +316,9 @@ func TestBuildAuthorizationURL_AppendsToExistingQuery(t *testing.T) {
 		Scope:            "api",
 	}
 	got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
-	assert.True(t, strings.Contains(got, "app=foo&"), "should keep existing query: %s", got)
-	assert.True(t, strings.Contains(got, "state=state-x"))
-	assert.True(t, strings.Contains(got, "code_challenge_method=S256"))
+	assert.Contains(t, got, "app=foo&", "should keep existing query")
+	assert.Contains(t, got, "state=state-x")
+	assert.Contains(t, got, "code_challenge_method=S256")
 }
 
 // TestBuildAuthorizationURL_PromptParameter exercises the OIDC prompt
