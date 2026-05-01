@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
@@ -1095,5 +1096,216 @@ func TestRemoveConnection_OfDifferentName_DoesNotBlockDuringSlowAddConnection(t 
 	case <-addDone:
 	case <-time.After(10 * time.Second):
 		t.Fatal("hung AddConnection didn't terminate")
+	}
+}
+
+// TestAddConnection_SameName_OnlyOneWins proves the slot-claim
+// contract under contention: two concurrent AddConnection calls for
+// the same name must serialize via the claim sentinel. Exactly one
+// returns nil (or an authcode-placeholder success); the other
+// returns ErrConnectionExists immediately, even while the first is
+// in the middle of its dial.
+func TestAddConnection_SameName_OnlyOneWins(t *testing.T) {
+	hangFor := 1 * time.Second
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(hangFor):
+			http.Error(w, "deliberate", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	cfg := map[string]any{
+		"endpoint":        srv.URL,
+		"connection_name": "vendor",
+		"connect_timeout": "5s",
+		"call_timeout":    "5s",
+	}
+
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- tk.AddConnection("vendor", cfg) }()
+	}
+
+	got := []error{<-results, <-results}
+	// One result must be ErrConnectionExists; the other is the
+	// outcome of the actual dial (in this case 500 → bubbled error
+	// since we're not in auth_code mode and there's no placeholder
+	// path). The exact dial-outcome error is incidental — the
+	// contract under test is "exactly one ErrConnectionExists."
+	conflicts := 0
+	for _, err := range got {
+		if errors.Is(err, ErrConnectionExists) {
+			conflicts++
+		}
+	}
+	require.Equal(t, 1, conflicts,
+		"exactly one of two concurrent AddConnection calls for the same name must return ErrConnectionExists; got %v", got)
+}
+
+// TestRemoveConnection_DuringSlowAdd_DiscardsResult proves the
+// install-time identity check: when a connection's slot is removed
+// while its dial is in flight, the dial's result is discarded
+// (client closed, no entry installed) instead of being silently
+// added back into the map.
+func TestRemoveConnection_DuringSlowAdd_DiscardsResult(t *testing.T) {
+	healthySrv := upstreamServer(t)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// Start a healthy AddConnection in a goroutine. The dial against
+	// upstreamServer is fast (~50-100ms) so we have a narrow window —
+	// but we control the race by removing the claim BEFORE the dial
+	// completes from the perspective of the toolkit's mutex.
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- tk.AddConnection("vendor", map[string]any{
+			"endpoint":        healthySrv,
+			"connection_name": "vendor",
+			"connect_timeout": "3s",
+			"call_timeout":    "3s",
+		})
+	}()
+
+	// Race the goroutine to the lock. RemoveConnection acquires the
+	// mutex, sees the claim sentinel, deletes it, releases. By the
+	// time the goroutine's discover() finishes and tries to install,
+	// the slot is gone — installDialResult takes the discard path.
+	//
+	// Use a tiny spin to ensure the AddConnection goroutine has
+	// claimed the slot before we try to remove it. Without this,
+	// RemoveConnection might run BEFORE the claim and return
+	// ErrConnectionNotFound — which is also a valid outcome but
+	// doesn't exercise the discard path we're testing.
+	var removeErr error
+	for range 100 {
+		removeErr = tk.RemoveConnection("vendor")
+		if removeErr == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	require.NoError(t, removeErr, "RemoveConnection must observe the claim sentinel and remove it")
+
+	// Wait for the AddConnection goroutine to finish — it should
+	// return without error (the discard path returns nil since the
+	// OAuth flow has effectively succeeded; the slot just isn't
+	// ours). The connection must NOT be present afterwards.
+	select {
+	case <-addDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("AddConnection goroutine didn't terminate")
+	}
+	assert.Nil(t, tk.Status("vendor"),
+		"after RemoveConnection-during-claim, the slot must remain empty — "+
+			"the dial result was discarded, not silently re-installed")
+}
+
+// TestAddConnection_RemoveAndReAdd_DuringSlowDial_DoesNotCorruptSlot
+// proves the pointer-identity check in installDialResult.
+//
+// Race scenario this test specifically exposes:
+//
+//	T1 AddConnection (slow dial 1) → claims S1 → dialing
+//	RemoveConnection → deletes S1 from map
+//	T2 AddConnection (slower dial 2) → claims S2 → dialing
+//	T1's dial completes WHILE T2 is still claiming
+//	   → installDialResult must compare *upstream pointers (S1 vs S2)
+//	     and DISCARD T1's result, NOT install based on existing.claiming
+//	     (which is true because S2 is still in flight).
+//
+// Without the identity check, T1 sees `existing.claiming == true` and
+// installs its result into S2's slot, overwriting T2's claim. T2's
+// own dial later finds the slot already live (claiming=false) and
+// discards. Net effect: operator's most recent Connect is silently
+// replaced by the previous Connect's result.
+func TestAddConnection_RemoveAndReAdd_DuringSlowDial_DoesNotCorruptSlot(t *testing.T) {
+	// T1's upstream: hangs ~600ms then returns 500.
+	slowSrv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(600 * time.Millisecond):
+			http.Error(w, "T1 deliberate", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(slowSrv1.Close)
+
+	// T2's upstream: hangs ~2s. T2 is STILL claiming when T1 installs.
+	// T2 must outlast T1's dial so the install-time race fires.
+	slowSrv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+			http.Error(w, "T2 deliberate", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(slowSrv2.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// T1: claim slot, dial slowSrv1.
+	t1Done := make(chan error, 1)
+	go func() {
+		t1Done <- tk.AddConnection("vendor", map[string]any{
+			"endpoint":        slowSrv1.URL,
+			"connection_name": "vendor",
+			"connect_timeout": "5s",
+			"call_timeout":    "5s",
+		})
+	}()
+	time.Sleep(50 * time.Millisecond) // ensure T1 has claimed
+
+	// Drop T1's claim from the map.
+	require.NoError(t, tk.RemoveConnection("vendor"))
+
+	// T2: claim slot, dial slowSrv2 (slower than T1).
+	t2Done := make(chan error, 1)
+	go func() {
+		t2Done <- tk.AddConnection("vendor", map[string]any{
+			"endpoint":        slowSrv2.URL,
+			"connection_name": "vendor",
+			"connect_timeout": "5s",
+			"call_timeout":    "5s",
+		})
+	}()
+	time.Sleep(50 * time.Millisecond) // ensure T2 has claimed and is dialing
+
+	// At this moment: T1 is still dialing slowSrv1 (~500ms left).
+	// T2 has just claimed and is dialing slowSrv2 (~2s left).
+	// The slot holds S2 (claiming=true).
+
+	// Wait for T1's dial to complete. With the pointer-identity check,
+	// T1's installDialResult sees `t.connections[name] != claim_S1`
+	// (it holds claim_S2) and discards. Without the check, T1 sees
+	// `existing.claiming == true` and installs over S2.
+	select {
+	case <-t1Done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("T1 AddConnection didn't terminate")
+	}
+
+	// Snapshot Status WHILE T2 is still claiming. After the
+	// pointer-identity fix, the slot still holds T2's claim sentinel
+	// (claiming=true, client=nil → Healthy=false, no toolNames). If
+	// T1 had clobbered the slot with its install path, Status would
+	// reflect a (transient) installed entry from T1's dial.
+	mid := tk.Status("vendor")
+	require.NotNil(t, mid, "T2's claim must still occupy the slot")
+	assert.False(t, mid.Healthy,
+		"slot must still be a claim sentinel — Healthy=true here means T1's stale dial corrupted T2's claim")
+	assert.Empty(t, mid.Tools,
+		"claim sentinel must have no tools — non-empty Tools means T1 installed against T2's slot")
+
+	// Wait for T2's dial to complete (~1.5s remaining at this point).
+	select {
+	case <-t2Done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("T2 AddConnection didn't terminate")
 	}
 }

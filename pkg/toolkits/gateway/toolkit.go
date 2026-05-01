@@ -381,11 +381,13 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 //
 // A "claiming" sentinel entry is inserted in the connections map before
 // the dial so concurrent AddConnection calls for the same name see
-// ErrConnectionExists. The sentinel is replaced atomically when the
-// dial completes (with a live connection on success, a placeholder on
-// auth_code-no-token, or removed on transient failure).
+// ErrConnectionExists. The claim sentinel is identified by POINTER
+// IDENTITY (not just the claiming bool) so that a Remove + Add cycle
+// during a slow dial cannot install our result into a later caller's
+// slot — see installDialResult.
 func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
-	if err := t.claimConnectionSlot(name, cfg); err != nil {
+	claim, err := t.claimConnectionSlot(name, cfg)
+	if err != nil {
 		return err
 	}
 	// Network I/O happens here, OUTSIDE the lock. A slow or hung
@@ -394,42 +396,68 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	// connections) proceed without contention.
 	ctx, cancel := dialContext(cfg)
 	defer cancel()
-	client, tools, err := discover(ctx, cfg, name, t.tokenStore)
-	return t.installDialResult(name, cfg, client, tools, err)
+	client, tools, dialErr := discover(ctx, cfg, name, t.tokenStore)
+	return t.installDialResult(dialResult{
+		claim:   claim,
+		name:    name,
+		cfg:     cfg,
+		client:  client,
+		tools:   tools,
+		dialErr: dialErr,
+	})
 }
 
 // claimConnectionSlot inserts a sentinel "claiming" entry under the
 // lock so concurrent AddConnection calls for the same name see
 // ErrConnectionExists. Returns ErrConnectionExists if a real or
-// claiming entry already occupies the slot.
-func (t *Toolkit) claimConnectionSlot(name string, cfg Config) error {
+// claiming entry already occupies the slot. The returned *upstream is
+// the inserted sentinel — callers MUST pass it to installDialResult
+// so the install step can verify the slot still holds OUR claim
+// (and not a fresh claim from a concurrent Remove + Add cycle).
+func (t *Toolkit) claimConnectionSlot(name string, cfg Config) (*upstream, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if _, exists := t.connections[name]; exists {
-		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
+		return nil, fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
 	}
-	t.connections[name] = &upstream{
+	claim := &upstream{
 		name:     name,
 		config:   cfg,
 		desc:     "Connecting to " + cfg.Endpoint,
 		claiming: true,
 	}
-	return nil
+	t.connections[name] = claim
+	return claim, nil
 }
 
 // installDialResult finishes a claim by replacing the "claiming"
 // sentinel with the dial's result. Holds the lock only briefly to
-// mutate the map and register tools. If the entry no longer exists
-// (concurrent RemoveConnection during dial) OR no longer claiming
-// (concurrent install — shouldn't happen but defensive), the dialed
-// client is closed and dropped.
-func (t *Toolkit) installDialResult(
-	name string, cfg Config, client *upstreamClient, tools []*mcp.Tool, dialErr error,
-) error {
+// mutate the map and register tools.
+//
+// Identity check: the install only proceeds if the slot still holds
+// the SAME *upstream pointer that claimConnectionSlot inserted. A
+// Remove + Add cycle during our dial replaces the entry with a fresh
+// claim sentinel that has the same `claiming` bool but a different
+// pointer; without this check, our (potentially stale) dial result
+// would silently overwrite the second caller's claim.
+// dialResult bundles the inputs to installDialResult so the function
+// signature stays under revive's argument-limit ceiling without losing
+// any of the data the install step needs.
+type dialResult struct {
+	claim   *upstream
+	name    string
+	cfg     Config
+	client  *upstreamClient
+	tools   []*mcp.Tool
+	dialErr error
+}
+
+func (t *Toolkit) installDialResult(r dialResult) error {
+	claim, name, cfg, client, tools, dialErr := r.claim, r.name, r.cfg, r.client, r.tools, r.dialErr
 	t.mu.Lock()
-	existing, ok := t.connections[name]
-	if !ok || !existing.claiming {
-		// Concurrent removal during dial — discard the result.
+	if t.connections[name] != claim {
+		// Slot was removed (and possibly re-claimed) during our dial —
+		// discard the result. The other caller's dial owns the slot.
 		t.mu.Unlock()
 		if client != nil {
 			_ = client.close()
@@ -725,7 +753,11 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 //
 // Snapshots the live client pointers under the lock and closes them
 // outside the lock so a slow upstream cannot block other toolkit
-// operations during shutdown.
+// operations during shutdown. A concurrent AddConnection that lands
+// after the snapshot will leak its client at process exit — by design,
+// Close is called once at process shutdown and external callers are
+// expected to stop dispatching new AddConnection calls before invoking
+// Close (the platform's lifecycle layer enforces this).
 func (t *Toolkit) Close() error {
 	t.mu.Lock()
 	clients := make([]*upstreamClient, 0, len(t.connections))
