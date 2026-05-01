@@ -209,22 +209,32 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
 
   const handleConnect = async () => {
     setActionMsg(null);
+    // Idiomatic OIDC redirect flow: navigate the current tab to the
+    // IdP. The IdP's login form becomes the user's page, they submit
+    // it, the IdP redirects to the platform's callback URL, the
+    // callback exchanges the code for tokens and redirects back here
+    // via the returnURL we send below.
+    //
+    // Earlier versions used window.open in a popup tab to "preserve
+    // admin context" — that pattern produced popup-blocker stalls,
+    // stale-form bugs (lingering popup tabs whose Keycloak session
+    // had been consumed), and the "I clicked Sign In and nothing
+    // happened" UX failures. Top-level redirect is the standard
+    // pattern (Salesforce, Okta, Auth0 admin consoles all use it)
+    // and avoids every one of those failure modes.
     try {
       const res = await startOAuth.mutateAsync({
         name: connectionName,
         returnURL: window.location.pathname + window.location.search,
       });
-      // Open the upstream's authorization URL in a new tab so the
-      // operator can complete the browser dance without losing the
-      // admin context. Status will auto-refetch on the existing 30s
-      // poll once the callback runs.
-      window.open(res.authorization_url, "_blank", "noopener,noreferrer");
-      setActionMsg({
-        ok: true,
-        text: "Authorization page opened in a new tab. Sign in to complete the connection.",
-      });
+      window.location.href = res.authorization_url;
+      // No setActionMsg needed — the page is navigating away. Any
+      // status update would race the navigation.
     } catch (err) {
-      setActionMsg({ ok: false, text: err instanceof Error ? err.message : "Connect failed" });
+      setActionMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : "Connect failed",
+      });
     }
   };
 

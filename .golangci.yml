@@ -282,6 +282,13 @@ linters:
     gosec:
       excludes:
         - G104
+        # G706 (log injection via taint analysis) is a false positive
+        # for the project's slog usage: every slog call uses
+        # key-value pairs which the slog handler (text or JSON)
+        # escapes / quotes. The project does not use %-formatted log
+        # strings or custom handlers that would skip escaping.
+        # Inline `// #nosec G706` remains available for opt-in.
+        - G706
       config:
         G306: "0644"
 

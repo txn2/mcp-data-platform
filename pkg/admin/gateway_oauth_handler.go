@@ -130,18 +130,35 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
 		return
 	}
+	startedBy := authorEmailOrID(r.Context())
 	if err := store.Put(r.Context(), state, &PKCEState{
 		connection:   name,
 		codeVerifier: verifier,
-		startedBy:    authorEmailOrID(r.Context()),
+		startedBy:    startedBy,
 		createdAt:    time.Now(),
 		returnURL:    body.ReturnURL,
 		redirectURI:  redirectURI,
 	}); err != nil {
-		slog.Error("oauth-start: failed to persist pkce state", "err", err)
+		slog.Error("oauth-start: failed to persist pkce state",
+			logKeyName, name,
+			logKeyStartedBy, startedBy,
+			logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
 	}
+
+	// Log every oauth-start with enough context to correlate against
+	// the matching callback without leaking secrets. The state token
+	// is truncated (first 8 chars) — full state is what authenticates
+	// the callback, so it must not appear in logs.
+	slog.Info("oauth-start: PKCE state issued",
+		logKeyName, name,
+		logKeyStartedBy, startedBy,
+		logKeyStatePrefix, truncateForLog(state),
+		logKeyRedirectURI, redirectURI,
+		"authorization_url_host", urlHost(cfg.OAuth.AuthorizationURL),
+		"return_url", body.ReturnURL,
+		"ttl", pkceTTL)
 
 	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
@@ -149,6 +166,40 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		RedirectURI:      redirectURI,
 		ExpiresAt:        time.Now().Add(pkceTTL).UTC().Format(time.RFC3339),
 	})
+}
+
+// Structured-log field names used across oauth-start / oauth-callback /
+// oauth-exchange so revive's add-constant rule is satisfied AND log
+// fields stay consistent for grep / dashboard alignment.
+const (
+	logKeyStatePrefix  = "state_prefix"
+	logKeyStartedBy    = "started_by"
+	logKeyDuration     = "duration"
+	logKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
+	logKeyRedirectURI  = "redirect_uri"
+)
+
+// truncateForLog returns the first 8 chars of s with "…" suffix when
+// truncated. Used so the platform can log a state-token prefix for
+// correlation across oauth-start / oauth-callback without exposing
+// the full secret in log files.
+func truncateForLog(s string) string {
+	const truncateLen = 8
+	if len(s) <= truncateLen {
+		return s
+	}
+	return s[:truncateLen] + "…"
+}
+
+// urlHost returns just the host portion of u, falling back to the
+// raw string when parsing fails. Used in logs to show "which IdP"
+// without dragging the full path/query into log files.
+func urlHost(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return u
+	}
+	return parsed.Host
 }
 
 // loadAuthCodeOAuthConfig looks up the named connection, parses its
@@ -215,38 +266,68 @@ func generatePKCEPair(w http.ResponseWriter) (verifier, state string, ok bool) {
 // @Failure      400  {object}  problemDetail
 // @Router       /admin/oauth/callback [get]
 func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	q := r.URL.Query()
 	state := q.Get("state")
+	statePrefix := truncateForLog(state)
+	slog.Info("oauth-callback: received",
+		logKeyStatePrefix, statePrefix,
+		"has_code", q.Get("code") != "",
+		"has_error", q.Get("error") != "",
+		"remote_addr", r.RemoteAddr)
 	if state == "" {
+		slog.Warn("oauth-callback: missing state parameter")
 		writeOAuthError(w, "missing state parameter")
 		return
 	}
 	store := h.pkceStoreFor()
 	if store == nil {
+		slog.Error("oauth-callback: PKCE store not configured")
 		writeOAuthError(w, "OAuth not available: PKCE store not configured")
 		return
 	}
 	pending, err := store.Take(r.Context(), state)
 	if err != nil {
 		if errors.Is(err, ErrPKCEStateNotFound) {
+			slog.Warn("oauth-callback: PKCE state not found (expired or unknown)",
+				logKeyStatePrefix, statePrefix)
 			writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
 			return
 		}
-		slog.Error("oauth-callback: pkce store lookup failed", "err", err)
+		slog.Error("oauth-callback: pkce store lookup failed",
+			logKeyStatePrefix, statePrefix, logKeyError, err)
 		writeOAuthError(w, "OAuth state lookup failed")
 		return
 	}
+	slog.Info("oauth-callback: PKCE state retrieved",
+		logKeyName, pending.connection,
+		logKeyStartedBy, pending.startedBy,
+		logKeyStatePrefix, statePrefix,
+		"age", time.Since(pending.createdAt))
+
 	if errCode := q.Get("error"); errCode != "" {
-		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
+		errDesc := q.Get("error_description")
+		slog.Warn("oauth-callback: IdP returned error",
+			logKeyName, pending.connection,
+			"idp_error", errCode,
+			"idp_error_description", errDesc)
+		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, errDesc))
 		return
 	}
 	code := q.Get("code")
 	if code == "" {
+		slog.Warn("oauth-callback: missing code parameter",
+			logKeyName, pending.connection)
 		writeOAuthError(w, "missing code parameter")
 		return
 	}
 
 	if err := h.completeOAuthExchange(r.Context(), pending, code); err != nil {
+		slog.Error("oauth-callback: token exchange failed",
+			logKeyName, pending.connection,
+			logKeyStartedBy, pending.startedBy,
+			logKeyDuration, time.Since(start),
+			logKeyError, err)
 		writeOAuthError(w, "token exchange failed: "+err.Error())
 		return
 	}
@@ -259,6 +340,11 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// for the small "<a href>Found</a>" body it writes, which gives
 	// non-browser HTTP clients (curl, scripts) a useful response body.
 	dest := safeReturnURL(pending.returnURL)
+	slog.Info("oauth-callback: success — tokens persisted, redirecting",
+		logKeyName, pending.connection,
+		logKeyStartedBy, pending.startedBy,
+		logKeyDuration, time.Since(start),
+		"dest", dest)
 	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
@@ -346,25 +432,54 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
+	exchangeStart := time.Now()
+	slog.Debug("oauth-exchange: posting authorization_code grant",
+		logKeyTokenURLHost, urlHost(oc.TokenURL),
+		"client_id", oc.ClientID,
+		logKeyRedirectURI, pending.redirectURI)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		slog.Error("oauth-exchange: token request transport error",
+			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			logKeyDuration, time.Since(exchangeStart),
+			logKeyError, err)
 		return nil, fmt.Errorf("token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		slog.Warn("oauth-exchange: non-200 from token endpoint",
+			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			"status", resp.StatusCode,
+			logKeyDuration, time.Since(exchangeStart),
+			"body_excerpt", trimOAuthBody(bodyBytes))
 		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, trimOAuthBody(bodyBytes))
 	}
 	var tr authCodeTokenResponse
 	if jerr := json.Unmarshal(bodyBytes, &tr); jerr != nil {
+		slog.Error("oauth-exchange: decode response failed",
+			logKeyTokenURLHost, urlHost(oc.TokenURL), logKeyError, jerr)
 		return nil, fmt.Errorf("decode token response: %w", jerr)
 	}
 	if tr.Error != "" {
+		slog.Warn("oauth-exchange: structured error in token response",
+			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			"idp_error", tr.Error,
+			"idp_error_description", tr.ErrorDesc)
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {
+		slog.Warn("oauth-exchange: token response missing access_token",
+			logKeyTokenURLHost, urlHost(oc.TokenURL))
 		return nil, errors.New("token response missing access_token")
 	}
+	slog.Info("oauth-exchange: success",
+		logKeyTokenURLHost, urlHost(oc.TokenURL),
+		logKeyDuration, time.Since(exchangeStart),
+		"access_token_len", len(tr.AccessToken),
+		"refresh_token_present", tr.RefreshToken != "",
+		"expires_in", tr.ExpiresIn,
+		"scope", tr.Scope)
 	return &tr, nil
 }
 
@@ -425,6 +540,21 @@ func pkceChallenge(verifier string) string {
 // the PKCE challenge. The redirect_uri must exactly match what's
 // registered with the OAuth provider (Salesforce External Client App,
 // etc.).
+//
+// Includes prompt=login (OIDC §3.1.2.1) so each Reconnect click forces
+// the upstream to render a fresh credential form, even when the user
+// holds an active SSO session against the realm. Without this, an
+// operator who just authenticated in another tab can find themselves
+// staring at a stale Keycloak login form whose hidden session_code
+// was already consumed by the prior flow — submitting it silently
+// does nothing, which is exactly the failure mode reported as
+// "clicked Sign In and nothing happened."
+//
+// The trade-off: operators with an active SSO session are prompted
+// for credentials again rather than being silently passed through.
+// For an admin "authorize this gateway connection" flow, that's the
+// correct security posture — explicit re-authentication on each
+// Reconnect, not a transparent SSO grant.
 func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirectURI string) string {
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -433,6 +563,7 @@ func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirect
 	q.Set("state", state)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
+	q.Set("prompt", "login")
 	if cfg.Scope != "" {
 		q.Set("scope", cfg.Scope)
 	}

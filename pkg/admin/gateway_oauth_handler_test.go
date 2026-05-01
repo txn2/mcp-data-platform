@@ -309,6 +309,25 @@ func TestBuildAuthorizationURL_AppendsToExistingQuery(t *testing.T) {
 	assert.True(t, strings.Contains(got, "code_challenge_method=S256"))
 }
 
+// TestBuildAuthorizationURL_IncludesPromptLogin covers the OIDC
+// prompt=login parameter that defeats the stale-Keycloak-form bug:
+// every Reconnect click must force a fresh credential prompt rather
+// than letting an active SSO session silently grant the code. Without
+// this, operators report "clicked Sign In and nothing happened" when
+// their browser is holding a Keycloak form whose session_code was
+// already consumed by an earlier flow.
+func TestBuildAuthorizationURL_IncludesPromptLogin(t *testing.T) {
+	cfg := gatewaykit.OAuthConfig{
+		ClientID:         "id",
+		AuthorizationURL: "https://auth.example.com/o/authorize",
+		Scope:            "api",
+	}
+	got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
+	assert.Contains(t, got, "prompt=login",
+		"buildAuthorizationURL must include prompt=login so each Connect click "+
+			"forces a fresh Keycloak form (defeats stale auth-session form)")
+}
+
 func TestGenerateHelpers_ProduceUniqueValues(t *testing.T) {
 	v1, _ := generatePKCEVerifier()
 	v2, _ := generatePKCEVerifier()
