@@ -96,6 +96,25 @@ type OAuthConfig struct {
 	ClientSecret string
 	// Scope is the optional space-delimited scope string.
 	Scope string
+	// Prompt is an optional OIDC prompt parameter (RFC OIDC §3.1.2.1).
+	// When non-empty, the platform appends ?prompt=<value> to the
+	// authorize URL on every browser-side flow start. Common values:
+	//
+	//   "login"          — force fresh credential prompt every time
+	//                      (defeats stale-Keycloak-form bugs; correct
+	//                      posture for admin Reconnect flows).
+	//   "consent"        — force the consent screen.
+	//   "select_account" — force account picker.
+	//   "none"           — silent auth; fail if interaction needed.
+	//   ""  (default)    — emit no prompt parameter; let the IdP
+	//                      decide. Required for non-OIDC OAuth providers
+	//                      that reject unknown parameters with
+	//                      invalid_request.
+	//
+	// Operators of strict OIDC realms (Keycloak, Auth0, Okta) typically
+	// set this to "login" for connections an admin holds. Operators
+	// running pure-OAuth providers should leave it empty.
+	Prompt string
 }
 
 // MultiConfig holds one or more parsed per-connection gateway configs along
@@ -223,6 +242,7 @@ func parseOAuthConfig(cfg map[string]any) OAuthConfig {
 			ClientID:         getString(nested, "client_id"),
 			ClientSecret:     getString(nested, "client_secret"),
 			Scope:            getString(nested, "scope"),
+			Prompt:           getString(nested, "prompt"),
 		}
 	}
 	return OAuthConfig{
@@ -232,6 +252,7 @@ func parseOAuthConfig(cfg map[string]any) OAuthConfig {
 		ClientID:         getString(cfg, "oauth_client_id"),
 		ClientSecret:     getString(cfg, "oauth_client_secret"),
 		Scope:            getString(cfg, "oauth_scope"),
+		Prompt:           getString(cfg, "oauth_prompt"),
 	}
 }
 

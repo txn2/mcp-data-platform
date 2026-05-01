@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -252,7 +254,13 @@ func TestGatewayOAuthCallback_UnknownState(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "expired or unknown")
 }
 
-func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
+// runOAuthCallbackErrorCase drives the start → callback flow against
+// the real handler with the given callback query and asserts the
+// response. Shared between TestGatewayOAuthCallback subtests so each
+// case is a one-liner that documents what's being tested instead of
+// duplicating ~25 lines of setup.
+func runOAuthCallbackErrorCase(t *testing.T, callbackQuery, wantBodySubstr string) {
+	t.Helper()
 	store := &mockConnectionStore{
 		getResult: &platform.ConnectionInstance{
 			Kind: gatewaykit.Kind, Name: "vendor",
@@ -270,13 +278,19 @@ func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
 	var startResp startGatewayOAuthResponse
 	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
 
-	cbURL := "/api/v1/admin/oauth/callback?error=access_denied&error_description=denied&state=" +
-		url.QueryEscape(startResp.State)
+	cbURL := "/api/v1/admin/oauth/callback?" + callbackQuery +
+		"&state=" + url.QueryEscape(startResp.State)
 	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody)
 	cbW := httptest.NewRecorder()
 	h.ServeHTTP(cbW, cbReq)
 	assert.Equal(t, http.StatusBadRequest, cbW.Code)
-	assert.Contains(t, cbW.Body.String(), "access_denied")
+	assert.Contains(t, cbW.Body.String(), wantBodySubstr)
+}
+
+func TestGatewayOAuthCallback_UpstreamError(t *testing.T) {
+	runOAuthCallbackErrorCase(t,
+		"error=access_denied&error_description=denied",
+		"access_denied")
 }
 
 func TestPKCEChallenge_Deterministic(t *testing.T) {
@@ -304,9 +318,70 @@ func TestBuildAuthorizationURL_AppendsToExistingQuery(t *testing.T) {
 		Scope:            "api",
 	}
 	got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
-	assert.True(t, strings.Contains(got, "app=foo&"), "should keep existing query: %s", got)
-	assert.True(t, strings.Contains(got, "state=state-x"))
-	assert.True(t, strings.Contains(got, "code_challenge_method=S256"))
+	assert.Contains(t, got, "app=foo&", "should keep existing query")
+	assert.Contains(t, got, "state=state-x")
+	assert.Contains(t, got, "code_challenge_method=S256")
+}
+
+// TestBuildAuthorizationURL_PromptParameter exercises the OIDC prompt
+// parameter logic. Each subtest URL-parses the result so we verify the
+// parameter shows up as a properly-encoded query value, not just as a
+// substring (which could match accidental occurrences inside the path
+// or scope).
+//
+// The configured Prompt value defeats the stale-Keycloak-form bug
+// when set to "login" (every Reconnect click forces a fresh credential
+// prompt rather than letting an active SSO session silently grant the
+// code), while the empty default lets pure-OAuth providers — which
+// reject unknown parameters — receive an unmodified authorize URL.
+func TestBuildAuthorizationURL_PromptParameter(t *testing.T) {
+	base := "https://auth.example.com/o/authorize"
+	makeCfg := func(prompt string) gatewaykit.OAuthConfig {
+		return gatewaykit.OAuthConfig{
+			ClientID:         "id",
+			AuthorizationURL: base,
+			Scope:            "api",
+			Prompt:           prompt,
+		}
+	}
+
+	t.Run("Prompt=login is a properly-encoded query parameter", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg("login"), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err, "result must be a parseable URL: %q", got)
+		assert.Equal(t, "login", u.Query().Get("prompt"),
+			"prompt must be set as a query parameter, not embedded as substring")
+	})
+
+	t.Run("Prompt empty: parameter is omitted entirely", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg(""), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.False(t, u.Query().Has("prompt"),
+			"empty Prompt config must produce no prompt query parameter — "+
+				"some OAuth providers reject unknown parameters with invalid_request")
+	})
+
+	t.Run("Prompt=consent passes through unchanged", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg("consent"), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Equal(t, "consent", u.Query().Get("prompt"),
+			"non-default Prompt values must reach the IdP verbatim")
+	})
+
+	t.Run("Existing query string in AuthorizationURL is preserved", func(t *testing.T) {
+		cfg := gatewaykit.OAuthConfig{
+			ClientID:         "id",
+			AuthorizationURL: base + "?app=foo",
+			Prompt:           "login",
+		}
+		got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Equal(t, "foo", u.Query().Get("app"))
+		assert.Equal(t, "login", u.Query().Get("prompt"))
+	})
 }
 
 func TestGenerateHelpers_ProduceUniqueValues(t *testing.T) {
@@ -326,7 +401,7 @@ func TestSafeReturnURL(t *testing.T) {
 		`/\evil.example.com/x`:           "/portal/admin/connections", // backslash-protocol-relative
 		`/\\evil.example.com/x`:          "/portal/admin/connections",
 		"https://evil.example.com/x":     "/portal/admin/connections",
-		"javascript:alert(1)":            "/portal/admin/connections", //nolint:gosec // G203 false positive: test data string, not executed
+		"javascript:alert(1)":            "/portal/admin/connections",
 		"portal/admin":                   "/portal/admin/connections",
 		"/path?next=javascript:alert(1)": "/portal/admin/connections", // colon anywhere → reject
 		// accepted forms
@@ -364,4 +439,124 @@ func TestTrimOAuthBody(t *testing.T) {
 	got := trimOAuthBody(long)
 	assert.Len(t, got, 256+len("..."))
 	assert.True(t, strings.HasSuffix(got, "..."), "expected ellipsis suffix, got %q", got[len(got)-5:])
+}
+
+// TestClientIP verifies clientIP honors X-Forwarded-For (first hop only)
+// and falls back to RemoteAddr when no proxy header is present.
+// Without this header awareness, every request behind an ingress logs
+// the ingress controller's IP — useless for forensics.
+func TestClientIP(t *testing.T) {
+	cases := []struct {
+		name string
+		xff  string
+		ra   string
+		want string
+	}{
+		{"no XFF falls back to RemoteAddr", "", "10.0.0.5:54321", "10.0.0.5:54321"},
+		{"single-IP XFF returned trimmed", "  203.0.113.7  ", "10.0.0.1:1", "203.0.113.7"},
+		{"multi-hop XFF returns first hop only", "203.0.113.7, 10.0.0.1, 10.0.0.2", "10.0.0.1:1", "203.0.113.7"},
+		{"multi-hop XFF first hop trimmed", "  203.0.113.7  , 10.0.0.1", "10.0.0.1:1", "203.0.113.7"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", http.NoBody)
+			r.RemoteAddr = tc.ra
+			if tc.xff != "" {
+				r.Header.Set("X-Forwarded-For", tc.xff)
+			}
+			assert.Equal(t, tc.want, clientIP(r))
+		})
+	}
+}
+
+// TestGatewayOAuthCallback_MissingCode covers the callback path where
+// the IdP redirects back without an `error` and without a `code` —
+// observed in the wild when an operator manually replays a callback URL
+// after the code has already been consumed.
+func TestGatewayOAuthCallback_MissingCode(t *testing.T) {
+	// Empty query (just state) — IdP returned neither error nor code,
+	// observed in the wild when an operator manually replays a
+	// callback URL after the code has already been consumed.
+	runOAuthCallbackErrorCase(t, "", "missing code")
+}
+
+// TestExchangeAuthorizationCode_OversizeBodyDetected proves the
+// admin-side counterpart to TestExchangeLocked_OversizeBodyDetected
+// in pkg/toolkits/gateway. The admin code-exchange is the operator's
+// FIRST point of contact during a Connect flow — a malicious or
+// misbehaving IdP that streams more than maxCodeExchangeBodyBytes
+// must be rejected with an explicit cap-exceeded error rather than
+// silently parsing a truncated JSON document (which an attacker
+// could exploit to feed attacker-controlled fields into the
+// freshly-stored token row).
+func TestExchangeAuthorizationCode_OversizeBodyDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// 2 MiB — twice the 1 MiB cap.
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 2<<20))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := gatewaykit.OAuthConfig{
+		Grant:        gatewaykit.OAuthGrantAuthorizationCode,
+		TokenURL:     srv.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	pending := &PKCEState{
+		codeVerifier: "v-x",
+		redirectURI:  "https://platform.example.com/cb",
+	}
+
+	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds",
+		"oversize body must surface as an explicit cap-exceeded error — "+
+			"silently parsing a truncated JSON response would let a malicious "+
+			"IdP inject attacker-controlled fields into the freshly-stored token")
+}
+
+// TestExchangeAuthorizationCode_DoesNotFollowRedirects proves the
+// admin-side counterpart to TestExchangeLocked_DoesNotFollowRedirects
+// in pkg/toolkits/gateway. The admin POST carries client_secret +
+// authorization_code + code_verifier — a misconfigured or compromised
+// IdP that 3xx-redirects must NOT cause the platform to forward those
+// credentials to the redirect target.
+func TestExchangeAuthorizationCode_DoesNotFollowRedirects(t *testing.T) {
+	var attackerHits atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "stolen",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	t.Cleanup(attacker.Close)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, attacker.URL+"/token", http.StatusFound)
+	}))
+	t.Cleanup(idp.Close)
+
+	cfg := gatewaykit.OAuthConfig{
+		Grant:        gatewaykit.OAuthGrantAuthorizationCode,
+		TokenURL:     idp.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	pending := &PKCEState{
+		codeVerifier: "v-x",
+		redirectURI:  "https://platform.example.com/cb",
+	}
+
+	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
+	require.Error(t, err,
+		"a 3xx response must surface as an error — the redirect target must not be hit")
+	assert.Equal(t, int32(0), attackerHits.Load(),
+		"redirect target must NEVER receive the credential-bearing POST. "+
+			"Following redirects on the token endpoint would leak the "+
+			"client_secret + authorization_code + code_verifier to the redirect target")
 }

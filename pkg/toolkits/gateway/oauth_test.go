@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -174,6 +176,467 @@ func TestOAuthTokenSource_RFCErrorResponse(t *testing.T) {
 	}
 }
 
+// TestClearStaleStateLocked_NilStoreIsSafe covers the defensive
+// store==nil branch in clearStaleStateLocked. Used by client_credentials
+// grants which legitimately run with a nil store; clearing in-memory
+// state must not panic when there's nothing to delete.
+func TestClearStaleStateLocked_NilStoreIsSafe(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantClientCredentials,
+	}, "test", nil)
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	src.state.AccessToken = "x"
+	src.state.RefreshToken = "y"
+	src.clearStaleStateLocked(context.Background())
+	assert.Empty(t, src.state.AccessToken)
+	assert.Empty(t, src.state.RefreshToken)
+}
+
+// TestClearStaleStateLocked_DeleteErrorPreservesCallerLastError verifies
+// the contract that clearStaleStateLocked never overwrites the
+// caller's lastError on Delete failure. The caller (Token / Reacquire)
+// has already recorded the IdP rejection error — that's what operators
+// need to see in Status. Cleanup-side failures go to slog.Warn only,
+// so they're visible in logs without clobbering the diagnostic chain.
+func TestClearStaleStateLocked_DeleteErrorPreservesCallerLastError(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "test", &erroringDeleteStore{})
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	const callerErr = "oauth: 400 invalid_grant: revoked (oauth: refresh token revoked by issuer)"
+	src.lastError = callerErr
+	src.state.RefreshToken = "doomed"
+	src.clearStaleStateLocked(context.Background())
+	assert.Equal(t, callerErr, src.lastError,
+		"clearStaleStateLocked must preserve caller's lastError so Status "+
+			"shows the IdP rejection, not the cleanup-side Delete failure")
+	assert.True(t, src.refreshTokenRevoked,
+		"refreshTokenRevoked must still be set to true even when Delete fails")
+	assert.Empty(t, src.state.RefreshToken,
+		"in-memory refresh token must still be cleared even when Delete fails")
+}
+
+// erroringDeleteStore is a minimal TokenStore that returns a non-
+// ErrTokenNotFound error on Delete. Used to exercise the failure
+// branch of clearStaleStateLocked.
+type erroringDeleteStore struct{}
+
+func (*erroringDeleteStore) Get(_ context.Context, _ string) (*PersistedToken, error) {
+	return nil, ErrTokenNotFound
+}
+func (*erroringDeleteStore) Set(_ context.Context, _ PersistedToken) error { return nil }
+func (*erroringDeleteStore) Delete(_ context.Context, _ string) error {
+	return errors.New("simulated delete failure")
+}
+
+// TestExchangeLocked_TransportError covers the diagnostic-log branch
+// on transport-level token-request failures (server closed, DNS, TLS,
+// etc.). Uses httptest.NewServer().Close() rather than a raw listener
+// because httptest.Server tracks active connections and ensures the
+// closed address is not handed back out by the OS during the test —
+// avoiding the rare port-reuse race that bare `net.Listen + Close`
+// has on systems with aggressive port recycling.
+func TestExchangeLocked_TransportError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	closedURL := srv.URL
+	srv.Close()
+
+	// Use the constructor variant rather than assigning src.client
+	// after construction — that would be an unsynchronized write to a
+	// field production code reads under the source's mutex.
+	src := newOAuthTokenSourceWithClient(
+		OAuthConfig{
+			Grant:        OAuthGrantClientCredentials,
+			TokenURL:     closedURL + "/token",
+			ClientID:     "id",
+			ClientSecret: "sec",
+		},
+		"test", nil,
+		&http.Client{Timeout: 500 * time.Millisecond},
+	)
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "oauth: token request",
+		"transport-level errors must be wrapped as 'oauth: token request: ...'")
+}
+
+// TestURLHost_UnparseableFallsBack covers the fallback branch in
+// URLHost: when url.Parse can't extract a host (e.g. raw scheme-less
+// string), the helper returns the original input so log fields never
+// go empty.
+func TestURLHost_UnparseableFallsBack(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"happy path returns host only", "https://idp.example.com/realms/x", "idp.example.com"},
+		{"scheme-less falls back to raw", "not-a-url", "not-a-url"},
+		{"broken scheme falls back to raw", "://broken", "://broken"},
+		{"empty input returns empty", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, URLHost(tc.in))
+		})
+	}
+}
+
+// TestIngestOAuthToken_ConnectionNotFound covers the not-found
+// branch (fresh slog.Warn added for diagnostic visibility). When the
+// admin OAuth callback handler races a RemoveConnection (or the
+// connection was deleted between oauth-start and oauth-callback),
+// IngestOAuthToken must surface a structured error rather than panic.
+func TestIngestOAuthToken_ConnectionNotFound(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	err := tk.IngestOAuthToken(context.Background(), IngestOAuthTokenInput{
+		Name:        "missing",
+		AccessToken: "x",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrConnectionNotFound)
+}
+
+// TestIngestOAuthToken_TokenStoreSetFailsSurfaces covers the
+// IngestTokenResponse-error branch of IngestOAuthToken: when the
+// underlying token store rejects Set (DB unreachable, encryption
+// error, etc.), the error must be wrapped with the connection name
+// and surfaced to the caller — not swallowed.
+func TestIngestOAuthToken_TokenStoreSetFailsSurfaces(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	tk.SetTokenStore(&erroringSetStore{})
+
+	cfg := map[string]any{
+		"endpoint":                "https://upstream.example.com/mcp",
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         "https://idp.example.com/token",
+		"oauth_authorization_url": "https://idp.example.com/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	err := tk.IngestOAuthToken(context.Background(), IngestOAuthTokenInput{
+		Name:         "vendor",
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ingest token",
+		"failure inside IngestTokenResponse must wrap the underlying error "+
+			"with the 'gateway: <name>: ingest token: …' prefix")
+}
+
+// erroringSetStore returns an error from Set so IngestOAuthToken's
+// IngestTokenResponse → persistLocked path surfaces a Set failure
+// to the caller.
+type erroringSetStore struct{}
+
+func (*erroringSetStore) Get(_ context.Context, _ string) (*PersistedToken, error) {
+	return nil, ErrTokenNotFound
+}
+
+func (*erroringSetStore) Set(_ context.Context, _ PersistedToken) error {
+	return errors.New("simulated set failure")
+}
+func (*erroringSetStore) Delete(_ context.Context, _ string) error { return nil }
+
+// TestIngestOAuthToken_PersistsAndRebuilds covers the happy path:
+// IngestTokenResponse persists the new tokens, RemoveConnection drops
+// the placeholder, and the subsequent AddConnection re-dials with the
+// fresh credentials. Uses an upstream MCP server so the dial actually
+// succeeds and we can verify the connection becomes live.
+func TestIngestOAuthToken_PersistsAndRebuilds(t *testing.T) {
+	upstreamURL := upstreamServer(t)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	store := NewMemoryTokenStore()
+	tk.SetTokenStore(store)
+
+	// Pre-seed a placeholder authcode connection (no token yet).
+	cfg := map[string]any{
+		"endpoint":                upstreamURL,
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         "https://idp.example.com/token",
+		"oauth_authorization_url": "https://idp.example.com/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "3s",
+		"call_timeout":            "3s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	// Ingest a fresh token set as the OAuth callback handler would.
+	err := tk.IngestOAuthToken(context.Background(), IngestOAuthTokenInput{
+		Name:            "vendor",
+		AccessToken:     "fresh-access",
+		RefreshToken:    "fresh-refresh",
+		ExpiresIn:       3600,
+		Scope:           "openid profile",
+		AuthenticatedBy: "admin@example.com",
+	})
+	require.NoError(t, err, "ingestion + rebuild must succeed against a healthy upstream")
+
+	// Persisted token row must reflect the ingestion.
+	rec, getErr := store.Get(context.Background(), "vendor")
+	require.NoError(t, getErr)
+	assert.Equal(t, "fresh-access", rec.AccessToken)
+	assert.Equal(t, "fresh-refresh", rec.RefreshToken)
+	assert.Equal(t, "admin@example.com", rec.AuthenticatedBy)
+
+	// Connection must be live (post-rebuild) — Status reports Healthy.
+	status := tk.Status("vendor")
+	require.NotNil(t, status)
+	assert.True(t, status.Healthy, "connection must be promoted to live after IngestOAuthToken's rebuild")
+}
+
+// TestDialContext_AppliesConfiguredTimeout proves the fix for the
+// dial-timeout bug: every discover() call now goes through dialContext,
+// which bounds the dial by cfg.ConnectTimeout. Pre-fix, addParsedConnection
+// used context.Background() with no deadline, so a hung upstream
+// MCP-protocol handshake held the OAuth callback's HTTP response open
+// until the SDK's internal timeout fired (minutes, in production) —
+// operators saw this as "Loading..." for over a minute on the admin
+// page after clicking Connect.
+//
+// We unit-test the helper directly because the integration path
+// involves the MCP SDK's session establishment, which doesn't release
+// hung-server connections cleanly during test teardown.
+func TestDialContext_AppliesConfiguredTimeout(t *testing.T) {
+	cfg := Config{ConnectTimeout: 750 * time.Millisecond}
+	before := time.Now()
+	ctx, cancel := dialContext(cfg)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok, "dialContext must produce a context with a deadline")
+	assert.WithinDuration(t, before.Add(750*time.Millisecond), deadline, 50*time.Millisecond,
+		"deadline must equal now + cfg.ConnectTimeout (within scheduling slack)")
+}
+
+// TestDialContext_FallsBackToDefault covers the zero-value case: when
+// an operator constructs a Config without setting ConnectTimeout (or
+// when the YAML omits the field), dialContext must fall back to the
+// package default rather than producing an immediately-canceled
+// context (which would make every dial fail before it even started).
+func TestDialContext_FallsBackToDefault(t *testing.T) {
+	cfg := Config{} // ConnectTimeout zero — exercises fallback
+	before := time.Now()
+	ctx, cancel := dialContext(cfg)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	assert.WithinDuration(t, before.Add(DefaultConnectTimeout), deadline, 50*time.Millisecond,
+		"dialContext must use DefaultConnectTimeout when cfg.ConnectTimeout is zero")
+}
+
+// TestDialContext_NegativeTimeoutFallsBackToDefault covers a defensive
+// edge: a negative ConnectTimeout (parse oddity, hand-rolled config)
+// must NOT produce a context that's already past its deadline.
+func TestDialContext_NegativeTimeoutFallsBackToDefault(t *testing.T) {
+	cfg := Config{ConnectTimeout: -1 * time.Second}
+	before := time.Now()
+	ctx, cancel := dialContext(cfg)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	assert.True(t, deadline.After(before),
+		"dialContext must produce a future deadline even when cfg.ConnectTimeout is negative")
+}
+
+// TestInterpretTokenError_RecognizesDeadRefresh proves
+// interpretTokenError wraps errRefreshTokenRevoked when the IdP
+// returns 400 + invalid_grant FOR a refresh_token grant only (RFC
+// 6749 §5.2). Other grants, other status codes, and other error
+// codes pass through verbatim — they may be transient or carry a
+// different meaning (bad authorization_code, bad client_secret) that
+// the caller must NOT respond to by clearing stored credentials.
+func TestInterpretTokenError_RecognizesDeadRefresh(t *testing.T) {
+	cases := []struct {
+		name      string
+		grantType string
+		status    int
+		errCode   string
+		wantDead  bool
+	}{
+		// Refresh-grant cases: invalid_grant is the only definitive
+		// "refresh token dead" signal.
+		{"refresh+400 invalid_grant — dead", "refresh_token", 400, "invalid_grant", true},
+		{"refresh+400 invalid_token — not RFC 6749, not dead", "refresh_token", 400, "invalid_token", false},
+		{"refresh+400 invalid_request — transient", "refresh_token", 400, "invalid_request", false},
+		{"refresh+401 invalid_grant — wrong status, not dead", "refresh_token", 401, "invalid_grant", false},
+		{"refresh+500 invalid_grant — 5xx is transient", "refresh_token", 500, "invalid_grant", false},
+
+		// Non-refresh grants: invalid_grant means something different
+		// (e.g. authorization_code is bad/expired) — must NEVER wrap
+		// the refresh-revoked sentinel.
+		{"authorization_code+400 invalid_grant — bad code, not refresh-dead", "authorization_code", 400, "invalid_grant", false},
+		{"client_credentials+400 invalid_grant — bad secret, not refresh-dead", "client_credentials", 400, "invalid_grant", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"error":"` + tc.errCode + `","error_description":"x"}`)
+			err := interpretTokenError(tc.grantType, tc.status, body)
+			if errors.Is(err, errRefreshTokenRevoked) != tc.wantDead {
+				t.Errorf("grant=%q status=%d code=%q: errors.Is(errRefreshTokenRevoked) = %v, want %v",
+					tc.grantType, tc.status, tc.errCode,
+					errors.Is(err, errRefreshTokenRevoked), tc.wantDead)
+			}
+		})
+	}
+}
+
+// TestToken_RefreshDeadClearsState proves the stale-token-noise fix:
+// when the IdP definitively rejects a refresh token, the source clears
+// in-memory state AND deletes the persisted row, so the next attempt
+// doesn't replay the same dead credential against the IdP.
+func TestToken_RefreshDeadClearsState(t *testing.T) {
+	// Token endpoint returns 400 invalid_grant — the canonical
+	// "your refresh token is dead, stop asking" response.
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"Token is not active"}`))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "old-access",
+		RefreshToken:   "stale-refresh",
+		ExpiresAt:      time.Now().Add(-time.Hour), // expired so refresh path fires
+	}))
+
+	cfg := OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	src := newOAuthTokenSource(cfg, "vendor", store)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err, "Token must propagate the reauth-required error")
+
+	// Persisted row must be gone — proves clearStaleStateLocked ran.
+	_, getErr := store.Get(context.Background(), "vendor")
+	require.ErrorIs(t, getErr, ErrTokenNotFound,
+		"persisted token row must be deleted after IdP signals invalid_grant")
+
+	// In-memory state must also be clear so a subsequent call doesn't
+	// replay the same dead refresh.
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	assert.Empty(t, src.state.RefreshToken,
+		"in-memory refresh_token must be cleared after definitive rejection")
+	assert.Empty(t, src.state.AccessToken,
+		"in-memory access_token must be cleared after definitive rejection")
+}
+
+// TestToken_RefreshTransientErrorKeepsState ensures transient failures
+// do NOT clear the persisted token. Only RFC 6749 §5.2 invalid_grant
+// at 400 (in the refresh path) triggers clearStaleStateLocked. Every
+// other status / non-RFC error code is treated as transient — the
+// persisted refresh must survive so the next attempt can succeed.
+func TestToken_RefreshTransientErrorKeepsState(t *testing.T) {
+	// Each subtest spins a fake token endpoint returning a different
+	// transient signal. The contract is the same in every case: the
+	// persisted refresh token must remain after Token() fails.
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{
+			name: "503 Service Unavailable (temporary IdP outage)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("upstream busy"))
+			},
+		},
+		{
+			name: "500 Internal Server Error (IdP bug)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("kaboom"))
+			},
+		},
+		{
+			name: "401 invalid_grant (status mismatch — 6749 says 400)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			},
+		},
+		{
+			name: "400 invalid_request (RFC code, not refresh-dead)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"missing param"}`))
+			},
+		},
+		{
+			name: "400 invalid_token (RFC 6750 not RFC 6749 — not refresh-dead)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_token"}`))
+			},
+		},
+		{
+			name: "400 with non-JSON body (mangled IdP response)",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("not json"))
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenURL := fakeTokenServer(t, tc.handler)
+			store := NewMemoryTokenStore()
+			require.NoError(t, store.Set(context.Background(), PersistedToken{
+				ConnectionName: "vendor",
+				AccessToken:    "still-valid",
+				RefreshToken:   "still-valid-r",
+				ExpiresAt:      time.Now().Add(-time.Hour),
+			}))
+
+			cfg := OAuthConfig{
+				Grant:        OAuthGrantAuthorizationCode,
+				TokenURL:     tokenURL,
+				ClientID:     "id",
+				ClientSecret: "sec",
+			}
+			src := newOAuthTokenSource(cfg, "vendor", store)
+
+			_, err := src.Token(context.Background())
+			require.Error(t, err)
+
+			// Persisted row MUST remain — the IdP didn't say "dead",
+			// it just signaled something the platform must not act on
+			// by deleting credentials.
+			rec, getErr := store.Get(context.Background(), "vendor")
+			require.NoError(t, getErr,
+				"transient errors must not delete the persisted token row")
+			assert.Equal(t, "still-valid-r", rec.RefreshToken,
+				"transient IdP errors must NOT clear the persisted refresh token")
+		})
+	}
+}
+
 func TestOAuthTokenSource_NonJSONErrorResponse(t *testing.T) {
 	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -273,7 +736,7 @@ func TestOAuthTokenSource_StatusReportsLastError(t *testing.T) {
 
 func TestInterpretTokenError_TruncatesLargeBody(t *testing.T) {
 	big := strings.Repeat("x", 1024)
-	err := interpretTokenError(http.StatusInternalServerError, []byte(big))
+	err := interpretTokenError("refresh_token", http.StatusInternalServerError, []byte(big))
 	if !strings.Contains(err.Error(), "...") {
 		t.Errorf("expected truncated body marker, got %v", err)
 	}
@@ -1071,4 +1534,527 @@ func TestStatus_OAuthFieldsPopulated(t *testing.T) {
 	if !st.OAuth.TokenAcquired {
 		t.Error("expected TokenAcquired=true")
 	}
+}
+
+// TestReacquire_RefreshDeadClearsStaleState mirrors Token()'s
+// dead-refresh handling on the manual Reacquire path. When an admin
+// clicks Reacquire while the IdP has revoked the refresh token:
+//   - the IdP rejection error must be returned to the caller,
+//   - the persisted row must be deleted (so subsequent Token() calls
+//     don't replay the dead credential and spam the IdP audit log),
+//   - Status must surface BOTH RefreshTokenRevoked=true (so the UI can
+//     show a distinct "click Connect" panel) AND NeedsReauth=true
+//     (so the existing UI logic moves the operator past Reacquire),
+//   - lastError must contain the IdP-rejection text (with the wrapped
+//     sentinel suffix) so operators see the actual cause, not a
+//     generic "needs reauth" message.
+func TestReacquire_RefreshDeadClearsStaleState(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"session_idle_timeout"}`))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "old",
+		RefreshToken:   "stale",
+		ExpiresAt:      time.Now().Add(-time.Hour),
+	}))
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", store)
+
+	err := src.Reacquire(context.Background())
+	require.Error(t, err, "Reacquire must propagate the IdP rejection")
+	require.ErrorIs(t, err, errRefreshTokenRevoked,
+		"returned error must wrap errRefreshTokenRevoked so admin handlers can react via errors.Is")
+
+	// The persisted row must be gone — proves Reacquire ran the same
+	// stale-state cleanup as Token() would have.
+	_, getErr := store.Get(context.Background(), "vendor")
+	require.ErrorIs(t, getErr, ErrTokenNotFound,
+		"Reacquire must delete the persisted row when refresh is definitively dead "+
+			"so the same dead refresh doesn't replay on the next Token() call")
+
+	// Status must report the FULL recovery posture so the UI can render
+	// the right messaging without ambiguity.
+	st := src.Status()
+	assert.True(t, st.RefreshTokenRevoked,
+		"RefreshTokenRevoked must be true so the UI can show 'IdP revoked your token' messaging")
+	assert.True(t, st.NeedsReauth,
+		"NeedsReauth must be true so the UI replaces the Reacquire affordance with Connect")
+	assert.False(t, st.HasRefreshToken,
+		"HasRefreshToken must be false after the cleanup — the row is gone")
+	assert.False(t, st.TokenAcquired,
+		"TokenAcquired must be false after the cleanup — in-memory state is empty")
+	assert.Contains(t, st.LastError, "invalid_grant",
+		"LastError must contain the IdP rejection text (operators need to see the actual cause)")
+	assert.Contains(t, st.LastError, "session_idle_timeout",
+		"LastError must include the IdP error_description for diagnostic context")
+}
+
+// TestStatus_RefreshTokenRevokedFullRecoveryCycle proves the full
+// state-machine cycle the admin UI depends on:
+//
+//   - revoked refresh -> RefreshTokenRevoked flips true,
+//     NeedsReauth flips true, store row is gone;
+//   - operator runs Connect -> IngestTokenResponse with fresh tokens
+//     -> RefreshTokenRevoked flips back to false, NeedsReauth flips
+//     to false, TokenAcquired and HasRefreshToken flip to true.
+//
+// A sticky-true RefreshTokenRevoked would lock the UI into the
+// revoked-panel forever even after recovery; a missed flip on the
+// happy-path side would leave the panel stale across restarts.
+func TestStatus_RefreshTokenRevokedFullRecoveryCycle(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "old",
+		RefreshToken:   "stale",
+		ExpiresAt:      time.Now().Add(-time.Hour),
+	}))
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", store)
+
+	// Phase 1: trigger the dead-refresh cleanup via the real refresh
+	// path (NOT by direct field mutation — we exercise the production
+	// state machine, not its internals).
+	require.Error(t, src.Reacquire(context.Background()))
+	pre := src.Status()
+	require.True(t, pre.RefreshTokenRevoked, "phase 1: RefreshTokenRevoked should be true")
+	require.True(t, pre.NeedsReauth, "phase 1: NeedsReauth should be true")
+
+	// Phase 2: simulate the operator completing a fresh Connect flow
+	// through the real IngestTokenResponse path.
+	require.NoError(t, src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken:     "fresh",
+		RefreshToken:    "fresh-r",
+		ExpiresIn:       3600,
+		AuthenticatedBy: "ops@example.com",
+	}))
+
+	post := src.Status()
+	assert.False(t, post.RefreshTokenRevoked,
+		"phase 2: RefreshTokenRevoked must clear after a successful IngestTokenResponse")
+	assert.False(t, post.NeedsReauth,
+		"phase 2: NeedsReauth must clear — the connection is fully authorized again")
+	assert.True(t, post.TokenAcquired, "phase 2: TokenAcquired must reflect the new access token")
+	assert.True(t, post.HasRefreshToken, "phase 2: HasRefreshToken must reflect the new refresh token")
+	assert.Empty(t, post.LastError,
+		"phase 2: LastError must clear — the operator successfully recovered")
+	assert.Equal(t, "ops@example.com", post.AuthenticatedBy,
+		"phase 2: AuthenticatedBy must record who completed the fresh Connect flow")
+}
+
+// TestIngestTokenResponse_RejectsEmptyAccessToken proves the boundary
+// guard added to IngestTokenResponse. An empty access token would
+// silently flip TokenAcquired=true on the admin status panel, hiding
+// upstream bugs in callers that produce no token but still call
+// IngestTokenResponse.
+func TestIngestTokenResponse_RejectsEmptyAccessToken(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", nil)
+
+	err := src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "access_token is required")
+
+	st := src.Status()
+	assert.False(t, st.TokenAcquired,
+		"failed IngestTokenResponse must NOT mutate state — "+
+			"an empty access_token cannot flip TokenAcquired to true")
+}
+
+// TestEnsureLoadedLocked_TransientErrorRetries verifies the bug fix:
+// a transient store error on first load must NOT mark the source
+// loaded. Subsequent calls retry rather than locking the source into
+// "no token" state when postgres has the row.
+func TestEnsureLoadedLocked_TransientErrorRetries(t *testing.T) {
+	store := &flakyGetStore{}
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	// First load: store returns a transient error.
+	src.mu.Lock()
+	firstErr := src.ensureLoadedLocked(context.Background())
+	loadedAfterFailure := src.loaded
+	lastErrAfterFailure := src.lastError
+	src.mu.Unlock()
+
+	require.Error(t, firstErr,
+		"transient store error must be returned so callers can propagate it "+
+			"instead of falling through to grant-specific reauth messaging")
+	assert.Contains(t, firstErr.Error(), "load token",
+		"returned error must identify itself as a load failure")
+	assert.False(t, loadedAfterFailure,
+		"transient store error must NOT mark source loaded — otherwise the source is "+
+			"permanently locked into empty state until process restart")
+	assert.Contains(t, lastErrAfterFailure, "load token",
+		"transient load error must surface on lastError so Status shows the cause")
+
+	// Second load: store now returns the row successfully.
+	store.healed = true
+	src.mu.Lock()
+	require.NoError(t, src.ensureLoadedLocked(context.Background()),
+		"after the store heals, ensureLoadedLocked must return nil")
+	state := src.state
+	src.mu.Unlock()
+
+	assert.Equal(t, "real-access", state.AccessToken,
+		"after the store heals, the next ensureLoadedLocked call must succeed")
+	assert.Equal(t, "real-refresh", state.RefreshToken,
+		"after the store heals, the persisted refresh token must be loaded")
+}
+
+// flakyGetStore returns a transient error on the first Get and the
+// real row on subsequent calls (after `healed` is set). Used to
+// exercise ensureLoadedLocked's retry-on-transient-error contract.
+type flakyGetStore struct{ healed bool }
+
+func (s *flakyGetStore) Get(_ context.Context, _ string) (*PersistedToken, error) {
+	if !s.healed {
+		return nil, errors.New("simulated transient DB error")
+	}
+	return &PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "real-access",
+		RefreshToken:   "real-refresh",
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}, nil
+}
+func (*flakyGetStore) Set(_ context.Context, _ PersistedToken) error { return nil }
+func (*flakyGetStore) Delete(_ context.Context, _ string) error      { return nil }
+
+// TestToken_TransientRefreshErrorReturnedDirectly proves the bug fix
+// for the misleading "click Connect" error: when refreshLocked fails
+// with a transient signal (5xx, network), Token() must return the
+// ACTUAL error, not the generic "no valid refresh token" message
+// that historically led operators to invalidate working credentials.
+//
+// The refresh token must remain in state and store so the next call
+// can succeed without operator intervention.
+func TestToken_TransientRefreshErrorReturnedDirectly(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("upstream busy"))
+	})
+
+	store := NewMemoryTokenStore()
+	require.NoError(t, store.Set(context.Background(), PersistedToken{
+		ConnectionName: "vendor",
+		AccessToken:    "still-valid",
+		RefreshToken:   "still-valid-r",
+		ExpiresAt:      time.Now().Add(-time.Hour),
+	}))
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", store)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "503",
+		"transient refresh failure must return the actual IdP error, not the "+
+			"generic 'needs reauth' message that wrongly tells operators to invalidate "+
+			"a working refresh token")
+	assert.NotContains(t, err.Error(), "requires reauthentication",
+		"a transient 503 must NOT surface as 'requires reauthentication' — the "+
+			"refresh token is still valid and the right action is to retry, not to Connect")
+
+	// Refresh token must still be in state (in-memory) AND in the
+	// store — operators waiting out a transient blip must not lose
+	// their authorization.
+	require.True(t, src.Status().HasRefreshToken,
+		"transient failure must NOT clear the in-memory refresh token")
+	rec, getErr := store.Get(context.Background(), "vendor")
+	require.NoError(t, getErr)
+	assert.Equal(t, "still-valid-r", rec.RefreshToken,
+		"transient failure must NOT delete the persisted refresh token row")
+}
+
+// TestToken_LastErrorClearedOnCacheHit proves that a successful
+// cached-token return clears any stale lastError. Previously, a prior
+// persistLocked Set failure (recorded on lastError) would persist on
+// Status forever even though every subsequent Token() call was
+// succeeding via the cache — misleading the admin UI into showing a
+// degraded-connection indicator on a fully healthy connection.
+func TestToken_LastErrorClearedOnCacheHit(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantClientCredentials,
+	}, "vendor", nil)
+
+	src.mu.Lock()
+	src.state.AccessToken = "cached"
+	src.state.ExpiresAt = time.Now().Add(time.Hour)
+	src.lastError = "stale: previous persist failure"
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "cached", tok)
+	assert.Empty(t, src.Status().LastError,
+		"successful cache hit must clear stale lastError so Status reflects current state")
+}
+
+// TestToken_LastErrorClearedOnRefreshSuccess is the parallel proof
+// for the refresh-success branch: a stale lastError from a prior
+// failure must not persist after a successful refresh.
+func TestToken_LastErrorClearedOnRefreshSuccess(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "fresh",
+			"refresh_token": "fresh-r",
+			"expires_in":    3600,
+			"token_type":    "Bearer",
+		})
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", NewMemoryTokenStore())
+
+	src.mu.Lock()
+	src.state.RefreshToken = "stale-but-revivable"
+	src.state.ExpiresAt = time.Now().Add(-time.Hour) // forces refresh
+	src.lastError = "stale: from a previous transient failure"
+	src.loaded = true
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "fresh", tok)
+	assert.Empty(t, src.Status().LastError,
+		"successful refresh must clear stale lastError so Status reflects current state")
+}
+
+// TestExchangeLocked_OversizeBodyDetected proves the truncation-detection
+// fix: when an IdP streams more than maxTokenResponseBytes, exchangeLocked
+// must REJECT with an explicit error rather than silently parsing a
+// truncated JSON document (which a malicious IdP could exploit to feed
+// attacker-controlled fields).
+func TestExchangeLocked_OversizeBodyDetected(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Stream 2 MiB — twice the 1 MiB cap.
+		w.WriteHeader(http.StatusOK)
+		junk := bytes.Repeat([]byte("x"), 2<<20)
+		_, _ = w.Write(junk)
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantClientCredentials,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", nil)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds",
+		"oversize body must surface as an explicit cap-exceeded error, not as a JSON decode error on truncated data")
+}
+
+// TestExchangeLocked_DoesNotFollowRedirects proves the redirect
+// hardening: a token endpoint that 3xx-redirects to an attacker URL
+// must NOT cause the platform to forward the credential-bearing POST
+// to the redirect target. The 3xx surfaces as a non-200 response, the
+// redirect Location header is treated as the body, and the caller
+// gets a regular non-200 error.
+func TestExchangeLocked_DoesNotFollowRedirects(t *testing.T) {
+	var attackerHits atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "stolen",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	t.Cleanup(attacker.Close)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, attacker.URL+"/token", http.StatusFound)
+	}))
+	t.Cleanup(idp.Close)
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantClientCredentials,
+		TokenURL:     idp.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", nil)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err,
+		"a 3xx response must surface as an error — the redirect target must not be hit")
+	assert.Equal(t, int32(0), attackerHits.Load(),
+		"redirect target must NEVER receive the credential-bearing POST. "+
+			"Following redirects on the token endpoint is a credential-leak vector")
+}
+
+// TestToken_LoadErrorPropagatedNotMasked proves the bug fix for the
+// transient-load masking: when ensureLoadedLocked fails with a
+// non-NotFound store error AND the source has no in-memory state
+// yet, Token() must return the actual load error — NOT fall through
+// to "click Connect" which would mislead operators into invalidating
+// a refresh token that's still safely stored in the DB.
+func TestToken_LoadErrorPropagatedNotMasked(t *testing.T) {
+	store := &flakyGetStore{} // returns transient error on first Get
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load token",
+		"transient load failures must surface as load-token errors, not generic 'needs reauth' messages")
+	assert.NotContains(t, err.Error(), "requires reauthentication",
+		"transient DB error must NOT be reported as 'requires reauthentication' — "+
+			"the refresh token is still safely stored, the issue is the DB")
+	assert.NotContains(t, err.Error(), "click Connect",
+		"operators must not be told to click Connect when the actual problem is the store")
+}
+
+// TestReacquire_LoadErrorPropagatedNotMasked is the parallel proof
+// for Reacquire() — same masking bug, same fix.
+func TestReacquire_LoadErrorPropagatedNotMasked(t *testing.T) {
+	store := &flakyGetStore{}
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", store)
+
+	err := src.Reacquire(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load token",
+		"Reacquire must propagate load failures verbatim, not mask them with 'no refresh token'")
+	assert.NotContains(t, err.Error(), "click Connect",
+		"transient DB error must not be reported as 'no refresh token; click Connect'")
+}
+
+// TestIngestTokenResponse_PersistFailureSurfacesToCaller proves the
+// asymmetric persist-failure contract: IngestTokenResponse must
+// PROPAGATE persist failures because they're operator-visible
+// (the operator just completed a Connect flow; if the token didn't
+// reach storage, it'll silently disappear on the next restart and
+// the operator will repeat Connect tomorrow without ever knowing why).
+func TestIngestTokenResponse_PersistFailureSurfacesToCaller(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", &erroringSetStore{})
+
+	err := src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+		ExpiresIn:    3600,
+	})
+	require.Error(t, err,
+		"IngestTokenResponse must surface persist failures — operators must not "+
+			"silently lose the credential they just completed a browser flow to obtain")
+	assert.Contains(t, err.Error(), "persist token",
+		"returned error must identify itself as a persist failure")
+
+	// lastError must also be set so Status reflects the divergence.
+	st := src.Status()
+	assert.Contains(t, st.LastError, "persist token",
+		"Status must show persist failures so admin UI surfaces the issue")
+}
+
+// TestToken_PersistFailureNonFatal proves Token()'s persist policy:
+// when the in-memory token is fresh but the store Set fails, Token()
+// returns the new access token successfully. The persist failure is
+// logged via slog but does NOT poison lastError or fail the call —
+// the in-memory token works for this process's lifetime, and the
+// next refresh self-heals by re-persisting.
+func TestToken_PersistFailureNonFatal(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "fresh",
+			"refresh_token": "fresh-r",
+			"expires_in":    3600,
+			"token_type":    "Bearer",
+		})
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", &erroringSetStore{})
+
+	src.mu.Lock()
+	src.state.RefreshToken = "stale"
+	src.state.ExpiresAt = time.Now().Add(-time.Hour) // forces refresh
+	src.loaded = true
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err,
+		"Token() must succeed when refresh works — persist failure is non-fatal "+
+			"because the in-memory token is good for this process's lifetime")
+	assert.Equal(t, "fresh", tok)
+
+	// lastError must NOT show the persist failure — Status would
+	// otherwise mislead operators into thinking the connection is
+	// degraded when in fact the token is fresh and working.
+	st := src.Status()
+	assert.NotContains(t, st.LastError, "persist token",
+		"Token()'s persist-failure handling must NOT pollute Status — "+
+			"the in-memory token is fresh and operations are succeeding")
+}
+
+// TestApplyTokenResponseLocked_ClearsRefreshTokenRevoked proves the
+// state-machine invariant that a successful token exchange ALWAYS
+// flips refreshTokenRevoked to false, regardless of which caller
+// invoked the helper. Locks the invariant in the helper so future
+// callers (or refactors) can't accidentally leave the flag stale.
+func TestApplyTokenResponseLocked_ClearsRefreshTokenRevoked(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", nil)
+
+	// Simulate prior dead-refresh observation.
+	src.mu.Lock()
+	src.refreshTokenRevoked = true
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+		ExpiresIn:    3600,
+	})
+	revokedAfter := src.refreshTokenRevoked
+	src.mu.Unlock()
+
+	assert.False(t, revokedAfter,
+		"applyTokenResponseLocked must clear refreshTokenRevoked — successful "+
+			"exchange means fresh credentials, regardless of prior state")
 }

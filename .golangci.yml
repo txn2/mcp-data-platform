@@ -282,6 +282,15 @@ linters:
     gosec:
       excludes:
         - G104
+        # G706 (log injection via taint analysis) is disabled
+        # globally because the project's logging convention — slog
+        # with key-value pairs handled by the stdlib text/JSON
+        # handlers — escapes/quotes user-controlled values. We accept
+        # the loss of static checking here in exchange for fewer
+        # noisy false positives. Reviewers must catch any future
+        # %-formatted log calls or custom handlers that would
+        # bypass that escaping; this rule no longer flags them.
+        - G706
       config:
         G306: "0644"
 

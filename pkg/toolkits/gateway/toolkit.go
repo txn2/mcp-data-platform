@@ -26,11 +26,29 @@ var ErrConnectionExists = errors.New("gateway: connection already exists")
 // name that is not present.
 var ErrConnectionNotFound = errors.New("gateway: connection not found")
 
-// Log key constants keep structured-slog field names consistent across the package.
+// Log key constants keep structured-slog field names consistent
+// across the package — and across packages that compose with this
+// one. LogKeyTokenURLHost is exported so the admin handler that
+// performs the OAuth code-exchange (which lives outside this package)
+// can use the same field name as the token-source's refresh /
+// acquire logs, allowing operators to grep one connection's full
+// auth lifecycle by `token_url_host=<host>`.
 const (
 	logKeyConnection = "connection"
 	logKeyEndpoint   = "endpoint"
 	logKeyError      = "error"
+
+	// LogKeyTokenURLHost is the structured-log field name used when
+	// emitting an IdP host. Exported so external packages don't
+	// duplicate the literal and risk drift.
+	LogKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
+
+	// LogKeyGrantType is the structured-log field name used when
+	// emitting an OAuth grant_type. Exported so the admin handler
+	// (which performs the authorization_code exchange) and the
+	// gateway token source (which performs refresh / acquire) emit
+	// the same field name across the full OAuth lifecycle.
+	LogKeyGrantType = "grant_type"
 )
 
 // Toolkit is a gateway that proxies tools from one or more upstream MCP
@@ -103,7 +121,9 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 		wg.Add(1)
 		go func(p pending) {
 			defer wg.Done()
-			client, tools, err := discover(context.Background(), p.cfg, p.name, store)
+			ctx, cancel := dialContext(p.cfg)
+			defer cancel()
+			client, tools, err := discover(ctx, p.cfg, p.name, store)
 			if err != nil {
 				slog.Warn("gateway: retry placeholder after token store wired",
 					logKeyConnection, p.cfg.ConnectionName,
@@ -120,6 +140,20 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 		}(p)
 	}
 	wg.Wait()
+}
+
+// dialContext returns a context bounded by cfg.ConnectTimeout (or the
+// package default when cfg.ConnectTimeout is zero/negative). Used for
+// every discover() call so a hung MCP-protocol handshake against an
+// unhealthy upstream cannot block the caller (admin OAuth callback,
+// SetTokenStore retry, AddConnection) for longer than the operator-
+// configured timeout.
+func dialContext(cfg Config) (context.Context, context.CancelFunc) {
+	timeout := cfg.ConnectTimeout
+	if timeout <= 0 {
+		timeout = DefaultConnectTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 // recordPlaceholderError updates a placeholder's lastError so Status()
@@ -340,7 +374,16 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
 	}
 
-	client, tools, err := discover(context.Background(), cfg, name, t.tokenStore)
+	// Bound the dial by cfg.ConnectTimeout. Without this, IngestOAuthToken
+	// (which calls Remove + Add right after the OAuth callback exchanges a
+	// code for tokens) can hold the callback's HTTP response open for the
+	// full duration of the SDK's internal handshake timeout — minutes at
+	// worst — when the upstream MCP-protocol initialize / notifications/
+	// initialized handshake hangs. Operators saw this as a long-spinning
+	// "Loading…" on the admin page after clicking Connect.
+	ctx, cancel := dialContext(cfg)
+	defer cancel()
+	client, tools, err := discover(ctx, cfg, name, t.tokenStore)
 	if err != nil {
 		// authorization_code connections without a stored token are
 		// expected to fail discovery — record a placeholder so the admin
@@ -514,10 +557,19 @@ type IngestOAuthTokenInput struct {
 // (re-dial + listTools) so the previously "needs reauth" connection
 // becomes live with its discovered tools registered on the MCP server.
 func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput) error {
+	slog.Info("gateway: IngestOAuthToken — start",
+		logKeyConnection, in.Name,
+		"authenticated_by", in.AuthenticatedBy,
+		"access_token_len", len(in.AccessToken),
+		"refresh_token_present", in.RefreshToken != "",
+		"expires_in", in.ExpiresIn,
+		"scope", in.Scope)
 	t.mu.Lock()
 	u, ok := t.connections[in.Name]
 	if !ok {
 		t.mu.Unlock()
+		slog.Warn("gateway: IngestOAuthToken — connection not found",
+			logKeyConnection, in.Name)
 		return fmt.Errorf(errFmtConnection, in.Name, ErrConnectionNotFound)
 	}
 	cfg := u.config
@@ -537,16 +589,30 @@ func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput
 		Scope:           in.Scope,
 		AuthenticatedBy: in.AuthenticatedBy,
 	}); err != nil {
+		slog.Error("gateway: IngestOAuthToken — IngestTokenResponse failed",
+			logKeyConnection, in.Name, logKeyError, err)
 		return fmt.Errorf("gateway: %s: ingest token: %w", in.Name, err)
 	}
+	slog.Debug("gateway: IngestOAuthToken — tokens persisted, rebuilding connection",
+		logKeyConnection, in.Name)
 
 	// Replace the connection with a fresh one so it gets re-dialed using
 	// the now-valid tokens and its tools registered on the live server.
 	if err := t.RemoveConnection(in.Name); err != nil && !errors.Is(err, ErrConnectionNotFound) {
+		slog.Error("gateway: IngestOAuthToken — RemoveConnection failed",
+			logKeyConnection, in.Name, logKeyError, err)
 		return fmt.Errorf("gateway: %s: remove during reauth: %w", in.Name, err)
 	}
 	rawCfg := configToMap(cfg)
-	return t.AddConnection(in.Name, rawCfg)
+	if err := t.AddConnection(in.Name, rawCfg); err != nil {
+		slog.Error("gateway: IngestOAuthToken — AddConnection failed",
+			logKeyConnection, in.Name, logKeyError, err)
+		return err
+	}
+	slog.Info("gateway: IngestOAuthToken — complete",
+		logKeyConnection, in.Name,
+		"authenticated_by", in.AuthenticatedBy)
+	return nil
 }
 
 // errFmtConnection is the standard "gateway: <name>: <wrapped err>"

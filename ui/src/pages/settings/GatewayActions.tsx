@@ -209,22 +209,46 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
 
   const handleConnect = async () => {
     setActionMsg(null);
+    // Idiomatic OIDC redirect flow: navigate the current tab to the
+    // IdP. The IdP's login form becomes the user's page, they submit
+    // it, the IdP redirects to the platform's callback URL, the
+    // callback exchanges the code for tokens and redirects back here
+    // via the returnURL we send below.
+    //
+    // Earlier versions used window.open in a popup tab to "preserve
+    // admin context" — that pattern produced popup-blocker stalls,
+    // stale-form bugs (lingering popup tabs whose Keycloak session
+    // had been consumed), and the "I clicked Sign In and nothing
+    // happened" UX failures. Top-level redirect is the standard
+    // pattern (Salesforce, Okta, Auth0 admin consoles all use it)
+    // and avoids every one of those failure modes.
     try {
       const res = await startOAuth.mutateAsync({
         name: connectionName,
         returnURL: window.location.pathname + window.location.search,
       });
-      // Open the upstream's authorization URL in a new tab so the
-      // operator can complete the browser dance without losing the
-      // admin context. Status will auto-refetch on the existing 30s
-      // poll once the callback runs.
-      window.open(res.authorization_url, "_blank", "noopener,noreferrer");
-      setActionMsg({
-        ok: true,
-        text: "Authorization page opened in a new tab. Sign in to complete the connection.",
-      });
+      // Validate the URL before navigating. An empty or malformed
+      // authorization_url (server bug, race condition, misconfigured
+      // connection) would silently no-op `window.location.href = ""`
+      // and reproduce the "click does nothing" failure mode this PR
+      // was meant to fix. Surface it as an explicit error instead.
+      if (!/^https?:\/\//i.test(res.authorization_url)) {
+        setActionMsg({
+          ok: false,
+          text:
+            "Server returned an invalid authorization URL. " +
+            "Check the connection's oauth_authorization_url field is a complete https:// URL.",
+        });
+        return;
+      }
+      window.location.href = res.authorization_url;
+      // No setActionMsg on success — the page is navigating away.
+      // Any status update would race the navigation.
     } catch (err) {
-      setActionMsg({ ok: false, text: err instanceof Error ? err.message : "Connect failed" });
+      setActionMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : "Connect failed",
+      });
     }
   };
 
@@ -273,7 +297,15 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
 
       {oauth.needs_reauth && (
         <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
+          {oauth.refresh_token_revoked ? (
+            <>
+              <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid (idle session timeout, password change, or admin revocation). Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
+            </>
+          ) : (
+            <>
+              <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
+            </>
+          )}
         </div>
       )}
 

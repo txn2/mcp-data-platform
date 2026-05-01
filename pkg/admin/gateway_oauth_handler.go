@@ -130,18 +130,35 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
 		return
 	}
+	startedBy := authorEmailOrID(r.Context())
 	if err := store.Put(r.Context(), state, &PKCEState{
 		connection:   name,
 		codeVerifier: verifier,
-		startedBy:    authorEmailOrID(r.Context()),
+		startedBy:    startedBy,
 		createdAt:    time.Now(),
 		returnURL:    body.ReturnURL,
 		redirectURI:  redirectURI,
 	}); err != nil {
-		slog.Error("oauth-start: failed to persist pkce state", "err", err)
+		slog.Error("oauth-start: failed to persist pkce state",
+			logKeyName, name,
+			logKeyStartedBy, startedBy,
+			logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
 	}
+
+	// Log every oauth-start with enough context to correlate against
+	// the matching callback without leaking secrets. The state token
+	// is truncated (first 8 chars) — full state is what authenticates
+	// the callback, so it must not appear in logs.
+	slog.Info("oauth-start: PKCE state issued",
+		logKeyName, name,
+		logKeyStartedBy, startedBy,
+		logKeyStatePrefix, truncateForLog(state),
+		logKeyRedirectURI, redirectURI,
+		"authorization_url_host", gatewaykit.URLHost(cfg.OAuth.AuthorizationURL),
+		"return_url", body.ReturnURL,
+		"ttl", pkceTTL)
 
 	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
@@ -149,6 +166,54 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		RedirectURI:      redirectURI,
 		ExpiresAt:        time.Now().Add(pkceTTL).UTC().Format(time.RFC3339),
 	})
+}
+
+// Structured-log field names used across oauth-start / oauth-callback /
+// oauth-exchange so revive's add-constant rule is satisfied AND log
+// fields stay consistent for grep / dashboard alignment.
+//
+// `LogKeyTokenURLHost` is intentionally re-exported from the gateway
+// package so admin and gateway packages emit the SAME field name on
+// IdP host logs — one operator dashboard query covers the full
+// oauth-start → exchange → refresh lifecycle.
+const (
+	logKeyStatePrefix = "state_prefix"
+	logKeyStartedBy   = "started_by"
+	logKeyDuration    = "duration"
+	logKeyRedirectURI = "redirect_uri"
+)
+
+// truncateForLog returns the first 8 chars of s with "…" suffix when
+// truncated. Used so the platform can log a state-token prefix for
+// correlation across oauth-start / oauth-callback without exposing
+// the full secret in log files.
+func truncateForLog(s string) string {
+	const truncateLen = 8
+	if len(s) <= truncateLen {
+		return s
+	}
+	return s[:truncateLen] + "…"
+}
+
+// clientIP returns the originating client's address, honoring
+// X-Forwarded-For when the request arrived via a reverse proxy or
+// ingress (Kubernetes, Cloudflare, etc.). Without this, every
+// request behind an ingress logs the ingress controller's IP, which
+// is identical for every operator and useless for forensics.
+//
+// Trust model: only the first hop in X-Forwarded-For is consulted,
+// matching what most ingress controllers emit. Operators running
+// trust-bottom-of-chain proxies can opt to log the full header
+// elsewhere if needed. r.RemoteAddr is the fallback when no
+// X-Forwarded-For is present (direct-connection deployments).
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if comma := strings.Index(xff, ","); comma > 0 {
+			return strings.TrimSpace(xff[:comma])
+		}
+		return strings.TrimSpace(xff)
+	}
+	return r.RemoteAddr
 }
 
 // loadAuthCodeOAuthConfig looks up the named connection, parses its
@@ -215,38 +280,72 @@ func generatePKCEPair(w http.ResponseWriter) (verifier, state string, ok bool) {
 // @Failure      400  {object}  problemDetail
 // @Router       /admin/oauth/callback [get]
 func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	q := r.URL.Query()
 	state := q.Get("state")
+	statePrefix := truncateForLog(state)
+	// Defer the state-prefix log until we've actually retrieved a
+	// pending PKCE state — drive-by callback probes (bots, scanners,
+	// state-fixation attempts) shouldn't pollute INFO with their
+	// chosen state values. The receipt itself logs at DEBUG instead.
+	slog.Debug("oauth-callback: received",
+		logKeyStatePrefix, statePrefix,
+		"has_code", q.Get("code") != "",
+		"has_error", q.Get("error") != "",
+		"client_ip", clientIP(r))
 	if state == "" {
+		slog.Warn("oauth-callback: missing state parameter")
 		writeOAuthError(w, "missing state parameter")
 		return
 	}
 	store := h.pkceStoreFor()
 	if store == nil {
+		slog.Error("oauth-callback: PKCE store not configured")
 		writeOAuthError(w, "OAuth not available: PKCE store not configured")
 		return
 	}
 	pending, err := store.Take(r.Context(), state)
 	if err != nil {
 		if errors.Is(err, ErrPKCEStateNotFound) {
+			slog.Warn("oauth-callback: PKCE state not found (expired or unknown)",
+				logKeyStatePrefix, statePrefix)
 			writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
 			return
 		}
-		slog.Error("oauth-callback: pkce store lookup failed", "err", err)
+		slog.Error("oauth-callback: pkce store lookup failed",
+			logKeyStatePrefix, statePrefix, logKeyError, err)
 		writeOAuthError(w, "OAuth state lookup failed")
 		return
 	}
+	slog.Info("oauth-callback: PKCE state retrieved",
+		logKeyName, pending.connection,
+		logKeyStartedBy, pending.startedBy,
+		logKeyStatePrefix, statePrefix,
+		"age", time.Since(pending.createdAt))
+
 	if errCode := q.Get("error"); errCode != "" {
-		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
+		errDesc := q.Get("error_description")
+		slog.Warn("oauth-callback: IdP returned error",
+			logKeyName, pending.connection,
+			"idp_error", errCode,
+			"idp_error_description", errDesc)
+		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, errDesc))
 		return
 	}
 	code := q.Get("code")
 	if code == "" {
+		slog.Warn("oauth-callback: missing code parameter",
+			logKeyName, pending.connection)
 		writeOAuthError(w, "missing code parameter")
 		return
 	}
 
 	if err := h.completeOAuthExchange(r.Context(), pending, code); err != nil {
+		slog.Error("oauth-callback: token exchange failed",
+			logKeyName, pending.connection,
+			logKeyStartedBy, pending.startedBy,
+			logKeyDuration, time.Since(start),
+			logKeyError, err)
 		writeOAuthError(w, "token exchange failed: "+err.Error())
 		return
 	}
@@ -259,6 +358,23 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// for the small "<a href>Found</a>" body it writes, which gives
 	// non-browser HTTP clients (curl, scripts) a useful response body.
 	dest := safeReturnURL(pending.returnURL)
+	if pending.returnURL != "" && dest != pending.returnURL {
+		// Log the rewrite explicitly so security forensics can spot
+		// open-redirect probes that came in via the OAuth flow. Without
+		// this, the rewrite is invisible — operators can't tell whether
+		// the user provided a strange returnURL or whether the platform
+		// reset it for safety.
+		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
+			logKeyName, pending.connection,
+			logKeyStartedBy, pending.startedBy,
+			"requested_return_url", pending.returnURL,
+			"rewritten_to", dest)
+	}
+	slog.Info("oauth-callback: success — tokens persisted, redirecting",
+		logKeyName, pending.connection,
+		logKeyStartedBy, pending.startedBy,
+		logKeyDuration, time.Since(start),
+		"dest", dest)
 	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
@@ -316,12 +432,40 @@ func (h *Handler) completeOAuthExchange(ctx context.Context, pending *PKCEState,
 
 // authCodeTokenResponse is the parsed token-endpoint response.
 type authCodeTokenResponse struct {
-	AccessToken  string `json:"access_token"` //nolint:gosec // OAuth response shape, not a credential
+	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	ExpiresIn    int    `json:"expires_in,omitempty"`
 	Scope        string `json:"scope,omitempty"`
 	Error        string `json:"error,omitempty"`
 	ErrorDesc    string `json:"error_description,omitempty"`
+}
+
+// codeExchangeTimeout bounds the admin's authorization_code POST to the
+// upstream's token endpoint. Without this, http.DefaultClient (Timeout: 0)
+// plus an IdP that accepts the connection then hangs would keep the
+// OAuth callback handler open until the platform's outer HTTP server
+// timeout — minutes at worst — making the Connect button spin
+// indefinitely. 30s is generous for any healthy IdP.
+const codeExchangeTimeout = 30 * time.Second
+
+// maxCodeExchangeBodyBytes caps the response read from the token
+// endpoint to prevent a misbehaving IdP from OOMing the platform
+// with an unbounded stream. OAuth token responses are KB at most;
+// 1 MiB is a generous ceiling.
+const maxCodeExchangeBodyBytes = 1 << 20
+
+// codeExchangeClient is the HTTP client used for admin-side
+// authorization_code exchanges. Distinct from http.DefaultClient so
+// any package-level mutation of DefaultClient cannot affect token
+// exchanges, and CheckRedirect refuses to follow 3xx so a
+// misconfigured or compromised IdP cannot redirect the
+// credential-bearing POST (client_secret, authorization_code,
+// code_verifier) to an attacker URL.
+var codeExchangeClient = &http.Client{
+	Timeout: codeExchangeTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
 }
 
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
@@ -330,7 +474,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	pending *PKCEState, code string,
 ) (*authCodeTokenResponse, error) {
 	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
+	form.Set("grant_type", gatewaykit.OAuthGrantAuthorizationCode)
 	form.Set("code", code)
 	form.Set("client_id", oc.ClientID)
 	form.Set("client_secret", oc.ClientSecret)
@@ -346,25 +490,92 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	exchangeStart := time.Now()
+	tokenHost := gatewaykit.URLHost(oc.TokenURL)
+	// Emit grant_type on every admin-side exchange log so operators can
+	// grep one connection's full lifecycle (admin code-exchange +
+	// gateway refresh) by `grant_type=*` regardless of which package
+	// emitted the line.
+	slog.Debug("oauth-exchange: posting authorization_code grant",
+		gatewaykit.LogKeyTokenURLHost, tokenHost,
+		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+		"client_id", oc.ClientID,
+		logKeyRedirectURI, pending.redirectURI)
+	resp, err := codeExchangeClient.Do(req)
 	if err != nil {
+		slog.Error("oauth-exchange: token request transport error",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			logKeyDuration, time.Since(exchangeStart),
+			logKeyError, err)
 		return nil, fmt.Errorf("token request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	// Drain remaining bytes before close so net/http can pool the
+	// underlying TCP connection. With LimitReader capping the read,
+	// any oversize body would otherwise leave bytes on the wire and
+	// drop the connection — every refresh would then re-handshake.
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	// Read up to maxCodeExchangeBodyBytes+1 so we can DETECT
+	// truncation rather than silently parse a truncated JSON document
+	// (which a malicious IdP could exploit to feed attacker-controlled
+	// fields into the token row).
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCodeExchangeBodyBytes+1))
+	if readErr != nil {
+		slog.Error("oauth-exchange: read response body failed",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			logKeyError, readErr)
+		return nil, fmt.Errorf("read token response: %w", readErr)
+	}
+	if int64(len(bodyBytes)) > maxCodeExchangeBodyBytes {
+		slog.Warn("oauth-exchange: token response exceeds size cap",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			"limit_bytes", maxCodeExchangeBodyBytes)
+		return nil, fmt.Errorf("token response exceeds %d-byte cap (likely misbehaving IdP)", maxCodeExchangeBodyBytes)
+	}
 	if resp.StatusCode != http.StatusOK {
+		slog.Warn("oauth-exchange: non-200 from token endpoint",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			"status", resp.StatusCode,
+			logKeyDuration, time.Since(exchangeStart),
+			"body_excerpt", trimOAuthBody(bodyBytes))
 		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, trimOAuthBody(bodyBytes))
 	}
 	var tr authCodeTokenResponse
 	if jerr := json.Unmarshal(bodyBytes, &tr); jerr != nil {
+		slog.Error("oauth-exchange: decode response failed",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			logKeyError, jerr)
 		return nil, fmt.Errorf("decode token response: %w", jerr)
 	}
 	if tr.Error != "" {
+		slog.Warn("oauth-exchange: structured error in token response",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+			"idp_error", tr.Error,
+			"idp_error_description", tr.ErrorDesc)
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {
+		slog.Warn("oauth-exchange: token response missing access_token",
+			gatewaykit.LogKeyTokenURLHost, tokenHost,
+			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode)
 		return nil, errors.New("token response missing access_token")
 	}
+	slog.Info("oauth-exchange: success",
+		gatewaykit.LogKeyTokenURLHost, tokenHost,
+		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
+		logKeyDuration, time.Since(exchangeStart),
+		"access_token_len", len(tr.AccessToken),
+		"refresh_token_present", tr.RefreshToken != "",
+		"expires_in", tr.ExpiresIn,
+		"scope", tr.Scope)
 	return &tr, nil
 }
 
@@ -425,16 +636,30 @@ func pkceChallenge(verifier string) string {
 // the PKCE challenge. The redirect_uri must exactly match what's
 // registered with the OAuth provider (Salesforce External Client App,
 // etc.).
+//
+// Emits the OIDC `prompt` parameter (§3.1.2.1) only when the operator
+// configured one on the connection (`oauth_prompt` / `oauth.prompt`).
+// Common values are documented on OAuthConfig.Prompt — operators of
+// strict OIDC realms typically want "login" so each Reconnect click
+// defeats stale-Keycloak-form bugs; operators of pure-OAuth providers
+// that don't recognize `prompt` should leave it empty (default) so
+// the IdP doesn't reject the request with invalid_request.
 func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirectURI string) string {
 	q := url.Values{}
+	// Required RFC 6749 §4.1.1 + RFC 7636 §4.3 parameters first.
 	q.Set("response_type", "code")
 	q.Set("client_id", cfg.ClientID)
 	q.Set("redirect_uri", redirectURI)
 	q.Set("state", state)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
+	// Optional parameters last, co-located so the conditional block
+	// reads as one section rather than scattered throughout the URL.
 	if cfg.Scope != "" {
 		q.Set("scope", cfg.Scope)
+	}
+	if cfg.Prompt != "" {
+		q.Set("prompt", cfg.Prompt)
 	}
 
 	sep := "?"
