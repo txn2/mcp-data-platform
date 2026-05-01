@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
@@ -916,5 +917,183 @@ func captureAuthHeader(t *testing.T, header, authMode, credential string) string
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for upstream request")
 		return ""
+	}
+}
+
+// TestStatus_DoesNotBlockDuringSlowAddConnection proves the mutex
+// architecture fix: when AddConnection is performing a slow network
+// handshake against an unresponsive upstream, concurrent Status()
+// calls on OTHER connections must not block on the toolkit's mutex.
+//
+// Pre-fix: Toolkit.mu was held throughout discover() (network I/O).
+// Status() acquired the same mutex and waited for the dial to finish
+// or time out — typically minutes when the upstream hangs on
+// notifications/initialized, which is why /portal/admin/connections
+// hung whenever any connection was misbehaving.
+func TestStatus_DoesNotBlockDuringSlowAddConnection(t *testing.T) {
+	// hungSrv stalls long enough that the test's fast-assertion
+	// window (200ms) lands while AddConnection is still in
+	// discover(). The handler then writes a 500 so AddConnection
+	// terminates promptly when our wait window opens — this isolates
+	// the test to the mutex-contention question and prevents goroutine
+	// leaks from the SDK's HTTP handling on full dial-context expiry.
+	hangFor := 1500 * time.Millisecond
+	hungSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(hangFor):
+			http.Error(w, "simulated upstream rejection", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(hungSrv.Close)
+
+	healthySrv := upstreamServer(t)
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	require.NoError(t, tk.AddConnection("healthy", map[string]any{
+		"endpoint":        healthySrv,
+		"connection_name": "healthy",
+		"connect_timeout": "3s",
+		"call_timeout":    "3s",
+	}))
+
+	// Start the slow AddConnection in a goroutine.
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- tk.AddConnection("hung", map[string]any{
+			"endpoint":        hungSrv.URL,
+			"connection_name": "hung",
+			"connect_timeout": "5s",
+			"call_timeout":    "5s",
+		})
+	}()
+	time.Sleep(100 * time.Millisecond) // let the goroutine reach discover()
+
+	// THE assertion: Status() on the OTHER connection must return
+	// promptly while AddConnection on the hung connection is still in
+	// flight. Pre-fix (mutex held through discover) this would block
+	// until the hung dial returned.
+	statusDone := make(chan struct{})
+	go func() {
+		_ = tk.Status("healthy")
+		close(statusDone)
+	}()
+	select {
+	case <-statusDone:
+		// Pass.
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Status() blocked waiting for hung AddConnection — toolkit mutex held during network I/O")
+	}
+
+	// Drain the AddConnection goroutine. The hungSrv responds within
+	// hangFor (~1.5s); SDK round-trip + cleanup add overhead. 30s is a
+	// generous ceiling that won't mask real bugs but tolerates CI jitter.
+	select {
+	case <-addDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("AddConnection didn't return after upstream sent 500 — investigate SDK cleanup")
+	}
+}
+
+// TestListConnections_DoesNotBlockDuringSlowAddConnection is the
+// parallel proof for ListConnections — it's the endpoint backing the
+// /portal/admin/connections page, the visible symptom that prompted
+// the architectural fix.
+func TestListConnections_DoesNotBlockDuringSlowAddConnection(t *testing.T) {
+	hungSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(1500 * time.Millisecond):
+			http.Error(w, "simulated upstream rejection", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(hungSrv.Close)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- tk.AddConnection("hung", map[string]any{
+			"endpoint":        hungSrv.URL,
+			"connection_name": "hung",
+			"connect_timeout": "3s",
+			"call_timeout":    "3s",
+		})
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	listDone := make(chan int, 1)
+	go func() {
+		listDone <- len(tk.ListConnections())
+	}()
+	select {
+	case n := <-listDone:
+		// Pass. n should be 1 (the claiming sentinel for "hung") OR 0
+		// depending on test timing — either is acceptable; the point
+		// is that the call returned promptly.
+		_ = n
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ListConnections() blocked waiting for hung AddConnection — toolkit mutex still held during network I/O")
+	}
+
+	select {
+	case <-addDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("hung AddConnection didn't terminate")
+	}
+}
+
+// TestRemoveConnection_OfDifferentName_DoesNotBlockDuringSlowAddConnection
+// proves the mutex fix also unblocks RemoveConnection of OTHER
+// connections — Remove of an unrelated name must complete fast.
+func TestRemoveConnection_OfDifferentName_DoesNotBlockDuringSlowAddConnection(t *testing.T) {
+	hungSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(1500 * time.Millisecond):
+			http.Error(w, "simulated upstream rejection", http.StatusInternalServerError)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(hungSrv.Close)
+	healthySrv := upstreamServer(t)
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	require.NoError(t, tk.AddConnection("healthy", map[string]any{
+		"endpoint":        healthySrv,
+		"connection_name": "healthy",
+		"connect_timeout": "3s",
+		"call_timeout":    "3s",
+	}))
+
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- tk.AddConnection("hung", map[string]any{
+			"endpoint":        hungSrv.URL,
+			"connection_name": "hung",
+			"connect_timeout": "3s",
+			"call_timeout":    "3s",
+		})
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	removeDone := make(chan error, 1)
+	go func() {
+		removeDone <- tk.RemoveConnection("healthy")
+	}()
+	select {
+	case err := <-removeDone:
+		require.NoError(t, err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("RemoveConnection('healthy') blocked waiting for hung AddConnection on a DIFFERENT name — mutex contention bug")
+	}
+
+	select {
+	case <-addDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("hung AddConnection didn't terminate")
 	}
 }
