@@ -45,6 +45,34 @@ func dial(ctx context.Context, cfg Config, connection string, store TokenStore) 
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:   cfg.Endpoint,
 		HTTPClient: httpClient,
+		// DisableStandaloneSSE: do NOT open a long-poll GET against the
+		// upstream's Streamable HTTP endpoint after initialize.
+		//
+		// Per MCP spec §2.2.3, after a successful initialize the client MAY
+		// open a `GET /` with `Accept: text/event-stream` so the server can
+		// push asynchronous notifications (tools/list_changed, progress,
+		// etc.). The go-sdk does this SYNCHRONOUSLY inside Client.Connect's
+		// sessionUpdated() callback BEFORE sending notifications/initialized.
+		//
+		// When the upstream is fronted by Cloudflare (or any proxy with
+		// response buffering), the proxy buffers the SSE response waiting
+		// for the upstream to produce data. If the upstream has nothing to
+		// push (the steady state for most servers), the proxy holds the
+		// connection open until ITS timeout — Cloudflare returns HTTP 524
+		// after ~100s. The synchronous Connect() then takes the full 100s+
+		// to return, and our 10s dial context has long since expired by
+		// the time it gets to send notifications/initialized — which then
+		// surfaces as the misleading "round trip: context deadline exceeded
+		// on notifications/initialized" error.
+		//
+		// We don't currently consume server-pushed notifications in the
+		// gateway forwarder — every tool call is a synchronous request /
+		// response. Disabling the standalone SSE eliminates the proxy hang
+		// without losing functionality. If we add streaming-tool support
+		// later, revisit this and either negotiate with the operator's
+		// proxy config (disable buffering for /api/mcp) or open the SSE
+		// stream lazily on demand.
+		DisableStandaloneSSE: true,
 	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", cfg.Endpoint, err)

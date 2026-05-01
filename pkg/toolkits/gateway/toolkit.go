@@ -242,6 +242,15 @@ type upstream struct {
 	// fresh value (so lastError starts at the zero string ""); there is
 	// no in-place clear. Live connections never set or read this field.
 	lastError string
+
+	// claiming is set briefly while addParsedConnection is performing
+	// network I/O (discover) WITHOUT holding the toolkit's mutex. The
+	// entry exists in t.connections so concurrent AddConnection calls
+	// for the same name see ErrConnectionExists, but other readers
+	// (Status, ListConnections, Tools) treat this as a placeholder.
+	// Cleared when addParsedConnection completes (entry replaced with
+	// either a live connection or a real placeholder).
+	claiming bool
 }
 
 // New builds a Toolkit with the given default connection name and no
@@ -364,54 +373,124 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	return t.addParsedConnection(name, cfg)
 }
 
-// addParsedConnection performs the shared dial + registration work under the
-// toolkit's write lock.
+// addParsedConnection runs the dial + registration. The toolkit's mutex
+// is held ONLY for the brief slot-claim and slot-install steps; the
+// network I/O (dial + ListTools) runs WITHOUT the lock so other
+// operations (Status, ListConnections, Tools, RemoveConnection of a
+// different name) proceed in parallel.
+//
+// A "claiming" sentinel entry is inserted in the connections map before
+// the dial so concurrent AddConnection calls for the same name see
+// ErrConnectionExists. The claim sentinel is identified by POINTER
+// IDENTITY (not just the claiming bool) so that a Remove + Add cycle
+// during a slow dial cannot install our result into a later caller's
+// slot — see installDialResult.
 func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if _, exists := t.connections[name]; exists {
-		return fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
+	claim, err := t.claimConnectionSlot(name, cfg)
+	if err != nil {
+		return err
 	}
-
-	// Bound the dial by cfg.ConnectTimeout. Without this, IngestOAuthToken
-	// (which calls Remove + Add right after the OAuth callback exchanges a
-	// code for tokens) can hold the callback's HTTP response open for the
-	// full duration of the SDK's internal handshake timeout — minutes at
-	// worst — when the upstream MCP-protocol initialize / notifications/
-	// initialized handshake hangs. Operators saw this as a long-spinning
-	// "Loading…" on the admin page after clicking Connect.
+	// Network I/O happens here, OUTSIDE the lock. A slow or hung
+	// upstream blocks only this call — other toolkit operations
+	// (Status polls, listing connections, calling tools on other
+	// connections) proceed without contention.
 	ctx, cancel := dialContext(cfg)
 	defer cancel()
-	client, tools, err := discover(ctx, cfg, name, t.tokenStore)
-	if err != nil {
+	client, tools, dialErr := discover(ctx, cfg, name, t.tokenStore)
+	return t.installDialResult(dialResult{
+		claim:   claim,
+		name:    name,
+		cfg:     cfg,
+		client:  client,
+		tools:   tools,
+		dialErr: dialErr,
+	})
+}
+
+// claimConnectionSlot inserts a sentinel "claiming" entry under the
+// lock so concurrent AddConnection calls for the same name see
+// ErrConnectionExists. Returns ErrConnectionExists if a real or
+// claiming entry already occupies the slot. The returned *upstream is
+// the inserted sentinel — callers MUST pass it to installDialResult
+// so the install step can verify the slot still holds OUR claim
+// (and not a fresh claim from a concurrent Remove + Add cycle).
+func (t *Toolkit) claimConnectionSlot(name string, cfg Config) (*upstream, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, exists := t.connections[name]; exists {
+		return nil, fmt.Errorf("gateway: %s: %w", name, ErrConnectionExists)
+	}
+	claim := &upstream{
+		name:     name,
+		config:   cfg,
+		desc:     "Connecting to " + cfg.Endpoint,
+		claiming: true,
+	}
+	t.connections[name] = claim
+	return claim, nil
+}
+
+// installDialResult finishes a claim by replacing the "claiming"
+// sentinel with the dial's result. Holds the lock only briefly to
+// mutate the map and register tools.
+//
+// Identity check: the install only proceeds if the slot still holds
+// the SAME *upstream pointer that claimConnectionSlot inserted. A
+// Remove + Add cycle during our dial replaces the entry with a fresh
+// claim sentinel that has the same `claiming` bool but a different
+// pointer; without this check, our (potentially stale) dial result
+// would silently overwrite the second caller's claim.
+// dialResult bundles the inputs to installDialResult so the function
+// signature stays under revive's argument-limit ceiling without losing
+// any of the data the install step needs.
+type dialResult struct {
+	claim   *upstream
+	name    string
+	cfg     Config
+	client  *upstreamClient
+	tools   []*mcp.Tool
+	dialErr error
+}
+
+func (t *Toolkit) installDialResult(r dialResult) error {
+	claim, name, cfg, client, tools, dialErr := r.claim, r.name, r.cfg, r.client, r.tools, r.dialErr
+	t.mu.Lock()
+	if t.connections[name] != claim {
+		// Slot was removed (and possibly re-claimed) during our dial —
+		// discard the result. The other caller's dial owns the slot.
+		t.mu.Unlock()
+		if client != nil {
+			_ = client.close()
+		}
+		return nil
+	}
+
+	if dialErr != nil {
 		// authorization_code connections without a stored token are
-		// expected to fail discovery — record a placeholder so the admin
-		// status surface knows to render a Connect button. For other
-		// failure modes, keep the existing behavior of bubbling the
-		// error so retries from the admin path can succeed.
+		// expected to fail discovery — keep a placeholder so the admin
+		// status surface renders a Connect button. Other failure modes
+		// drop the slot and bubble the error so retries can succeed.
 		if cfg.AuthMode == AuthModeOAuth && cfg.OAuth.Grant == OAuthGrantAuthorizationCode {
-			// Include the discover() error in BOTH the warning log and
-			// the placeholder's lastError. Operators clicking Connect
-			// otherwise see only "awaiting reauth" with no clue WHY the
-			// upstream rejected — the error gets lost between layers.
-			slog.Warn("gateway: oauth authorization_code connection awaiting reauth",
-				logKeyConnection, cfg.ConnectionName,
-				logKeyEndpoint, cfg.Endpoint,
-				logKeyError, err)
 			t.connections[name] = &upstream{
 				name:      name,
 				config:    cfg,
 				desc:      "Awaiting OAuth authorization",
-				lastError: err.Error(),
+				lastError: dialErr.Error(),
 			}
+			t.mu.Unlock()
+			slog.Warn("gateway: oauth authorization_code connection awaiting reauth",
+				logKeyConnection, cfg.ConnectionName,
+				logKeyEndpoint, cfg.Endpoint,
+				logKeyError, dialErr)
 			return nil
 		}
+		delete(t.connections, name)
+		t.mu.Unlock()
 		slog.Warn("gateway: upstream unavailable",
 			logKeyConnection, cfg.ConnectionName,
 			logKeyEndpoint, cfg.Endpoint,
-			logKeyError, err)
-		return err
+			logKeyError, dialErr)
+		return dialErr
 	}
 
 	u := &upstream{
@@ -426,6 +505,7 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if t.server != nil {
 		t.addToolsToServerLocked(u)
 	}
+	t.mu.Unlock()
 	slog.Info("gateway: upstream connected",
 		logKeyConnection, cfg.ConnectionName,
 		logKeyEndpoint, cfg.Endpoint,
@@ -435,26 +515,34 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 
 // RemoveConnection unregisters a connection's tools from the MCP server,
 // closes its upstream session, and removes it from the toolkit.
+//
+// The toolkit's mutex is held only for the brief map mutation +
+// server.RemoveTools call. The actual client.close() — which performs
+// network I/O (DELETE the MCP session against the upstream) — runs
+// WITHOUT the lock so a slow upstream cannot block other toolkit
+// operations.
 func (t *Toolkit) RemoveConnection(name string) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	u, ok := t.connections[name]
 	if !ok {
+		t.mu.Unlock()
 		return fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
 	}
-
 	if t.server != nil && len(u.toolNames) > 0 {
 		t.server.RemoveTools(u.toolNames...)
 	}
-	if u.client != nil {
-		if err := u.client.close(); err != nil {
+	delete(t.connections, name)
+	client := u.client
+	connectionName := u.config.ConnectionName
+	t.mu.Unlock()
+
+	if client != nil {
+		if err := client.close(); err != nil {
 			slog.Warn("gateway: error closing upstream session",
-				logKeyConnection, u.config.ConnectionName,
+				logKeyConnection, connectionName,
 				logKeyError, err)
 		}
 	}
-	delete(t.connections, name)
 	return nil
 }
 
@@ -662,15 +750,27 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 
 // Close closes every upstream session. Safe to call on a never-registered
 // toolkit.
+//
+// Snapshots the live client pointers under the lock and closes them
+// outside the lock so a slow upstream cannot block other toolkit
+// operations during shutdown. A concurrent AddConnection that lands
+// after the snapshot will leak its client at process exit — by design,
+// Close is called once at process shutdown and external callers are
+// expected to stop dispatching new AddConnection calls before invoking
+// Close (the platform's lifecycle layer enforces this).
 func (t *Toolkit) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	var firstErr error
+	clients := make([]*upstreamClient, 0, len(t.connections))
 	for _, u := range t.connections {
-		if u.client == nil {
-			continue
+		if u.client != nil {
+			clients = append(clients, u.client)
 		}
-		if err := u.client.close(); err != nil && firstErr == nil {
+	}
+	t.mu.Unlock()
+
+	var firstErr error
+	for _, c := range clients {
+		if err := c.close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
