@@ -171,55 +171,25 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// Cached path: token still valid. Clear lastError — any prior
-	// failure (e.g. an old persistLocked Set error) is no longer
-	// the current operational state and must not stick on Status.
+	// Cached path: token still valid.
 	if t.state.AccessToken != "" && time.Until(t.state.ExpiresAt) > expiryBuffer {
 		slog.Debug("gateway/oauth: cached access token still valid",
 			logKeyConnection, t.connectionName,
 			"expires_in_seconds", int(time.Until(t.state.ExpiresAt).Seconds()))
+		// Clear stale lastError — any prior failure is no longer the
+		// current operational state and must not stick on Status.
 		t.lastError = ""
 		return t.state.AccessToken, nil
 	}
 	// Try refresh first if we have a refresh token.
 	if t.state.RefreshToken != "" {
-		slog.Debug("gateway/oauth: cached token expired, attempting refresh",
-			logKeyConnection, t.connectionName)
-		err := t.refreshLocked(ctx)
-		switch {
-		case err == nil:
-			t.persistLocked(ctx)
-			t.refreshTokenRevoked = false
-			// Clear lastError on success — preserving a stale failure
-			// message after a successful refresh would mislead
-			// operators into thinking the connection is degraded.
-			t.lastError = ""
-			return t.state.AccessToken, nil
-		case errors.Is(err, errRefreshTokenRevoked):
-			// IdP definitively said the refresh token is dead. Clear the
-			// in-memory state AND the persisted row so subsequent restarts
-			// don't replay the same dead token against the IdP.
-			slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
-				logKeyConnection, t.connectionName,
-				logKeyError, err)
-			t.clearStaleStateLocked(ctx)
-			// Fall through to the auth_code branch below: state is
-			// now empty so the generic "needs reauth" message is
-			// the correct user-facing answer.
-			t.lastError = ""
-		default:
-			// Transient failure: 503/network/timeout/etc. The refresh
-			// token is still valid in state and store — we must NOT
-			// fall through to the "needs reauth" branch (which would
-			// tell the operator to click Connect, invalidating a
-			// working credential). Return the actual error so the
-			// caller can decide to retry.
-			slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
-				logKeyConnection, t.connectionName,
-				logKeyError, err)
-			t.lastError = err.Error()
-			return "", err
+		token, returned, err := t.tryRefreshLocked(ctx)
+		if returned {
+			return token, err
 		}
+		// returned==false means refresh hit the dead-refresh sentinel
+		// and clearStaleStateLocked already ran. Fall through to the
+		// grant-specific path which will set lastError.
 	}
 	// authorization_code with no usable refresh path: needs human re-auth.
 	if t.cfg.Grant == OAuthGrantAuthorizationCode {
@@ -238,6 +208,59 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 	}
 	t.lastError = ""
 	return t.state.AccessToken, nil
+}
+
+// tryRefreshLocked attempts a refresh-token grant against the upstream
+// and reports the outcome via three values:
+//
+//   - (token, true, nil)       — refresh succeeded; caller returns the token.
+//   - ("", true, err)          — refresh failed transient/unrecognized; caller returns err.
+//   - ("", false, nil)         — refresh failed with errRefreshTokenRevoked
+//     and stale state was cleared; caller falls
+//     through to the grant-specific reauth path.
+//
+// The third tri-state lets Token() drop a level of nesting and keep
+// cyclomatic complexity under the project ceiling. Caller must hold t.mu.
+func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, returned bool, err error) {
+	slog.Debug("gateway/oauth: cached token expired, attempting refresh",
+		logKeyConnection, t.connectionName)
+	err = t.refreshLocked(ctx)
+	switch {
+	case err == nil:
+		// Persist failures are non-fatal: the in-memory token works
+		// for this process's lifetime, and the next refresh re-persists
+		// (self-healing). Log so operators can spot DB issues; don't
+		// surface on lastError (would be cleared by the next success
+		// anyway, and Status would flap).
+		if pErr := t.persistLocked(ctx); pErr != nil {
+			slog.Warn("gateway/oauth: persist after refresh failed (in-memory token still valid)",
+				logKeyConnection, t.connectionName,
+				logKeyError, pErr)
+		}
+		t.lastError = ""
+		return t.state.AccessToken, true, nil
+	case errors.Is(err, errRefreshTokenRevoked):
+		// IdP definitively said the refresh token is dead. Clear
+		// in-memory state AND the persisted row so subsequent restarts
+		// don't replay the dead token. Caller falls through to the
+		// grant-specific reauth path which sets lastError.
+		slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
+		t.clearStaleStateLocked(ctx)
+		return "", false, nil
+	default:
+		// Transient failure (503/network/timeout/etc): refresh token
+		// is still valid in state and store. Return the actual error
+		// so the caller knows to retry — DO NOT fall through to the
+		// "needs reauth" path which would mislead operators into
+		// invalidating a working refresh.
+		slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
+		t.lastError = err.Error()
+		return "", true, err
+	}
 }
 
 // IngestTokenResponseInput collects the result of an out-of-band OAuth
@@ -284,9 +307,14 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 	t.lastError = ""
 	t.refreshTokenRevoked = false
 	t.loaded = true
-	t.persistLocked(ctx)
-	if t.lastError != "" {
-		return errors.New(t.lastError)
+	// IngestTokenResponse is the operator's Connect-flow finale —
+	// they MUST learn if the token didn't reach storage, otherwise
+	// it will silently disappear on the next process restart and the
+	// operator will repeat Connect tomorrow without ever knowing why.
+	// Surface persist failures via lastError AND the returned error.
+	if err := t.persistLocked(ctx); err != nil {
+		t.lastError = err.Error()
+		return err
 	}
 	return nil
 }
@@ -312,29 +340,7 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 	}
 
 	if t.cfg.Grant == OAuthGrantAuthorizationCode {
-		if t.state.RefreshToken == "" {
-			err := errors.New("oauth: no refresh token; click Connect to authorize")
-			t.lastError = err.Error()
-			return err
-		}
-		if err := t.refreshLocked(ctx); err != nil {
-			if errors.Is(err, errRefreshTokenRevoked) {
-				slog.Info("gateway/oauth: Reacquire — refresh token rejected by IdP, clearing stale state",
-					logKeyConnection, t.connectionName,
-					logKeyError, err)
-				t.clearStaleStateLocked(ctx)
-			}
-			// Set lastError AFTER clearStaleStateLocked so its
-			// best-effort cleanup-error reporting (via the dedicated
-			// slog.Warn) can't clobber the IdP rejection text that
-			// operators actually need to see in Status.
-			t.lastError = err.Error()
-			return err
-		}
-		t.persistLocked(ctx)
-		t.lastError = ""
-		t.refreshTokenRevoked = false
-		return nil
+		return t.reacquireAuthCodeLocked(ctx)
 	}
 	if err := t.acquireLocked(ctx); err != nil {
 		t.lastError = err.Error()
@@ -346,6 +352,42 @@ func (t *oauthTokenSource) Reacquire(ctx context.Context) error {
 	// client_credentials connections the field is never set true so
 	// this is a no-op; defensive against future refactors that allow
 	// mixed grant usage on a single source.
+	t.refreshTokenRevoked = false
+	return nil
+}
+
+// reacquireAuthCodeLocked is the auth_code branch of Reacquire,
+// extracted to keep nestif under the project's complexity ceiling.
+// Caller must hold t.mu.
+func (t *oauthTokenSource) reacquireAuthCodeLocked(ctx context.Context) error {
+	if t.state.RefreshToken == "" {
+		err := errors.New("oauth: no refresh token; click Connect to authorize")
+		t.lastError = err.Error()
+		return err
+	}
+	if err := t.refreshLocked(ctx); err != nil {
+		if errors.Is(err, errRefreshTokenRevoked) {
+			slog.Info("gateway/oauth: Reacquire — refresh token rejected by IdP, clearing stale state",
+				logKeyConnection, t.connectionName,
+				logKeyError, err)
+			t.clearStaleStateLocked(ctx)
+		}
+		// Set lastError AFTER clearStaleStateLocked so its best-effort
+		// cleanup-error reporting can't clobber the IdP rejection text
+		// that operators need to see in Status.
+		t.lastError = err.Error()
+		return err
+	}
+	// Persist failures are non-fatal: the in-memory token works, the
+	// next refresh will re-persist. Log so operators can spot DB
+	// issues; don't surface on lastError (would be cleared by the
+	// next success).
+	if err := t.persistLocked(ctx); err != nil {
+		slog.Warn("gateway/oauth: persist after Reacquire failed (in-memory token still valid)",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
+	}
+	t.lastError = ""
 	t.refreshTokenRevoked = false
 	return nil
 }
@@ -569,6 +611,12 @@ func decodeTokenResponse(body []byte) (tokenResponse, error) {
 
 // applyTokenResponseLocked writes a valid token response into the
 // source's in-memory state. Caller must hold t.mu.
+//
+// Always clears refreshTokenRevoked: a successful exchange means the
+// source has fresh credentials regardless of what state preceded it.
+// Embedding the clear here keeps the state-machine invariant
+// "successful exchange → not revoked" enforced at the helper level
+// rather than relying on every caller to remember it.
 func (t *oauthTokenSource) applyTokenResponseLocked(tr tokenResponse) {
 	now := time.Now().UTC()
 	t.state.AccessToken = tr.AccessToken
@@ -583,6 +631,7 @@ func (t *oauthTokenSource) applyTokenResponseLocked(tr tokenResponse) {
 		t.state.ExpiresAt = now.Add(1 * time.Hour)
 	}
 	t.state.LastRefreshedAt = now
+	t.refreshTokenRevoked = false
 }
 
 // errRefreshTokenRevoked indicates the IdP definitively rejected a
@@ -760,12 +809,21 @@ func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) error {
 	return nil
 }
 
-// persistLocked writes the current token state back to the store. Used
-// after a successful refresh so the new access/refresh tokens survive
-// process restarts. Caller must hold t.mu.
-func (t *oauthTokenSource) persistLocked(ctx context.Context) {
+// persistLocked writes the current token state back to the store and
+// returns the Set error so callers can decide whether persistence
+// failure is fatal. Caller must hold t.mu.
+//
+// Caller policy:
+//
+//   - IngestTokenResponse propagates the error: an operator who just
+//     completed a Connect flow MUST learn that the token didn't reach
+//     storage, otherwise it'll silently disappear on the next restart.
+//   - Token() and Reacquire()'s refresh-success paths LOG the error
+//     and continue: the in-memory token works for this process's
+//     lifetime; the next refresh attempt will re-persist; self-heals.
+func (t *oauthTokenSource) persistLocked(ctx context.Context) error {
 	if t.store == nil {
-		return
+		return nil
 	}
 	if err := t.store.Set(ctx, PersistedToken{
 		ConnectionName:  t.connectionName,
@@ -776,8 +834,7 @@ func (t *oauthTokenSource) persistLocked(ctx context.Context) {
 		AuthenticatedBy: t.authedBy,
 		AuthenticatedAt: t.authedAt,
 	}); err != nil {
-		// Log but don't fail the token return — we still have a usable
-		// in-memory token; persistence is for restart durability only.
-		t.lastError = "persist token: " + err.Error()
+		return fmt.Errorf("oauth: persist token: %w", err)
 	}
+	return nil
 }

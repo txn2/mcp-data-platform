@@ -1959,3 +1959,102 @@ func TestReacquire_LoadErrorPropagatedNotMasked(t *testing.T) {
 	assert.NotContains(t, err.Error(), "click Connect",
 		"transient DB error must not be reported as 'no refresh token; click Connect'")
 }
+
+// TestIngestTokenResponse_PersistFailureSurfacesToCaller proves the
+// asymmetric persist-failure contract: IngestTokenResponse must
+// PROPAGATE persist failures because they're operator-visible
+// (the operator just completed a Connect flow; if the token didn't
+// reach storage, it'll silently disappear on the next restart and
+// the operator will repeat Connect tomorrow without ever knowing why).
+func TestIngestTokenResponse_PersistFailureSurfacesToCaller(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", &erroringSetStore{})
+
+	err := src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+		ExpiresIn:    3600,
+	})
+	require.Error(t, err,
+		"IngestTokenResponse must surface persist failures — operators must not "+
+			"silently lose the credential they just completed a browser flow to obtain")
+	assert.Contains(t, err.Error(), "persist token",
+		"returned error must identify itself as a persist failure")
+
+	// lastError must also be set so Status reflects the divergence.
+	st := src.Status()
+	assert.Contains(t, st.LastError, "persist token",
+		"Status must show persist failures so admin UI surfaces the issue")
+}
+
+// TestToken_PersistFailureNonFatal proves Token()'s persist policy:
+// when the in-memory token is fresh but the store Set fails, Token()
+// returns the new access token successfully. The persist failure is
+// logged via slog but does NOT poison lastError or fail the call —
+// the in-memory token works for this process's lifetime, and the
+// next refresh self-heals by re-persisting.
+func TestToken_PersistFailureNonFatal(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "fresh",
+			"refresh_token": "fresh-r",
+			"expires_in":    3600,
+			"token_type":    "Bearer",
+		})
+	})
+
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:        OAuthGrantAuthorizationCode,
+		TokenURL:     tokenURL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, "vendor", &erroringSetStore{})
+
+	src.mu.Lock()
+	src.state.RefreshToken = "stale"
+	src.state.ExpiresAt = time.Now().Add(-time.Hour) // forces refresh
+	src.loaded = true
+	src.mu.Unlock()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err,
+		"Token() must succeed when refresh works — persist failure is non-fatal "+
+			"because the in-memory token is good for this process's lifetime")
+	assert.Equal(t, "fresh", tok)
+
+	// lastError must NOT show the persist failure — Status would
+	// otherwise mislead operators into thinking the connection is
+	// degraded when in fact the token is fresh and working.
+	st := src.Status()
+	assert.NotContains(t, st.LastError, "persist token",
+		"Token()'s persist-failure handling must NOT pollute Status — "+
+			"the in-memory token is fresh and operations are succeeding")
+}
+
+// TestApplyTokenResponseLocked_ClearsRefreshTokenRevoked proves the
+// state-machine invariant that a successful token exchange ALWAYS
+// flips refreshTokenRevoked to false, regardless of which caller
+// invoked the helper. Locks the invariant in the helper so future
+// callers (or refactors) can't accidentally leave the flag stale.
+func TestApplyTokenResponseLocked_ClearsRefreshTokenRevoked(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant: OAuthGrantAuthorizationCode,
+	}, "vendor", nil)
+
+	// Simulate prior dead-refresh observation.
+	src.mu.Lock()
+	src.refreshTokenRevoked = true
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+		ExpiresIn:    3600,
+	})
+	revokedAfter := src.refreshTokenRevoked
+	src.mu.Unlock()
+
+	assert.False(t, revokedAfter,
+		"applyTokenResponseLocked must clear refreshTokenRevoked — successful "+
+			"exchange means fresh credentials, regardless of prior state")
+}
