@@ -13,6 +13,7 @@ import (
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 func TestGetSystemInfo(t *testing.T) {
@@ -285,7 +286,70 @@ func TestListTools(t *testing.T) {
 		assert.Equal(t, 1, body.Total)
 		assert.Equal(t, "platform_info", body.Tools[0].Name)
 	})
+
+	t.Run("uses ConnectionResolver per tool when toolkit fans out across upstreams", func(t *testing.T) {
+		// Mirrors the gateway toolkit's behavior: one toolkit instance,
+		// many upstream connections, each tool maps to a specific
+		// upstream via ConnectionForTool. Without resolver use, every
+		// tool would inherit the toolkit's instance-level Connection()
+		// (or empty string) and the admin Tools page would group them
+		// all under "platform" / the toolkit's default name.
+		gw := gatewayLikeToolkit{
+			mockToolkit: mockToolkit{
+				kind:       "mcp",
+				name:       "primary",
+				connection: "primary", // would be the bucket key without per-tool resolution
+				tools:      []string{"vendor_a__list", "vendor_b__list", "unrouted_tool"},
+			},
+			perTool: map[string]string{
+				"vendor_a__list": "vendor-a",
+				"vendor_b__list": "vendor-b",
+				// "unrouted_tool" deliberately absent to exercise the
+				// empty-string fallback to tk.Connection().
+			},
+		}
+		reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{gw}}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body toolListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body.Tools, 3)
+
+		byName := make(map[string]toolInfo, len(body.Tools))
+		for _, ti := range body.Tools {
+			byName[ti.Name] = ti
+		}
+		assert.Equal(t, "vendor-a", byName["vendor_a__list"].Connection,
+			"per-tool resolver must override toolkit default for tools that ConnectionForTool resolves")
+		assert.Equal(t, "vendor-b", byName["vendor_b__list"].Connection)
+		assert.Equal(t, "primary", byName["unrouted_tool"].Connection,
+			"empty ConnectionForTool result must fall back to tk.Connection() so tools aren't dropped into the platform bucket")
+	})
 }
+
+// gatewayLikeToolkit embeds mockToolkit and adds ConnectionForTool so it
+// satisfies registry.ConnectionResolver — modeling the gateway
+// toolkit's 1:many fan-out behavior in a unit test without pulling in
+// the gateway package.
+type gatewayLikeToolkit struct {
+	mockToolkit
+	perTool map[string]string
+}
+
+func (g gatewayLikeToolkit) ConnectionForTool(toolName string) string {
+	return g.perTool[toolName]
+}
+
+// Verify the test mock implements both interfaces.
+var (
+	_ registry.Toolkit            = gatewayLikeToolkit{}
+	_ registry.ConnectionResolver = gatewayLikeToolkit{}
+)
 
 func TestListConnections(t *testing.T) {
 	t.Run("returns connections from registry", func(t *testing.T) {
