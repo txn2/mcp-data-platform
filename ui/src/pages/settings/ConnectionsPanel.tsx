@@ -1130,6 +1130,28 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
             placeholder={config.oauth_grant === "authorization_code" ? "api refresh_token" : "read"}
             mono
           />
+          {config.oauth_grant === "authorization_code" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium">OIDC prompt</label>
+              <select
+                value={String(config.oauth_prompt ?? "")}
+                onChange={(e) => onChange(update(config, "oauth_prompt", e.target.value))}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+              >
+                <option value="">(default — no prompt parameter)</option>
+                <option value="login">login (force fresh credentials each Reconnect)</option>
+                <option value="consent">consent (force consent screen)</option>
+                <option value="select_account">select_account (force account picker)</option>
+                <option value="none">none (silent auth, fails if interaction needed)</option>
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                OIDC <code>prompt</code> parameter (§3.1.2.1). Leave default for non-OIDC OAuth providers
+                that reject unknown parameters. Use <code>login</code> for Keycloak / Auth0 / Okta
+                connections an admin holds — defeats stale-form bugs by forcing a fresh credential
+                prompt on every Reconnect.
+              </p>
+            </div>
+          )}
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">

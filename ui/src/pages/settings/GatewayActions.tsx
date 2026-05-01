@@ -227,9 +227,23 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
         name: connectionName,
         returnURL: window.location.pathname + window.location.search,
       });
+      // Validate the URL before navigating. An empty or malformed
+      // authorization_url (server bug, race condition, misconfigured
+      // connection) would silently no-op `window.location.href = ""`
+      // and reproduce the "click does nothing" failure mode this PR
+      // was meant to fix. Surface it as an explicit error instead.
+      if (!/^https?:\/\//i.test(res.authorization_url)) {
+        setActionMsg({
+          ok: false,
+          text:
+            "Server returned an invalid authorization URL. " +
+            "Check the connection's oauth_authorization_url field is a complete https:// URL.",
+        });
+        return;
+      }
       window.location.href = res.authorization_url;
-      // No setActionMsg needed — the page is navigating away. Any
-      // status update would race the navigation.
+      // No setActionMsg on success — the page is navigating away.
+      // Any status update would race the navigation.
     } catch (err) {
       setActionMsg({
         ok: false,

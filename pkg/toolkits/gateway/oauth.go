@@ -120,7 +120,7 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 		if err := t.refreshLocked(ctx); err == nil {
 			t.persistLocked(ctx)
 			return t.state.AccessToken, nil
-		} else if errors.Is(err, ErrRefreshTokenRevoked) {
+		} else if errors.Is(err, errRefreshTokenRevoked) {
 			// IdP definitively said the refresh token is dead. Clear the
 			// in-memory state AND the persisted row so subsequent restarts
 			// don't replay the same dead token against the IdP. Without
@@ -173,7 +173,14 @@ func (t *oauthTokenSource) clearStaleStateLocked(ctx context.Context) {
 		return
 	}
 	if err := t.store.Delete(ctx, t.connectionName); err != nil && !errors.Is(err, ErrTokenNotFound) {
+		// Surface the persistence failure both as Status.LastError (for
+		// the admin UI) AND as a slog.Warn (for log-aggregator alerts).
+		// Without the slog line, a misbehaving DB or encryption layer
+		// could swallow stale tokens silently per restart.
 		t.lastError = "clear stale token: " + err.Error()
+		slog.Warn("gateway/oauth: failed to delete stale token row",
+			logKeyConnection, t.connectionName,
+			logKeyError, err)
 	}
 }
 
@@ -377,7 +384,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	slog.Debug("gateway/oauth: token exchange start",
 		logKeyConnection, t.connectionName,
 		logKeyGrantType, grantType,
-		logKeyTokenURLHost, tokenHost,
+		LogKeyTokenURLHost, tokenHost,
 		"client_id", t.cfg.ClientID)
 
 	// #nosec G107 G704 -- TokenURL is operator-authored connection config, not user input.
@@ -386,7 +393,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 		slog.Warn("gateway/oauth: token request transport error",
 			logKeyConnection, t.connectionName,
 			logKeyGrantType, grantType,
-			logKeyTokenURLHost, tokenHost,
+			LogKeyTokenURLHost, tokenHost,
 			"duration", time.Since(exchangeStart),
 			"err", err)
 		return fmt.Errorf("oauth: token request: %w", err)
@@ -401,7 +408,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 		slog.Warn("gateway/oauth: non-200 from token endpoint",
 			logKeyConnection, t.connectionName,
 			logKeyGrantType, grantType,
-			logKeyTokenURLHost, tokenHost,
+			LogKeyTokenURLHost, tokenHost,
 			"status", resp.StatusCode,
 			"duration", time.Since(exchangeStart),
 			"body_excerpt", trimBody(body))
@@ -410,7 +417,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	slog.Info("gateway/oauth: token exchange success",
 		logKeyConnection, t.connectionName,
 		logKeyGrantType, grantType,
-		logKeyTokenURLHost, tokenHost,
+		LogKeyTokenURLHost, tokenHost,
 		"duration", time.Since(exchangeStart))
 
 	var tr tokenResponse
@@ -439,7 +446,7 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 	return nil
 }
 
-// ErrRefreshTokenRevoked indicates the IdP definitively rejected a
+// errRefreshTokenRevoked indicates the IdP definitively rejected a
 // refresh_token grant — the stored refresh token cannot be used to mint
 // further access tokens, and the operator must complete a fresh
 // browser-side authorization to recover.
@@ -452,12 +459,12 @@ func (t *oauthTokenSource) exchangeLocked(ctx context.Context, form url.Values) 
 // the persisted state — without that step, every subsequent restart
 // would replay the dead refresh against the IdP, producing log noise
 // and a per-restart REFRESH_TOKEN_ERROR event in the IdP's audit log.
-var ErrRefreshTokenRevoked = errors.New("oauth: refresh token revoked by issuer")
+var errRefreshTokenRevoked = errors.New("oauth: refresh token revoked by issuer")
 
 // interpretTokenError tries to parse a structured OAuth error from the
 // upstream's response body, falling back to status code + raw body.
 //
-// Returns an error wrapping ErrRefreshTokenRevoked for the canonical
+// Returns an error wrapping errRefreshTokenRevoked for the canonical
 // "your refresh token is dead, stop using it" responses (RFC 6749
 // §5.2: invalid_grant; §5.2 + RFC 6750 §3.1: invalid_token). Other
 // errors are passed through verbatim — they may be transient (5xx,
@@ -471,7 +478,7 @@ func interpretTokenError(status int, body []byte) error {
 			// with the IdP's literal status/code keeps the rule happy
 			// while still wrapping the sentinel for errors.Is.
 			return fmt.Errorf("oauth: %d %s: %s (%w)",
-				status, tr.Error, tr.ErrorDescription, ErrRefreshTokenRevoked)
+				status, tr.Error, tr.ErrorDescription, errRefreshTokenRevoked)
 		}
 		return fmt.Errorf("oauth: %d %s: %s", status, tr.Error, tr.ErrorDescription)
 	}

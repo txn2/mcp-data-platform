@@ -171,12 +171,16 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 // Structured-log field names used across oauth-start / oauth-callback /
 // oauth-exchange so revive's add-constant rule is satisfied AND log
 // fields stay consistent for grep / dashboard alignment.
+//
+// `LogKeyTokenURLHost` is intentionally re-exported from the gateway
+// package so admin and gateway packages emit the SAME field name on
+// IdP host logs — one operator dashboard query covers the full
+// oauth-start → exchange → refresh lifecycle.
 const (
-	logKeyStatePrefix  = "state_prefix"
-	logKeyStartedBy    = "started_by"
-	logKeyDuration     = "duration"
-	logKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
-	logKeyRedirectURI  = "redirect_uri"
+	logKeyStatePrefix = "state_prefix"
+	logKeyStartedBy   = "started_by"
+	logKeyDuration    = "duration"
+	logKeyRedirectURI = "redirect_uri"
 )
 
 // truncateForLog returns the first 8 chars of s with "…" suffix when
@@ -200,6 +204,27 @@ func urlHost(u string) string {
 		return u
 	}
 	return parsed.Host
+}
+
+// clientIP returns the originating client's address, honoring
+// X-Forwarded-For when the request arrived via a reverse proxy or
+// ingress (Kubernetes, Cloudflare, etc.). Without this, every
+// request behind an ingress logs the ingress controller's IP, which
+// is identical for every operator and useless for forensics.
+//
+// Trust model: only the first hop in X-Forwarded-For is consulted,
+// matching what most ingress controllers emit. Operators running
+// trust-bottom-of-chain proxies can opt to log the full header
+// elsewhere if needed. r.RemoteAddr is the fallback when no
+// X-Forwarded-For is present (direct-connection deployments).
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if comma := strings.Index(xff, ","); comma > 0 {
+			return strings.TrimSpace(xff[:comma])
+		}
+		return strings.TrimSpace(xff)
+	}
+	return r.RemoteAddr
 }
 
 // loadAuthCodeOAuthConfig looks up the named connection, parses its
@@ -270,11 +295,15 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	state := q.Get("state")
 	statePrefix := truncateForLog(state)
-	slog.Info("oauth-callback: received",
+	// Defer the state-prefix log until we've actually retrieved a
+	// pending PKCE state — drive-by callback probes (bots, scanners,
+	// state-fixation attempts) shouldn't pollute INFO with their
+	// chosen state values. The receipt itself logs at DEBUG instead.
+	slog.Debug("oauth-callback: received",
 		logKeyStatePrefix, statePrefix,
 		"has_code", q.Get("code") != "",
 		"has_error", q.Get("error") != "",
-		"remote_addr", r.RemoteAddr)
+		"client_ip", clientIP(r))
 	if state == "" {
 		slog.Warn("oauth-callback: missing state parameter")
 		writeOAuthError(w, "missing state parameter")
@@ -340,6 +369,18 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// for the small "<a href>Found</a>" body it writes, which gives
 	// non-browser HTTP clients (curl, scripts) a useful response body.
 	dest := safeReturnURL(pending.returnURL)
+	if pending.returnURL != "" && dest != pending.returnURL {
+		// Log the rewrite explicitly so security forensics can spot
+		// open-redirect probes that came in via the OAuth flow. Without
+		// this, the rewrite is invisible — operators can't tell whether
+		// the user provided a strange returnURL or whether the platform
+		// reset it for safety.
+		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
+			logKeyName, pending.connection,
+			logKeyStartedBy, pending.startedBy,
+			"requested_return_url", pending.returnURL,
+			"rewritten_to", dest)
+	}
 	slog.Info("oauth-callback: success — tokens persisted, redirecting",
 		logKeyName, pending.connection,
 		logKeyStartedBy, pending.startedBy,
@@ -434,13 +475,13 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 
 	exchangeStart := time.Now()
 	slog.Debug("oauth-exchange: posting authorization_code grant",
-		logKeyTokenURLHost, urlHost(oc.TokenURL),
+		gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
 		"client_id", oc.ClientID,
 		logKeyRedirectURI, pending.redirectURI)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		slog.Error("oauth-exchange: token request transport error",
-			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
 			logKeyDuration, time.Since(exchangeStart),
 			logKeyError, err)
 		return nil, fmt.Errorf("token request: %w", err)
@@ -449,7 +490,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("oauth-exchange: non-200 from token endpoint",
-			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
 			"status", resp.StatusCode,
 			logKeyDuration, time.Since(exchangeStart),
 			"body_excerpt", trimOAuthBody(bodyBytes))
@@ -458,23 +499,23 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	var tr authCodeTokenResponse
 	if jerr := json.Unmarshal(bodyBytes, &tr); jerr != nil {
 		slog.Error("oauth-exchange: decode response failed",
-			logKeyTokenURLHost, urlHost(oc.TokenURL), logKeyError, jerr)
+			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL), logKeyError, jerr)
 		return nil, fmt.Errorf("decode token response: %w", jerr)
 	}
 	if tr.Error != "" {
 		slog.Warn("oauth-exchange: structured error in token response",
-			logKeyTokenURLHost, urlHost(oc.TokenURL),
+			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
 			"idp_error", tr.Error,
 			"idp_error_description", tr.ErrorDesc)
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {
 		slog.Warn("oauth-exchange: token response missing access_token",
-			logKeyTokenURLHost, urlHost(oc.TokenURL))
+			gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL))
 		return nil, errors.New("token response missing access_token")
 	}
 	slog.Info("oauth-exchange: success",
-		logKeyTokenURLHost, urlHost(oc.TokenURL),
+		gatewaykit.LogKeyTokenURLHost, urlHost(oc.TokenURL),
 		logKeyDuration, time.Since(exchangeStart),
 		"access_token_len", len(tr.AccessToken),
 		"refresh_token_present", tr.RefreshToken != "",
@@ -541,20 +582,13 @@ func pkceChallenge(verifier string) string {
 // registered with the OAuth provider (Salesforce External Client App,
 // etc.).
 //
-// Includes prompt=login (OIDC §3.1.2.1) so each Reconnect click forces
-// the upstream to render a fresh credential form, even when the user
-// holds an active SSO session against the realm. Without this, an
-// operator who just authenticated in another tab can find themselves
-// staring at a stale Keycloak login form whose hidden session_code
-// was already consumed by the prior flow — submitting it silently
-// does nothing, which is exactly the failure mode reported as
-// "clicked Sign In and nothing happened."
-//
-// The trade-off: operators with an active SSO session are prompted
-// for credentials again rather than being silently passed through.
-// For an admin "authorize this gateway connection" flow, that's the
-// correct security posture — explicit re-authentication on each
-// Reconnect, not a transparent SSO grant.
+// Emits the OIDC `prompt` parameter (§3.1.2.1) only when the operator
+// configured one on the connection (`oauth_prompt` / `oauth.prompt`).
+// Common values are documented on OAuthConfig.Prompt — operators of
+// strict OIDC realms typically want "login" so each Reconnect click
+// defeats stale-Keycloak-form bugs; operators of pure-OAuth providers
+// that don't recognize `prompt` should leave it empty (default) so
+// the IdP doesn't reject the request with invalid_request.
 func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirectURI string) string {
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -563,7 +597,9 @@ func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirect
 	q.Set("state", state)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
-	q.Set("prompt", "login")
+	if cfg.Prompt != "" {
+		q.Set("prompt", cfg.Prompt)
+	}
 	if cfg.Scope != "" {
 		q.Set("scope", cfg.Scope)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -222,17 +223,25 @@ func (*erroringDeleteStore) Delete(_ context.Context, _ string) error {
 
 // TestExchangeLocked_TransportError covers the new diagnostic-log
 // branch on transport-level token-request failures (server closed,
-// DNS, TLS, etc.). An unroutable token URL forces http.Client.Do to
-// return an error before any response is received.
+// DNS, TLS, etc.). Bind a listener on an ephemeral port, then
+// immediately close it — the closed port produces a deterministic
+// connection-refused on every platform without needing privileged
+// ports or relying on platform-specific firewall behavior.
 func TestExchangeLocked_TransportError(t *testing.T) {
+	var lc net.ListenConfig
+	listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	closedAddr := listener.Addr().String()
+	require.NoError(t, listener.Close())
+
 	src := newOAuthTokenSource(OAuthConfig{
 		Grant:        OAuthGrantClientCredentials,
-		TokenURL:     "http://127.0.0.1:1/unreachable",
+		TokenURL:     "http://" + closedAddr + "/token",
 		ClientID:     "id",
 		ClientSecret: "sec",
 	}, "test", nil)
-	src.client = &http.Client{Timeout: 200 * time.Millisecond}
-	_, err := src.Token(context.Background())
+	src.client = &http.Client{Timeout: 500 * time.Millisecond}
+	_, err = src.Token(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "oauth: token request",
 		"transport-level errors must be wrapped as 'oauth: token request: ...'")
@@ -274,6 +283,55 @@ func TestIngestOAuthToken_ConnectionNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrConnectionNotFound)
 }
+
+// TestIngestOAuthToken_TokenStoreSetFailsSurfaces covers the
+// IngestTokenResponse-error branch of IngestOAuthToken: when the
+// underlying token store rejects Set (DB unreachable, encryption
+// error, etc.), the error must be wrapped with the connection name
+// and surfaced to the caller — not swallowed.
+func TestIngestOAuthToken_TokenStoreSetFailsSurfaces(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	tk.SetTokenStore(&erroringSetStore{})
+
+	cfg := map[string]any{
+		"endpoint":                "https://upstream.example.com/mcp",
+		"connection_name":         "vendor",
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         "https://idp.example.com/token",
+		"oauth_authorization_url": "https://idp.example.com/auth",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "1s",
+		"call_timeout":            "1s",
+	}
+	require.NoError(t, tk.AddConnection("vendor", cfg))
+
+	err := tk.IngestOAuthToken(context.Background(), IngestOAuthTokenInput{
+		Name:         "vendor",
+		AccessToken:  "fresh",
+		RefreshToken: "fresh-r",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ingest token",
+		"failure inside IngestTokenResponse must wrap the underlying error "+
+			"with the 'gateway: <name>: ingest token: …' prefix")
+}
+
+// erroringSetStore returns an error from Set so IngestOAuthToken's
+// IngestTokenResponse → persistLocked path surfaces a Set failure
+// to the caller.
+type erroringSetStore struct{}
+
+func (*erroringSetStore) Get(_ context.Context, _ string) (*PersistedToken, error) {
+	return nil, ErrTokenNotFound
+}
+
+func (*erroringSetStore) Set(_ context.Context, _ PersistedToken) error {
+	return errors.New("simulated set failure")
+}
+func (*erroringSetStore) Delete(_ context.Context, _ string) error { return nil }
 
 // TestIngestOAuthToken_PersistsAndRebuilds covers the happy path:
 // IngestTokenResponse persists the new tokens, RemoveConnection drops
@@ -385,7 +443,7 @@ func TestDialContext_NegativeTimeoutFallsBackToDefault(t *testing.T) {
 }
 
 // TestInterpretTokenError_RecognizesDeadRefresh proves
-// interpretTokenError wraps ErrRefreshTokenRevoked when the IdP
+// interpretTokenError wraps errRefreshTokenRevoked when the IdP
 // returns 400 + invalid_grant or invalid_token (RFC 6749 §5.2 / RFC
 // 6750 §3.1). Other status codes / error codes pass through verbatim
 // — they may be transient and the caller must NOT clear stored
@@ -407,9 +465,9 @@ func TestInterpretTokenError_RecognizesDeadRefresh(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := []byte(`{"error":"` + tc.errCode + `","error_description":"x"}`)
 			err := interpretTokenError(tc.status, body)
-			if errors.Is(err, ErrRefreshTokenRevoked) != tc.wantDead {
-				t.Errorf("status=%d code=%q: errors.Is(ErrRefreshTokenRevoked) = %v, want %v",
-					tc.status, tc.errCode, errors.Is(err, ErrRefreshTokenRevoked), tc.wantDead)
+			if errors.Is(err, errRefreshTokenRevoked) != tc.wantDead {
+				t.Errorf("status=%d code=%q: errors.Is(errRefreshTokenRevoked) = %v, want %v",
+					tc.status, tc.errCode, errors.Is(err, errRefreshTokenRevoked), tc.wantDead)
 			}
 		})
 	}

@@ -26,13 +26,23 @@ var ErrConnectionExists = errors.New("gateway: connection already exists")
 // name that is not present.
 var ErrConnectionNotFound = errors.New("gateway: connection not found")
 
-// Log key constants keep structured-slog field names consistent across the package.
+// Log key constants keep structured-slog field names consistent
+// across the package — and across packages that compose with this
+// one. LogKeyTokenURLHost is exported so the admin handler that
+// performs the OAuth code-exchange (which lives outside this package)
+// can use the same field name as the token-source's refresh /
+// acquire logs, allowing operators to grep one connection's full
+// auth lifecycle by `token_url_host=<host>`.
 const (
-	logKeyConnection   = "connection"
-	logKeyEndpoint     = "endpoint"
-	logKeyError        = "error"
-	logKeyGrantType    = "grant_type"
-	logKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
+	logKeyConnection = "connection"
+	logKeyEndpoint   = "endpoint"
+	logKeyError      = "error"
+	logKeyGrantType  = "grant_type"
+
+	// LogKeyTokenURLHost is the structured-log field name used when
+	// emitting an IdP host. Exported so external packages don't
+	// duplicate the literal and risk drift.
+	LogKeyTokenURLHost = "token_url_host" // #nosec G101 -- structured-log key name, not a credential
 )
 
 // Toolkit is a gateway that proxies tools from one or more upstream MCP

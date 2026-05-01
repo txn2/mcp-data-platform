@@ -287,7 +287,8 @@ linters:
         # key-value pairs which the slog handler (text or JSON)
         # escapes / quotes. The project does not use %-formatted log
         # strings or custom handlers that would skip escaping.
-        # Inline `// #nosec G706` remains available for opt-in.
+        # Globally disabled — there is no callsite-level opt-in to
+        # re-enable since the rule is removed from the active set.
         - G706
       config:
         G306: "0644"

@@ -309,23 +309,65 @@ func TestBuildAuthorizationURL_AppendsToExistingQuery(t *testing.T) {
 	assert.True(t, strings.Contains(got, "code_challenge_method=S256"))
 }
 
-// TestBuildAuthorizationURL_IncludesPromptLogin covers the OIDC
-// prompt=login parameter that defeats the stale-Keycloak-form bug:
-// every Reconnect click must force a fresh credential prompt rather
-// than letting an active SSO session silently grant the code. Without
-// this, operators report "clicked Sign In and nothing happened" when
-// their browser is holding a Keycloak form whose session_code was
-// already consumed by an earlier flow.
-func TestBuildAuthorizationURL_IncludesPromptLogin(t *testing.T) {
-	cfg := gatewaykit.OAuthConfig{
-		ClientID:         "id",
-		AuthorizationURL: "https://auth.example.com/o/authorize",
-		Scope:            "api",
+// TestBuildAuthorizationURL_PromptParameter exercises the OIDC prompt
+// parameter logic. Each subtest URL-parses the result so we verify the
+// parameter shows up as a properly-encoded query value, not just as a
+// substring (which could match accidental occurrences inside the path
+// or scope).
+//
+// The configured Prompt value defeats the stale-Keycloak-form bug
+// when set to "login" (every Reconnect click forces a fresh credential
+// prompt rather than letting an active SSO session silently grant the
+// code), while the empty default lets pure-OAuth providers — which
+// reject unknown parameters — receive an unmodified authorize URL.
+func TestBuildAuthorizationURL_PromptParameter(t *testing.T) {
+	base := "https://auth.example.com/o/authorize"
+	makeCfg := func(prompt string) gatewaykit.OAuthConfig {
+		return gatewaykit.OAuthConfig{
+			ClientID:         "id",
+			AuthorizationURL: base,
+			Scope:            "api",
+			Prompt:           prompt,
+		}
 	}
-	got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
-	assert.Contains(t, got, "prompt=login",
-		"buildAuthorizationURL must include prompt=login so each Connect click "+
-			"forces a fresh Keycloak form (defeats stale auth-session form)")
+
+	t.Run("Prompt=login is a properly-encoded query parameter", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg("login"), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err, "result must be a parseable URL: %q", got)
+		assert.Equal(t, "login", u.Query().Get("prompt"),
+			"prompt must be set as a query parameter, not embedded as substring")
+	})
+
+	t.Run("Prompt empty: parameter is omitted entirely", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg(""), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.False(t, u.Query().Has("prompt"),
+			"empty Prompt config must produce no prompt query parameter — "+
+				"some OAuth providers reject unknown parameters with invalid_request")
+	})
+
+	t.Run("Prompt=consent passes through unchanged", func(t *testing.T) {
+		got := buildAuthorizationURL(makeCfg("consent"), "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Equal(t, "consent", u.Query().Get("prompt"),
+			"non-default Prompt values must reach the IdP verbatim")
+	})
+
+	t.Run("Existing query string in AuthorizationURL is preserved", func(t *testing.T) {
+		cfg := gatewaykit.OAuthConfig{
+			ClientID:         "id",
+			AuthorizationURL: base + "?app=foo",
+			Prompt:           "login",
+		}
+		got := buildAuthorizationURL(cfg, "state-x", "verifier-y", "https://platform.example.com/cb")
+		u, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Equal(t, "foo", u.Query().Get("app"))
+		assert.Equal(t, "login", u.Query().Get("prompt"))
+	})
 }
 
 func TestGenerateHelpers_ProduceUniqueValues(t *testing.T) {
@@ -383,4 +425,71 @@ func TestTrimOAuthBody(t *testing.T) {
 	got := trimOAuthBody(long)
 	assert.Len(t, got, 256+len("..."))
 	assert.True(t, strings.HasSuffix(got, "..."), "expected ellipsis suffix, got %q", got[len(got)-5:])
+}
+
+// TestClientIP verifies clientIP honors X-Forwarded-For (first hop only)
+// and falls back to RemoteAddr when no proxy header is present.
+// Without this header awareness, every request behind an ingress logs
+// the ingress controller's IP — useless for forensics.
+func TestClientIP(t *testing.T) {
+	cases := []struct {
+		name string
+		xff  string
+		ra   string
+		want string
+	}{
+		{"no XFF falls back to RemoteAddr", "", "10.0.0.5:54321", "10.0.0.5:54321"},
+		{"single-IP XFF returned trimmed", "  203.0.113.7  ", "10.0.0.1:1", "203.0.113.7"},
+		{"multi-hop XFF returns first hop only", "203.0.113.7, 10.0.0.1, 10.0.0.2", "10.0.0.1:1", "203.0.113.7"},
+		{"multi-hop XFF first hop trimmed", "  203.0.113.7  , 10.0.0.1", "10.0.0.1:1", "203.0.113.7"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", http.NoBody)
+			r.RemoteAddr = tc.ra
+			if tc.xff != "" {
+				r.Header.Set("X-Forwarded-For", tc.xff)
+			}
+			assert.Equal(t, tc.want, clientIP(r))
+		})
+	}
+}
+
+// TestURLHost verifies urlHost falls back to the raw string when the
+// input cannot be parsed as a URL with a host (so logs always show
+// something, even if the operator misconfigured the URL).
+func TestURLHost(t *testing.T) {
+	assert.Equal(t, "idp.example.com", urlHost("https://idp.example.com/realms/x"))
+	assert.Equal(t, "not a url", urlHost("not a url"))
+	assert.Equal(t, "", urlHost(""))
+}
+
+// TestGatewayOAuthCallback_MissingCode covers the callback path where
+// the IdP redirects back without an `error` and without a `code` —
+// observed in the wild when an operator manually replays a callback URL
+// after the code has already been consumed.
+func TestGatewayOAuthCallback_MissingCode(t *testing.T) {
+	store := &mockConnectionStore{
+		getResult: &platform.ConnectionInstance{
+			Kind: gatewaykit.Kind, Name: "vendor",
+			Config: authCodeConnectionConfig("https://auth/", "https://t/"),
+		},
+	}
+	h, _ := gatewayOAuthHandlerWithToolkit(t, store)
+
+	startReq := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/oauth-start", http.NoBody)
+	startReq.Host = "platform.example.com"
+	startW := httptest.NewRecorder()
+	h.ServeHTTP(startW, startReq)
+	require.Equal(t, http.StatusOK, startW.Code)
+	var startResp startGatewayOAuthResponse
+	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
+
+	cbURL := "/api/v1/admin/oauth/callback?state=" + url.QueryEscape(startResp.State)
+	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody)
+	cbW := httptest.NewRecorder()
+	h.ServeHTTP(cbW, cbReq)
+	assert.Equal(t, http.StatusBadRequest, cbW.Code)
+	assert.Contains(t, cbW.Body.String(), "missing code")
 }
