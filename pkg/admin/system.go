@@ -8,6 +8,7 @@ import (
 
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
 // systemInfoResponse is returned by GET /system/info.
@@ -156,13 +157,29 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolInfo
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
+			// resolver is non-nil for toolkits that fan out across
+			// multiple upstream connections (the gateway). Tools from
+			// such toolkits are namespaced and each maps back to a
+			// specific upstream — falling back to tk.Connection() (the
+			// toolkit's instance-level default) would lump every
+			// gateway tool under one bucket regardless of which upstream
+			// owns it, making the admin Tools page group all of them
+			// under "platform" / the toolkit's default name.
+			resolver, _ := tk.(registry.ConnectionResolver)
+			defaultConn := tk.Connection()
 			for _, name := range tk.Tools() {
+				conn := defaultConn
+				if resolver != nil {
+					if perTool := resolver.ConnectionForTool(name); perTool != "" {
+						conn = perTool
+					}
+				}
 				tools = append(tools, toolInfo{
 					Name:       name,
 					Title:      titleMap[name],
 					Toolkit:    tk.Name(),
 					Kind:       tk.Kind(),
-					Connection: tk.Connection(),
+					Connection: conn,
 					Hidden:     !middleware.IsToolVisible(name, allow, deny),
 				})
 			}
