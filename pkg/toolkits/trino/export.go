@@ -889,6 +889,6 @@ func exportInputSchema() map[string]any {
 				schemaKeyDesc: "Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL.",
 			},
 		},
-		"required": []string{"sql", "format", "name"},
+		"required": []string{propSQL, propFormat, propName},
 	}
 }

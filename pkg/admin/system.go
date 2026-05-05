@@ -169,17 +169,21 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toolListResponse{Tools: tools, Total: len(tools)})
 }
 
+// collectToolkitTools enumerates every tool registered by every toolkit
+// in the registry and resolves its display connection. Tools from
+// fan-out toolkits (the gateway) are namespaced per upstream and must
+// be attributed to the upstream that owns them — falling back to
+// tk.Connection() (the toolkit's instance-level default) would lump
+// every gateway tool under one bucket regardless of which upstream
+// owns it, making the admin Tools page group all of them under
+// "platform" / the toolkit's default name. resolveToolConnection
+// implements the per-tool override.
 func (h *Handler) collectToolkitTools(titleMap map[string]string, allow, deny []string) []toolInfo {
 	if h.deps.ToolkitRegistry == nil {
 		return nil
 	}
 	var tools []toolInfo
 	for _, tk := range h.deps.ToolkitRegistry.All() {
-		// resolver is non-nil for toolkits that fan out across multiple
-		// upstream connections (the gateway). Tools from such toolkits
-		// are namespaced and each maps back to a specific upstream —
-		// falling back to tk.Connection() (the toolkit's instance-level
-		// default) would lump every gateway tool under one bucket.
 		resolver, _ := tk.(registry.ConnectionResolver)
 		defaultConn := tk.Connection()
 		for _, name := range tk.Tools() {

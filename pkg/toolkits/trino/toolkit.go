@@ -39,8 +39,14 @@ const (
 	// kindTrino is the toolkit kind identifier.
 	kindTrino = "trino"
 
-	// Trino tool names used in Tools() and per-tool annotation lookups.
+	// Trino tool names. The full set is named here even though only
+	// a subset crosses goconst's literal-repetition threshold — keeping
+	// the Tools() list uniformly constant-driven avoids a visually mixed
+	// list of constants and bare strings.
 	toolTrinoQuery         = "trino_query"
+	toolTrinoExecute       = "trino_execute"
+	toolTrinoExplain       = "trino_explain"
+	toolTrinoBrowse        = "trino_browse"
 	toolTrinoDescribeTable = "trino_describe_table"
 )
 
@@ -463,9 +469,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 func (t *Toolkit) Tools() []string {
 	tools := []string{
 		toolTrinoQuery,
-		"trino_execute",
-		"trino_explain",
-		"trino_browse",
+		toolTrinoExecute,
+		toolTrinoExplain,
+		toolTrinoBrowse,
 		toolTrinoDescribeTable,
 	}
 	if t.exportDeps != nil {

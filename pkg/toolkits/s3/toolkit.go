@@ -36,13 +36,21 @@ type Config struct {
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
 
-// Default region and tool-name constants. Defined here so the same
-// literals do not appear repeatedly across the toolkit source files.
+// Default region and S3 tool-name constants. The full set is named
+// here even though only a subset crosses goconst's literal-repetition
+// threshold — keeping the Tools() list uniformly constant-driven
+// avoids a visually mixed list of constants and bare strings.
 const (
 	defaultS3Region = "us-east-1"
 
-	toolListBuckets = "s3_list_buckets"
-	toolGetObject   = "s3_get_object"
+	toolListBuckets       = "s3_list_buckets"
+	toolListObjects       = "s3_list_objects"
+	toolGetObject         = "s3_get_object"
+	toolGetObjectMetadata = "s3_get_object_metadata"
+	toolPresignURL        = "s3_presign_url"
+	toolPutObject         = "s3_put_object"
+	toolDeleteObject      = "s3_delete_object"
+	toolCopyObject        = "s3_copy_object"
 )
 
 // Toolkit wraps mcp-s3 toolkit for the platform.
@@ -224,17 +232,17 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 func (t *Toolkit) Tools() []string {
 	tools := []string{
 		toolListBuckets,
-		"s3_list_objects",
+		toolListObjects,
 		toolGetObject,
-		"s3_get_object_metadata",
-		"s3_presign_url",
+		toolGetObjectMetadata,
+		toolPresignURL,
 	}
 
 	if !t.config.ReadOnly {
 		tools = append(tools,
-			"s3_put_object",
-			"s3_delete_object",
-			"s3_copy_object",
+			toolPutObject,
+			toolDeleteObject,
+			toolCopyObject,
 		)
 	}
 

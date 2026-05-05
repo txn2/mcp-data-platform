@@ -23,9 +23,15 @@ const defaultServerName = "mcp-data-platform"
 // Defined in one place so the same literal does not appear repeatedly
 // across platform.go, info_tool.go, prompt_tool.go, etc.
 const (
-	// instanceDefault is the conventional instance name used for the
-	// default connection of any toolkit kind.
+	// instanceDefault is the conventional instance *name* used for the
+	// default connection of any toolkit kind. This is a value, not a
+	// config-map key — see cfgKeyDefault.
 	instanceDefault = "default"
+	// cfgKeyDefault is the config-map *key* under which the default
+	// instance name is stored. Distinct from instanceDefault so a
+	// future rename of the default-instance value cannot silently
+	// break the lookup of this map key.
+	cfgKeyDefault = "default"
 	// kindPlatform identifies tools provided directly by the platform
 	// (not a toolkit), e.g. platform_info, list_connections.
 	kindPlatform = "platform"

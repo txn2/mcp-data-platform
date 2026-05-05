@@ -3003,7 +3003,7 @@ func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[strin
 
 // resolveDefaultInstance determines which instance to use.
 func resolveDefaultInstance(kindCfg, instances map[string]any) string {
-	if defaultName, ok := kindCfg[instanceDefault].(string); ok {
+	if defaultName, ok := kindCfg[cfgKeyDefault].(string); ok {
 		return defaultName
 	}
 	// Use the first instance

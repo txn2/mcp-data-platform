@@ -3,6 +3,7 @@ package oauth
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1850,6 +1851,18 @@ func TestTokenEndpoint_LogsSuccess(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+
+	// Decode the actually-issued tokens so we can assert their values
+	// never appear in the log buffer. This proves the contract holds
+	// against the real token values, not just the test's input strings.
+	var issued TokenResponse
+	if jsonErr := json.NewDecoder(w.Body).Decode(&issued); jsonErr != nil {
+		t.Fatalf("decode token response: %v", jsonErr)
+	}
+	if issued.AccessToken == "" || issued.RefreshToken == "" {
+		t.Fatalf("expected non-empty access and refresh tokens, got %+v", issued)
+	}
+
 	out := buf.String()
 	if !strings.Contains(out, `level=INFO`) {
 		t.Errorf("expected INFO level entry, got: %s", out)
@@ -1872,11 +1885,19 @@ func TestTokenEndpoint_LogsSuccess(t *testing.T) {
 	if !strings.Contains(out, "duration_ms=") {
 		t.Errorf("expected duration_ms field, got: %s", out)
 	}
+	// Redaction contract: neither the inbound credentials nor the
+	// outbound tokens may appear in log output.
 	if strings.Contains(out, secretValue) {
 		t.Errorf("client secret value MUST NOT appear in logs, got: %s", out)
 	}
 	if strings.Contains(out, codeValue) {
 		t.Errorf("authorization code value MUST NOT appear in logs, got: %s", out)
+	}
+	if strings.Contains(out, issued.AccessToken) {
+		t.Errorf("issued access token value MUST NOT appear in logs")
+	}
+	if strings.Contains(out, issued.RefreshToken) {
+		t.Errorf("issued refresh token value MUST NOT appear in logs")
 	}
 }
 
@@ -1916,6 +1937,9 @@ func TestTokenEndpoint_LogsRejection(t *testing.T) {
 	if !strings.Contains(out, "error=") {
 		t.Errorf("expected error reason in log, got: %s", out)
 	}
+	if !strings.Contains(out, "duration_ms=") {
+		t.Errorf("expected duration_ms field on rejection, got: %s", out)
+	}
 	if strings.Contains(out, secretValue) {
 		t.Errorf("client secret value MUST NOT appear in logs, got: %s", out)
 	}
@@ -1941,8 +1965,17 @@ func TestTokenEndpoint_LogsRejectionBasicAuth(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "oauth: token grant rejected") {
+		t.Errorf("expected rejection message in log, got: %s", out)
+	}
 	if !strings.Contains(out, "credential_source=basic") {
 		t.Errorf("expected credential_source=basic when using HTTP Basic auth, got: %s", out)
+	}
+	if !strings.Contains(out, "has_client_secret=true") {
+		t.Errorf("expected has_client_secret=true when Basic auth supplies a credential, got: %s", out)
+	}
+	if !strings.Contains(out, "client_id="+testClientID) {
+		t.Errorf("expected client_id from Basic auth username, got: %s", out)
 	}
 	if strings.Contains(out, secretValue) {
 		t.Errorf("client secret from Basic auth MUST NOT appear in logs, got: %s", out)
@@ -1973,5 +2006,8 @@ func TestTokenEndpoint_LogsParseFormFailure(t *testing.T) {
 	}
 	if !strings.Contains(out, "oauth: token endpoint parse form failed") {
 		t.Errorf("expected parse-form failure log, got: %s", out)
+	}
+	if !strings.Contains(out, "error=") {
+		t.Errorf("expected error reason field on parse-form failure, got: %s", out)
 	}
 }

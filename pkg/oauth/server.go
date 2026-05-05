@@ -52,34 +52,38 @@ const (
 	errServerError      = "server_error"
 )
 
-// OAuth parameter name constants.
+// OAuth wire-protocol form-parameter names. Used both when reading
+// inbound request fields (r.FormValue) and when building outbound
+// requests to the upstream IdP (url.Values.Set).
 const (
-	paramCode        = "code"
-	paramState       = "state"
-	paramScope       = "scope"
-	paramRedirectURI = "redirect_uri"
-	paramClientID    = "client_id"
+	paramCode         = "code"
+	paramState        = "state"
+	paramScope        = "scope"
+	paramRedirectURI  = "redirect_uri"
+	paramClientID     = "client_id"
+	paramGrantType    = "grant_type"
+	paramRefreshToken = "refresh_token" // #nosec G101 -- form-field name, not a credential
 )
 
-// Structured log field keys used by the token endpoint. Defined as
-// constants so adding new log calls does not push literal occurrence
-// counts past revive's add-constant threshold.
+// Structured log field keys used by the token endpoint. Kept distinct
+// from wire-protocol parameter names (paramGrantType) so that a future
+// rename of one cannot silently change the meaning of the other.
 const (
 	logKeyGrantType = "grant_type"
 	logKeyError     = "error"
 )
 
-// OAuth grant types, token type, and well-known claim names. Defined
-// in one place so the same literal does not appear repeatedly across
-// server.go, dcr.go, and the metadata handler.
+// OAuth grant types, token type, and well-known JWT claim names.
+// Distinct from paramGrantType / paramRefreshToken (which name the form
+// fields) — these are the *values* those fields carry on the wire.
 const (
 	grantTypeAuthCode     = "authorization_code"
-	grantTypeRefreshToken = "refresh_token"
+	grantTypeRefreshToken = "refresh_token" // #nosec G101 -- grant_type value, not a token
 
 	tokenTypeBearer = "Bearer"
 
-	claimSubject     = "sub"
-	claimRealmAccess = "realm_access"
+	jwtClaimSub         = "sub"
+	jwtClaimRealmAccess = "realm_access"
 )
 
 // Errors returned by the OAuth server.
@@ -447,13 +451,13 @@ func (s *Server) generateAccessToken(clientID, userID string, userClaims map[str
 
 	// Build JWT claims
 	claims := jwt.MapClaims{
-		"iss":        s.config.Issuer,
-		claimSubject: userID,
-		"aud":        clientID,
-		"exp":        exp.Unix(),
-		"iat":        now.Unix(),
-		"nbf":        now.Unix(),
-		"scope":      scope,
+		"iss":       s.config.Issuer,
+		jwtClaimSub: userID,
+		"aud":       clientID,
+		"exp":       exp.Unix(),
+		"iat":       now.Unix(),
+		"nbf":       now.Unix(),
+		"scope":     scope,
 	}
 
 	// Include upstream IdP claims (roles, email, etc.) under a nested key
@@ -538,7 +542,7 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 		ClientID:     r.FormValue(paramClientID),
 		ClientSecret: r.FormValue("client_secret"),
 		CodeVerifier: r.FormValue("code_verifier"),
-		RefreshToken: r.FormValue(grantTypeRefreshToken),
+		RefreshToken: r.FormValue(paramRefreshToken),
 		Scope:        r.FormValue(paramScope),
 	}
 
@@ -829,7 +833,7 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 	tokenURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/token"
 
 	data := url.Values{}
-	data.Set(logKeyGrantType, grantTypeAuthCode)
+	data.Set(paramGrantType, grantTypeAuthCode)
 	data.Set(paramCode, code)
 	data.Set(paramRedirectURI, s.config.Upstream.RedirectURI)
 	data.Set(paramClientID, s.config.Upstream.ClientID)
@@ -865,7 +869,7 @@ func (*Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (strin
 	claims := extractTokenClaims(token)
 
 	userID := "unknown"
-	if sub, ok := claims[claimSubject].(string); ok {
+	if sub, ok := claims[jwtClaimSub].(string); ok {
 		userID = sub
 	}
 
@@ -900,7 +904,7 @@ func extractTokenClaims(token *upstreamTokenResponse) map[string]any {
 // other claims only fill gaps.
 func mergeAccessClaims(claims, accessClaims map[string]any) {
 	for key, value := range accessClaims {
-		if key == claimRealmAccess || key == "resource_access" {
+		if key == jwtClaimRealmAccess || key == "resource_access" {
 			claims[key] = value
 		} else if _, exists := claims[key]; !exists {
 			claims[key] = value
