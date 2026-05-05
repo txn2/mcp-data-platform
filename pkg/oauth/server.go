@@ -62,7 +62,7 @@ const (
 	paramRedirectURI  = "redirect_uri"
 	paramClientID     = "client_id"
 	paramGrantType    = "grant_type"
-	paramRefreshToken = "refresh_token" // #nosec G101 -- form-field name, not a credential
+	paramRefreshToken = "refresh_token"
 )
 
 // Structured log field keys used by the token endpoint. Kept distinct
@@ -78,7 +78,7 @@ const (
 // fields) — these are the *values* those fields carry on the wire.
 const (
 	grantTypeAuthCode     = "authorization_code"
-	grantTypeRefreshToken = "refresh_token" // #nosec G101 -- grant_type value, not a token
+	grantTypeRefreshToken = "refresh_token"
 
 	tokenTypeBearer = "Bearer"
 

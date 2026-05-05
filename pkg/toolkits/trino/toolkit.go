@@ -42,12 +42,14 @@ const (
 	// Trino tool names. The full set is named here even though only
 	// a subset crosses goconst's literal-repetition threshold — keeping
 	// the Tools() list uniformly constant-driven avoids a visually mixed
-	// list of constants and bare strings.
-	toolTrinoQuery         = "trino_query"
-	toolTrinoExecute       = "trino_execute"
-	toolTrinoExplain       = "trino_explain"
-	toolTrinoBrowse        = "trino_browse"
-	toolTrinoDescribeTable = "trino_describe_table"
+	// list of constants and bare strings. Naming matches the convention
+	// used in sibling toolkit packages (datahub, s3): no kind prefix
+	// since the package path already provides it.
+	toolQuery         = "trino_query"
+	toolExecute       = "trino_execute"
+	toolExplain       = "trino_explain"
+	toolBrowse        = "trino_browse"
+	toolDescribeTable = "trino_describe_table"
 )
 
 // Config holds Trino toolkit configuration.
@@ -468,11 +470,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		toolTrinoQuery,
-		toolTrinoExecute,
-		toolTrinoExplain,
-		toolTrinoBrowse,
-		toolTrinoDescribeTable,
+		toolQuery,
+		toolExecute,
+		toolExplain,
+		toolBrowse,
+		toolDescribeTable,
 	}
 	if t.exportDeps != nil {
 		tools = append(tools, exportToolName)

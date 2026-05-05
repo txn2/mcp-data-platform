@@ -1890,6 +1890,10 @@ func TestTokenEndpoint_LogsSuccess(t *testing.T) {
 	if strings.Contains(out, secretValue) {
 		t.Errorf("client secret value MUST NOT appear in logs, got: %s", out)
 	}
+	// Future-proofing: the success log path currently emits no code-related
+	// field, so this assertion is a guard rail. If anyone later adds a
+	// has_code or code-derived field to the success log, this test must
+	// be updated to keep the redaction contract explicit.
 	if strings.Contains(out, codeValue) {
 		t.Errorf("authorization code value MUST NOT appear in logs, got: %s", out)
 	}
