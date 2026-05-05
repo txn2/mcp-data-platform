@@ -142,7 +142,6 @@ type toolListResponse struct {
 // @Security     BearerAuth
 // @Router       /admin/tools [get]
 func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
-	// Build a title map from MCP ListTools if possible.
 	titleMap := h.buildToolTitleMap(r)
 
 	var allow, deny []string
@@ -154,37 +153,7 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 		deny = h.deps.Config.ToolsDenySnapshot()
 	}
 
-	var tools []toolInfo
-	if h.deps.ToolkitRegistry != nil {
-		for _, tk := range h.deps.ToolkitRegistry.All() {
-			// resolver is non-nil for toolkits that fan out across
-			// multiple upstream connections (the gateway). Tools from
-			// such toolkits are namespaced and each maps back to a
-			// specific upstream — falling back to tk.Connection() (the
-			// toolkit's instance-level default) would lump every
-			// gateway tool under one bucket regardless of which upstream
-			// owns it, making the admin Tools page group all of them
-			// under "platform" / the toolkit's default name.
-			resolver, _ := tk.(registry.ConnectionResolver)
-			defaultConn := tk.Connection()
-			for _, name := range tk.Tools() {
-				conn := defaultConn
-				if resolver != nil {
-					if perTool := resolver.ConnectionForTool(name); perTool != "" {
-						conn = perTool
-					}
-				}
-				tools = append(tools, toolInfo{
-					Name:       name,
-					Title:      titleMap[name],
-					Toolkit:    tk.Name(),
-					Kind:       tk.Kind(),
-					Connection: conn,
-					Hidden:     !middleware.IsToolVisible(name, allow, deny),
-				})
-			}
-		}
-	}
+	tools := h.collectToolkitTools(titleMap, allow, deny)
 	for _, pt := range h.deps.PlatformTools {
 		tools = append(tools, toolInfo{
 			Name:   pt.Name,
@@ -198,6 +167,43 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	writeJSON(w, http.StatusOK, toolListResponse{Tools: tools, Total: len(tools)})
+}
+
+func (h *Handler) collectToolkitTools(titleMap map[string]string, allow, deny []string) []toolInfo {
+	if h.deps.ToolkitRegistry == nil {
+		return nil
+	}
+	var tools []toolInfo
+	for _, tk := range h.deps.ToolkitRegistry.All() {
+		// resolver is non-nil for toolkits that fan out across multiple
+		// upstream connections (the gateway). Tools from such toolkits
+		// are namespaced and each maps back to a specific upstream —
+		// falling back to tk.Connection() (the toolkit's instance-level
+		// default) would lump every gateway tool under one bucket.
+		resolver, _ := tk.(registry.ConnectionResolver)
+		defaultConn := tk.Connection()
+		for _, name := range tk.Tools() {
+			tools = append(tools, toolInfo{
+				Name:       name,
+				Title:      titleMap[name],
+				Toolkit:    tk.Name(),
+				Kind:       tk.Kind(),
+				Connection: resolveToolConnection(resolver, name, defaultConn),
+				Hidden:     !middleware.IsToolVisible(name, allow, deny),
+			})
+		}
+	}
+	return tools
+}
+
+func resolveToolConnection(resolver registry.ConnectionResolver, name, defaultConn string) string {
+	if resolver == nil {
+		return defaultConn
+	}
+	if perTool := resolver.ConnectionForTool(name); perTool != "" {
+		return perTool
+	}
+	return defaultConn
 }
 
 // buildToolTitleMap returns a map of tool name → title from the MCP server.

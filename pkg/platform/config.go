@@ -19,6 +19,23 @@ import (
 // defaultServerName is the default server name used when none is configured.
 const defaultServerName = "mcp-data-platform"
 
+// Constants for repeated identifiers used throughout the platform package.
+// Defined in one place so the same literal does not appear repeatedly
+// across platform.go, info_tool.go, prompt_tool.go, etc.
+const (
+	// instanceDefault is the conventional instance name used for the
+	// default connection of any toolkit kind.
+	instanceDefault = "default"
+	// kindPlatform identifies tools provided directly by the platform
+	// (not a toolkit), e.g. platform_info, list_connections.
+	kindPlatform = "platform"
+	// toolListConns is the unified platform-provided list-connections
+	// tool name.
+	toolListConns = "list_connections"
+	// entryPointHTML is the conventional MCP App entry point file.
+	entryPointHTML = "index.html"
+)
+
 // Default configuration values.
 const (
 	defaultMaxOpenConns       = 25

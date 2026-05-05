@@ -85,9 +85,9 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	extractor := &ClaimsExtractor{
 		RoleClaimPath:    cfg.RoleClaimPath,
 		RolePrefix:       cfg.RolePrefix,
-		EmailClaimPath:   "email",
-		NameClaimPath:    "name",
-		SubjectClaimPath: "sub",
+		EmailClaimPath:   claimEmail,
+		NameClaimPath:    claimName,
+		SubjectClaimPath: claimSubject,
 	}
 
 	auth := &OIDCAuthenticator{
@@ -131,7 +131,7 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserI
 		Email:    uc.Email,
 		Claims:   uc.Claims,
 		Roles:    uc.Roles,
-		AuthType: "oidc",
+		AuthType: authTypeOIDC,
 	}, nil
 }
 

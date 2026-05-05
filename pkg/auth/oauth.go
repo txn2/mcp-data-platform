@@ -44,9 +44,9 @@ func NewOAuthJWTAuthenticator(cfg OAuthJWTConfig) (*OAuthJWTAuthenticator, error
 	extractor := &ClaimsExtractor{
 		RoleClaimPath:    cfg.RoleClaimPath,
 		RolePrefix:       cfg.RolePrefix,
-		EmailClaimPath:   "email",
-		NameClaimPath:    "name",
-		SubjectClaimPath: "sub",
+		EmailClaimPath:   claimEmail,
+		NameClaimPath:    claimName,
+		SubjectClaimPath: claimSubject,
 	}
 
 	return &OAuthJWTAuthenticator{

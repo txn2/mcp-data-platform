@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 )
 
@@ -83,8 +84,8 @@ func (l *Lifecycle) Stop(ctx context.Context) error {
 	}
 
 	var errs []error
-	for i := len(l.stopCallbacks) - 1; i >= 0; i-- {
-		if err := l.stopCallbacks[i](ctx); err != nil {
+	for i, cb := range slices.Backward(l.stopCallbacks) {
+		if err := cb(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("stop callback %d: %w", i, err))
 		}
 	}

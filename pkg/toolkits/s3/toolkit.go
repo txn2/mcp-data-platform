@@ -36,6 +36,15 @@ type Config struct {
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
 
+// Default region and tool-name constants. Defined here so the same
+// literals do not appear repeatedly across the toolkit source files.
+const (
+	defaultS3Region = "us-east-1"
+
+	toolListBuckets = "s3_list_buckets"
+	toolGetObject   = "s3_get_object"
+)
+
 // Toolkit wraps mcp-s3 toolkit for the platform.
 type Toolkit struct {
 	name      string
@@ -69,7 +78,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 // applyDefaults applies default values to the configuration.
 func applyDefaults(name string, cfg Config) Config {
 	if cfg.Region == "" {
-		cfg.Region = "us-east-1"
+		cfg.Region = defaultS3Region
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = DefaultTimeout
@@ -214,9 +223,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		"s3_list_buckets",
+		toolListBuckets,
 		"s3_list_objects",
-		"s3_get_object",
+		toolGetObject,
 		"s3_get_object_metadata",
 		"s3_presign_url",
 	}

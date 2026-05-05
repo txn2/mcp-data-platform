@@ -89,7 +89,7 @@ func extractConnectionFromInput(input any) string {
 		return ""
 	}
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return ""
 		}

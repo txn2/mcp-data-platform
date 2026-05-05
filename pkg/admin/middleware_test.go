@@ -474,7 +474,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 		user, err := pa.Authenticate(req)
 		require.NoError(t, err)
@@ -501,7 +501,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 		user, err := pa.Authenticate(req)
 		require.NoError(t, err)

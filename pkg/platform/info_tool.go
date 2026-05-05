@@ -112,10 +112,14 @@ func (p *Platform) resolveCallerPersona(ctx context.Context) *PersonaInfo {
 // platformInfoInput is empty since this tool has no parameters.
 type platformInfoInput struct{}
 
+// platformInfoTitle is the fallback display name when server.name is the
+// default mcp-data-platform identifier.
+const platformInfoTitle = "Platform Info"
+
 // registerInfoTool registers the platform_info tool with the MCP server.
 func (p *Platform) registerInfoTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:        "platform_info",
+		Name:        defaultInitTool,
 		Title:       p.buildInfoToolTitle(),
 		Description: p.buildInfoToolDescription(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
@@ -127,16 +131,16 @@ func (p *Platform) registerInfoTool() {
 // When server.name is set to a custom value, it is used as the title so that
 // Claude Desktop shows e.g. "ACME Data Platform" instead of "platform_info".
 func (p *Platform) buildInfoToolTitle() string {
-	if p.config.Server.Name != "" && p.config.Server.Name != "mcp-data-platform" {
+	if p.config.Server.Name != "" && p.config.Server.Name != defaultServerName {
 		return p.config.Server.Name
 	}
-	return "Platform Info"
+	return platformInfoTitle
 }
 
 // buildInfoToolDescription builds a dynamic tool description based on configuration.
 func (p *Platform) buildInfoToolDescription() string {
 	base := "MANDATORY first call in every session. "
-	if p.config.Server.Name != "" && p.config.Server.Name != "mcp-data-platform" {
+	if p.config.Server.Name != "" && p.config.Server.Name != defaultServerName {
 		base += fmt.Sprintf("Get information about %s", p.config.Server.Name)
 	} else {
 		base += "Get information about this MCP data platform"
@@ -176,12 +180,12 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	toolkits, toolkitDescriptions := p.collectToolkits()
 
 	// Prepend "platform" — always-present toolkit for platform_info, list_connections, etc.
-	toolkits = append([]string{"platform"}, toolkits...)
+	toolkits = append([]string{kindPlatform}, toolkits...)
 	if toolkitDescriptions == nil {
 		toolkitDescriptions = make(map[string]string)
 	}
-	if toolkitDescriptions["platform"] == "" {
-		toolkitDescriptions["platform"] = "Core platform tools: deployment info, connection listing, and resource access."
+	if toolkitDescriptions[kindPlatform] == "" {
+		toolkitDescriptions[kindPlatform] = "Core platform tools: deployment info, connection listing, and resource access."
 	}
 
 	// Resolve the caller's persona: prefer the one set by auth middleware,

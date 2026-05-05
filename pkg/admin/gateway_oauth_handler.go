@@ -375,6 +375,9 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		logKeyStartedBy, pending.startedBy,
 		logKeyDuration, time.Since(start),
 		"dest", dest)
+	// #nosec G710 -- safeReturnURL has already constrained dest to a
+	// same-origin relative path or the constant fallback; see contract
+	// above and TestSafeReturnURL.
 	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 

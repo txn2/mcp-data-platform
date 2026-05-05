@@ -18,7 +18,7 @@ const (
 // ParseConfig parses an S3 toolkit configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
-		Region:     "us-east-1",
+		Region:     defaultS3Region,
 		Timeout:    DefaultTimeout,
 		MaxGetSize: DefaultMaxGetSize,
 		MaxPutSize: DefaultMaxPutSize,

@@ -38,6 +38,15 @@ const (
 	logKeyEndpoint   = "endpoint"
 	logKeyError      = "error"
 
+	// Config-map keys used by configToMap and AddConnection's parser.
+	cfgKeyEndpoint       = "endpoint"
+	cfgKeyAuthMode       = "auth_mode"
+	cfgKeyCredential     = "credential"
+	cfgKeyConnectionName = "connection_name"
+	cfgKeyConnectTimeout = "connect_timeout"
+	cfgKeyCallTimeout    = "call_timeout"
+	cfgKeyTrustLevel     = "trust_level"
+
 	// LogKeyTokenURLHost is the structured-log field name used when
 	// emitting an IdP host. Exported so external packages don't
 	// duplicate the literal and risk drift.
@@ -713,13 +722,13 @@ const errFmtConnection = "gateway: %s: %w"
 // to round-trip; ConnectionName is set directly to preserve the original.
 func configToMap(c Config) map[string]any {
 	m := map[string]any{
-		"endpoint":        c.Endpoint,
-		"auth_mode":       c.AuthMode,
-		"credential":      c.Credential,
-		"connection_name": c.ConnectionName,
-		"connect_timeout": c.ConnectTimeout.String(),
-		"call_timeout":    c.CallTimeout.String(),
-		"trust_level":     c.TrustLevel,
+		cfgKeyEndpoint:       c.Endpoint,
+		cfgKeyAuthMode:       c.AuthMode,
+		cfgKeyCredential:     c.Credential,
+		cfgKeyConnectionName: c.ConnectionName,
+		cfgKeyConnectTimeout: c.ConnectTimeout.String(),
+		cfgKeyCallTimeout:    c.CallTimeout.String(),
+		cfgKeyTrustLevel:     c.TrustLevel,
 	}
 	if c.OAuth.Grant != "" {
 		m["oauth_grant"] = c.OAuth.Grant

@@ -72,12 +72,16 @@ nav a.active{background:var(--badge-bg);color:var(--badge-text)}
 </body>
 </html>`
 
+// sampleMarkdown is the default sample type, also used as the fallback
+// when an unknown ?type= query parameter is provided.
+const sampleMarkdown = "markdown"
+
 var samples = map[string][2]string{
-	"markdown": {"text/markdown", "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
-	"svg":      {"image/svg+xml", `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="80" fill="#3b82f6" opacity="0.8"/><text x="100" y="108" text-anchor="middle" fill="white" font-size="24" font-family="system-ui">SVG</text></svg>`},
-	"jsx":      {"text/jsx", "import { useState } from 'react';\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  return (\n    <div style={{padding: '2rem', fontFamily: 'system-ui'}}>\n      <h1>Counter: {count}</h1>\n      <button onClick={() => setCount(c => c + 1)}\n        style={{padding: '8px 16px', fontSize: '16px', cursor: 'pointer'}}>\n        Increment\n      </button>\n    </div>\n  );\n}\n"},
-	"html":     {"text/html", "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:system-ui;padding:2rem}h1{color:#3b82f6}</style></head>\n<body><h1>Hello from HTML</h1><p>This is rendered in a sandboxed iframe.</p></body>\n</html>"},
-	"plain":    {"text/plain", "This is plain text content.\nIt should be displayed in a <pre> block.\n\nSpecial chars: <script>alert('xss')</script> & \"quotes\""},
+	sampleMarkdown: {"text/markdown", "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
+	"svg":          {"image/svg+xml", `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="80" fill="#3b82f6" opacity="0.8"/><text x="100" y="108" text-anchor="middle" fill="white" font-size="24" font-family="system-ui">SVG</text></svg>`},
+	"jsx":          {"text/jsx", "import { useState } from 'react';\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  return (\n    <div style={{padding: '2rem', fontFamily: 'system-ui'}}>\n      <h1>Counter: {count}</h1>\n      <button onClick={() => setCount(c => c + 1)}\n        style={{padding: '8px 16px', fontSize: '16px', cursor: 'pointer'}}>\n        Increment\n      </button>\n    </div>\n  );\n}\n"},
+	"html":         {"text/html", "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:system-ui;padding:2rem}h1{color:#3b82f6}</style></head>\n<body><h1>Hello from HTML</h1><p>This is rendered in a sandboxed iframe.</p></body>\n</html>"},
+	"plain":        {"text/plain", "This is plain text content.\nIt should be displayed in a <pre> block.\n\nSpecial chars: <script>alert('xss')</script> & \"quotes\""},
 }
 
 var viewerTpl = template.Must(template.New("viewer").Parse(viewerHTML))
@@ -88,11 +92,11 @@ func newHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		typ := r.URL.Query().Get("type")
 		if typ == "" {
-			typ = "markdown"
+			typ = sampleMarkdown
 		}
 		sample, ok := samples[typ]
 		if !ok {
-			sample = samples["markdown"]
+			sample = samples[sampleMarkdown]
 		}
 
 		contentJSON, _ := json.Marshal(map[string]string{ // #nosec G104 -- string map marshaling cannot fail

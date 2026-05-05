@@ -37,6 +37,12 @@ const (
 	logKeyReason = "reason"
 )
 
+// Elicitation schema and result-action constants.
+const (
+	schemaPropertiesKey = "properties"
+	elicitActionAccept  = "accept"
+)
+
 // rowEstimatePattern matches "rows: 12345" in Trino EXPLAIN IO output.
 var rowEstimatePattern = regexp.MustCompile(`rows:\s*(\d+)`)
 
@@ -195,8 +201,8 @@ func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, e elic
 	result, err := e.Elicit(ctx, &mcp.ElicitParams{
 		Message: message,
 		RequestedSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":              "object",
+			schemaPropertiesKey: map[string]any{},
 		},
 	})
 	if err != nil {
@@ -207,7 +213,7 @@ func (em *ElicitationMiddleware) checkCostEstimation(ctx context.Context, e elic
 		return nil // graceful degradation
 	}
 
-	if result.Action != "accept" {
+	if result.Action != elicitActionAccept {
 		return &ElicitationDeclinedError{
 			Reason: fmt.Sprintf("query declined: estimated %s rows exceeds threshold", formatRowCount(estimated)),
 		}
@@ -258,8 +264,8 @@ func (em *ElicitationMiddleware) checkPIIConsent(ctx context.Context, e elicitor
 	result, err := e.Elicit(ctx, &mcp.ElicitParams{
 		Message: message,
 		RequestedSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":              "object",
+			schemaPropertiesKey: map[string]any{},
 		},
 	})
 	if err != nil {
@@ -270,7 +276,7 @@ func (em *ElicitationMiddleware) checkPIIConsent(ctx context.Context, e elicitor
 		return nil // graceful degradation
 	}
 
-	if result.Action != "accept" {
+	if result.Action != elicitActionAccept {
 		return &ElicitationDeclinedError{
 			Reason: "query declined: PII access not authorized by user",
 		}

@@ -23,6 +23,15 @@ const (
 	// defaultMaxLimit is the maximum number of results allowed.
 	defaultMaxLimit = 100
 
+	// DataHub tool names. Defined as constants so the same literal does
+	// not appear repeatedly across the Tools() list and the per-tool
+	// enrichment / context-provider lookups.
+	toolGetEntity       = "datahub_get_entity"
+	toolGetLineage      = "datahub_get_lineage"
+	toolBrowse          = "datahub_browse"
+	toolGetGlossaryTerm = "datahub_get_glossary_term"
+	toolGetDataProduct  = "datahub_get_data_product"
+
 	// defaultMaxLineageDepth is the maximum lineage traversal depth.
 	defaultMaxLineageDepth = 5
 )
@@ -230,13 +239,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 func (t *Toolkit) Tools() []string {
 	tools := []string{
 		"datahub_search",
-		"datahub_get_entity",
+		toolGetEntity,
 		"datahub_get_schema",
-		"datahub_get_lineage",
+		toolGetLineage,
 		"datahub_get_queries",
-		"datahub_browse",
-		"datahub_get_glossary_term",
-		"datahub_get_data_product",
+		toolBrowse,
+		toolGetGlossaryTerm,
+		toolGetDataProduct,
 	}
 
 	if !t.config.ReadOnly {

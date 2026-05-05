@@ -16,6 +16,15 @@ const (
 	promptErrGet    = "failed to get prompt"
 	promptLogKey    = "name"
 	promptLogKeyErr = "error"
+
+	// Command names for the manage_prompt tool.
+	cmdList = "list"
+
+	// JSON field names used in result and schema maps. These share the
+	// same string value as promptLogKey/promptLogKeyErr but are kept
+	// separate for documentation clarity at call sites.
+	fieldName    = "name"
+	fieldContent = "content"
 )
 
 // platformPromptCreator adapts the prompt store and platform for the
@@ -81,7 +90,7 @@ func (p *Platform) handleManagePrompt(ctx context.Context, input managePromptInp
 		return p.handlePromptUpdate(ctx, input)
 	case "delete":
 		return p.handlePromptDelete(ctx, input)
-	case "list":
+	case cmdList:
 		return p.handlePromptList(ctx, input)
 	case "get":
 		return p.handlePromptGet(ctx, input)
@@ -139,9 +148,9 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	p.RegisterRuntimePrompt(pr)
 
 	return promptJSONResult(map[string]any{
-		"status": "created",
-		"id":     pr.ID,
-		"name":   pr.Name,
+		"status":  "created",
+		"id":      pr.ID,
+		fieldName: pr.Name,
 	})
 }
 
@@ -184,8 +193,8 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	p.RegisterRuntimePrompt(existing)
 
 	return promptJSONResult(map[string]any{
-		"status": "updated",
-		"name":   existing.Name,
+		"status":  "updated",
+		fieldName: existing.Name,
 	})
 }
 
@@ -252,8 +261,8 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	p.UnregisterRuntimePrompt(input.Name)
 
 	return promptJSONResult(map[string]any{
-		"status": "deleted",
-		"name":   input.Name,
+		"status":  "deleted",
+		fieldName: input.Name,
 	})
 }
 
@@ -405,10 +414,10 @@ func managePromptSchema() any {
 		"properties": map[string]any{
 			"command": map[string]any{
 				schemaKeyType:        schemaValString,
-				"enum":               []string{"create", "update", "delete", "list", "get"},
+				"enum":               []string{"create", "update", "delete", cmdList, "get"},
 				schemaKeyDescription: "The operation to perform",
 			},
-			"name": map[string]any{
+			fieldName: map[string]any{
 				schemaKeyType:        schemaValString,
 				schemaKeyDescription: "Prompt name (required for create, update, delete, get)",
 			},
@@ -420,7 +429,7 @@ func managePromptSchema() any {
 				schemaKeyType:        schemaValString,
 				schemaKeyDescription: "Prompt description",
 			},
-			"content": map[string]any{
+			fieldContent: map[string]any{
 				schemaKeyType:        schemaValString,
 				schemaKeyDescription: "Prompt content template. Use {arg_name} for argument placeholders.",
 			},
@@ -429,7 +438,7 @@ func managePromptSchema() any {
 				"items": map[string]any{
 					schemaKeyType: "object",
 					"properties": map[string]any{
-						"name":               map[string]any{schemaKeyType: schemaValString},
+						fieldName:            map[string]any{schemaKeyType: schemaValString},
 						schemaKeyDescription: map[string]any{schemaKeyType: schemaValString},
 						"required":           map[string]any{schemaKeyType: "boolean"},
 					},
@@ -442,7 +451,7 @@ func managePromptSchema() any {
 			},
 			"scope": map[string]any{
 				schemaKeyType:        schemaValString,
-				"enum":               []string{"global", "persona", "personal"},
+				"enum":               []string{prompt.ScopeGlobal, prompt.ScopePersona, prompt.ScopePersonal},
 				schemaKeyDescription: "Visibility scope. Non-admins can only use 'personal'.",
 			},
 			"personas": map[string]any{

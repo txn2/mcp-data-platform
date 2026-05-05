@@ -333,8 +333,11 @@ func newTestSessionCookie(idToken string) *http.Cookie {
 		IDToken: idToken,
 	}, &cfg)
 	return &http.Cookie{
-		Name:  browsersession.DefaultCookieName,
-		Value: token,
+		Name:     browsersession.DefaultCookieName,
+		Value:    token,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
 	}
 }
 

@@ -7891,6 +7891,10 @@ const docTemplate = `{
                     "description": "NeedsReauth is true when the platform cannot mint an access token\nwithout operator interaction. For authorization_code grants this\nmeans: no stored token, or the refresh token has been revoked.\nThe admin UI surfaces a \"Connect\" button when this is true.",
                     "type": "boolean"
                 },
+                "refresh_token_revoked": {
+                    "description": "RefreshTokenRevoked is true when the most recent refresh attempt\ngot a definitive RFC 6749 §5.2 invalid_grant response — meaning\nthe IdP has invalidated the stored refresh token (idle session\ntimeout, admin revocation, password change, etc.) and the\noperator must complete a fresh browser-side authorization. The\nadmin UI uses this to distinguish \"click Connect to reauthorize\"\nfrom a transient \"click Reacquire to retry\" state.",
+                    "type": "boolean"
+                },
                 "scope": {
                     "type": "string"
                 },

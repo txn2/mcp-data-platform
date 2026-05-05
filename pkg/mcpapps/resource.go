@@ -253,7 +253,7 @@ func isBinaryMIME(mimeType string) bool {
 		return false
 	case strings.HasPrefix(mimeType, "application/xml"):
 		return false
-	case mimeType == "image/svg+xml":
+	case mimeType == mimeSVG:
 		return false
 	default:
 		return true

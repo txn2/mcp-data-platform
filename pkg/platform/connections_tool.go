@@ -32,7 +32,7 @@ type listConnectionsInput struct{}
 // registerConnectionsTool registers the list_connections tool with the MCP server.
 func (p *Platform) registerConnectionsTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:        "list_connections",
+		Name:        toolListConns,
 		Title:       "List Connections",
 		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.).",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},

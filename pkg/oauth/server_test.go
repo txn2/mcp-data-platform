@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1791,5 +1792,186 @@ func TestServerSigningKey(t *testing.T) {
 
 	if server.Issuer() != "https://oauth.example.com" {
 		t.Error("Issuer() should return the configured issuer")
+	}
+}
+
+// captureSlog redirects slog.Default() at LevelInfo into a buffer for the
+// duration of the test and restores the previous default on cleanup. Tests
+// using it cannot run in parallel because slog.Default() is process-global.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	prev := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestTokenEndpoint_LogsSuccess(t *testing.T) {
+	const secretValue = "super-secret-value"
+	const codeValue = "auth-code-secret-value"
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(secretValue), bcrypt.MinCost)
+	client := &Client{
+		ClientID:     testClientID,
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{testRedirectURI},
+		Active:       true,
+	}
+	authCode := &AuthorizationCode{
+		Code:        codeValue,
+		ClientID:    testClientID,
+		UserID:      testServerUserID,
+		RedirectURI: testRedirectURI,
+		ExpiresAt:   time.Now().Add(10 * time.Minute),
+	}
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return authCode, nil
+		},
+	}
+	server, err := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+	if err != nil {
+		t.Fatalf(errCreateServer, err)
+	}
+
+	buf := captureSlog(t)
+
+	body := fmt.Sprintf("grant_type=authorization_code&code=%s&client_id=%s&client_secret=%s&redirect_uri=%s",
+		codeValue, testClientID, secretValue, testRedirectURI)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, `level=INFO`) {
+		t.Errorf("expected INFO level entry, got: %s", out)
+	}
+	if !strings.Contains(out, "oauth: token grant issued") {
+		t.Errorf("expected success message in log, got: %s", out)
+	}
+	if !strings.Contains(out, "grant_type=authorization_code") {
+		t.Errorf("expected grant_type field, got: %s", out)
+	}
+	if !strings.Contains(out, "client_id="+testClientID) {
+		t.Errorf("expected client_id field, got: %s", out)
+	}
+	if !strings.Contains(out, "credential_source=form") {
+		t.Errorf("expected credential_source=form, got: %s", out)
+	}
+	if !strings.Contains(out, "has_refresh_token=true") {
+		t.Errorf("expected has_refresh_token=true on success, got: %s", out)
+	}
+	if !strings.Contains(out, "duration_ms=") {
+		t.Errorf("expected duration_ms field, got: %s", out)
+	}
+	if strings.Contains(out, secretValue) {
+		t.Errorf("client secret value MUST NOT appear in logs, got: %s", out)
+	}
+	if strings.Contains(out, codeValue) {
+		t.Errorf("authorization code value MUST NOT appear in logs, got: %s", out)
+	}
+}
+
+func TestTokenEndpoint_LogsRejection(t *testing.T) {
+	const secretValue = "super-secret-value"
+	storage := &mockStorage{}
+	server, err := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+	if err != nil {
+		t.Fatalf(errCreateServer, err)
+	}
+
+	buf := captureSlog(t)
+
+	// Unsupported grant_type -> Token() returns error -> WARN log.
+	body := "grant_type=password&client_id=" + testClientID + "&client_secret=" + secretValue
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `level=WARN`) {
+		t.Errorf("expected WARN level entry, got: %s", out)
+	}
+	if !strings.Contains(out, "oauth: token grant rejected") {
+		t.Errorf("expected rejection message in log, got: %s", out)
+	}
+	if !strings.Contains(out, "grant_type=password") {
+		t.Errorf("expected grant_type=password in log, got: %s", out)
+	}
+	if !strings.Contains(out, "has_client_secret=true") {
+		t.Errorf("expected has_client_secret=true presence boolean, got: %s", out)
+	}
+	if !strings.Contains(out, "error=") {
+		t.Errorf("expected error reason in log, got: %s", out)
+	}
+	if strings.Contains(out, secretValue) {
+		t.Errorf("client secret value MUST NOT appear in logs, got: %s", out)
+	}
+}
+
+func TestTokenEndpoint_LogsRejectionBasicAuth(t *testing.T) {
+	const secretValue = "basic-secret-value"
+	storage := &mockStorage{}
+	server, err := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+	if err != nil {
+		t.Fatalf(errCreateServer, err)
+	}
+
+	buf := captureSlog(t)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader("grant_type=password"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(testClientID, secretValue)
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "credential_source=basic") {
+		t.Errorf("expected credential_source=basic when using HTTP Basic auth, got: %s", out)
+	}
+	if strings.Contains(out, secretValue) {
+		t.Errorf("client secret from Basic auth MUST NOT appear in logs, got: %s", out)
+	}
+}
+
+func TestTokenEndpoint_LogsParseFormFailure(t *testing.T) {
+	storage := &mockStorage{}
+	server, err := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+	if err != nil {
+		t.Fatalf(errCreateServer, err)
+	}
+
+	buf := captureSlog(t)
+
+	// Malformed percent-encoding causes r.ParseForm() to fail.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader("grant_type=%ZZ"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `level=WARN`) {
+		t.Errorf("expected WARN level entry, got: %s", out)
+	}
+	if !strings.Contains(out, "oauth: token endpoint parse form failed") {
+		t.Errorf("expected parse-form failure log, got: %s", out)
 	}
 }

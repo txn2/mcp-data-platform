@@ -152,14 +152,14 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		TrustLevel:     TrustLevelUntrusted,
 	}
 
-	c.Endpoint = getString(cfg, "endpoint")
-	c.AuthMode = getStringDefault(cfg, "auth_mode", c.AuthMode)
-	c.Credential = getString(cfg, "credential")
+	c.Endpoint = getString(cfg, cfgKeyEndpoint)
+	c.AuthMode = getStringDefault(cfg, cfgKeyAuthMode, c.AuthMode)
+	c.Credential = getString(cfg, cfgKeyCredential)
 	c.OAuth = parseOAuthConfig(cfg)
-	c.ConnectionName = getString(cfg, "connection_name")
-	c.ConnectTimeout = getDuration(cfg, "connect_timeout", c.ConnectTimeout)
-	c.CallTimeout = getDuration(cfg, "call_timeout", c.CallTimeout)
-	c.TrustLevel = getStringDefault(cfg, "trust_level", c.TrustLevel)
+	c.ConnectionName = getString(cfg, cfgKeyConnectionName)
+	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
+	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
+	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err

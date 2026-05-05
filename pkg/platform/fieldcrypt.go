@@ -17,9 +17,12 @@ const aes256KeyLength = 32
 // encryptedPrefix marks a value as AES-256-GCM encrypted + base64-encoded.
 const encryptedPrefix = "enc:"
 
+// configKeyPassword is the conventional config-map key for password fields.
+const configKeyPassword = "password"
+
 // sensitiveConfigKeys are the config map keys whose values must be encrypted at rest.
 var sensitiveConfigKeys = map[string]bool{
-	"password":            true,
+	configKeyPassword:     true,
 	"secret_access_key":   true,
 	"secret_key":          true,
 	"token":               true,

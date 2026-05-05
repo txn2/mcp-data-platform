@@ -21,6 +21,19 @@ const tableName = "memory_records"
 // errNotFoundFmt is the format string for not-found errors.
 const errNotFoundFmt = "memory record not found: %s"
 
+// SQL column names. Defined as constants because squirrel queries
+// reference them in column lists, predicates, and updates — repeating
+// the literals would mean drift if a column is ever renamed.
+const (
+	colCreatedBy  = "created_by"
+	colCategory   = "category"
+	colEntityURNs = "entity_urns"
+	colCreatedAt  = "created_at"
+	colDimension  = "dimension"
+	colConfidence = "confidence"
+	colMetadata   = "metadata"
+)
+
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
@@ -52,9 +65,9 @@ func (s *postgresStore) Insert(ctx context.Context, record Record) error {
 	}
 
 	columns := []string{
-		"id", "created_by", "persona", "dimension",
-		"content", "category", "confidence", "source",
-		"entity_urns", "related_columns", "metadata", "status",
+		"id", colCreatedBy, "persona", colDimension,
+		"content", colCategory, colConfidence, "source",
+		colEntityURNs, "related_columns", colMetadata, "status",
 	}
 	values := []any{
 		record.ID, record.CreatedBy, record.Persona, record.Dimension,
@@ -147,15 +160,15 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 		hasUpdates = true
 	}
 	if updates.Category != "" {
-		qb = qb.Set("category", updates.Category)
+		qb = qb.Set(colCategory, updates.Category)
 		hasUpdates = true
 	}
 	if updates.Confidence != "" {
-		qb = qb.Set("confidence", updates.Confidence)
+		qb = qb.Set(colConfidence, updates.Confidence)
 		hasUpdates = true
 	}
 	if updates.Dimension != "" {
-		qb = qb.Set("dimension", updates.Dimension)
+		qb = qb.Set(colDimension, updates.Dimension)
 		hasUpdates = true
 	}
 	if updates.Metadata != nil {
@@ -163,7 +176,7 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 		if err != nil {
 			return qb, false, fmt.Errorf("marshaling metadata: %w", err)
 		}
-		qb = qb.Set("metadata", sq.Expr("metadata || ?::jsonb", meta))
+		qb = qb.Set(colMetadata, sq.Expr("metadata || ?::jsonb", meta))
 		hasUpdates = true
 	}
 	if len(updates.Embedding) > 0 {
@@ -444,7 +457,7 @@ func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) erro
 	now := time.Now()
 	query, args, err := psq.Update(tableName).
 		Set("status", StatusSuperseded).
-		Set("metadata", sq.Expr("metadata || ?::jsonb", patch)).
+		Set(colMetadata, sq.Expr("metadata || ?::jsonb", patch)).
 		Set("updated_at", now).
 		Where(sq.Eq{"id": oldID}).
 		ToSql()
@@ -471,16 +484,16 @@ func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) erro
 // applyFilter adds filter conditions to a SELECT builder.
 func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 	if filter.CreatedBy != "" {
-		qb = qb.Where(sq.Eq{"created_by": filter.CreatedBy})
+		qb = qb.Where(sq.Eq{colCreatedBy: filter.CreatedBy})
 	}
 	if filter.Persona != "" {
 		qb = qb.Where(sq.Eq{"persona": filter.Persona})
 	}
 	if filter.Dimension != "" {
-		qb = qb.Where(sq.Eq{"dimension": filter.Dimension})
+		qb = qb.Where(sq.Eq{colDimension: filter.Dimension})
 	}
 	if filter.Category != "" {
-		qb = qb.Where(sq.Eq{"category": filter.Category})
+		qb = qb.Where(sq.Eq{colCategory: filter.Category})
 	}
 	if filter.Status != "" {
 		qb = qb.Where(sq.Eq{"status": filter.Status})
@@ -493,10 +506,10 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", urnJSON))
 	}
 	if filter.Since != nil {
-		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
+		qb = qb.Where(sq.GtOrEq{colCreatedAt: *filter.Since})
 	}
 	if filter.Until != nil {
-		qb = qb.Where(sq.LtOrEq{"created_at": *filter.Until})
+		qb = qb.Where(sq.LtOrEq{colCreatedAt: *filter.Until})
 	}
 	return qb
 }
@@ -504,9 +517,9 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 // recordColumns returns the column list for memory record queries.
 func recordColumns() []string {
 	return []string{
-		"id", "created_at", "updated_at", "created_by", "persona", "dimension",
-		"content", "category", "confidence", "source",
-		"entity_urns", "related_columns", "metadata",
+		"id", colCreatedAt, "updated_at", colCreatedBy, "persona", colDimension,
+		"content", colCategory, colConfidence, "source",
+		colEntityURNs, "related_columns", colMetadata,
 		"status", "stale_reason", "stale_at", "last_verified",
 	}
 }
