@@ -20,14 +20,26 @@ const (
 	maxQueryCapacity     = 10000
 )
 
+// SQL column names for the audit_logs table. Defined as constants so
+// the same literal does not appear repeatedly across the column list,
+// predicates, and ORDER BY clauses inside this package.
+const (
+	colTimestamp  = "timestamp"
+	colUserID     = "user_id"
+	colToolName   = "tool_name"
+	colDurationMS = "duration_ms"
+	colPersona    = "persona"
+	colConnection = "connection"
+)
+
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // auditColumns lists columns returned by audit SELECT queries.
 var auditColumns = []string{
-	"id", "timestamp", "duration_ms", "request_id", "session_id",
-	"user_id", "user_email", "persona", "tool_name", "toolkit_kind",
-	"toolkit_name", "connection", "parameters", "success", "error_message",
+	"id", colTimestamp, colDurationMS, "request_id", "session_id",
+	colUserID, "user_email", colPersona, colToolName, "toolkit_kind",
+	"toolkit_name", colConnection, "parameters", "success", "error_message",
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
@@ -112,19 +124,19 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 		qb = qb.Where(sq.Eq{"id": filter.ID})
 	}
 	if filter.StartTime != nil {
-		qb = qb.Where(sq.GtOrEq{"timestamp": *filter.StartTime})
+		qb = qb.Where(sq.GtOrEq{colTimestamp: *filter.StartTime})
 	}
 	if filter.EndTime != nil {
-		qb = qb.Where(sq.LtOrEq{"timestamp": *filter.EndTime})
+		qb = qb.Where(sq.LtOrEq{colTimestamp: *filter.EndTime})
 	}
 	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 	if filter.SessionID != "" {
 		qb = qb.Where(sq.Eq{"session_id": filter.SessionID})
 	}
 	if filter.ToolName != "" {
-		qb = qb.Where(sq.Eq{"tool_name": filter.ToolName})
+		qb = qb.Where(sq.Eq{colToolName: filter.ToolName})
 	}
 	if filter.ToolkitKind != "" {
 		qb = qb.Where(sq.Eq{"toolkit_kind": filter.ToolkitKind})
@@ -135,11 +147,11 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
 		qb = qb.Where(sq.Or{
-			sq.ILike{"user_id": like},
-			sq.ILike{"tool_name": like},
+			sq.ILike{colUserID: like},
+			sq.ILike{colToolName: like},
 			sq.ILike{"toolkit_kind": like},
-			sq.ILike{"connection": like},
-			sq.ILike{"persona": like},
+			sq.ILike{colConnection: like},
+			sq.ILike{colPersona: like},
 			sq.ILike{"error_message": like},
 		})
 	}
@@ -150,7 +162,7 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
 	qb := applyAuditFilter(psq.Select(auditColumns...).From("audit_logs"), filter)
 
-	orderCol := "timestamp"
+	orderCol := colTimestamp
 	orderDir := "DESC"
 	if filter.SortBy != "" && audit.ValidSortColumns[filter.SortBy] {
 		orderCol = filter.SortBy
@@ -193,8 +205,8 @@ func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error
 // Distinct returns sorted unique values for the given column, scoped by optional time range.
 func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error) {
 	allowed := map[string]bool{
-		"user_id":   true,
-		"tool_name": true,
+		colUserID:   true,
+		colToolName: true,
 	}
 	if !allowed[column] {
 		return nil, fmt.Errorf("distinct not supported for column %q", column)
@@ -202,10 +214,10 @@ func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime 
 
 	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
 	if startTime != nil {
-		qb = qb.Where(sq.GtOrEq{"timestamp": *startTime})
+		qb = qb.Where(sq.GtOrEq{colTimestamp: *startTime})
 	}
 	if endTime != nil {
-		qb = qb.Where(sq.LtOrEq{"timestamp": *endTime})
+		qb = qb.Where(sq.LtOrEq{colTimestamp: *endTime})
 	}
 
 	query, args, err := qb.ToSql()

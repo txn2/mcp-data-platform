@@ -39,11 +39,11 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 		"COUNT(*) FILTER (WHERE success = false) AS error_count",
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 	).From("audit_logs").
-		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end})
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
 
 	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 
 	qb = qb.GroupBy("bucket").
@@ -121,11 +121,11 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 	).From("audit_logs").
-		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end})
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
 
 	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 	if filter.ToolName != "" {
 		// Per-tool scoping: callers asking for stats on a specific tool
@@ -134,7 +134,7 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 		// platforms with more than Limit distinct tools active in the
 		// window dropped low-frequency tools off the breakdown and
 		// rendered them as "no calls recorded" in the UI.
-		qb = qb.Where(sq.Eq{"tool_name": filter.ToolName})
+		qb = qb.Where(sq.Eq{colToolName: filter.ToolName})
 	}
 
 	qb = qb.GroupBy("dimension").
@@ -201,11 +201,11 @@ func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audi
 		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
 		"COUNT(*) FILTER (WHERE success = false) AS error_count",
 	).From("audit_logs").
-		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end})
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
 
 	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 
 	query, args, err := qb.ToSql()
@@ -242,11 +242,11 @@ func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*a
 		"COALESCE(AVG(response_chars), 0) AS avg_response_chars",
 		"COALESCE(AVG(request_chars), 0) AS avg_request_chars",
 	).From("audit_logs").
-		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end})
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
 
 	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{"user_id": filter.UserID})
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 
 	query, args, err := qb.ToSql()
@@ -293,8 +293,8 @@ func (s *Store) Enrichment(ctx context.Context, startTime, endTime *time.Time) (
 		"COALESCE(AVG(NULLIF(enrichment_tokens_dedup, 0)), 0) AS avg_tokens_dedup",
 		"COUNT(DISTINCT session_id) AS unique_sessions",
 	).From("audit_logs").
-		Where(sq.GtOrEq{"timestamp": start}).
-		Where(sq.LtOrEq{"timestamp": end})
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
 
 	query, args, err := qb.ToSql()
 	if err != nil {

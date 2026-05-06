@@ -12,6 +12,19 @@ import (
 const (
 	textColumnSeparator = "  "
 	textNewline         = "\n"
+
+	// Output format names recognized by newFormatter.
+	formatCSV      = "csv"
+	formatJSON     = "json"
+	formatMarkdown = "markdown"
+	formatText     = "text"
+
+	// File extensions and content types per format.
+	extCSV      = ".csv"
+	extJSON     = ".json"
+	extMarkdown = ".md"
+
+	contentTypeCSV = "text/csv"
 )
 
 // Formatter converts query results into a specific output format.
@@ -28,13 +41,13 @@ type Formatter interface {
 // Supported formats: csv, json, markdown, text.
 func newFormatter(format string) (Formatter, error) {
 	switch format {
-	case "csv":
+	case formatCSV:
 		return &csvFormatter{}, nil
-	case "json":
+	case formatJSON:
 		return &jsonFormatter{}, nil
-	case "markdown":
+	case formatMarkdown:
 		return &markdownFormatter{}, nil
-	case "text":
+	case formatText:
 		return &textFormatter{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported format: %q (must be csv, json, markdown, or text)", format)
@@ -45,8 +58,8 @@ func newFormatter(format string) (Formatter, error) {
 
 type csvFormatter struct{}
 
-func (*csvFormatter) ContentType() string   { return "text/csv" } //nolint:revive // implements Formatter
-func (*csvFormatter) FileExtension() string { return ".csv" }     //nolint:revive // implements Formatter
+func (*csvFormatter) ContentType() string   { return contentTypeCSV } //nolint:revive // implements Formatter
+func (*csvFormatter) FileExtension() string { return extCSV }         //nolint:revive // implements Formatter
 
 func (*csvFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //nolint:revive // implements Formatter
 	var buf bytes.Buffer
@@ -96,7 +109,7 @@ func escapeCSVCell(s string) string {
 type jsonFormatter struct{}
 
 func (*jsonFormatter) ContentType() string   { return "application/json" } //nolint:revive // implements Formatter
-func (*jsonFormatter) FileExtension() string { return ".json" }            //nolint:revive // implements Formatter
+func (*jsonFormatter) FileExtension() string { return extJSON }            //nolint:revive // implements Formatter
 
 func (*jsonFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //nolint:revive // implements Formatter
 	data := make([]map[string]any, len(rows))
@@ -130,7 +143,7 @@ func (*jsonFormatter) Format(columns []string, rows [][]any) ([]byte, error) { /
 type markdownFormatter struct{}
 
 func (*markdownFormatter) ContentType() string   { return "text/markdown" } //nolint:revive // implements Formatter
-func (*markdownFormatter) FileExtension() string { return ".md" }           //nolint:revive // implements Formatter
+func (*markdownFormatter) FileExtension() string { return extMarkdown }     //nolint:revive // implements Formatter
 
 func (*markdownFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //nolint:revive // implements Formatter
 	var buf bytes.Buffer

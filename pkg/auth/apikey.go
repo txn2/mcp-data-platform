@@ -118,7 +118,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 		Email:    apiKeyEmail(*matchedKey),
 		Claims:   make(map[string]any),
 		Roles:    matchedKey.Roles,
-		AuthType: "apikey",
+		AuthType: authTypeAPIKey,
 	}, nil
 }
 

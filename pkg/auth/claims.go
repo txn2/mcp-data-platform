@@ -5,6 +5,20 @@ import (
 	"strings"
 )
 
+// Standard JWT/OIDC claim names and the auth-type label used for users
+// authenticated via an OIDC provider. Defined as package-private
+// constants so the same literal does not appear repeatedly across
+// claims.go, oauth.go, and oidc.go.
+const (
+	claimSubject   = "sub"
+	claimEmail     = "email"
+	claimName      = "name"
+	claimRoles     = "roles"
+	claimGroups    = "groups"
+	authTypeOIDC   = "oidc"
+	authTypeAPIKey = "apikey"
+)
+
 // ClaimsExtractor extracts values from JWT claims.
 type ClaimsExtractor struct {
 	// RoleClaimPath is the dot-separated path to roles in claims.
@@ -30,11 +44,11 @@ type ClaimsExtractor struct {
 // DefaultClaimsExtractor returns an extractor with common defaults.
 func DefaultClaimsExtractor() *ClaimsExtractor {
 	return &ClaimsExtractor{
-		RoleClaimPath:    "roles",
-		GroupClaimPath:   "groups",
-		EmailClaimPath:   "email",
-		NameClaimPath:    "name",
-		SubjectClaimPath: "sub",
+		RoleClaimPath:    claimRoles,
+		GroupClaimPath:   claimGroups,
+		EmailClaimPath:   claimEmail,
+		NameClaimPath:    claimName,
+		SubjectClaimPath: claimSubject,
 	}
 }
 
@@ -42,7 +56,7 @@ func DefaultClaimsExtractor() *ClaimsExtractor {
 func (e *ClaimsExtractor) Extract(claims map[string]any) (*UserContext, error) {
 	uc := &UserContext{
 		Claims:   claims,
-		AuthType: "oidc",
+		AuthType: authTypeOIDC,
 	}
 
 	// Extract subject (user ID)

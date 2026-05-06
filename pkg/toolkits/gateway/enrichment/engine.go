@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// userKeyEmail is the field name of the email value injected into rule
+// evaluation contexts as user.email.
+const userKeyEmail = "email"
+
 // Source is a read-only adapter that an enrichment rule can dispatch to.
 // Implementations must enforce their own operation allowlist by returning
 // an error for unrecognized operations.
@@ -182,8 +186,8 @@ func resolveParameters(params map[string]any, call CallContext, response any) (m
 		"args":     call.Args,
 		"response": response,
 		"user": map[string]any{
-			"id":    call.User.ID,
-			"email": call.User.Email,
+			"id":         call.User.ID,
+			userKeyEmail: call.User.Email,
 		},
 	}
 	out := make(map[string]any, len(params))

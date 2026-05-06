@@ -17,6 +17,9 @@ const (
 	schemaTemplateURI       = "schema://{catalog}.{schema_name}/{table}"
 	glossaryTemplateURI     = "glossary://{term}"
 	availabilityTemplateURI = "availability://{catalog}.{schema_name}/{table}"
+
+	// mimeApplicationJSON is the MIME type for JSON-encoded resource bodies.
+	mimeApplicationJSON = "application/json"
 )
 
 // registerResourceTemplates registers all MCP resource templates.
@@ -30,21 +33,21 @@ func (p *Platform) registerResourceTemplates() {
 		URITemplate: schemaTemplateURI,
 		Name:        "Table Schema",
 		Description: "Table schema with column types and semantic context (descriptions, owners, tags, glossary terms)",
-		MIMEType:    "application/json",
+		MIMEType:    mimeApplicationJSON,
 	}, p.handleSchemaResource)
 
 	p.mcpServer.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: glossaryTemplateURI,
 		Name:        "Glossary Term",
 		Description: "Business glossary term definition and related assets",
-		MIMEType:    "application/json",
+		MIMEType:    mimeApplicationJSON,
 	}, p.handleGlossaryResource)
 
 	p.mcpServer.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: availabilityTemplateURI,
 		Name:        "Data Availability",
 		Description: "Table availability status including row count and connection info",
-		MIMEType:    "application/json",
+		MIMEType:    mimeApplicationJSON,
 	}, p.handleAvailabilityResource)
 }
 
@@ -292,7 +295,7 @@ func marshalResourceResult(uri string, v any) (*mcp.ReadResourceResult, error) {
 		Contents: []*mcp.ResourceContents{
 			{
 				URI:      uri,
-				MIMEType: "application/json",
+				MIMEType: mimeApplicationJSON,
 				Text:     string(data),
 			},
 		},

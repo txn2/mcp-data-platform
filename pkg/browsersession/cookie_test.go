@@ -207,7 +207,7 @@ func TestParseFromRequest(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	got, err := ParseFromRequest(req, cfg)
 	if err != nil {

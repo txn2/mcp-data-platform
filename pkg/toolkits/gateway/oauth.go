@@ -18,6 +18,10 @@ import (
 // proactively refresh. Keeps in-flight calls from racing the clock.
 const expiryBuffer = 30 * time.Second
 
+// errInvalidGrant is the RFC 6749 §5.2 error code returned when a
+// refresh token has been definitively invalidated by the IdP.
+const errInvalidGrant = "invalid_grant"
+
 // tokenState is the cached result of a successful OAuth token exchange.
 // Zero value (zero ExpiresAt) means "never acquired" — the next Token()
 // call will perform a full acquisition.
@@ -682,7 +686,7 @@ func interpretTokenError(grantType string, status int, body []byte) error {
 // (5xx, network) may be transient and the caller must NOT clear
 // stored credentials on a transient signal.
 func isRefreshDeadError(status int, errCode string) bool {
-	return status == http.StatusBadRequest && errCode == "invalid_grant"
+	return status == http.StatusBadRequest && errCode == errInvalidGrant
 }
 
 // URLHost returns the host portion of u so logs can show "which IdP"

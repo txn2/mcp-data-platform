@@ -26,6 +26,13 @@ const (
 
 	// datahubPlatform is the provider name for this adapter.
 	datahubPlatform = "datahub"
+
+	// DataHub search-filter field names. Defined as constants because
+	// each appears in multiple places (filter mapping, lineage inheritance,
+	// query construction).
+	filterFieldPlatform = "platform"
+	filterFieldTags     = "tags"
+	filterFieldOwners   = "owners"
 )
 
 // Config holds DataHub adapter configuration.
@@ -287,13 +294,13 @@ func buildDHFilters(filter semantic.SearchFilter) []dhclient.SearchFilter {
 
 	if filter.Platform != "" {
 		out = append(out, dhclient.SearchFilter{
-			Field:  "platform",
+			Field:  filterFieldPlatform,
 			Values: []string{filter.Platform},
 		})
 	}
 	if len(filter.Tags) > 0 {
 		out = append(out, dhclient.SearchFilter{
-			Field:  "tags",
+			Field:  filterFieldTags,
 			Values: filter.Tags,
 		})
 	}
@@ -305,7 +312,7 @@ func buildDHFilters(filter semantic.SearchFilter) []dhclient.SearchFilter {
 	}
 	if filter.Owner != "" {
 		out = append(out, dhclient.SearchFilter{
-			Field:  "owners",
+			Field:  filterFieldOwners,
 			Values: []string{filter.Owner},
 		})
 	}

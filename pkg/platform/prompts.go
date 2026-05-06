@@ -203,12 +203,17 @@ type workflowPrompt struct {
 	requiredKinds []string
 }
 
+// promptExploreAvailableData is the canonical name of the data-exploration
+// workflow prompt. Used by the prompt registration code and referenced by
+// the disable-prompt allowlist in tests.
+const promptExploreAvailableData = "explore-available-data"
+
 // workflowPrompts returns the set of platform-level workflow prompts.
 func workflowPrompts() []workflowPrompt {
 	return []workflowPrompt{
 		{
 			config: PromptConfig{
-				Name:        "explore-available-data",
+				Name:        promptExploreAvailableData,
 				Description: "Discover what data is available about a topic",
 				Content: `Explore what data is available about {topic}.
 

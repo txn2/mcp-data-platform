@@ -23,6 +23,22 @@ const (
 	// defaultMaxLimit is the maximum number of results allowed.
 	defaultMaxLimit = 100
 
+	// DataHub tool names. The full set is named here even though only
+	// a subset crosses goconst's literal-repetition threshold — keeping
+	// the Tools() list uniformly constant-driven avoids a visually mixed
+	// list of constants and bare strings.
+	toolSearch          = "datahub_search"
+	toolGetEntity       = "datahub_get_entity"
+	toolGetSchema       = "datahub_get_schema"
+	toolGetLineage      = "datahub_get_lineage"
+	toolGetQueries      = "datahub_get_queries"
+	toolBrowse          = "datahub_browse"
+	toolGetGlossaryTerm = "datahub_get_glossary_term"
+	toolGetDataProduct  = "datahub_get_data_product"
+	toolCreate          = "datahub_create"
+	toolUpdate          = "datahub_update"
+	toolDelete          = "datahub_delete"
+
 	// defaultMaxLineageDepth is the maximum lineage traversal depth.
 	defaultMaxLineageDepth = 5
 )
@@ -229,21 +245,21 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		"datahub_search",
-		"datahub_get_entity",
-		"datahub_get_schema",
-		"datahub_get_lineage",
-		"datahub_get_queries",
-		"datahub_browse",
-		"datahub_get_glossary_term",
-		"datahub_get_data_product",
+		toolSearch,
+		toolGetEntity,
+		toolGetSchema,
+		toolGetLineage,
+		toolGetQueries,
+		toolBrowse,
+		toolGetGlossaryTerm,
+		toolGetDataProduct,
 	}
 
 	if !t.config.ReadOnly {
 		tools = append(tools,
-			"datahub_create",
-			"datahub_update",
-			"datahub_delete",
+			toolCreate,
+			toolUpdate,
+			toolDelete,
 		)
 	}
 

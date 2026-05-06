@@ -57,7 +57,7 @@ func NewDCRService(storage Storage, config DCRConfig) (*DCRService, error) {
 	}
 
 	if len(config.DefaultGrantTypes) == 0 {
-		config.DefaultGrantTypes = []string{"authorization_code", "refresh_token"}
+		config.DefaultGrantTypes = []string{grantTypeAuthCode, grantTypeRefreshToken}
 	}
 
 	return &DCRService{

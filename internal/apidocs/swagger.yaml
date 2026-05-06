@@ -1163,6 +1163,16 @@ definitions:
           means: no stored token, or the refresh token has been revoked.
           The admin UI surfaces a "Connect" button when this is true.
         type: boolean
+      refresh_token_revoked:
+        description: |-
+          RefreshTokenRevoked is true when the most recent refresh attempt
+          got a definitive RFC 6749 §5.2 invalid_grant response — meaning
+          the IdP has invalidated the stored refresh token (idle session
+          timeout, admin revocation, password change, etc.) and the
+          operator must complete a fresh browser-side authorization. The
+          admin UI uses this to distinguish "click Connect to reauthorize"
+          from a transient "click Reacquire to retry" state.
+        type: boolean
       scope:
         type: string
       token_acquired:

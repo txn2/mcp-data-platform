@@ -7,6 +7,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
+// DataHub source operation names.
+const (
+	opGetEntity       = "get_entity"
+	opGetGlossaryTerm = "get_glossary_term"
+)
+
 // DataHubGetEntityFunc resolves a DataHub entity by URN.
 type DataHubGetEntityFunc func(ctx context.Context, urn string) (any, error)
 
@@ -34,7 +40,7 @@ func (*DataHubSource) Name() string { return enrichment.SourceDataHub }
 
 // Operations returns the read-only operation allowlist.
 func (*DataHubSource) Operations() []string {
-	return []string{"get_entity", "get_glossary_term"}
+	return []string{opGetEntity, opGetGlossaryTerm}
 }
 
 // Execute dispatches the requested operation. Recognized parameters:
@@ -43,9 +49,9 @@ func (*DataHubSource) Operations() []string {
 //	get_glossary_term  { urn string }
 func (s *DataHubSource) Execute(ctx context.Context, op string, params map[string]any) (any, error) {
 	switch op {
-	case "get_entity":
+	case opGetEntity:
 		return s.execGet(ctx, op, params, s.getEntity)
-	case "get_glossary_term":
+	case opGetGlossaryTerm:
 		return s.execGet(ctx, op, params, s.getGlossaryTerm)
 	default:
 		return nil, fmt.Errorf("datahub: operation %q not supported", op)

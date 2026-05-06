@@ -15,6 +15,21 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
+// Trino source operation names, parameter keys, and the SQL literal
+// strings the query renderer emits. Defined as constants because each
+// appears in the operation allowlist, dispatch, parameter lookup, and
+// the output renderer.
+const (
+	opQuery = "query"
+
+	paramConnection  = "connection"
+	paramSQLTemplate = "sql_template"
+
+	sqlLiteralNULL  = "NULL"
+	sqlLiteralTRUE  = "TRUE"
+	sqlLiteralFALSE = "FALSE"
+)
+
 // TrinoQueryFunc executes a SQL query against a named Trino connection
 // and returns the row set. Implementations are platform-side.
 type TrinoQueryFunc func(ctx context.Context, connection, sql string) ([]map[string]any, error)
@@ -41,7 +56,7 @@ func NewTrinoSource(exec TrinoQueryFunc) *TrinoSource {
 func (*TrinoSource) Name() string { return enrichment.SourceTrino }
 
 // Operations returns the read-only operation allowlist.
-func (*TrinoSource) Operations() []string { return []string{"query"} }
+func (*TrinoSource) Operations() []string { return []string{opQuery} }
 
 // Execute runs the requested operation. Recognized parameters for "query":
 //
@@ -53,14 +68,14 @@ func (*TrinoSource) Operations() []string { return []string{"query"} }
 // doubled per ANSI SQL; numbers and bools are rendered as literals; nil
 // becomes NULL. Other types are rejected.
 func (s *TrinoSource) Execute(ctx context.Context, op string, params map[string]any) (any, error) {
-	if op != "query" {
+	if op != opQuery {
 		return nil, fmt.Errorf("trino: operation %q not supported", op)
 	}
-	connection, err := requireString(params, "connection")
+	connection, err := requireString(params, paramConnection)
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := requireString(params, "sql_template")
+	tmpl, err := requireString(params, paramSQLTemplate)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +111,7 @@ func requireString(params map[string]any, key string) (string, error) {
 // Placeholder matching is greedy on identifier characters so :i and :i64
 // are distinct bindings (a naive ReplaceAll would chew :i out of :i64).
 func renderSQL(tmpl string, params map[string]any) (string, error) {
-	skip := map[string]bool{"connection": true, "sql_template": true}
+	skip := map[string]bool{paramConnection: true, paramSQLTemplate: true}
 	literals := make(map[string]string, len(params))
 	for k, v := range params {
 		if skip[k] {
@@ -180,7 +195,7 @@ func substitutePlaceholder(out *strings.Builder, tmpl string, i int, literals ma
 func sqlLiteral(v any) (string, error) {
 	switch x := v.(type) {
 	case nil:
-		return "NULL", nil
+		return sqlLiteralNULL, nil
 	case string:
 		if strings.ContainsRune(x, 0) {
 			return "", errors.New("string binding contains a NUL byte")
@@ -188,9 +203,9 @@ func sqlLiteral(v any) (string, error) {
 		return "'" + strings.ReplaceAll(x, "'", "''") + "'", nil
 	case bool:
 		if x {
-			return "TRUE", nil
+			return sqlLiteralTRUE, nil
 		}
-		return "FALSE", nil
+		return sqlLiteralFALSE, nil
 	case int, int32, int64:
 		return fmt.Sprintf("%d", x), nil
 	case float32:

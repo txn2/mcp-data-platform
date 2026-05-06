@@ -52,13 +52,38 @@ const (
 	errServerError      = "server_error"
 )
 
-// OAuth parameter name constants.
+// OAuth wire-protocol form-parameter names. Used both when reading
+// inbound request fields (r.FormValue) and when building outbound
+// requests to the upstream IdP (url.Values.Set).
 const (
-	paramCode        = "code"
-	paramState       = "state"
-	paramScope       = "scope"
-	paramRedirectURI = "redirect_uri"
-	paramClientID    = "client_id"
+	paramCode         = "code"
+	paramState        = "state"
+	paramScope        = "scope"
+	paramRedirectURI  = "redirect_uri"
+	paramClientID     = "client_id"
+	paramGrantType    = "grant_type"
+	paramRefreshToken = "refresh_token"
+)
+
+// Structured log field keys used by the token endpoint. Kept distinct
+// from wire-protocol parameter names (paramGrantType) so that a future
+// rename of one cannot silently change the meaning of the other.
+const (
+	logKeyGrantType = "grant_type"
+	logKeyError     = "error"
+)
+
+// OAuth grant types, token type, and well-known JWT claim names.
+// Distinct from paramGrantType / paramRefreshToken (which name the form
+// fields) — these are the *values* those fields carry on the wire.
+const (
+	grantTypeAuthCode     = "authorization_code"
+	grantTypeRefreshToken = "refresh_token"
+
+	tokenTypeBearer = "Bearer"
+
+	jwtClaimSub         = "sub"
+	jwtClaimRealmAccess = "realm_access"
 )
 
 // Errors returned by the OAuth server.
@@ -210,7 +235,7 @@ func (*Server) validatePKCE(client *Client, req AuthorizationRequest) error {
 	if req.CodeChallenge == "" {
 		return fmt.Errorf("code_challenge required")
 	}
-	if req.CodeChallengeMethod != "S256" && req.CodeChallengeMethod != "plain" {
+	if req.CodeChallengeMethod != string(PKCEMethodS256) && req.CodeChallengeMethod != "plain" {
 		return fmt.Errorf("invalid code_challenge_method")
 	}
 	return nil
@@ -256,9 +281,9 @@ func (s *Server) Authorize(ctx context.Context, req AuthorizationRequest, userID
 // Token handles the token endpoint.
 func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, error) {
 	switch req.GrantType {
-	case "authorization_code":
+	case grantTypeAuthCode:
 		return s.handleAuthorizationCodeGrant(ctx, req)
-	case "refresh_token":
+	case grantTypeRefreshToken:
 		return s.handleRefreshTokenGrant(ctx, req)
 	default:
 		return nil, fmt.Errorf("unsupported grant_type")
@@ -406,7 +431,7 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 
 	return &TokenResponse{
 		AccessToken:  accessToken,
-		TokenType:    "Bearer",
+		TokenType:    tokenTypeBearer,
 		ExpiresIn:    int(s.config.AccessTokenTTL.Seconds()),
 		RefreshToken: refreshTokenValue,
 		Scope:        scope,
@@ -426,13 +451,13 @@ func (s *Server) generateAccessToken(clientID, userID string, userClaims map[str
 
 	// Build JWT claims
 	claims := jwt.MapClaims{
-		"iss":   s.config.Issuer,
-		"sub":   userID,
-		"aud":   clientID,
-		"exp":   exp.Unix(),
-		"iat":   now.Unix(),
-		"nbf":   now.Unix(),
-		"scope": scope,
+		"iss":       s.config.Issuer,
+		jwtClaimSub: userID,
+		"aud":       clientID,
+		"exp":       exp.Unix(),
+		"iat":       now.Unix(),
+		"nbf":       now.Unix(),
+		"scope":     scope,
 	}
 
 	// Include upstream IdP claims (roles, email, etc.) under a nested key
@@ -490,6 +515,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleTokenEndpoint handles POST /oauth/token.
+//
+// Emits structured logs at INFO (success) and WARN (failure) so operators
+// can diagnose silent re-auth loops and refresh-grant rejections that
+// otherwise leave no observable trace. Sensitive fields (secrets,
+// tokens, code values) are NEVER logged — only grant_type, client_id,
+// and the error reason. The presence/absence of the secret and refresh
+// token are logged as booleans for diagnostics without leaking values.
 func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "POST required")
@@ -498,6 +530,7 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBytes)
 	if err := r.ParseForm(); err != nil {
+		slog.Warn("oauth: token endpoint parse form failed", logKeyError, err.Error())
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "could not parse form")
 		return
 	}
@@ -509,24 +542,58 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 		ClientID:     r.FormValue(paramClientID),
 		ClientSecret: r.FormValue("client_secret"),
 		CodeVerifier: r.FormValue("code_verifier"),
-		RefreshToken: r.FormValue("refresh_token"),
+		RefreshToken: r.FormValue(paramRefreshToken),
 		Scope:        r.FormValue(paramScope),
 	}
 
 	// Support Basic auth for client credentials
+	credentialSource := "form"
 	if req.ClientID == "" || req.ClientSecret == "" {
 		if username, password, ok := r.BasicAuth(); ok {
 			req.ClientID = username
 			req.ClientSecret = password
+			credentialSource = "basic"
 		}
 	}
 
+	start := time.Now()
 	resp, err := s.Token(r.Context(), req)
 	if err != nil {
+		// WARN level: every failure is operator-relevant. The error
+		// message comes from the grant handler (e.g. "invalid refresh
+		// token", "client_id mismatch", "invalid client credentials")
+		// and is the SOLE place that distinguishes H1/H2/H3 in the
+		// silent-re-auth-loop diagnosis path. Without this log,
+		// rejected refresh tokens leave no trace and operators see
+		// users repeatedly re-authenticating with no visible cause.
+		slog.Warn("oauth: token grant rejected",
+			logKeyGrantType, req.GrantType,
+			"client_id", req.ClientID,
+			"credential_source", credentialSource,
+			"has_client_secret", req.ClientSecret != "",
+			"has_refresh_token", req.RefreshToken != "",
+			"has_code", req.Code != "",
+			"has_code_verifier", req.CodeVerifier != "",
+			"duration_ms", time.Since(start).Milliseconds(),
+			logKeyError, err.Error())
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
 
+	// INFO level: success path is logged once per token issuance so
+	// operators can correlate Claude.ai client behavior (initial auth
+	// vs. refresh) with platform observability. has_refresh_token on
+	// the response confirms the platform IS issuing refresh tokens to
+	// this client (rules out a hypothesis where refresh tokens are
+	// silently filtered).
+	slog.Info("oauth: token grant issued",
+		logKeyGrantType, req.GrantType,
+		"client_id", req.ClientID,
+		"credential_source", credentialSource,
+		"has_refresh_token", resp.RefreshToken != "",
+		"expires_in", resp.ExpiresIn,
+		"scope", resp.Scope,
+		"duration_ms", time.Since(start).Milliseconds())
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
@@ -718,6 +785,8 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 
 	// Redirect back to the original client with the MCP authorization code
 	redirectURL := s.buildClientRedirectURL(authState.RedirectURI, mcpCode, authState.State)
+	// #nosec G710 -- authState.RedirectURI was validated against the
+	// client's registered RedirectURIs during the /authorize step.
 	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- redirect URI validated during client registration
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
@@ -764,7 +833,7 @@ func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstre
 	tokenURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/token"
 
 	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
+	data.Set(paramGrantType, grantTypeAuthCode)
 	data.Set(paramCode, code)
 	data.Set(paramRedirectURI, s.config.Upstream.RedirectURI)
 	data.Set(paramClientID, s.config.Upstream.ClientID)
@@ -800,7 +869,7 @@ func (*Server) extractUserFromUpstreamToken(token *upstreamTokenResponse) (strin
 	claims := extractTokenClaims(token)
 
 	userID := "unknown"
-	if sub, ok := claims["sub"].(string); ok {
+	if sub, ok := claims[jwtClaimSub].(string); ok {
 		userID = sub
 	}
 
@@ -835,7 +904,7 @@ func extractTokenClaims(token *upstreamTokenResponse) map[string]any {
 // other claims only fill gaps.
 func mergeAccessClaims(claims, accessClaims map[string]any) {
 	for key, value := range accessClaims {
-		if key == "realm_access" || key == "resource_access" {
+		if key == jwtClaimRealmAccess || key == "resource_access" {
 			claims[key] = value
 		} else if _, exists := claims[key]; !exists {
 			claims[key] = value
@@ -891,8 +960,8 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		"token_endpoint":                        s.config.Issuer + "/token",
 		"registration_endpoint":                 s.config.Issuer + "/register",
 		"response_types_supported":              []string{paramCode},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"code_challenge_methods_supported":      []string{"S256", "plain"},
+		"grant_types_supported":                 []string{grantTypeAuthCode, grantTypeRefreshToken},
+		"code_challenge_methods_supported":      []string{string(PKCEMethodS256), "plain"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
 	}
 

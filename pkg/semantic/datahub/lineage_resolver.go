@@ -136,7 +136,7 @@ func (r *lineageResolver) needsGlossaryTerms(cc *semantic.ColumnContext) bool {
 }
 
 func (r *lineageResolver) needsTags(cc *semantic.ColumnContext) bool {
-	return r.cfg.shouldInherit("tags") && len(cc.Tags) == 0
+	return r.cfg.shouldInherit(filterFieldTags) && len(cc.Tags) == 0
 }
 
 // resolveAlias checks if the table matches any configured alias.
@@ -351,7 +351,7 @@ func (r *lineageResolver) matchAndInheritColumns(
 	level int,
 ) {
 	for targetCol := range undocumented {
-		if columns[targetCol].InheritedFrom != nil && r.cfg.ConflictResolution == "nearest" {
+		if columns[targetCol].InheritedFrom != nil && r.cfg.ConflictResolution == conflictResolutionNearest {
 			continue
 		}
 		sourceCol := r.transformColumnName(targetCol)
@@ -468,7 +468,7 @@ func (r *lineageResolver) inheritGlossaryTerms(target *semantic.ColumnContext, s
 
 // inheritTags inherits tags if needed.
 func (r *lineageResolver) inheritTags(target *semantic.ColumnContext, source types.SchemaField) bool {
-	if !r.cfg.shouldInherit("tags") || len(target.Tags) > 0 || len(source.Tags) == 0 {
+	if !r.cfg.shouldInherit(filterFieldTags) || len(target.Tags) > 0 || len(source.Tags) == 0 {
 		return false
 	}
 	rawTags := make([]string, len(source.Tags))

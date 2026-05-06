@@ -161,7 +161,7 @@ func TestPortalAuthenticatorCookieAuth(t *testing.T) {
 	pa := NewAuthenticator(&mockAuthenticator{}, WithBrowserAuth(ba))
 
 	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
-	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	user, authErr := pa.Authenticate(r)
 	assert.NoError(t, authErr)
@@ -186,7 +186,7 @@ func TestPortalAuthenticatorCookiePriority(t *testing.T) {
 	)
 
 	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
-	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token})
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	r.Header.Set("X-API-Key", "some-key")
 
 	user, authErr := pa.Authenticate(r)
@@ -204,7 +204,7 @@ func TestPortalAuthenticatorCookieFallback(t *testing.T) {
 	)
 
 	r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
-	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: "invalid-jwt"})
+	r.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: "invalid-jwt", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	r.Header.Set("X-API-Key", "key")
 
 	user, err := pa.Authenticate(r)

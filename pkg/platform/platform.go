@@ -321,7 +321,7 @@ func (p *Platform) initMemory() error {
 	}
 
 	// 3. Create and register memory toolkit.
-	tk, err := memorykit.New("default", p.memoryStore, p.embeddingProv)
+	tk, err := memorykit.New(instanceDefault, p.memoryStore, p.embeddingProv)
 	if err != nil {
 		return fmt.Errorf("creating memory toolkit: %w", err)
 	}
@@ -1072,7 +1072,7 @@ func (p *Platform) initKnowledge() error {
 	}
 	p.knowledgeInsightStore = store
 
-	tk, err := knowledgekit.New("default", store)
+	tk, err := knowledgekit.New(instanceDefault, store)
 	if err != nil {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
@@ -1185,7 +1185,7 @@ func (p *Platform) initPortal() error {
 
 	// Create and register toolkit
 	tk := portalkit.New(portalkit.Config{
-		Name:            "default",
+		Name:            instanceDefault,
 		AssetStore:      p.portalAssetStore,
 		ShareStore:      p.portalShareStore,
 		VersionStore:    p.portalVersionStore,
@@ -1656,9 +1656,9 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 
 	app := &mcpapps.AppDefinition{
 		Name:        builtinPlatformInfoName,
-		ToolNames:   []string{"platform_info"},
+		ToolNames:   []string{defaultInitTool},
 		Content:     subFS,
-		EntryPoint:  "index.html",
+		EntryPoint:  entryPointHTML,
 		ResourceURI: "ui://platform-info",
 		CSP: &mcpapps.CSPConfig{
 			Permissions: &mcpapps.PermissionsConfig{
@@ -1791,7 +1791,7 @@ func (p *Platform) registerMCPApp(appName string, appCfg AppConfig) error {
 	}
 
 	if app.EntryPoint == "" {
-		app.EntryPoint = "index.html"
+		app.EntryPoint = entryPointHTML
 	}
 
 	if appCfg.ResourceURI != "" {
@@ -2856,11 +2856,11 @@ type ToolInfo struct {
 // PlatformTools returns tools registered directly on the platform outside of any toolkit.
 func (p *Platform) PlatformTools() []ToolInfo {
 	tools := []ToolInfo{
-		{Name: "platform_info", Kind: "platform"},
-		{Name: "list_connections", Kind: "platform"},
+		{Name: defaultInitTool, Kind: kindPlatform},
+		{Name: toolListConns, Kind: kindPlatform},
 	}
 	if p.promptStore != nil {
-		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: "platform"})
+		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: kindPlatform})
 	}
 	return tools
 }
@@ -2934,7 +2934,7 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 		Host:           cfgString(instanceCfg, "host"),
 		Port:           cfgInt(instanceCfg, "port", defaultTrinoPort),
 		User:           cfgString(instanceCfg, "user"),
-		Password:       cfgString(instanceCfg, "password"),
+		Password:       cfgString(instanceCfg, configKeyPassword),
 		Catalog:        cfgString(instanceCfg, "catalog"),
 		Schema:         cfgString(instanceCfg, "schema"),
 		SSL:            cfgBool(instanceCfg, "ssl"),
@@ -3003,7 +3003,7 @@ func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[strin
 
 // resolveDefaultInstance determines which instance to use.
 func resolveDefaultInstance(kindCfg, instances map[string]any) string {
-	if defaultName, ok := kindCfg["default"].(string); ok {
+	if defaultName, ok := kindCfg[cfgKeyDefault].(string); ok {
 		return defaultName
 	}
 	// Use the first instance

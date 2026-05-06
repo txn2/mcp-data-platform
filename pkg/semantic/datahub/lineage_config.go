@@ -11,6 +11,9 @@ const (
 
 	// defaultLineageTimeout is the default timeout for the entire inheritance operation.
 	defaultLineageTimeout = 5 * time.Second
+
+	// Conflict-resolution strategies for lineage-based inheritance.
+	conflictResolutionNearest = "nearest"
 )
 
 // LineageConfig controls lineage-aware semantic enrichment.
@@ -77,7 +80,7 @@ func DefaultLineageConfig() LineageConfig {
 		Enabled:             false,
 		MaxHops:             2,
 		Inherit:             []string{"glossary_terms", "descriptions"},
-		ConflictResolution:  "nearest",
+		ConflictResolution:  conflictResolutionNearest,
 		PreferColumnLineage: true,
 		CacheTTL:            defaultCacheTTL,
 		Timeout:             defaultLineageTimeout,

@@ -25,6 +25,15 @@ const (
 	schemaTypeInteger = "integer"
 	schemaKeyType     = "type"
 	schemaKeyDesc     = "description"
+
+	// Export schema property names and provenance keys. Defined as
+	// constants because each appears multiple times across the schema
+	// definition, parameter parsing, and provenance output.
+	propProperties = "properties"
+	propSQL        = "sql"
+	propFormat     = "format"
+	propName       = "name"
+	propTags       = "tags"
 )
 
 const (
@@ -630,7 +639,7 @@ func buildExportProvenance(ctx context.Context, deps *ExportDeps, p exportProven
 		Parameters: map[string]any{
 			"export_query":  p.sql,
 			"source_tables": p.sourceTables,
-			"format":        p.format,
+			propFormat:      p.format,
 			"row_count":     p.rowCount,
 		},
 	})
@@ -832,8 +841,8 @@ func exportSuccess(out exportOutput) *mcp.CallToolResult {
 func exportInputSchema() map[string]any {
 	return map[string]any{
 		schemaKeyType: schemaTypeObject,
-		"properties": map[string]any{
-			"sql": map[string]any{
+		propProperties: map[string]any{
+			propSQL: map[string]any{
 				schemaKeyType: schemaTypeString,
 				schemaKeyDesc: "The SQL query to execute. Must be read-only (SELECT). Validate the query shape with trino_query first.",
 			},
@@ -841,24 +850,24 @@ func exportInputSchema() map[string]any {
 				schemaKeyType: schemaTypeString,
 				schemaKeyDesc: "Trino connection name (optional, uses default if not specified).",
 			},
-			"format": map[string]any{
+			propFormat: map[string]any{
 				schemaKeyType: schemaTypeString,
-				"enum":        []string{"csv", "json", "markdown", "text"},
+				"enum":        []string{formatCSV, formatJSON, formatMarkdown, formatText},
 				schemaKeyDesc: "Output format for the exported data.",
 			},
-			"name": map[string]any{
+			propName: map[string]any{
 				schemaKeyType: schemaTypeString,
 				schemaKeyDesc: "Display name for the exported asset; also used as the download filename. " +
 					"Use ASCII letters, digits, spaces, hyphens, and dots. " +
 					"Em/en dashes, smart quotes, ellipses, and other Unicode punctuation are auto-normalized to ASCII.",
 				"maxLength": maxExportNameLength,
 			},
-			"description": map[string]any{
+			schemaKeyDesc: map[string]any{
 				schemaKeyType: schemaTypeString,
 				schemaKeyDesc: "Description of the exported asset.",
 				"maxLength":   maxExportDescriptionLength,
 			},
-			"tags": map[string]any{
+			propTags: map[string]any{
 				schemaKeyType: schemaTypeArray,
 				"items":       map[string]any{schemaKeyType: schemaTypeString},
 				schemaKeyDesc: "Tags for categorization. Lowercase kebab-case, max 50 chars each, max 20 tags. Tags starting with _sys- are reserved.",
@@ -880,6 +889,6 @@ func exportInputSchema() map[string]any {
 				schemaKeyDesc: "Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL.",
 			},
 		},
-		"required": []string{"sql", "format", "name"},
+		"required": []string{propSQL, propFormat, propName},
 	}
 }

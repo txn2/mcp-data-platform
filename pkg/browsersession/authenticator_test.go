@@ -20,7 +20,7 @@ func TestAuthenticatorValidCookie(t *testing.T) {
 	auth := NewAuthenticator(cfg)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestAuthenticatorExpiredCookie(t *testing.T) {
 	auth := NewAuthenticator(CookieConfig{Key: testKey()})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {
@@ -80,7 +80,7 @@ func TestAuthenticatorMalformedCookie(t *testing.T) {
 	auth := NewAuthenticator(CookieConfig{Key: testKey()})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: "not-a-jwt"})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: "not-a-jwt", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestAuthenticatorWrongKey(t *testing.T) {
 	auth := NewAuthenticator(CookieConfig{Key: wrongKey})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestExtractIDTokenValidCookie(t *testing.T) {
 	auth := NewAuthenticator(cfg)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	idToken := auth.ExtractIDToken(req)
 	if idToken != claims.IDToken {
@@ -152,7 +152,7 @@ func TestExtractIDTokenNoIDToken(t *testing.T) {
 
 	auth := NewAuthenticator(cfg)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	idToken := auth.ExtractIDToken(req)
 	if idToken != "" {
@@ -166,7 +166,7 @@ func TestExtractIDTokenExpiredCookie(t *testing.T) {
 
 	auth := NewAuthenticator(CookieConfig{Key: testKey()})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	idToken := auth.ExtractIDToken(req)
 	if idToken != "" {
@@ -181,7 +181,7 @@ func TestAuthenticatorCustomCookieName(t *testing.T) {
 	auth := NewAuthenticator(cfg)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "custom_session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "custom_session", Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 	info, err := auth.AuthenticateHTTP(req)
 	if err != nil {

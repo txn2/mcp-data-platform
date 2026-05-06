@@ -180,6 +180,9 @@ func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// to the client-supplied redirect_uri. This is a dev fixture, not
 	// a production OAuth provider; no allowlist enforcement is
 	// appropriate here.
+	// #nosec G710 -- this is the OAuth /authorize endpoint of a dev
+	// fixture; spec mandates redirecting to the client-supplied
+	// redirect_uri (justification above).
 	http.Redirect(w, r, dest.String(), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 

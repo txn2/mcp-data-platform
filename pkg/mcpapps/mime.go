@@ -5,28 +5,45 @@ import (
 	"strings"
 )
 
+// MIME type constants used by mimeTypes and any callers that need to
+// match against a known type without re-typing the literal.
+const (
+	mimeHTML        = "text/html; charset=utf-8"
+	mimeCSS         = "text/css; charset=utf-8"
+	mimeJS          = "application/javascript; charset=utf-8"
+	mimeJSON        = "application/json; charset=utf-8"
+	mimeXML         = "application/xml; charset=utf-8"
+	mimeText        = "text/plain; charset=utf-8"
+	mimePNG         = "image/png"
+	mimeJPEG        = "image/jpeg"
+	mimeGIF         = "image/gif"
+	mimeSVG         = "image/svg+xml"
+	mimeWOFF2       = "font/woff2"
+	mimeOctetStream = "application/octet-stream"
+)
+
 // mimeTypes maps file extensions to MIME types.
 var mimeTypes = map[string]string{
-	".html":  "text/html; charset=utf-8",
-	".htm":   "text/html; charset=utf-8",
-	".css":   "text/css; charset=utf-8",
-	".js":    "application/javascript; charset=utf-8",
-	".mjs":   "application/javascript; charset=utf-8",
-	".json":  "application/json; charset=utf-8",
-	".png":   "image/png",
-	".jpg":   "image/jpeg",
-	".jpeg":  "image/jpeg",
-	".gif":   "image/gif",
-	".svg":   "image/svg+xml",
+	".html":  mimeHTML,
+	".htm":   mimeHTML,
+	".css":   mimeCSS,
+	".js":    mimeJS,
+	".mjs":   mimeJS,
+	".json":  mimeJSON,
+	".png":   mimePNG,
+	".jpg":   mimeJPEG,
+	".jpeg":  mimeJPEG,
+	".gif":   mimeGIF,
+	".svg":   mimeSVG,
 	".ico":   "image/x-icon",
 	".woff":  "font/woff",
-	".woff2": "font/woff2",
+	".woff2": mimeWOFF2,
 	".ttf":   "font/ttf",
 	".eot":   "application/vnd.ms-fontobject",
 	".otf":   "font/otf",
-	".xml":   "application/xml; charset=utf-8",
-	".txt":   "text/plain; charset=utf-8",
-	".map":   "application/json; charset=utf-8",
+	".xml":   mimeXML,
+	".txt":   mimeText,
+	".map":   mimeJSON,
 }
 
 // MIMEType returns the MIME type for a file based on its extension.
@@ -35,5 +52,5 @@ func MIMEType(filename string) string {
 	if mime, ok := mimeTypes[ext]; ok {
 		return mime
 	}
-	return "application/octet-stream"
+	return mimeOctetStream
 }

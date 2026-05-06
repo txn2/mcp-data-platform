@@ -30,6 +30,26 @@ const (
 
 	// defaultPlainPort is the default port when SSL is disabled.
 	defaultPlainPort = 8080
+
+	// trinoSourceName identifies this client to Trino in the X-Trino-Source
+	// header so server-side query logs can attribute traffic back to the
+	// platform.
+	trinoSourceName = "mcp-data-platform"
+
+	// kindTrino is the toolkit kind identifier.
+	kindTrino = "trino"
+
+	// Trino tool names. The full set is named here even though only
+	// a subset crosses goconst's literal-repetition threshold — keeping
+	// the Tools() list uniformly constant-driven avoids a visually mixed
+	// list of constants and bare strings. Naming matches the convention
+	// used in sibling toolkit packages (datahub, s3): no kind prefix
+	// since the package path already provides it.
+	toolQuery         = "trino_query"
+	toolExecute       = "trino_execute"
+	toolExplain       = "trino_explain"
+	toolBrowse        = "trino_browse"
+	toolDescribeTable = "trino_describe_table"
 )
 
 // Config holds Trino toolkit configuration.
@@ -233,7 +253,7 @@ func buildMultiserverConfig(
 		SSL:       defaultCfg.SSL,
 		SSLVerify: defaultCfg.SSLVerify,
 		Timeout:   defaultCfg.Timeout,
-		Source:    "mcp-data-platform",
+		Source:    trinoSourceName,
 	}
 
 	connections := make(map[string]multiserver.ConnectionConfig, len(instances)-1)
@@ -353,7 +373,7 @@ func createClient(cfg Config) (*trinoclient.Client, error) {
 		SSL:       cfg.SSL,
 		SSLVerify: cfg.SSLVerify,
 		Timeout:   cfg.Timeout,
-		Source:    "mcp-data-platform",
+		Source:    trinoSourceName,
 	}
 
 	client, err := trinoclient.New(clientCfg)
@@ -416,7 +436,7 @@ func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
 
 // Kind returns the toolkit kind.
 func (*Toolkit) Kind() string {
-	return "trino"
+	return kindTrino
 }
 
 // Name returns the toolkit instance name.
@@ -450,11 +470,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		"trino_query",
-		"trino_execute",
-		"trino_explain",
-		"trino_browse",
-		"trino_describe_table",
+		toolQuery,
+		toolExecute,
+		toolExplain,
+		toolBrowse,
+		toolDescribeTable,
 	}
 	if t.exportDeps != nil {
 		tools = append(tools, exportToolName)
