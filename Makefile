@@ -269,6 +269,17 @@ embed-clean:
 verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
 	@echo ""
 	@echo "=== All checks passed ==="
+	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
+	@# (staged + unstaged) at the moment verify completed. The pre-commit
+	@# review gate (~/.claude/hooks/review-gate.sh) compares this hash to
+	@# the live diff at commit time — if they match, this verify run is
+	@# proof CI-equivalent checks passed on the exact code being committed.
+	@# Hash computation MUST stay byte-identical to compute_diff_hash() in
+	@# review-gate.sh, otherwise the gate will reject every commit.
+	@mkdir -p .claude
+	@{ git diff --cached HEAD 2>/dev/null; git diff 2>/dev/null; } \
+		| shasum -a 256 | cut -c1-16 > .claude/.last-verify-passed
+	@echo "Wrote .claude/.last-verify-passed (gate sentinel)"
 
 ## docs-serve: Serve documentation locally
 docs-serve:
