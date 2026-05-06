@@ -12,17 +12,24 @@
 [data-theme=dark]{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#999;--border:#333;--card-bg:#1a1a1a;--accent:#60a5fa}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh}
-header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;border-bottom:1px solid var(--border);background:var(--card-bg)}
-.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--fg)}
-.brand svg{width:28px;height:28px}
-.brand span{font-weight:600;font-size:14px}
-.header-right{display:flex;align-items:center;gap:12px}
+header{display:flex;align-items:center;gap:12px;padding:0 24px;height:56px;border-bottom:1px solid var(--border);background:var(--card-bg)}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--muted);flex-shrink:0}
+.brand a{display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none}
+.brand a:hover{opacity:.8}
+.brand-logo{width:24px;height:24px;display:flex;align-items:center}
+.brand-logo svg{width:24px;height:24px}
+.brand-implementor .brand-logo{width:auto;height:28px}
+.brand-implementor .brand-logo svg{width:auto;height:28px}
+.brand-name{font-weight:500;font-size:13px;color:var(--muted)}
+.separator{width:1px;height:20px;background:var(--border);flex-shrink:0}
+.header-center{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.header-center h1{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.header-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
 .theme-toggle{display:flex;gap:2px;border:1px solid var(--border);border-radius:6px;padding:2px}
 .theme-toggle button{background:none;border:none;padding:4px 6px;border-radius:4px;cursor:pointer;color:var(--muted);font-size:12px}
 .theme-toggle button.active{background:var(--border);color:var(--fg)}
 main{max-width:960px;margin:0 auto;padding:32px 24px}
-.collection-header{margin-bottom:32px}
-.collection-header h1{font-size:24px;font-weight:700;margin-bottom:8px}
+.collection-desc{margin-bottom:32px}
 .collection-desc,.section-desc{font-size:14px;line-height:1.7;color:var(--fg)}
 .collection-desc h1,.section-desc h1{font-size:1.25em;font-weight:700;margin:16px 0 8px}
 .collection-desc h2,.section-desc h2{font-size:1.15em;font-weight:600;margin:14px 0 6px}
@@ -78,13 +85,17 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
 </head>
 <body>
 <header>
-  <div style="display:flex;align-items:center;gap:16px">
-    {{if .ImplementorName}}
-    <a class="brand" {{if .ImplementorURL}}href="{{.ImplementorURL}}" target="_blank" rel="noopener"{{end}}>
-      {{if .ImplementorLogoSVG}}<span style="display:flex">{{.ImplementorLogoSVG}}</span>{{end}}
-      <span>{{.ImplementorName}}</span>
-    </a>
-    {{end}}
+  {{if or .ImplementorName .ImplementorLogoSVG}}
+  <div class="brand brand-implementor">
+    {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+    {{if .ImplementorLogoSVG}}<div class="brand-logo">{{.ImplementorLogoSVG}}</div>{{end}}
+    {{if .ImplementorName}}<span class="brand-name">{{.ImplementorName}}</span>{{end}}
+    {{if .ImplementorURL}}</a>{{end}}
+  </div>
+  <div class="separator"></div>
+  {{end}}
+  <div class="header-center">
+    <h1>{{.Name}}</h1>
   </div>
   <div class="header-right">
     {{if and .ExpiresAtISO (not .HideExpiration)}}<span class="expires" id="expires"></span>{{end}}
@@ -93,10 +104,23 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
       <button onclick="setTheme('dark')" id="td">Dark</button>
       <button onclick="setTheme('system')" id="ts">System</button>
     </div>
-    <a class="brand" {{if .BrandURL}}href="{{.BrandURL}}" target="_blank" rel="noopener"{{end}}>
-      <span style="display:flex">{{.BrandLogoSVG}}</span>
-      <span>{{.BrandName}}</span>
-    </a>
+    {{/* Platform brand block. The Go handler always populates BrandName
+         (defaults to "MCP Data Platform") and BrandLogoSVG (defaults to
+         the bundled logo SVG) in pkg/portal/public.go, so in practice these
+         are never empty — but we guard anyway for symmetry with the
+         implementor block and to remain robust to future handler changes
+         that might allow opting out. {{.BrandLogoSVG}} is rendered as
+         template.HTML by the handler (see public.go: template.HTML(brandLogo)),
+         so the inline SVG passes through unescaped. */}}
+    {{if or .BrandName .BrandLogoSVG}}
+    <div class="separator"></div>
+    <div class="brand brand-platform">
+      {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+      {{if .BrandLogoSVG}}<div class="brand-logo">{{.BrandLogoSVG}}</div>{{end}}
+      {{if .BrandName}}<span class="brand-name">{{.BrandName}}</span>{{end}}
+      {{if .BrandURL}}</a>{{end}}
+    </div>
+    {{end}}
   </div>
 </header>
 
@@ -151,17 +175,19 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
   var token = '{{.Token}}';
   var thumbSize = data.thumbnailSize || 'large';
 
-  // Render collection structure as DOM, then use window.renderMarkdown for descriptions.
-  var header = document.createElement('div');
-  header.className = 'collection-header';
-  header.innerHTML = '<h1>' + esc(data.name) + '</h1>';
+  // The chrome <header> now carries the page title (<h1>{{.Name}}</h1>),
+  // so the body only renders the description (if any) above the section
+  // grid. This avoids visually duplicating the title. Note: the
+  // markdown-rendered description can still emit its own h1/h2/h3 if
+  // the operator's content uses them — the document outline isn't
+  // strictly capped at one h1, but at least the platform-emitted
+  // chrome doesn't double the title.
   if(data.description){
     var descEl = document.createElement('div');
     descEl.className = 'collection-desc';
-    header.appendChild(descEl);
+    main.appendChild(descEl);
     if(window.renderMarkdown) window.renderMarkdown(descEl, data.description);
   }
-  main.appendChild(header);
 
   (data.sections || []).forEach(function(sec){
     var secDiv = document.createElement('div');

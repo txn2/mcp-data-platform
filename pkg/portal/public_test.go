@@ -6,10 +6,13 @@ import (
 	htmlpkg "html"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // htmlNoticeText is the HTML-escaped default notice text for template assertions.
@@ -772,6 +775,194 @@ func TestPublicCollectionView(t *testing.T) {
 	// CSP must include 'self' for collection viewer iframes
 	csp := w.Header().Get("Content-Security-Policy")
 	assert.Contains(t, csp, "'self'")
+}
+
+// TestPublicCollectionViewHeaderBranding asserts the collection viewer
+// header renders implementor branding (left), the collection name as an
+// <h1> in the same header row, and platform branding (right) — using
+// the same brand block layout as the asset viewer (note: the asset
+// viewer wraps with <div class="header"> and the collection viewer
+// wraps with <header>, so they are not pixel-identical, only
+// structurally aligned). Regression guard for the bug where the
+// collection viewer header omitted the title and used a less-robust
+// implementor-branding conditional.
+func TestPublicCollectionViewHeaderBranding(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", Token: "tok2", CollectionID: "c1"}
+	coll := &Collection{
+		ID:        "c1",
+		Name:      "Q3 Revenue Report",
+		Sections:  []CollectionSection{{ID: "sec1", Items: []CollectionItem{{ID: "i1", AssetID: "a1"}}}},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	asset := &Asset{ID: "a1", Name: "rows.csv", ContentType: "text/csv"}
+
+	h := NewHandler(Deps{
+		AssetStore:         &mockMultiAssetStore{assets: map[string]*Asset{"a1": asset}},
+		ShareStore:         &mockShareStore{getByTokenRes: share},
+		CollectionStore:    &mockCollectionStore{getResult: coll},
+		S3Client:           &mockS3Client{},
+		BrandName:          "ACME Data Platform",
+		BrandURL:           "https://example.com/platform",
+		ImplementorName:    "ACME Corp",
+		ImplementorLogoSVG: `<svg id="impl-logo"></svg>`,
+		ImplementorURL:     "https://example.com/about",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok2", http.NoBody)
+	req.SetPathValue("token", "tok2")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// Header includes the collection name as an <h1> alongside branding.
+	assert.Contains(t, body, "<h1>Q3 Revenue Report</h1>",
+		"collection name must appear as <h1> in the header (parity with asset viewer)")
+	// Implementor branding renders with name + logo + link, asserted as the
+	// fully-formed span (not bare substring) to prove the name lives in the
+	// brand block rather than e.g. an error message or comment elsewhere.
+	assert.Contains(t, body, `class="brand brand-implementor"`,
+		"implementor brand block must use the asset-viewer class hierarchy")
+	assert.Contains(t, body, `<span class="brand-name">ACME Corp</span>`,
+		"implementor name must render inside the brand-name span")
+	assert.Contains(t, body, `id="impl-logo"`, "implementor logo SVG should be inlined")
+	assert.Contains(t, body, `href="https://example.com/about"`, "implementor URL should wrap the brand")
+	// Hardened rel attribute: noopener+noreferrer (locks the policy so a
+	// future revert to bare `noopener` is caught).
+	assert.Contains(t, body, `rel="noopener noreferrer"`,
+		"external brand links must carry rel=\"noopener noreferrer\"")
+	// Platform branding renders on the right.
+	assert.Contains(t, body, `class="brand brand-platform"`,
+		"platform brand block must use the asset-viewer class hierarchy")
+	assert.Contains(t, body, `<span class="brand-name">ACME Data Platform</span>`,
+		"platform brand name must render inside the brand-name span")
+
+	// DOM order: implementor (left) → h1 (center) → platform (right). Flexbox
+	// layout follows DOM order, so a regression that misorders these blocks
+	// is visible by source-position alone. Search anchors include the
+	// `<div ` element prefix so they cannot match a CSS rule, comment, or
+	// stray attribute string in the embedded <style> block.
+	implIdx := strings.Index(body, `<div class="brand brand-implementor">`)
+	h1Idx := strings.Index(body, "<h1>Q3 Revenue Report</h1>")
+	platIdx := strings.Index(body, `<div class="brand brand-platform">`)
+	require.NotEqual(t, -1, implIdx, "implementor block must be present")
+	require.NotEqual(t, -1, h1Idx, "h1 must be present")
+	require.NotEqual(t, -1, platIdx, "platform block must be present")
+	assert.Less(t, implIdx, h1Idx, "implementor brand must precede the title in DOM order")
+	assert.Less(t, h1Idx, platIdx, "title must precede the platform brand in DOM order")
+
+	// Implementor anchor is fully closed: the {{if .ImplementorURL}}</a>{{end}}
+	// pair must emit a closing tag *before* the header-center block, not
+	// bleed the anchor into the title or beyond. require.NotEqual on the
+	// index look-ups halts execution before any out-of-range slice.
+	hdrCenterIdx := strings.Index(body, `<div class="header-center">`)
+	require.NotEqual(t, -1, hdrCenterIdx, "header-center block must be present")
+	require.Less(t, implIdx, hdrCenterIdx, "implementor block must precede header-center")
+	implBlock := body[implIdx:hdrCenterIdx]
+	assert.Contains(t, implBlock, "</a>",
+		"implementor <a> must be closed before the header-center block")
+	// Platform anchor must close before </body>. require to avoid panic.
+	bodyEndIdx := strings.Index(body, "</body>")
+	require.NotEqual(t, -1, bodyEndIdx, "body must close")
+	require.Less(t, platIdx, bodyEndIdx, "platform block must precede </body>")
+	platBlock := body[platIdx:bodyEndIdx]
+	assert.Contains(t, platBlock, "</a>",
+		"platform <a> must be closed before </body>")
+	// And the open/close anchor counts must balance. Use a regex matching
+	// `<a` followed by whitespace or `>` so a hypothetical bare `<a>` or
+	// newline-after-`<a` is also counted.
+	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
+	openCount := len(openAnchorRE.FindAllString(body, -1))
+	closeCount := strings.Count(body, "</a>")
+	assert.Equal(t, openCount, closeCount,
+		"opening and closing <a> tag counts must match")
+}
+
+// TestPublicCollectionViewLogoOnlyImplementor asserts implementor branding
+// renders when only the logo is configured (no name). The previous template
+// gated on ImplementorName alone and would have hidden the entire block.
+// Collection has no Sections; the assertions only target the <header>
+// block, which is unaffected by collection body content.
+func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
+	share := &Share{ID: "s1", Token: "tok3", CollectionID: "c1"}
+	coll := &Collection{ID: "c1", Name: "Logo-Only Collection"}
+
+	h := NewHandler(Deps{
+		AssetStore:         &mockMultiAssetStore{assets: map[string]*Asset{}},
+		ShareStore:         &mockShareStore{getByTokenRes: share},
+		CollectionStore:    &mockCollectionStore{getResult: coll},
+		S3Client:           &mockS3Client{},
+		ImplementorLogoSVG: `<svg id="logo-only"></svg>`,
+		// ImplementorName intentionally empty.
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok3", http.NoBody)
+	req.SetPathValue("token", "tok3")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, `class="brand brand-implementor"`,
+		"implementor block must render even when only logo is configured")
+	assert.Contains(t, body, `id="logo-only"`, "implementor logo SVG should be inlined")
+	// No name span should render in the implementor block when name is empty
+	// — guards against an accidentally-emitted empty <span class="brand-name">.
+	// The platform brand also uses brand-name, so we constrain the search
+	// to the implementor block by slicing on the platform marker.
+	implSection := body
+	if before, _, found := strings.Cut(body, `<div class="brand brand-platform">`); found {
+		implSection = before
+	}
+	assert.NotContains(t, implSection, `<span class="brand-name">`,
+		"empty ImplementorName must not produce a brand-name span")
+	// Anchor balance must hold even in the URL-absent case (the implementor
+	// anchor open/close conditional is governed by ImplementorURL, which is
+	// empty here, so both should be absent — net zero on each side).
+	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
+	openCount := len(openAnchorRE.FindAllString(body, -1))
+	closeCount := strings.Count(body, "</a>")
+	assert.Equal(t, openCount, closeCount,
+		"opening and closing <a> tag counts must match")
+}
+
+// TestPublicCollectionViewNameOnlyImplementor asserts implementor branding
+// renders when only the name is configured (no logo). This was the legacy
+// behavior under the old `{{if .ImplementorName}}` gate; the new
+// `{{if or .ImplementorName .ImplementorLogoSVG}}` must preserve it.
+// Regression guard against an accidental rewrite to AND.
+func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
+	share := &Share{ID: "s1", Token: "tok4", CollectionID: "c1"}
+	coll := &Collection{ID: "c1", Name: "Name-Only Collection"}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockMultiAssetStore{assets: map[string]*Asset{}},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+		ImplementorName: "Name Only Co.",
+		// ImplementorLogoSVG intentionally empty.
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok4", http.NoBody)
+	req.SetPathValue("token", "tok4")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, `class="brand brand-implementor"`,
+		"implementor block must render when only name is configured")
+	assert.Contains(t, body, `<span class="brand-name">Name Only Co.</span>`,
+		"implementor name must render inside the brand-name span")
+	// Anchor balance even without a URL set.
+	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
+	openCount := len(openAnchorRE.FindAllString(body, -1))
+	closeCount := strings.Count(body, "</a>")
+	assert.Equal(t, openCount, closeCount,
+		"opening and closing <a> tag counts must match")
 }
 
 func TestPublicCollectionViewNotFound(t *testing.T) {
