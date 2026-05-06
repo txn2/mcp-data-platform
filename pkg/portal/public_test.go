@@ -913,8 +913,8 @@ func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
 	// The platform brand also uses brand-name, so we constrain the search
 	// to the implementor block by slicing on the platform marker.
 	implSection := body
-	if platIdx := strings.Index(body, `<div class="brand brand-platform">`); platIdx >= 0 {
-		implSection = body[:platIdx]
+	if before, _, found := strings.Cut(body, `<div class="brand brand-platform">`); found {
+		implSection = before
 	}
 	assert.NotContains(t, implSection, `<span class="brand-name">`,
 		"empty ImplementorName must not produce a brand-name span")
