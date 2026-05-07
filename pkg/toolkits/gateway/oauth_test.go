@@ -2059,109 +2059,71 @@ func TestApplyTokenResponseLocked_ClearsRefreshTokenRevoked(t *testing.T) {
 			"exchange means fresh credentials, regardless of prior state")
 }
 
-func TestScopeContains(t *testing.T) {
-	cases := []struct {
-		name   string
-		scope  string
-		needle string
-		want   bool
-	}{
-		{"empty scope", "", "offline_access", false},
-		{"empty needle", "openid offline_access", "", false},
-		{"present at start", "offline_access openid", "offline_access", true},
-		{"present in middle", "openid offline_access email", "offline_access", true},
-		{"present at end", "openid email offline_access", "offline_access", true},
-		{"absent", "openid email", "offline_access", false},
-		{"case-sensitive miss", "openid Offline_Access", "offline_access", false},
-		{"substring match must not count", "openid offline_access_2", "offline_access", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := scopeContains(tc.scope, tc.needle); got != tc.want {
-				t.Errorf("scopeContains(%q, %q) = %v, want %v",
-					tc.scope, tc.needle, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestFormatStatusError(t *testing.T) {
-	hint := "refresh rejected: persisted refresh grant predates the offline_access default"
 	cases := []struct {
-		name        string
-		lastError   string
-		revoked     bool
-		grant       string
-		scope       string
-		wantHint    bool
-		wantUpstrm  bool // expect original lastError preserved in output
-		wantLiteral string
+		name       string
+		lastError  string
+		revoked    bool
+		grant      string
+		wantHint   bool
+		wantUpstrm bool // expect original lastError preserved in output
 	}{
 		{
-			name:        "no revocation passes lastError through",
-			lastError:   "load token: db down",
-			revoked:     false,
-			grant:       OAuthGrantAuthorizationCode,
-			scope:       "openid",
-			wantLiteral: "load token: db down",
+			name:      "no revocation passes lastError through",
+			lastError: "load token: db down",
+			revoked:   false,
+			grant:     OAuthGrantAuthorizationCode,
+			// no hint, no upstream check — assert returned == input below
 		},
 		{
 			name:       "client_credentials never gets the hint",
 			lastError:  "Token is not active",
 			revoked:    true,
 			grant:      OAuthGrantClientCredentials,
-			scope:      "",
 			wantUpstrm: true,
 		},
 		{
-			name:       "authorization_code with offline_access scope: no hint",
+			name:       "authorization_code refresh-revoked: hint appended",
 			lastError:  "Token is not active",
 			revoked:    true,
 			grant:      OAuthGrantAuthorizationCode,
-			scope:      "openid offline_access",
-			wantUpstrm: true,
-		},
-		{
-			name:       "authorization_code missing offline_access: hint appended",
-			lastError:  "Token is not active",
-			revoked:    true,
-			grant:      OAuthGrantAuthorizationCode,
-			scope:      "openid profile",
 			wantHint:   true,
 			wantUpstrm: true,
 		},
 		{
-			name:     "authorization_code missing offline_access with empty lastError: hint alone",
+			name:     "authorization_code refresh-revoked with empty lastError: hint alone",
 			revoked:  true,
 			grant:    OAuthGrantAuthorizationCode,
-			scope:    "",
 			wantHint: true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := formatStatusError(tc.lastError, tc.revoked, tc.grant, tc.scope)
-			if tc.wantLiteral != "" && got != tc.wantLiteral {
-				t.Errorf("got %q, want literal %q", got, tc.wantLiteral)
-			}
+			got := formatStatusError(tc.lastError, tc.revoked, tc.grant)
 			if tc.wantUpstrm && tc.lastError != "" && !strings.Contains(got, tc.lastError) {
 				t.Errorf("expected output to preserve upstream message %q, got %q", tc.lastError, got)
 			}
-			if tc.wantHint && !strings.Contains(got, hint) {
-				t.Errorf("expected hint %q in output, got %q", hint, got)
+			if tc.wantHint && !strings.Contains(got, "refresh rejected by IdP") {
+				t.Errorf("expected refresh-rejected hint in output, got %q", got)
 			}
-			if !tc.wantHint && strings.Contains(got, hint) {
+			if !tc.wantHint && strings.Contains(got, "refresh rejected by IdP") {
 				t.Errorf("unexpected hint in output: %q", got)
+			}
+			// no-revocation case: passes through unchanged
+			if !tc.revoked && got != tc.lastError {
+				t.Errorf("no-revocation path mutated lastError: got %q, want %q", got, tc.lastError)
 			}
 		})
 	}
 }
 
-// TestStatus_RefreshRevokedWithoutOfflineAccessSurfacesHint proves the
-// admin status panel gets the actionable explanation (scope missing
-// offline_access) when the IdP rejects the refresh token — instead of
-// just the cryptic upstream message.
-func TestStatus_RefreshRevokedWithoutOfflineAccessSurfacesHint(t *testing.T) {
+// TestStatus_RefreshRevoked_HintReaches proves an admin watching the
+// status surface gets the actionable hint when the IdP rejects refresh
+// on an authorization_code grant. The hint is generic across IdPs —
+// it points operators at their IdP's offline-token configuration
+// without prescribing a specific scope name (Keycloak/Auth0/Okta use
+// `offline_access`; Salesforce uses `refresh_token`).
+func TestStatus_RefreshRevoked_HintReaches(t *testing.T) {
 	src := newOAuthTokenSource(OAuthConfig{
 		Grant:    OAuthGrantAuthorizationCode,
 		TokenURL: "https://idp/token",
@@ -2178,99 +2140,7 @@ func TestStatus_RefreshRevokedWithoutOfflineAccessSurfacesHint(t *testing.T) {
 	if !strings.Contains(st.LastError, "Token is not active") {
 		t.Errorf("expected upstream error preserved, got %q", st.LastError)
 	}
-	if !strings.Contains(st.LastError, "offline_access") {
-		t.Errorf("expected hint mentioning offline_access, got %q", st.LastError)
-	}
-}
-
-// TestStatus_RefreshRevoked_LegacyEmptyScope_HintReachable proves
-// the most common upgrade path: an operator who never customized
-// `oauth_scope` (persisted scope is empty) gets the actionable hint
-// when the IdP rejects refresh, even though parseOAuthConfig
-// auto-augments the scope to defaultAuthCodeScope. The earlier
-// `OriginalScope != ""` heuristic suppressed the hint here because
-// the original scope WAS empty; ScopeAugmented closes that gap.
-func TestStatus_RefreshRevoked_LegacyEmptyScope_HintReachable(t *testing.T) {
-	cfg, err := ParseConfig(map[string]any{
-		"endpoint":  "https://upstream.example.com",
-		"auth_mode": AuthModeOAuth,
-		"oauth": map[string]any{
-			"grant":             OAuthGrantAuthorizationCode,
-			"token_url":         "https://idp/token",
-			"authorization_url": "https://idp/authorize",
-			"client_id":         "cid",
-			"client_secret":     "csec",
-			// scope intentionally absent — the legacy un-customized
-			// case the upgrade hint must cover.
-		},
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	if !cfg.OAuth.ScopeAugmented {
-		t.Fatalf("ScopeAugmented must be true for empty-scope authorization_code")
-	}
-	if cfg.OAuth.OriginalScope != "" {
-		t.Fatalf("OriginalScope must be empty for the legacy un-customized case, got %q", cfg.OAuth.OriginalScope)
-	}
-
-	src := newOAuthTokenSource(cfg.OAuth, "test", nil)
-	src.mu.Lock()
-	src.refreshTokenRevoked = true
-	src.lastError = "Token is not active"
-	src.loaded = true
-	src.mu.Unlock()
-
-	st := src.Status()
-	if !strings.Contains(st.LastError, "offline_access") {
-		t.Errorf("hint must surface for legacy empty-scope upgrade case, got %q", st.LastError)
-	}
-}
-
-// TestStatus_RefreshRevoked_HintReachableThroughParseConfig is the
-// regression guard for round-10 finding #1: parseOAuthConfig augments
-// scope IN PLACE, so a Status() that consults cfg.Scope alone could
-// never see the omission case the hint was added to flag. This test
-// drives the production path — ParseConfig → OriginalScope → Status()
-// — and verifies the hint surfaces for an operator-supplied scope
-// that omitted offline_access.
-func TestStatus_RefreshRevoked_HintReachableThroughParseConfig(t *testing.T) {
-	cfg, err := ParseConfig(map[string]any{
-		"endpoint":  "https://upstream.example.com",
-		"auth_mode": AuthModeOAuth,
-		"oauth": map[string]any{
-			"grant":             OAuthGrantAuthorizationCode,
-			"token_url":         "https://idp/token",
-			"authorization_url": "https://idp/authorize",
-			"client_id":         "cid",
-			"client_secret":     "csec",
-			"scope":             "openid profile email", // operator omitted offline_access
-		},
-	})
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	// Sanity: parseOAuthConfig augmented the effective scope but
-	// preserved the original.
-	if !strings.Contains(cfg.OAuth.Scope, OfflineAccessScope) {
-		t.Fatalf("Scope must be augmented to include offline_access, got %q", cfg.OAuth.Scope)
-	}
-	if cfg.OAuth.OriginalScope != "openid profile email" {
-		t.Fatalf("OriginalScope must preserve operator input, got %q", cfg.OAuth.OriginalScope)
-	}
-
-	src := newOAuthTokenSource(cfg.OAuth, "test", nil)
-	src.mu.Lock()
-	src.refreshTokenRevoked = true
-	src.lastError = "Token is not active"
-	src.loaded = true
-	src.mu.Unlock()
-
-	st := src.Status()
-	if !strings.Contains(st.LastError, "Token is not active") {
-		t.Errorf("expected upstream error preserved, got %q", st.LastError)
-	}
-	if !strings.Contains(st.LastError, "offline_access") {
-		t.Errorf("hint with offline_access must reach Status() through the production parse path, got %q", st.LastError)
+	if !strings.Contains(st.LastError, "refresh rejected by IdP") {
+		t.Errorf("expected refresh-rejected hint in admin status, got %q", st.LastError)
 	}
 }

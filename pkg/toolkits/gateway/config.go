@@ -5,8 +5,6 @@ package gateway
 import (
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 )
 
@@ -54,22 +52,6 @@ const (
 
 	// NamespaceSeparator joins the connection name and remote tool name (e.g. "crm__get_contact").
 	NamespaceSeparator = "__"
-
-	// OfflineAccessScope is the OIDC scope that asks the IdP to issue an
-	// offline refresh token — one whose lifetime is decoupled from the
-	// user's interactive SSO session. Without it, IdPs like Keycloak tie
-	// the refresh token to the SSO session idle timeout (default ~30 min),
-	// so any platform restart longer than that idle window forces the
-	// operator to re-authenticate. Defaulted into authorization_code
-	// connections by ensureOfflineAccessScope so a one-time browser
-	// Connect grants long-running access through restarts.
-	OfflineAccessScope = "offline_access"
-
-	// defaultAuthCodeScope is the scope string applied to authorization_code
-	// connections when the operator did not configure one. Includes the
-	// minimum OIDC identity claims plus offline_access so the resulting
-	// refresh token survives platform restarts.
-	defaultAuthCodeScope = "openid profile email offline_access"
 )
 
 // Config holds gateway toolkit configuration for a single upstream MCP connection.
@@ -112,25 +94,16 @@ type OAuthConfig struct {
 	// ClientSecret is the platform's registered client secret. Encrypted
 	// at rest (same field-level encryption as Credential).
 	ClientSecret string
-	// Scope is the effective space-delimited scope string sent to the
-	// IdP. For authorization_code grants this is the configured scope
-	// with offline_access defaulted-in (see ensureOfflineAccessScope).
+	// Scope is the operator-supplied space-delimited scope string,
+	// sent to the IdP verbatim. Empty scope is permitted — most IdPs
+	// apply a client-default scope when none is requested. Operators
+	// who need long-lived refresh tokens (refresh that survives
+	// platform restarts beyond the IdP's SSO Session Idle window)
+	// must add the IdP-specific offline-token scope themselves:
+	// `offline_access` for Keycloak/Auth0/Okta, `refresh_token` for
+	// Salesforce. The platform does NOT inject any scope automatically
+	// — operators' input is the source of truth.
 	Scope string
-	// OriginalScope holds the operator-supplied scope BEFORE
-	// ensureOfflineAccessScope augmented it. May be empty when the
-	// operator never set a scope and the platform defaulted-in
-	// offline_access — distinguishing "no augmentation" from
-	// "augmented from empty" requires the ScopeAugmented flag below
-	// (a non-empty OriginalScope alone is insufficient because the
-	// most common upgrade case — operators who never customized
-	// scope — produces an empty OriginalScope).
-	OriginalScope string
-	// ScopeAugmented is true when ensureOfflineAccessScope mutated
-	// Scope. Used by the admin-status formatter to detect upgrade-
-	// affected connections regardless of whether OriginalScope is
-	// empty (legacy un-customized connections) or non-empty
-	// (operator typed a scope that omitted offline_access).
-	ScopeAugmented bool
 	// Prompt is an optional OIDC prompt parameter (RFC OIDC §3.1.2.1).
 	// When non-empty, the platform appends ?prompt=<value> to the
 	// authorize URL on every browser-side flow start. Common values:
@@ -291,48 +264,7 @@ func parseOAuthConfig(cfg map[string]any) OAuthConfig {
 			Prompt:           getString(cfg, "oauth_prompt"),
 		}
 	}
-	originalScope := o.Scope
-	o.Scope = ensureOfflineAccessScope(o.Grant, o.Scope)
-	if o.Scope != originalScope {
-		// Track the operator-supplied scope so admin-status
-		// diagnostics can distinguish "operator never asked for
-		// offline_access" from "IdP rejected even with offline_access
-		// requested." Without this, the platform's auto-augmentation
-		// makes the offline_access-omission diagnostic dead code.
-		// Set both fields: ScopeAugmented marks "augmentation
-		// happened" (true even when original was empty);
-		// OriginalScope holds the pre-augmentation value (may be
-		// empty for legacy un-customized connections).
-		o.OriginalScope = originalScope
-		o.ScopeAugmented = true
-	}
 	return o
-}
-
-// ensureOfflineAccessScope returns the scope string a connection should
-// request from the IdP, defaulting offline_access into the scope set for
-// authorization_code grants so the refresh token survives platform
-// restarts (Keycloak and similar IdPs otherwise tie the refresh token's
-// lifetime to the SSO session idle timeout).
-//
-//   - Empty scope on authorization_code → returns defaultAuthCodeScope.
-//   - Non-empty scope on authorization_code that already lists
-//     offline_access (case-sensitive per RFC 6749 §3.3) → returned as-is.
-//   - Non-empty scope on authorization_code missing offline_access →
-//     offline_access is appended.
-//   - Any other grant (client_credentials) → returned unchanged;
-//     offline_access is meaningless without a user session.
-func ensureOfflineAccessScope(grant, scope string) string {
-	if grant != OAuthGrantAuthorizationCode {
-		return scope
-	}
-	if scope == "" {
-		return defaultAuthCodeScope
-	}
-	if slices.Contains(strings.Fields(scope), OfflineAccessScope) {
-		return scope
-	}
-	return scope + " " + OfflineAccessScope
 }
 
 func getString(cfg map[string]any, key string) string {
