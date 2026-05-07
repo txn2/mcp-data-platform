@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -60,6 +63,48 @@ const (
 	LogKeyGrantType = "grant_type"
 )
 
+// ToolListChangedNotifier publishes a tools/list_changed signal to
+// downstream MCP clients. The gateway calls this whenever its
+// aggregate tool inventory changes (a connection comes up after
+// re-auth, a connection is removed, etc.). Decoupled as an interface
+// so the gateway package doesn't depend on pkg/session — the platform
+// wires an adapter at startup.
+//
+// Implementations must be safe for concurrent calls and must NOT
+// block on slow downstream subscribers; the toolkit's lock may be held
+// when this fires (debounced in practice via notifyToolListChanged).
+type ToolListChangedNotifier interface {
+	NotifyToolsListChanged(ctx context.Context)
+}
+
+// toolListChangeTimer is a tiny *time.Timer holder that lets callers
+// reset the debounce window cheaply. Defined as a named type rather
+// than a *time.Timer field so future evolution (e.g. swapping in a
+// CountingTimer for tests) doesn't cascade across call sites.
+type toolListChangeTimer struct {
+	t *time.Timer
+}
+
+// notifyDebounceWindow batches a flurry of AddTool calls (e.g. when a
+// single upstream registers all 12 of its tools at once) into a
+// single tools/list_changed notification. 50ms is large enough to
+// absorb a typical multi-tool registration burst on a busy node and
+// small enough that downstream agents see fresh inventory within
+// human-perceivable latency. The MCP SDK's own internal debounce is
+// 10ms (mcp/server.go:notificationDelay) — we deliberately run a
+// longer window because our path goes through an extra postgres
+// LISTEN/NOTIFY round-trip, so collapsing more aggressively reduces
+// fan-out cost across the cluster.
+const notifyDebounceWindow = 50 * time.Millisecond
+
+// notifyDispatchTimeout bounds the AfterFunc-spawned dispatch goroutine
+// so a partitioned downstream (e.g. postgres LISTEN/NOTIFY connection
+// hung) cannot leak a goroutine per inventory change. tools/list_changed
+// is best-effort — a missed delivery just means downstream agents see
+// a stale tool list until the next gateway state change retries the
+// notify; an indefinite hang is strictly worse.
+const notifyDispatchTimeout = 5 * time.Second
+
 // Toolkit is a gateway that proxies tools from one or more upstream MCP
 // servers through the platform's registry, auth, persona, and audit pipeline.
 //
@@ -81,6 +126,21 @@ type Toolkit struct {
 	connections      map[string]*upstream
 	enrichmentEngine *enrichment.Engine
 	tokenStore       TokenStore
+
+	// listChangedNotifier (when non-nil) is fired (debounced) every
+	// time the toolkit's aggregate tool inventory changes — i.e. after
+	// every AddTool or RemoveTools call. The platform plugs this into
+	// the session broadcaster so SSE long-poll subscribers receive a
+	// live notifications/tools/list_changed signal even when the SDK
+	// runs in stateless streamable-HTTP mode (where the SDK's own
+	// notification path is disabled).
+	//
+	// Stored as atomic.Pointer so notifyToolListChanged can read it
+	// without acquiring t.mu — many of the call sites that need to
+	// notify already hold t.mu, and grabbing it twice would deadlock.
+	listChangedNotifier  atomic.Pointer[ToolListChangedNotifier]
+	pendingNotifyTimer   *toolListChangeTimer
+	pendingNotifyTimerMu sync.Mutex
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -228,6 +288,125 @@ func (t *Toolkit) SetEnrichmentEngine(e *enrichment.Engine) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.enrichmentEngine = e
+}
+
+// SetToolListChangedNotifier wires the tools/list_changed publisher.
+// Pass nil to disable (default). Both bare-nil and typed-nil interface
+// values are detected via isNilNotifier and treated as "disable"; a
+// `var p *somePtrAdapter; SetToolListChangedNotifier(p)` is safe and
+// behaves identically to the bare-nil call.
+// The notifier is fired (debounced) on every aggregate tool-inventory
+// change that registers or removes at least one tool — RegisterTools,
+// addParsed successes, SetTokenStore retry promotions, and
+// RemoveConnection. Connections that resolve to zero tools (placeholder
+// upstreams that never finished discovery, RemoveConnection on a
+// connection with no live tools) are silently skipped to keep the
+// downstream notification budget proportional to operator-visible
+// inventory state.
+//
+// Safe to call before or after the toolkit has connections. The
+// production wiring path: main.go calls WireGatewayBroadcaster AFTER
+// p.Start() runs RegisterTools, so the notifier is set after the
+// connections in the initial config are already loaded — those
+// initial RegisterTools calls fire BEFORE the notifier is wired, so
+// they do not produce a notification. A caller that wires the
+// notifier earlier (e.g., a custom integration test, or a hot-reload
+// path that reinstalls connections) WILL see notifications for
+// every connection coming up.
+func (t *Toolkit) SetToolListChangedNotifier(n ToolListChangedNotifier) {
+	if isNilNotifier(n) {
+		t.listChangedNotifier.Store(nil)
+		return
+	}
+	t.listChangedNotifier.Store(&n)
+}
+
+// isNilNotifier reports whether n is nil OR a typed-nil interface
+// value (e.g., a nil pointer to a struct that implements
+// ToolListChangedNotifier). The bare `n == nil` check misses
+// typed-nil — a `var p *somePtrAdapter; SetToolListChangedNotifier(p)`
+// would otherwise install a non-nil interface wrapping a nil pointer
+// and panic with a nil-receiver dereference at fire time.
+//
+// The Kind list covers the typed-nil cases where dispatching a method
+// would actually panic on the nil receiver: Ptr (most common — e.g.,
+// `var p *somePtrAdapter`), Interface (interface holding another
+// interface), and Func (named func types like the test's
+// `notifierFunc`, where the receiver IS the function value and a nil
+// func panics on call). Map/Chan/Slice are deliberately omitted —
+// although named map/chan/slice types CAN define methods and satisfy
+// ToolListChangedNotifier, calling a method on a nil map/chan/slice
+// receiver does not panic on the receiver itself (the receiver is
+// the value, not a dereference target). Adding them would be a no-op
+// guard.
+func isNilNotifier(n ToolListChangedNotifier) bool {
+	if n == nil {
+		return true
+	}
+	v := reflect.ValueOf(n)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Func:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// notifyToolListChanged schedules a debounced notification through the
+// configured notifier. Multiple calls within notifyDebounceWindow
+// collapse into a single fire — matches the SDK's internal batching
+// behavior and avoids fan-out floods when an upstream registers many
+// tools in rapid succession.
+//
+// Safe for concurrent calls and safe to call while t.mu is already
+// held by the caller — the notifier slot is read atomically (no
+// t.mu) and the timer firing happens on a separate goroutine via
+// time.AfterFunc.
+func (t *Toolkit) notifyToolListChanged() {
+	if t.listChangedNotifier.Load() == nil {
+		return
+	}
+	t.pendingNotifyTimerMu.Lock()
+	defer t.pendingNotifyTimerMu.Unlock()
+	if t.pendingNotifyTimer == nil {
+		t.pendingNotifyTimer = &toolListChangeTimer{
+			// Read the notifier from the atomic slot at FIRE time, not
+			// at scheduling time. SetToolListChangedNotifier may swap
+			// the notifier between scheduling and firing — we must
+			// dispatch to the currently-installed notifier or the
+			// callback could call into a stale reference.
+			t: time.AfterFunc(notifyDebounceWindow, func() {
+				// Clear the timer slot before invoking the notifier so
+				// concurrent callers arriving DURING dispatch construct
+				// a fresh AfterFunc. Per Go's Timer.Reset documentation:
+				// Reset on an AfterFunc-created timer reschedules the
+				// callback. Without this clear, a concurrent
+				// notifyToolListChanged would call Reset on the
+				// already-fired timer and queue a SECOND callback while
+				// this one is still running — at most one extra
+				// dispatch (bounded), but it weakens the debounce
+				// contract. The narrow race that remains: a caller
+				// arriving between timer expiry and the AfterFunc body
+				// taking the mutex can still Reset; that path produces
+				// at most ≤2 dispatches per burst, which the burst test
+				// asserts as the loose bound.
+				t.pendingNotifyTimerMu.Lock()
+				t.pendingNotifyTimer = nil
+				t.pendingNotifyTimerMu.Unlock()
+				if p := t.listChangedNotifier.Load(); p != nil {
+					// Bound the dispatch context so a partitioned
+					// downstream (postgres LISTEN connection hung,
+					// remote receiver blocked) cannot leak a goroutine
+					// per inventory change.
+					ctx, cancel := context.WithTimeout(context.Background(), notifyDispatchTimeout)
+					(*p).NotifyToolsListChanged(ctx)
+					cancel()
+				}
+			}),
+		}
+		return
+	}
+	t.pendingNotifyTimer.t.Reset(notifyDebounceWindow)
 }
 
 // upstream tracks a single live connection to a remote MCP server.
@@ -537,13 +716,18 @@ func (t *Toolkit) RemoveConnection(name string) error {
 		t.mu.Unlock()
 		return fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
 	}
+	notify := false
 	if t.server != nil && len(u.toolNames) > 0 {
 		t.server.RemoveTools(u.toolNames...)
+		notify = true
 	}
 	delete(t.connections, name)
 	client := u.client
 	connectionName := u.config.ConnectionName
 	t.mu.Unlock()
+	if notify {
+		t.notifyToolListChanged()
+	}
 
 	if client != nil {
 		if err := client.close(); err != nil {
@@ -768,6 +952,22 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 // expected to stop dispatching new AddConnection calls before invoking
 // Close (the platform's lifecycle layer enforces this).
 func (t *Toolkit) Close() error {
+	// Best-effort: stop any debounce timer that hasn't fired yet.
+	// time.Timer.Stop returns false if the AfterFunc body is already
+	// running on its own goroutine — Stop does NOT wait for it. The
+	// in-flight body may still call NotifyToolsListChanged on the
+	// (possibly-already-closed) broadcaster after Close returns; that
+	// is safe because the broadcaster's Closed state returns
+	// ErrBroadcasterClosed and the gatewayListChangedNotifier adapter
+	// just logs the failure. So this Stop saves a notification when
+	// it can, but does not guarantee no-fire-after-Close.
+	t.pendingNotifyTimerMu.Lock()
+	if t.pendingNotifyTimer != nil {
+		t.pendingNotifyTimer.t.Stop()
+		t.pendingNotifyTimer = nil
+	}
+	t.pendingNotifyTimerMu.Unlock()
+
 	t.mu.Lock()
 	clients := make([]*upstreamClient, 0, len(t.connections))
 	for _, u := range t.connections {
@@ -788,8 +988,11 @@ func (t *Toolkit) Close() error {
 
 // addToolsToServerLocked registers each remote tool on the server under a
 // namespaced local name. Caller must hold t.mu (write lock) and ensure
-// t.server is non-nil.
+// t.server is non-nil. Schedules a debounced tools/list_changed
+// notification when at least one tool was registered, so SSE long-poll
+// subscribers learn the inventory grew without a manual reconnect.
 func (t *Toolkit) addToolsToServerLocked(u *upstream) {
+	registered := 0
 	for _, rt := range u.tools {
 		if rt == nil || rt.Name == "" {
 			continue
@@ -802,6 +1005,10 @@ func (t *Toolkit) addToolsToServerLocked(u *upstream) {
 			Annotations: rt.Annotations,
 		}
 		t.server.AddTool(local, t.makeForwarder(u, rt.Name, local.Name))
+		registered++
+	}
+	if registered > 0 {
+		t.notifyToolListChanged()
 	}
 }
 

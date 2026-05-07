@@ -36,6 +36,32 @@ const (
 
 	// validationFmt is the format string for wrapping validation errors.
 	validationFmt = "validation: %w"
+
+	// manage_artifact action names. These are the values of the "action"
+	// input field that select which sub-handler runs. Defined as
+	// constants because the same string is referenced from the dispatch
+	// table, error messages, and (potentially) tests.
+	actionList             = "list"
+	actionGet              = "get"
+	actionUpdate           = "update"
+	actionDelete           = "delete"
+	actionListVersions     = "list_versions"
+	actionRevert           = "revert"
+	actionCreateCollection = "create_collection"
+	actionListCollections  = "list_collections"
+	actionGetCollection    = "get_collection"
+	actionUpdateCollection = "update_collection"
+	actionDeleteCollection = "delete_collection"
+	actionSetSections      = "set_sections"
+
+	// JSON field names used in MCP tool result payloads.
+	fieldAssetID = "asset_id"
+	fieldMessage = "message"
+	fieldTotal   = "total"
+
+	// anonymousUserName is the fallback owner identifier when the request has
+	// no authenticated user (no PlatformContext or empty user/email).
+	anonymousUserName = "anonymous"
 )
 
 // saveArtifactInput defines the input for save_artifact.
@@ -356,18 +382,18 @@ type manageActionHandler func(ctx context.Context, input manageArtifactInput) (*
 // buildActions constructs the action dispatch table, called once during New().
 func (t *Toolkit) buildActions() map[string]manageActionHandler {
 	return map[string]manageActionHandler{
-		"list":              t.handleList,
-		"get":               t.handleGet,
-		"update":            t.handleUpdate,
-		"delete":            t.handleDelete,
-		"list_versions":     t.handleListVersions,
-		"revert":            t.handleRevert,
-		"create_collection": t.handleCreateCollection,
-		"list_collections":  t.handleListCollections,
-		"get_collection":    t.handleGetCollection,
-		"update_collection": t.handleUpdateCollection,
-		"delete_collection": t.handleDeleteCollection,
-		"set_sections":      t.handleSetSections,
+		actionList:             t.handleList,
+		actionGet:              t.handleGet,
+		actionUpdate:           t.handleUpdate,
+		actionDelete:           t.handleDelete,
+		actionListVersions:     t.handleListVersions,
+		actionRevert:           t.handleRevert,
+		actionCreateCollection: t.handleCreateCollection,
+		actionListCollections:  t.handleListCollections,
+		actionGetCollection:    t.handleGetCollection,
+		actionUpdateCollection: t.handleUpdateCollection,
+		actionDeleteCollection: t.handleDeleteCollection,
+		actionSetSections:      t.handleSetSections,
 	}
 }
 
@@ -399,8 +425,8 @@ func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*m
 	}
 
 	result := map[string]any{
-		"assets": assets,
-		"total":  total,
+		"assets":   assets,
+		fieldTotal: total,
 	}
 	return jsonResult(result)
 }
@@ -458,8 +484,8 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 	}
 
 	return jsonResult(map[string]any{
-		"asset_id": input.AssetID,
-		"message":  "Asset updated successfully.",
+		fieldAssetID: input.AssetID,
+		fieldMessage: "Asset updated successfully.",
 	})
 }
 
@@ -523,8 +549,8 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 	}
 
 	return jsonResult(map[string]any{
-		"asset_id": input.AssetID,
-		"message":  "Asset deleted successfully.",
+		fieldAssetID: input.AssetID,
+		fieldMessage: "Asset deleted successfully.",
 	})
 }
 
@@ -546,7 +572,7 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 	}
 	return jsonResult(map[string]any{
 		"versions": versions,
-		"total":    total,
+		fieldTotal: total,
 	})
 }
 
@@ -606,9 +632,9 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 	}
 
 	return jsonResult(map[string]any{
-		"asset_id": input.AssetID,
-		"version":  assignedVersion,
-		"message":  fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, assignedVersion),
+		fieldAssetID: input.AssetID,
+		"version":    assignedVersion,
+		fieldMessage: fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, assignedVersion),
 	})
 }
 
@@ -636,7 +662,7 @@ func resolveOwnerID(ctx context.Context) string {
 	if pc != nil && pc.UserID != "" {
 		return pc.UserID
 	}
-	return "anonymous"
+	return anonymousUserName
 }
 
 // resolveOwnerEmail returns the authenticated user's email from the context,
@@ -646,7 +672,7 @@ func resolveOwnerEmail(ctx context.Context) string {
 	if pc != nil && pc.UserEmail != "" {
 		return pc.UserEmail
 	}
-	return "anonymous"
+	return anonymousUserName
 }
 
 func (t *Toolkit) validateAndCheckSize(input saveArtifactInput) error {

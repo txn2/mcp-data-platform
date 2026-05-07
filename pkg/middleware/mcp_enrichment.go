@@ -133,11 +133,11 @@ func appendDiscoveryNoteIfNeeded(result *mcp.CallToolResult, pc *PlatformContext
 func inferToolkitKind(toolName string) string {
 	switch {
 	case strings.HasPrefix(toolName, "trino_"):
-		return "trino"
+		return toolPrefixTrino
 	case strings.HasPrefix(toolName, "datahub_"):
-		return "datahub"
+		return toolPrefixDatahub
 	case strings.HasPrefix(toolName, "s3_"):
-		return "s3"
+		return toolPrefixS3
 	default:
 		return ""
 	}

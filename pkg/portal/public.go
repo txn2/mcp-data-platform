@@ -111,16 +111,16 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	downloadURL := fmt.Sprintf("/portal/view/%s/content", share.Token)
 
 	contentData := map[string]any{
-		"contentType": asset.ContentType,
-		"content":     string(pad.Content),
-		"name":        asset.Name,
-		"description": asset.Description,
-		"tags":        asset.Tags,
-		"sizeBytes":   asset.SizeBytes,
-		"tooLarge":    pad.TooLarge,
-		"downloadURL": downloadURL,
-		"createdAt":   asset.CreatedAt.UTC().Format(time.RFC3339),
-		"updatedAt":   asset.UpdatedAt.UTC().Format(time.RFC3339),
+		"contentType":  asset.ContentType,
+		"content":      string(pad.Content),
+		colName:        asset.Name,
+		colDescription: asset.Description,
+		colTags:        asset.Tags,
+		"sizeBytes":    asset.SizeBytes,
+		"tooLarge":     pad.TooLarge,
+		"downloadURL":  downloadURL,
+		"createdAt":    asset.CreatedAt.UTC().Format(time.RFC3339),
+		"updatedAt":    asset.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	contentJSON, _ := json.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
 
@@ -320,13 +320,13 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 
 	thumbSize := coll.Config.ThumbnailSize
 	if thumbSize == "" {
-		thumbSize = "large"
+		thumbSize = thumbSizeLarge
 	}
 
 	collJSON, _ := json.Marshal(map[string]any{ //nolint:errcheck // string map marshaling cannot fail
 		"id":            coll.ID,
-		"name":          coll.Name,
-		"description":   coll.Description,
+		colName:         coll.Name,
+		colDescription:  coll.Description,
 		"thumbnailSize": thumbSize,
 		"sections":      buildPublicSections(coll, assets),
 		"createdAt":     coll.CreatedAt.UTC().Format(time.RFC3339),
@@ -512,17 +512,17 @@ func buildPublicSections(coll *Collection, assets map[string]*Asset) []map[strin
 			}
 			items = append(items, map[string]any{
 				"assetId":        a.ID,
-				"name":           a.Name,
-				"description":    a.Description,
+				colName:          a.Name,
+				colDescription:   a.Description,
 				"contentType":    a.ContentType,
 				"hasThumbnail":   a.ThumbnailS3Key != "",
 				"thumbnailS3Key": a.ThumbnailS3Key,
 			})
 		}
 		sections = append(sections, map[string]any{
-			"title":       sec.Title,
-			"description": sec.Description,
-			"items":       items,
+			"title":        sec.Title,
+			colDescription: sec.Description,
+			"items":        items,
 		})
 	}
 	return sections

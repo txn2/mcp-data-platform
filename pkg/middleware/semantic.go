@@ -19,10 +19,16 @@ import (
 const tokenDivisor = 4
 
 // criticalTagPrefixes lists tag substrings that indicate safety-relevant metadata.
-var criticalTagPrefixes = []string{"pii", "sensitive", "quality", "restricted", "confidential"}
+var criticalTagPrefixes = []string{sensitivityPII, "sensitive", "quality", "restricted", sensitivityConfidential}
 
 // toolPrefixTrino is the toolkit kind identifier for Trino tools.
 const toolPrefixTrino = "trino"
+
+// toolPrefixDatahub is the toolkit kind identifier for DataHub tools.
+const toolPrefixDatahub = "datahub"
+
+// toolPrefixS3 is the toolkit kind identifier for S3 tools.
+const toolPrefixS3 = "s3"
 
 // String constants for repeated map keys and comparisons.
 const (
@@ -34,6 +40,28 @@ const (
 	keyDeprecation     = "deprecation"
 	keySemanticContext = "semantic_context"
 	keySessionID       = "session_id"
+
+	// fieldName is the JSON/map key for entity names.
+	fieldName = "name"
+	// fieldNote is the JSON/map key for note text appended to enrichment payloads.
+	fieldNote = "note"
+	// fieldURN is the canonical (uppercase) JSON key for DataHub entity URNs as
+	// emitted by some upstream payloads. Used alongside keyURN for case-insensitive matching.
+	fieldURN = "URN"
+	// fieldDomain is the JSON/map key for the DataHub domain attached to a table.
+	fieldDomain = "domain"
+	// fieldGlossaryTerms is the JSON/map key for glossary term lists.
+	fieldGlossaryTerms = "glossary_terms"
+
+	// sensitivityPII marks tags/columns classified as personally identifiable information.
+	sensitivityPII = "pii"
+
+	// sensitivityConfidential marks tags/columns classified as confidential.
+	sensitivityConfidential = "confidential"
+
+	// assertionStatusFailing is the DataHub data-contract status indicating a
+	// failing assertion.
+	assertionStatusFailing = "FAILING"
 
 	// noteNoColumnMetadata is the note appended when columns exist but none have
 	// meaningful metadata (description, tags, glossary terms, PII flags, etc.).
@@ -138,9 +166,9 @@ func (e *semanticEnricher) enrich(
 		if e.cfg.EnrichTrinoResults && e.semanticProvider != nil {
 			return e.enrichTrinoResultWithDedup(ctx, result, request, pc)
 		}
-	case "datahub":
+	case toolPrefixDatahub:
 		return e.enrichDataHubResultWithAll(ctx, result, request)
-	case "s3":
+	case toolPrefixS3:
 		if e.cfg.EnrichS3Results && e.semanticProvider != nil {
 			var catalogMapping map[string]string
 			if e.cfg.ForConnection != nil && pc.Connection != "" {
@@ -328,8 +356,8 @@ func (e *semanticEnricher) applyDedupMode(
 func appendMetadataReference(result *mcp.CallToolResult, tableKeys []string) *mcp.CallToolResult {
 	ref := map[string]any{
 		"metadata_reference": map[string]any{
-			"tables": tableKeys,
-			"note":   "Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.",
+			"tables":  tableKeys,
+			fieldNote: "Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.",
 		},
 	}
 
@@ -361,7 +389,7 @@ func (e *semanticEnricher) appendSemanticSummary(
 		enrichment := map[string]any{
 			"compact_context": buildCompactSemanticContext(tableCtx),
 			"tables":          []string{key},
-			"note":            "Compact view. Full metadata was provided earlier in this session. Only critical warnings, quality scores, and sensitivity flags are shown.",
+			fieldNote:         "Compact view. Full metadata was provided earlier in this session. Only critical warnings, quality scores, and sensitivity flags are shown.",
 		}
 
 		enrichmentJSON, marshalErr := json.Marshal(enrichment)
@@ -1037,7 +1065,7 @@ func extractURNsFromResult(result *mcp.CallToolResult) []string {
 func extractURNsFromMap(data map[string]any) []string {
 	var urns []string
 	for k, v := range data {
-		if k == keyURN || k == "URN" {
+		if k == keyURN || k == fieldURN {
 			if urn, ok := v.(string); ok {
 				urns = append(urns, urn)
 			}
@@ -1071,7 +1099,7 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 		keyDescription:  ctx.Description,
 		"owners":        ctx.Owners,
 		keyTags:         ctx.Tags,
-		"domain":        ctx.Domain,
+		fieldDomain:     ctx.Domain,
 		"quality_score": ctx.QualityScore,
 		keyDeprecation:  ctx.Deprecation,
 	}
@@ -1080,7 +1108,7 @@ func buildTrinoSemanticContext(ctx *semantic.TableContext) map[string]any {
 		semanticCtx[keyURN] = ctx.URN
 	}
 	if len(ctx.GlossaryTerms) > 0 {
-		semanticCtx["glossary_terms"] = ctx.GlossaryTerms
+		semanticCtx[fieldGlossaryTerms] = ctx.GlossaryTerms
 	}
 	if len(ctx.CustomProperties) > 0 {
 		semanticCtx["custom_properties"] = ctx.CustomProperties
@@ -1110,7 +1138,7 @@ func buildCompactSemanticContext(ctx *semantic.TableContext) map[string]any {
 		compact[keyURN] = ctx.URN
 	}
 	if ctx.Domain != nil {
-		compact["domain"] = ctx.Domain
+		compact[fieldDomain] = ctx.Domain
 	}
 	if ctx.Deprecation != nil && ctx.Deprecation.Deprecated {
 		compact[keyDeprecation] = ctx.Deprecation
@@ -1124,7 +1152,7 @@ func buildCompactSemanticContext(ctx *semantic.TableContext) map[string]any {
 	if ctx.ActiveIncidents > 0 {
 		compact["active_incidents"] = ctx.ActiveIncidents
 	}
-	if ctx.DataContract != nil && ctx.DataContract.Status == "FAILING" {
+	if ctx.DataContract != nil && ctx.DataContract.Status == assertionStatusFailing {
 		compact["data_contract"] = ctx.DataContract
 	}
 	return compact
@@ -1182,11 +1210,11 @@ func sumStoredTokenCounts(cache *SessionEnrichmentCache, sessionID string, table
 // buildColumnInfo creates a column info map from column context.
 func buildColumnInfo(col *semantic.ColumnContext) map[string]any {
 	colInfo := map[string]any{
-		keyDescription:   col.Description,
-		"glossary_terms": col.GlossaryTerms,
-		keyTags:          col.Tags,
-		"is_pii":         col.IsPII,
-		"is_sensitive":   col.IsSensitive,
+		keyDescription:     col.Description,
+		fieldGlossaryTerms: col.GlossaryTerms,
+		keyTags:            col.Tags,
+		"is_pii":           col.IsPII,
+		"is_sensitive":     col.IsSensitive,
 	}
 
 	if col.InheritedFrom != nil {
@@ -1301,8 +1329,8 @@ func enrichS3Result(
 	}
 
 	// Apply catalog mapping to the S3 search platform if applicable.
-	platform := "s3"
-	if mapped, ok := catalogMapping["s3"]; ok {
+	platform := toolPrefixS3
+	if mapped, ok := catalogMapping[toolPrefixS3]; ok {
 		platform = mapped
 	}
 
@@ -1369,7 +1397,7 @@ func buildS3SemanticContexts(
 func buildTableSemanticContext(sr semantic.TableSearchResult, tableCtx *semantic.TableContext) map[string]any {
 	semanticCtx := map[string]any{
 		keyURN:         sr.URN,
-		"name":         sr.Name,
+		fieldName:      sr.Name,
 		keyDescription: tableCtx.Description,
 	}
 	if len(tableCtx.Owners) > 0 {
@@ -1379,7 +1407,7 @@ func buildTableSemanticContext(sr semantic.TableSearchResult, tableCtx *semantic
 		semanticCtx[keyTags] = tableCtx.Tags
 	}
 	if tableCtx.Domain != nil {
-		semanticCtx["domain"] = tableCtx.Domain.Name
+		semanticCtx[fieldDomain] = tableCtx.Domain.Name
 	}
 	if tableCtx.Deprecation != nil && tableCtx.Deprecation.Deprecated {
 		semanticCtx[keyDeprecation] = tableCtx.Deprecation
@@ -1425,7 +1453,7 @@ func appendS3SemanticContext(result *mcp.CallToolResult, contexts []map[string]a
 	enrichment := map[string]any{
 		keySemanticContext: map[string]any{
 			"matching_datasets": contexts,
-			"note":              "Semantic metadata from DataHub for S3 location",
+			fieldNote:           "Semantic metadata from DataHub for S3 location",
 		},
 	}
 
@@ -1486,7 +1514,7 @@ func extractS3URNsFromResult(result *mcp.CallToolResult) []string {
 func extractS3URNsFromMap(data map[string]any) []string {
 	var urns []string
 	for k, v := range data {
-		if k == keyURN || k == "URN" {
+		if k == keyURN || k == fieldURN {
 			urns = appendIfS3URN(urns, v)
 		}
 		switch val := v.(type) {
@@ -1561,7 +1589,7 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 			URI:         schemaURI,
 			Name:        fmt.Sprintf("Schema: %s.%s.%s", catalog, schema, table),
 			Description: "Table schema with semantic context",
-			MIMEType:    "application/json",
+			MIMEType:    mimeTypeJSON,
 		})
 
 		availURI := fmt.Sprintf("availability://%s.%s/%s", catalog, schema, table)
@@ -1569,7 +1597,7 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 			URI:         availURI,
 			Name:        fmt.Sprintf("Availability: %s.%s.%s", catalog, schema, table),
 			Description: "Data availability status and row count",
-			MIMEType:    "application/json",
+			MIMEType:    mimeTypeJSON,
 		})
 	}
 

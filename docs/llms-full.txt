@@ -1068,6 +1068,22 @@ When `store: database`:
 
 Session hijack prevention: each session stores a SHA-256 hash of the creation token. Requests with a different token get HTTP 403.
 
+### Server-pushed notifications (`tools/list_changed`)
+
+In stateless streamable HTTP mode (the production shape when `sessions.store: database`), the SDK refuses GET requests for SSE streaming and closes each session at end-of-request. Without intervention this means downstream agents (Claude.ai, Claude Desktop) never receive `notifications/tools/list_changed` — when a gateway upstream re-authenticates, agents still show the old tool list until they disconnect and reconnect.
+
+The platform handles this with a session broadcaster:
+
+- `pkg/session.Broadcaster` is the abstract fan-out interface; the AwareHandler subscribes per-session.
+- In-memory implementation for single-replica or no-DB deployments.
+- Postgres `LISTEN/NOTIFY` implementation (channel `mcp_notifications`) for multi-replica. Each replica `LISTEN`s once at startup; every replica re-publishes received events to its local SSE subscribers.
+- The `AwareHandler.ServeHTTP` GET branch opens a long-lived `text/event-stream` response, subscribes to the broadcaster bound to the request's session ID, and streams every event as a JSON-RPC 2.0 notification (`data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}\n\n`). A 25-second comment-frame heartbeat keeps the stream alive through proxy idle timeouts.
+- The gateway toolkit publishes `tools/list_changed` (debounced 50 ms — a longer window than the MCP SDK's own 10 ms internal debounce, chosen to absorb the postgres LISTEN/NOTIFY round-trip cost across replicas) after every aggregate tool-inventory change that registers or removes at least one tool: a connection coming up after re-auth, a connection being removed, the SetTokenStore retry promoting a placeholder. Zero-tool changes (placeholder upstreams, removals on connections with no live tools) are silently skipped.
+
+Broadcaster lifecycle is owned by the platform: `initSessions` builds it (postgres if a DSN is configured, in-memory otherwise) and `Close` shuts it down before the database connection closes. `WireGatewayBroadcaster` plugs it into every gateway toolkit, mirroring `WireGatewayTokenStore`.
+
+If the postgres broadcaster fails at startup (e.g. role missing `LISTEN` privilege), the platform falls back to in-memory and continues — `tools/list_changed` propagation degrades to single-replica scope rather than failing platform startup.
+
 ---
 
 # Tools API Reference
@@ -2338,6 +2354,18 @@ When a gateway connection requires OAuth, the platform acts as the OAuth client 
 
 - **client_credentials** (machine-to-machine): set `oauth_token_url`, `oauth_client_id`, `oauth_client_secret`, optional `oauth_scope`. Platform fetches and refreshes tokens automatically. No browser involved.
 - **authorization_code + PKCE** (browser sign-in): adds `oauth_authorization_url`. Operator clicks Connect in the admin portal once; the platform walks the PKCE flow per RFC 7636 (S256), persists encrypted refresh tokens, and refreshes the access token automatically thereafter — including for cron jobs and scheduled prompts.
+
+## Refresh token longevity (`offline_access`)
+
+Authorization-code grants automatically include `offline_access` in the requested scope (default scope: `openid profile email offline_access`). Without `offline_access`, IdPs like Keycloak tie the refresh token's lifetime to the user's interactive SSO Session Idle (default ~30 min), so any platform restart longer than that idle window forces the operator to re-authorize through the browser.
+
+Pre-existing connections keep their explicit `oauth_scope` if set. The platform appends `offline_access` to a non-empty scope only when it is missing; it leaves a scope that already lists `offline_access` (case-sensitive per RFC 6749 §3.3) untouched.
+
+When the IdP rejects a stored refresh token with `invalid_grant` AND the operator's persisted (pre-augmentation) scope omitted `offline_access`, the admin status surface includes an actionable hint explaining that the persisted refresh grant predates the `offline_access` default and a fresh Reconnect will issue a token under the augmented scope. Without that hint, the only visible cause was the cryptic upstream message ("Token is not active") with no clue to the underlying setting.
+
+### Keycloak setup
+
+The `offline_access` client scope must be assignable (Optional or Default) to the gateway's client. In Keycloak admin: Realm → Clients → <gateway client> → Client Scopes → Setup → ensure `offline_access` is listed under Optional or Default. The user completing the Connect flow must also have the `offline_access` realm role (granted by default to all users in most realms).
 
 ## Storage
 

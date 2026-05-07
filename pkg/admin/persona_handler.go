@@ -306,7 +306,7 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 		h.revertToFilePersona(name)
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
 }
 
 // isFileOnlyPersona returns true if the persona exists in the file config

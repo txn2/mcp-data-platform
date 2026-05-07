@@ -26,6 +26,9 @@ const (
 
 	// logKeyTool is the slog key for tool name in log messages.
 	logKeyTool = "tool"
+
+	// sourceMCP identifies the MCP protocol path for audit/source tagging.
+	sourceMCP = "mcp"
 )
 
 // Error categories for structured error handling and audit queries.
@@ -94,7 +97,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				}
 			}
 			pc.Transport = cfg.Transport
-			pc.Source = "mcp"
+			pc.Source = sourceMCP
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 
 			// Authenticate and authorize

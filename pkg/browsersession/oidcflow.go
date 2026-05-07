@@ -31,6 +31,10 @@ const (
 	logKeyError         = "error"
 	logKeyState         = "state"
 	maxResponseBytes    = 1 << 20 // 1 MB limit for OIDC HTTP responses
+
+	// OAuth/OIDC HTTP query/form parameter names.
+	paramCode     = "code"
+	paramClientID = "client_id"
 )
 
 // FlowConfig configures the OIDC authorization code flow.
@@ -102,7 +106,7 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 	}
 
 	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = []string{"openid", "profile", "email"}
+		cfg.Scopes = []string{"openid", "profile", claimEmail}
 	}
 	if cfg.PostLoginRedirect == "" {
 		cfg.PostLoginRedirect = DefaultPortalPath
@@ -163,8 +167,8 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Build authorization URL
 	challenge := pkceChallenge(verifier)
 	params := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {f.cfg.ClientID},
+		"response_type":         {paramCode},
+		paramClientID:           {f.cfg.ClientID},
 		"redirect_uri":          {f.cfg.RedirectURI},
 		"scope":                 {strings.Join(f.cfg.Scopes, " ")},
 		logKeyState:             {state},
@@ -192,7 +196,7 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code := r.URL.Query().Get("code")
+	code := r.URL.Query().Get(paramCode)
 	state := r.URL.Query().Get(logKeyState)
 	if code == "" || state == "" {
 		f.redirectWithError(w, r, "invalid_request")
@@ -301,7 +305,7 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	if f.endpoints.EndSessionEndpoint != "" {
 		params := url.Values{
-			"client_id":                {f.cfg.ClientID},
+			paramClientID:              {f.cfg.ClientID},
 			"post_logout_redirect_uri": {f.cfg.PostLogoutRedirect},
 		}
 		if idTokenHint != "" {
@@ -327,9 +331,9 @@ type tokenResponse struct {
 func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenResponse, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
-		"code":          {code},
+		paramCode:       {code},
 		"redirect_uri":  {f.cfg.RedirectURI},
-		"client_id":     {f.cfg.ClientID},
+		paramClientID:   {f.cfg.ClientID},
 		"code_verifier": {verifier},
 	}
 
@@ -404,12 +408,12 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 		return nil, err
 	}
 
-	sub, _ := claims["sub"].(string)
+	sub, _ := claims[claimSub].(string)
 	if sub == "" {
 		return nil, fmt.Errorf("missing sub claim in id_token")
 	}
 
-	email, _ := claims["email"].(string)
+	email, _ := claims[claimEmail].(string)
 
 	roles := f.extractRoles(claims)
 
@@ -459,7 +463,7 @@ func (f *Flow) validateAudience(claims map[string]any) error {
 
 // validateExpiration checks that the id_token has not expired.
 func validateExpiration(claims map[string]any) error {
-	exp, ok := claims["exp"].(float64)
+	exp, ok := claims[claimExp].(float64)
 	if !ok {
 		return fmt.Errorf("missing exp claim in id_token")
 	}
@@ -560,9 +564,9 @@ func (f *Flow) httpClient() *http.Client {
 func signStateData(data string, cfg *CookieConfig) (string, error) {
 	now := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"data": data,
-		"exp":  now.Add(time.Duration(stateCookieMaxAge) * time.Second).Unix(),
-		"iat":  now.Unix(),
+		"data":   data,
+		claimExp: now.Add(time.Duration(stateCookieMaxAge) * time.Second).Unix(),
+		"iat":    now.Unix(),
 	})
 
 	signed, err := token.SignedString(cfg.Key)

@@ -11,8 +11,8 @@ import (
 // the unwrap_json default. Only trino_query and trino_execute support
 // the parameter upstream.
 var unwrapJSONTools = map[string]struct{}{
-	"trino_query":   {},
-	"trino_execute": {},
+	toolNameTrinoQuery:   {},
+	toolNameTrinoExecute: {},
 }
 
 // MCPUnwrapJSONMiddleware creates MCP protocol-level middleware that

@@ -16,18 +16,31 @@ import (
 
 const idLength = 16
 
+// memory_manage command names. Defined as constants so the dispatch
+// switch, the help map, and any audit/log statements all reference
+// the same literal — and goconst doesn't flag the repeats.
+const (
+	cmdRemember    = "remember"
+	cmdUpdate      = "update"
+	cmdForget      = "forget"
+	cmdList        = "list"
+	cmdReviewStale = "review_stale"
+	// fieldMessage is the JSON key used in successful command results.
+	fieldMessage = "message"
+)
+
 // handleManage dispatches memory_manage commands.
 func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, input manageInput) (*mcp.CallToolResult, any, error) {
 	switch input.Command {
-	case "remember":
+	case cmdRemember:
 		return t.handleRemember(ctx, input)
-	case "update":
+	case cmdUpdate:
 		return t.handleUpdate(ctx, input)
-	case "forget":
+	case cmdForget:
 		return t.handleForget(ctx, input)
-	case "list":
+	case cmdList:
 		return t.handleList(ctx, input)
-	case "review_stale":
+	case cmdReviewStale:
 		return t.handleReviewStale(ctx, input)
 	case "":
 		return helpResult(), nil, nil
@@ -106,9 +119,9 @@ func (t *Toolkit) handleRemember(ctx context.Context, input manageInput) (*mcp.C
 	}
 
 	return jsonResult(map[string]any{
-		"id":      id,
-		"status":  "active",
-		"message": "Memory recorded successfully.",
+		"id":         id,
+		"status":     "active",
+		fieldMessage: "Memory recorded successfully.",
 	}), nil, nil
 }
 
@@ -118,7 +131,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 		return errorResult("id is required for update"), nil, nil
 	}
 
-	if result := verifyOwnership(ctx, t.store, input.ID, "update"); result != nil {
+	if result := verifyOwnership(ctx, t.store, input.ID, cmdUpdate); result != nil {
 		return result, nil, nil
 	}
 
@@ -157,8 +170,8 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 	}
 
 	return jsonResult(map[string]any{
-		"id":      input.ID,
-		"message": "Memory updated successfully.",
+		"id":         input.ID,
+		fieldMessage: "Memory updated successfully.",
 	}), nil, nil
 }
 
@@ -177,8 +190,8 @@ func (t *Toolkit) handleForget(ctx context.Context, input manageInput) (*mcp.Cal
 	}
 
 	return jsonResult(map[string]any{
-		"id":      input.ID,
-		"message": "Memory archived successfully.",
+		"id":         input.ID,
+		fieldMessage: "Memory archived successfully.",
 	}), nil, nil
 }
 
@@ -245,11 +258,11 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 	}
 
 	return jsonResult(map[string]any{
-		"records": records,
-		"total":   total,
-		"limit":   filter.EffectiveLimit(),
-		"offset":  filter.Offset,
-		"message": fmt.Sprintf("%d stale memories found. Use 'update' to revise or 'forget' to archive.", total),
+		"records":    records,
+		"total":      total,
+		"limit":      filter.EffectiveLimit(),
+		"offset":     filter.Offset,
+		fieldMessage: fmt.Sprintf("%d stale memories found. Use 'update' to revise or 'forget' to archive.", total),
 	}), nil, nil
 }
 
@@ -257,11 +270,11 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 func helpResult() *mcp.CallToolResult {
 	return jsonResult(map[string]any{
 		"commands": map[string]string{
-			"remember":     "Create a new memory (requires content)",
-			"update":       "Update an existing memory (requires id)",
-			"forget":       "Archive a memory (requires id)",
-			"list":         "List memories with optional filters",
-			"review_stale": "List memories flagged as stale",
+			cmdRemember:    "Create a new memory (requires content)",
+			cmdUpdate:      "Update an existing memory (requires id)",
+			cmdForget:      "Archive a memory (requires id)",
+			cmdList:        "List memories with optional filters",
+			cmdReviewStale: "List memories flagged as stale",
 		},
 	})
 }

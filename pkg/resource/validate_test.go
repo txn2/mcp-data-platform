@@ -118,7 +118,7 @@ func TestValidateMIMEType(t *testing.T) {
 		"application/json; charset=utf-8",
 		"text/csv",
 		"image/png",
-		"application/octet-stream",
+		mimeTypeOctetStream,
 	}
 	for _, mt := range allowed {
 		if err := ValidateMIMEType(mt); err != nil {

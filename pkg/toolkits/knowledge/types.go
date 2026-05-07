@@ -275,6 +275,16 @@ const (
 	StatusRolledBack = "rolled_back"
 )
 
+// Apply-knowledge action names exposed by the apply_knowledge MCP tool.
+const (
+	actionBulkReview = "bulk_review"
+	actionReview     = "review"
+	actionSynthesize = "synthesize"
+	actionApply      = "apply"
+	actionApprove    = "approve"
+	actionReject     = "reject"
+)
+
 // validTransitions defines allowed status transitions.
 var validTransitions = map[string]map[string]bool{
 	StatusPending: {
@@ -490,12 +500,12 @@ type ProposedChange struct {
 // ValidateAction checks whether an action value is valid.
 func ValidateAction(action string) error {
 	validActions := map[string]bool{
-		"bulk_review": true,
-		"review":      true,
-		"synthesize":  true,
-		"apply":       true,
-		"approve":     true,
-		"reject":      true,
+		actionBulkReview: true,
+		actionReview:     true,
+		actionSynthesize: true,
+		actionApply:      true,
+		actionApprove:    true,
+		actionReject:     true,
 	}
 	if action == "" {
 		return fmt.Errorf("action is required and must be one of: bulk_review, review, synthesize, apply, approve, reject")

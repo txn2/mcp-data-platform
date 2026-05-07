@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// catalogElasticsearch is the Trino catalog name used for Elasticsearch raw_query
+// table function expansion.
+const catalogElasticsearch = "elasticsearch"
+
 // TableRef represents an extracted table reference from SQL.
 type TableRef struct {
 	Catalog  string
@@ -171,10 +175,10 @@ func extractESRawQuery(sql string) []TableRef {
 			continue
 		}
 		refs = append(refs, TableRef{
-			Catalog:  "elasticsearch",
+			Catalog:  catalogElasticsearch,
 			Schema:   schema,
 			Table:    idx,
-			FullPath: "elasticsearch." + schema + "." + idx,
+			FullPath: catalogElasticsearch + "." + schema + "." + idx,
 			Source:   "TABLE_FUNCTION",
 		})
 	}

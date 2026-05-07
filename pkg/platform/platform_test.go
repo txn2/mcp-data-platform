@@ -1,9 +1,11 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -4737,3 +4739,104 @@ func (*noopResourceStore) List(_ context.Context, _ resource.Filter) ([]resource
 
 func (*noopResourceStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
 func (*noopResourceStore) Delete(_ context.Context, _ string) error                    { return nil }
+
+// TestBroadcaster_NonNilAfterNew proves Broadcaster() honors its
+// "always non-nil after New" contract — including the previously-buggy
+// path where opts.SessionStore was injected and initBroadcaster was
+// skipped, leaving the broadcaster nil.
+func TestBroadcaster_NonNilAfterNew(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.Broadcaster() == nil {
+		t.Fatal("Broadcaster() must be non-nil after New (default-config path)")
+	}
+
+	// Inject a SessionStore and verify the broadcaster is still wired.
+	// Prior to the fix, this path early-returned in initSessions before
+	// initBroadcaster ran, leaving Broadcaster() nil.
+	p2, err := New(
+		WithConfig(cfg),
+		WithSessionStore(session.NewMemoryStore(time.Minute)),
+	)
+	if err != nil {
+		t.Fatalf("New (with injected session): %v", err)
+	}
+	defer func() { _ = p2.Close() }()
+
+	if p2.Broadcaster() == nil {
+		t.Fatal("Broadcaster() must be non-nil even when SessionStore is injected")
+	}
+}
+
+// TestGatewayListChangedNotifier_NilBroadcaster proves the adapter
+// silently no-ops when its broadcaster is nil — the gateway must not
+// panic if the platform never wired one (e.g., headless tests).
+//
+// Captures the slog output so a regression that changes the no-op
+// path into a Warn/Error (or vice versa) is caught instead of just
+// "doesn't panic" coverage.
+func TestGatewayListChangedNotifier_NilBroadcaster(t *testing.T) {
+	var buf bytes.Buffer
+	prevDefault := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prevDefault)
+
+	n := gatewayListChangedNotifier{b: nil}
+	n.NotifyToolsListChanged(context.Background()) // must not panic
+
+	if buf.Len() != 0 {
+		t.Errorf("nil-broadcaster path must be silent, got log output: %q", buf.String())
+	}
+}
+
+// TestGatewayListChangedNotifier_PublishError proves the adapter
+// swallows publish errors (logging them via slog) — list_changed is
+// best-effort and should never propagate to the gateway's caller.
+func TestGatewayListChangedNotifier_PublishError(t *testing.T) {
+	var buf bytes.Buffer
+	prevDefault := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prevDefault)
+
+	b := session.NewMemoryBroadcaster(nil)
+	_ = b.Close()
+	n := gatewayListChangedNotifier{b: b}
+	// Publish on a closed broadcaster returns ErrBroadcasterClosed —
+	// the adapter must log it and not propagate.
+	n.NotifyToolsListChanged(context.Background())
+
+	if got := buf.String(); !strings.Contains(got, "publish tools/list_changed failed") {
+		t.Errorf("expected publish-failure warning in slog output, got %q", got)
+	}
+}
+
+// TestWireGatewayBroadcaster_NoBroadcaster proves WireGatewayBroadcaster
+// is safe to call when the platform has no broadcaster (early no-op
+// path), which happens on tests that mock the registry.
+func TestWireGatewayBroadcaster_NoBroadcaster(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Force broadcaster nil to exercise the early-return.
+	p.broadcaster = nil
+	p.WireGatewayBroadcaster() // must not panic
+}

@@ -144,8 +144,8 @@ func formatEscalationMessage(template string, count int) string {
 // isQueryTool returns true if the tool name indicates a query/write operation.
 func isQueryTool(toolName string) bool {
 	queryTools := []string{
-		"trino_query",
-		"trino_execute",
+		toolNameTrinoQuery,
+		toolNameTrinoExecute,
 	}
 
 	return slices.Contains(queryTools, toolName)

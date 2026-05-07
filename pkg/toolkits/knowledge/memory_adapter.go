@@ -8,6 +8,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 )
 
+// Metadata keys used when round-tripping insights through memory.Record.Metadata.
+const (
+	metaKeyReviewedBy    = "reviewed_by"
+	metaKeyReviewNotes   = "review_notes"
+	metaKeyInsightStatus = "insight_status"
+	metaKeyChangesetRef  = "changeset_ref"
+)
+
 // memoryInsightAdapter implements InsightStore by delegating to a memory.Store.
 type memoryInsightAdapter struct {
 	store memory.Store
@@ -75,9 +83,9 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 // UpdateStatus changes the review status of an insight.
 func (a *memoryInsightAdapter) UpdateStatus(ctx context.Context, id, status, reviewedBy, reviewNotes string) error {
 	meta := map[string]any{
-		"reviewed_by":    reviewedBy,
-		"review_notes":   reviewNotes,
-		"insight_status": status,
+		metaKeyReviewedBy:    reviewedBy,
+		metaKeyReviewNotes:   reviewNotes,
+		metaKeyInsightStatus: status,
 	}
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
 		Metadata: meta,
@@ -131,8 +139,8 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 // MarkApplied records that an insight has been applied to the data platform.
 func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, changesetRef string) error {
 	meta := map[string]any{
-		"applied_by":    appliedBy,
-		"changeset_ref": changesetRef,
+		colAppliedBy:        appliedBy,
+		metaKeyChangesetRef: changesetRef,
 	}
 	// Mark as archived in memory (promoted/applied).
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
@@ -179,16 +187,16 @@ func insightToRecord(insight Insight) memory.Record {
 		metadata["session_id"] = insight.SessionID
 	}
 	if insight.ReviewedBy != "" {
-		metadata["reviewed_by"] = insight.ReviewedBy
+		metadata[metaKeyReviewedBy] = insight.ReviewedBy
 	}
 	if insight.ReviewNotes != "" {
-		metadata["review_notes"] = insight.ReviewNotes
+		metadata[metaKeyReviewNotes] = insight.ReviewNotes
 	}
 	if insight.AppliedBy != "" {
-		metadata["applied_by"] = insight.AppliedBy
+		metadata[colAppliedBy] = insight.AppliedBy
 	}
 	if insight.ChangesetRef != "" {
-		metadata["changeset_ref"] = insight.ChangesetRef
+		metadata[metaKeyChangesetRef] = insight.ChangesetRef
 	}
 
 	relatedCols := make([]memory.RelatedColumn, len(insight.RelatedColumns))
@@ -265,7 +273,7 @@ func resolveInsightStatus(record memory.Record) string {
 		return status
 	}
 	// Prefer explicit insight_status (set by UpdateStatus/approve/reject).
-	if v, ok := record.Metadata["insight_status"]; ok {
+	if v, ok := record.Metadata[metaKeyInsightStatus]; ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
 		}
@@ -285,10 +293,10 @@ func extractInsightMetadata(meta map[string]any, insight *Insight) {
 		return
 	}
 	extractMetadataString(meta, "session_id", &insight.SessionID)
-	extractMetadataString(meta, "reviewed_by", &insight.ReviewedBy)
-	extractMetadataString(meta, "review_notes", &insight.ReviewNotes)
-	extractMetadataString(meta, "applied_by", &insight.AppliedBy)
-	extractMetadataString(meta, "changeset_ref", &insight.ChangesetRef)
+	extractMetadataString(meta, metaKeyReviewedBy, &insight.ReviewedBy)
+	extractMetadataString(meta, metaKeyReviewNotes, &insight.ReviewNotes)
+	extractMetadataString(meta, colAppliedBy, &insight.AppliedBy)
+	extractMetadataString(meta, metaKeyChangesetRef, &insight.ChangesetRef)
 
 	if sa, ok := meta["suggested_actions"]; ok {
 		b, _ := json.Marshal(sa)

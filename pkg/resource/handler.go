@@ -23,6 +23,9 @@ const (
 	msgNotFound       = "not found"
 	pathParamID       = "id"
 	headerContentType = "Content-Type"
+	// mimeTypeOctetStream is the MIME type used as a fallback when an
+	// upload omits Content-Type and as a sentinel in tests.
+	mimeTypeOctetStream = "application/octet-stream"
 )
 
 // Deps holds the dependencies for the resource HTTP handler.
@@ -169,7 +172,7 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 
 	mimeType := header.Header.Get(headerContentType)
 	if mimeType == "" {
-		mimeType = "application/octet-stream"
+		mimeType = mimeTypeOctetStream
 	}
 	if err := ValidateMIMEType(mimeType); err != nil {
 		return nil, err
@@ -447,7 +450,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 func sanitizeContentType(ct string) string {
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil || mediaType == "" {
-		return "application/octet-stream"
+		return mimeTypeOctetStream
 	}
 	return mediaType
 }

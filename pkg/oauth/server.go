@@ -235,7 +235,7 @@ func (*Server) validatePKCE(client *Client, req AuthorizationRequest) error {
 	if req.CodeChallenge == "" {
 		return fmt.Errorf("code_challenge required")
 	}
-	if req.CodeChallengeMethod != string(PKCEMethodS256) && req.CodeChallengeMethod != "plain" {
+	if req.CodeChallengeMethod != string(PKCEMethodS256) && req.CodeChallengeMethod != string(PKCEMethodPlain) {
 		return fmt.Errorf("invalid code_challenge_method")
 	}
 	return nil

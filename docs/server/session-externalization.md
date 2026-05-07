@@ -125,3 +125,26 @@ The platform's semantic enrichment middleware tracks which metadata has been sen
 - **Startup**: dedup state is restored from persisted sessions into the in-memory cache
 
 This means clients do not receive duplicate metadata blocks after a server restart.
+
+## Server-Pushed Notifications
+
+In stateless streamable HTTP mode (the production shape when `sessions.store: database`), the SDK refuses GET requests for SSE streaming and closes each session at end-of-request. Without intervention, downstream agents (Claude.ai, Claude Desktop) never receive `notifications/tools/list_changed` — when a gateway upstream re-authenticates, agents still show the old tool list until they disconnect and reconnect.
+
+The platform handles this with a session broadcaster:
+
+- **In-memory** for single-replica or no-DB deployments — direct fan-out across local SSE subscribers.
+- **Postgres LISTEN/NOTIFY** (channel `mcp_notifications`) when a database is configured — every replica `LISTEN`s once at startup and re-publishes received events to its local SSE subscribers, so a notification fired on any replica reaches every connected client across the cluster.
+
+The session-aware HTTP handler intercepts `GET /` requests with `Accept: text/event-stream` and a valid `Mcp-Session-Id`. It opens a long-lived response, subscribes to the broadcaster bound to the session, and streams every event as a JSON-RPC 2.0 notification:
+
+```
+data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}\n\n
+```
+
+A 25-second comment-frame heartbeat (`: keepalive\n\n`) keeps the stream alive through proxy idle timeouts.
+
+The gateway toolkit publishes `tools/list_changed` (debounced 50 ms — a longer window than the MCP SDK's own 10 ms internal debounce, chosen to absorb the postgres LISTEN/NOTIFY round-trip cost across replicas) after every aggregate tool-inventory change that registers or removes at least one tool: a connection coming up after re-auth, a connection being removed, the SetTokenStore retry promoting a placeholder. Connections that resolve to zero tools (placeholder upstreams that never finished discovery, removals on connections with no live tools) are silently skipped to keep the notification budget proportional to operator-visible inventory state. Wiring is automatic via `Platform.WireGatewayBroadcaster`, mirroring `WireGatewayTokenStore`.
+
+If the postgres broadcaster fails to start (e.g. the database role lacks `LISTEN` privilege), the platform falls back to in-memory and continues — `tools/list_changed` propagation degrades to single-replica scope rather than blocking platform startup.
+
+When multiple deployments share a single postgres instance, set `sessions.broadcast_channel` to a deployment-unique value so each deployment's `LISTEN/NOTIFY` traffic stays isolated. The default channel name is `mcp_notifications`.

@@ -70,7 +70,7 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifa
 
 	result := map[string]any{
 		"collection_id": collID,
-		"message":       "Collection created successfully.",
+		fieldMessage:    "Collection created successfully.",
 	}
 	if t.baseURL != "" {
 		result["portal_url"] = t.baseURL + "/portal/collections/" + collID
@@ -97,7 +97,7 @@ func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifac
 
 	return jsonResult(map[string]any{
 		"collections": collections,
-		"total":       total,
+		fieldTotal:    total,
 	})
 }
 
@@ -180,7 +180,7 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifa
 
 	return jsonResult(map[string]any{
 		"collection_id": input.CollectionID,
-		"message":       "Collection deleted successfully.",
+		fieldMessage:    "Collection deleted successfully.",
 	})
 }
 

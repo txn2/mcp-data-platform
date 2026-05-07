@@ -86,7 +86,7 @@ func RequireAdmin(auth Authenticator) func(http.Handler) http.Handler {
 
 // hasAdminRole checks whether the roles list contains "admin".
 func hasAdminRole(roles []string) bool {
-	return slices.Contains(roles, "admin")
+	return slices.Contains(roles, roleAdmin)
 }
 
 // PlatformAuthenticator wraps the platform's middleware.Authenticator chain

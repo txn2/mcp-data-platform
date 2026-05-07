@@ -29,6 +29,10 @@ type adminPromptListResponse struct {
 	Total int             `json:"total" example:"12"`
 }
 
+// promptScopeSystem identifies prompts contributed by built-in providers
+// rather than stored in the database.
+const promptScopeSystem = "system"
+
 // adminPromptCreateRequest is the request body for creating a prompt.
 type adminPromptCreateRequest struct {
 	Name        string            `json:"name" example:"daily-sales-report"`
@@ -111,7 +115,7 @@ func (h *Handler) mergeSystemPrompts(prompts []prompt.Prompt, filter prompt.List
 			continue
 		}
 		seen[info.Name] = true
-		if filter.Scope != "" && filter.Scope != "system" {
+		if filter.Scope != "" && filter.Scope != promptScopeSystem {
 			continue
 		}
 		if search != "" && !matchesSearch(info, search) {
@@ -124,8 +128,8 @@ func (h *Handler) mergeSystemPrompts(prompts []prompt.Prompt, filter prompt.List
 			Description: info.Description,
 			Content:     info.Content,
 			Category:    info.Category,
-			Scope:       "system",
-			Source:      "system",
+			Scope:       promptScopeSystem,
+			Source:      promptScopeSystem,
 			Enabled:     true,
 		})
 	}
@@ -370,5 +374,5 @@ func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 		h.deps.PromptRegistrar.UnregisterRuntimePrompt(existing.Name)
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
 }

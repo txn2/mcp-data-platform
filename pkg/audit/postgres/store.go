@@ -24,12 +24,17 @@ const (
 // the same literal does not appear repeatedly across the column list,
 // predicates, and ORDER BY clauses inside this package.
 const (
-	colTimestamp  = "timestamp"
-	colUserID     = "user_id"
-	colToolName   = "tool_name"
-	colDurationMS = "duration_ms"
-	colPersona    = "persona"
-	colConnection = "connection"
+	colTimestamp    = "timestamp"
+	colUserID       = "user_id"
+	colToolName     = "tool_name"
+	colDurationMS   = "duration_ms"
+	colPersona      = "persona"
+	colConnection   = "connection"
+	colSessionID    = "session_id"
+	colToolkitKind  = "toolkit_kind"
+	colErrorMessage = "error_message"
+	colUserEmail    = "user_email"
+	colSuccess      = "success"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -37,9 +42,9 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // auditColumns lists columns returned by audit SELECT queries.
 var auditColumns = []string{
-	"id", colTimestamp, colDurationMS, "request_id", "session_id",
-	colUserID, "user_email", colPersona, colToolName, "toolkit_kind",
-	"toolkit_name", colConnection, "parameters", "success", "error_message",
+	"id", colTimestamp, colDurationMS, "request_id", colSessionID,
+	colUserID, colUserEmail, colPersona, colToolName, colToolkitKind,
+	"toolkit_name", colConnection, "parameters", colSuccess, colErrorMessage,
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
@@ -133,26 +138,26 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
 	if filter.SessionID != "" {
-		qb = qb.Where(sq.Eq{"session_id": filter.SessionID})
+		qb = qb.Where(sq.Eq{colSessionID: filter.SessionID})
 	}
 	if filter.ToolName != "" {
 		qb = qb.Where(sq.Eq{colToolName: filter.ToolName})
 	}
 	if filter.ToolkitKind != "" {
-		qb = qb.Where(sq.Eq{"toolkit_kind": filter.ToolkitKind})
+		qb = qb.Where(sq.Eq{colToolkitKind: filter.ToolkitKind})
 	}
 	if filter.Success != nil {
-		qb = qb.Where(sq.Eq{"success": *filter.Success})
+		qb = qb.Where(sq.Eq{colSuccess: *filter.Success})
 	}
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
 		qb = qb.Where(sq.Or{
 			sq.ILike{colUserID: like},
 			sq.ILike{colToolName: like},
-			sq.ILike{"toolkit_kind": like},
+			sq.ILike{colToolkitKind: like},
 			sq.ILike{colConnection: like},
 			sq.ILike{colPersona: like},
-			sq.ILike{"error_message": like},
+			sq.ILike{colErrorMessage: like},
 		})
 	}
 	return qb
@@ -249,7 +254,7 @@ func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime 
 // empty for a row, the row is skipped. This is used to map e.g. user_id to
 // user_email for display labels.
 func (s *Store) DistinctPairs(ctx context.Context, col1, col2 string, startTime, endTime *time.Time) (map[string]string, error) {
-	allowed := map[string]bool{"user_id": true, "user_email": true}
+	allowed := map[string]bool{colUserID: true, colUserEmail: true}
 	if !allowed[col1] || !allowed[col2] {
 		return nil, fmt.Errorf("distinct pairs not supported for columns %q, %q", col1, col2)
 	}
@@ -257,10 +262,10 @@ func (s *Store) DistinctPairs(ctx context.Context, col1, col2 string, startTime,
 	qb := psq.Select("DISTINCT " + col1 + ", " + col2).From("audit_logs").
 		Where(sq.NotEq{col2: ""}).OrderBy(col1)
 	if startTime != nil {
-		qb = qb.Where(sq.GtOrEq{"timestamp": *startTime})
+		qb = qb.Where(sq.GtOrEq{colTimestamp: *startTime})
 	}
 	if endTime != nil {
-		qb = qb.Where(sq.LtOrEq{"timestamp": *endTime})
+		qb = qb.Where(sq.LtOrEq{colTimestamp: *endTime})
 	}
 
 	query, args, err := qb.ToSql()

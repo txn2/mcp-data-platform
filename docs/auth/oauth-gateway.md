@@ -66,6 +66,41 @@ stored refresh token. Cron jobs and scheduled prompts run untouched
 until the upstream invalidates the refresh token (operator clicks
 **Reconnect** to re-authorize).
 
+### Refresh token longevity (`offline_access`)
+
+Authorization-code grants automatically include `offline_access` in
+the requested scope (default scope: `openid profile email
+offline_access`). Without `offline_access`, IdPs like Keycloak tie the
+refresh token's lifetime to the user's interactive **SSO Session
+Idle** (default ~30 min), so any platform restart longer than that
+idle window forces the operator to reauthorize through the browser.
+
+- Pre-existing connections keep their explicit `oauth_scope`; the
+  platform only adds `offline_access` to it when missing. A scope
+  that already lists `offline_access` (case-sensitive per RFC 6749
+  §3.3) is left untouched.
+- `client_credentials` grants do not get `offline_access` —
+  there is no SSO session for it to outlive.
+
+When the IdP rejects a stored refresh token with `invalid_grant` AND
+the operator's persisted (pre-augmentation) `oauth_scope` omitted
+`offline_access` — including the legacy case where it was never set —
+the admin status surface includes an actionable hint that the
+persisted refresh grant predates the `offline_access` default and a
+fresh Reconnect will issue a token under the augmented scope.
+Without that hint, the only visible cause is the cryptic upstream
+message ("Token is not active") with no clue to the underlying
+setting.
+
+#### Keycloak setup
+
+The `offline_access` client scope must be assignable (Optional or
+Default) to the gateway's client. In Keycloak admin: **Realm →
+Clients → <gateway client> → Client Scopes → Setup**, and ensure
+`offline_access` is listed under Optional or Default. The user
+completing the Connect flow must also have the `offline_access` realm
+role (granted by default to all users in most realms).
+
 ## Token storage
 
 | Table | Holds | Encryption |

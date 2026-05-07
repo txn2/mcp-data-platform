@@ -7,8 +7,8 @@ import (
 
 // DefaultDiscoveryTools lists the tool names that count as DataHub discovery.
 var DefaultDiscoveryTools = []string{
-	"datahub_search",
-	"datahub_get_entity",
+	toolNameDatahubSearch,
+	toolNameDatahubGetEntity,
 	"datahub_get_schema",
 	"datahub_get_lineage",
 	"datahub_get_queries",
@@ -19,8 +19,8 @@ var DefaultDiscoveryTools = []string{
 
 // DefaultQueryTools lists the tool names that are gated by discovery.
 var DefaultQueryTools = []string{
-	"trino_query",
-	"trino_execute",
+	toolNameTrinoQuery,
+	toolNameTrinoExecute,
 }
 
 // workflowState tracks per-session workflow state.

@@ -725,6 +725,14 @@ func TestMigration004_ColumnConsistency(t *testing.T) {
 	require.Len(t, selectMatch, 2, "store.go should contain auditColumns = []string{...}")
 	selectCols := selectMatch[1]
 
+	// store.go references many SQL columns through package-scoped
+	// constants (e.g. `colSessionID = "session_id"`) to satisfy the
+	// goconst linter. Resolve those constant references back to their
+	// string values so this test still validates the actual column
+	// list, not just the literal source text.
+	insertCols = resolveColumnConstants(storeStr, insertCols)
+	selectCols = resolveColumnConstants(storeStr, selectCols)
+
 	// Verify each column added by migration 004 appears in both INSERT and SELECT.
 	for _, col := range addedColumns {
 		col = strings.TrimSpace(col)
@@ -735,4 +743,17 @@ func TestMigration004_ColumnConsistency(t *testing.T) {
 		assert.Contains(t, selectCols, col,
 			"column %q added by migration 004 must appear in store SELECT column list", col)
 	}
+}
+
+// resolveColumnConstants substitutes Go constant references back to
+// their string-literal values so substring assertions over a column
+// list survive the goconst-driven extraction of repeated literals
+// into named constants. Matches `name = "value"` declarations in the
+// surrounding source.
+func resolveColumnConstants(source, columnList string) string {
+	constRe := regexp.MustCompile(`(?m)^\s*(col[A-Z]\w*)\s*=\s*"([^"]+)"`)
+	for _, m := range constRe.FindAllStringSubmatch(source, -1) {
+		columnList = strings.ReplaceAll(columnList, m[1], `"`+m[2]+`"`)
+	}
+	return columnList
 }

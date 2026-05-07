@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -328,6 +329,95 @@ func TestConfigValidate(t *testing.T) {
 		err := cfg.Validate()
 		if err == nil {
 			t.Error("Validate() expected error for multiple issues")
+		}
+	})
+
+	t.Run("BroadcastChannel under 63 bytes is accepted", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: "deploy_alpha_events"},
+			Database: DatabaseConfig{DSN: "postgres://x"},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil for short channel", err)
+		}
+	})
+
+	t.Run("BroadcastChannel exactly 63 bytes is accepted", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: strings.Repeat("a", 63)},
+			Database: DatabaseConfig{DSN: "postgres://x"},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil at boundary", err)
+		}
+	})
+
+	t.Run("BroadcastChannel ignored on memory store", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: SessionsConfig{Store: SessionStoreMemory, BroadcastChannel: "this.is.invalid!"},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil — channel is unused on memory store", err)
+		}
+	})
+
+	t.Run("BroadcastChannel with invalid characters is rejected", func(t *testing.T) {
+		cases := []string{
+			"deploy alpha",      // space
+			"123events",         // leading digit
+			"alpha-events",      // dash
+			"$invalid",          // leading dollar
+			"deploy.production", // period
+		}
+		for _, ch := range cases {
+			cfg := &Config{
+				Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: ch},
+				Database: DatabaseConfig{DSN: "postgres://x"},
+			}
+			err := cfg.Validate()
+			if err == nil {
+				t.Errorf("Validate() expected error for invalid identifier %q", ch)
+				continue
+			}
+			if !strings.Contains(err.Error(), "valid postgres identifier") {
+				t.Errorf("for %q: error = %v, want message about valid postgres identifier", ch, err)
+			}
+		}
+	})
+
+	t.Run("BroadcastChannel with valid identifiers is accepted", func(t *testing.T) {
+		cases := []string{
+			"deploy_alpha",
+			"_underscore_first",
+			"a$dollar_after_first",
+			"X1Y2Z3",
+		}
+		for _, ch := range cases {
+			cfg := &Config{
+				Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: ch},
+				Database: DatabaseConfig{DSN: "postgres://x"},
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want nil for valid identifier %q", err, ch)
+			}
+		}
+	})
+
+	t.Run("BroadcastChannel over 63 bytes is rejected", func(t *testing.T) {
+		// Postgres truncates LISTEN identifiers at NAMEDATALEN-1 = 63
+		// bytes. A long-name override would silently misroute (LISTEN
+		// uses truncated, NOTIFY uses full) — exactly the multi-tenant
+		// failure mode the override exists to prevent.
+		cfg := &Config{
+			Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: strings.Repeat("a", 64)},
+			Database: DatabaseConfig{DSN: "postgres://x"},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("Validate() expected error for >63 byte channel name")
+		}
+		if !strings.Contains(err.Error(), "≤63") {
+			t.Errorf("Validate() error = %v, want message mentioning ≤63 bytes", err)
 		}
 	})
 

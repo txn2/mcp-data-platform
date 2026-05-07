@@ -870,14 +870,39 @@ func TestPublicCollectionViewHeaderBranding(t *testing.T) {
 	platBlock := body[platIdx:bodyEndIdx]
 	assert.Contains(t, platBlock, "</a>",
 		"platform <a> must be closed before </body>")
-	// And the open/close anchor counts must balance. Use a regex matching
-	// `<a` followed by whitespace or `>` so a hypothetical bare `<a>` or
-	// newline-after-`<a` is also counted.
+	// And the open/close anchor counts must balance. Strip embedded
+	// <script>/<style> blocks first because the bundled markdown
+	// renderer's source contains literal `<a` tokens that aren't real
+	// HTML anchors (e.g. regex patterns inside the JS bundle).
+	balanced := stripScriptAndStyle(body)
 	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
-	openCount := len(openAnchorRE.FindAllString(body, -1))
-	closeCount := strings.Count(body, "</a>")
+	openCount := len(openAnchorRE.FindAllString(balanced, -1))
+	closeCount := strings.Count(balanced, "</a>")
 	assert.Equal(t, openCount, closeCount,
 		"opening and closing <a> tag counts must match")
+}
+
+// stripScriptAndStyle removes <script>...</script> and <style>...</style>
+// blocks from the body so anchor-balance assertions don't trip over
+// `<a` tokens that appear as JavaScript source (e.g. regex patterns
+// inside the bundled markdown renderer's marked.js source).
+func stripScriptAndStyle(body string) string {
+	for _, tag := range []string{"script", "style"} {
+		open := "<" + tag
+		closeTag := "</" + tag + ">"
+		for {
+			s := strings.Index(body, open)
+			if s < 0 {
+				break
+			}
+			e := strings.Index(body[s:], closeTag)
+			if e < 0 {
+				break
+			}
+			body = body[:s] + body[s+e+len(closeTag):]
+		}
+	}
+	return body
 }
 
 // TestPublicCollectionViewLogoOnlyImplementor asserts implementor branding
@@ -921,9 +946,10 @@ func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
 	// Anchor balance must hold even in the URL-absent case (the implementor
 	// anchor open/close conditional is governed by ImplementorURL, which is
 	// empty here, so both should be absent — net zero on each side).
+	balanced := stripScriptAndStyle(body)
 	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
-	openCount := len(openAnchorRE.FindAllString(body, -1))
-	closeCount := strings.Count(body, "</a>")
+	openCount := len(openAnchorRE.FindAllString(balanced, -1))
+	closeCount := strings.Count(balanced, "</a>")
 	assert.Equal(t, openCount, closeCount,
 		"opening and closing <a> tag counts must match")
 }
@@ -958,9 +984,10 @@ func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
 	assert.Contains(t, body, `<span class="brand-name">Name Only Co.</span>`,
 		"implementor name must render inside the brand-name span")
 	// Anchor balance even without a URL set.
+	balanced := stripScriptAndStyle(body)
 	openAnchorRE := regexp.MustCompile(`<a[\s>]`)
-	openCount := len(openAnchorRE.FindAllString(body, -1))
-	closeCount := strings.Count(body, "</a>")
+	openCount := len(openAnchorRE.FindAllString(balanced, -1))
+	closeCount := strings.Count(balanced, "</a>")
 	assert.Equal(t, openCount, closeCount,
 		"opening and closing <a> tag counts must match")
 }

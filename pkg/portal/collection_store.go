@@ -215,12 +215,12 @@ func (*postgresCollectionStore) buildListQueries(filter CollectionFilter, limit 
 		OrderBy("created_at DESC").Limit(uint64(limit)).Offset(uint64(filter.Offset)) // #nosec G115 -- limit/offset are validated positive ints from EffectiveLimit()
 
 	if filter.OwnerID != "" {
-		countQB = countQB.Where(sq.Eq{"owner_id": filter.OwnerID})
-		selectQB = selectQB.Where(sq.Eq{"owner_id": filter.OwnerID})
+		countQB = countQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
+		selectQB = selectQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
 	}
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
-		cond := sq.Or{sq.ILike{"name": like}, sq.ILike{"description": like}}
+		cond := sq.Or{sq.ILike{colName: like}, sq.ILike{colDescription: like}}
 		countQB = countQB.Where(cond)
 		selectQB = selectQB.Where(cond)
 	}

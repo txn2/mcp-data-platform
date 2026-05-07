@@ -7,15 +7,24 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Upstream tool names referenced across multiple middleware files. These are
+// fully-qualified MCP tool names exposed by the Trino and DataHub toolkits.
+const (
+	toolNameTrinoQuery       = "trino_query"
+	toolNameTrinoExecute     = "trino_execute"
+	toolNameDatahubSearch    = "datahub_search"
+	toolNameDatahubGetEntity = "datahub_get_entity"
+)
+
 // defaultDescriptionOverrides contains built-in description overrides that
 // guide agents toward DataHub discovery before running queries.
 var defaultDescriptionOverrides = map[string]string{
-	"trino_query": "Execute a read-only SQL query against Trino and return results. " +
+	toolNameTrinoQuery: "Execute a read-only SQL query against Trino and return results. " +
 		"IMPORTANT: Before writing SQL, call datahub_search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms). " +
 		"The search results include schema previews with column names and types. " +
 		"Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH statements are allowed.",
-	"trino_execute": "Execute a SQL statement against Trino, including write operations. " +
+	toolNameTrinoExecute: "Execute a SQL statement against Trino, including write operations. " +
 		"IMPORTANT: Before writing SQL, call datahub_search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms). " +
 		"Use trino_query for read-only SELECT queries. This tool should be used when " +

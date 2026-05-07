@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -694,4 +695,248 @@ func TestHandler_ReviveSession_CreateError(t *testing.T) {
 
 	assert.False(t, inner.wasCalled(), "inner handler should not be called when revive fails")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// flushRecorder is httptest.ResponseRecorder + http.Flusher so the SSE
+// branch's flusher type assertion succeeds in tests.
+type flushRecorder struct{ *httptest.ResponseRecorder }
+
+func (flushRecorder) Flush() {}
+
+func newSSEHandler(t *testing.T) (*AwareHandler, *MemoryStore, *MemoryBroadcaster) {
+	t.Helper()
+	store := NewMemoryStore(handlerTestTTL)
+	b := NewMemoryBroadcaster(nil)
+	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = store.Close() })
+	h := NewAwareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Inner handler must NOT be called for valid SSE GET.
+		w.WriteHeader(http.StatusTeapot)
+	}), HandlerConfig{Store: store, TTL: handlerTestTTL, Broadcaster: b})
+	return h, store, b
+}
+
+func TestHandler_SSE_DeliversBroadcastEvent(t *testing.T) {
+	handler, store, broker := newSSEHandler(t)
+	ctx := context.Background()
+
+	sess := newTestSession("sse-sess", handlerTestTTL)
+	sess.UserID = "" // anonymous session — no ownership check
+	require.NoError(t, store.Create(ctx, sess))
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, srv.URL+"/", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "sse-sess")
+
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+	require.Equal(t, "sse-sess", resp.Header.Get(sessionIDHeader))
+
+	// Subscriptions register inside handleSSE before the for-loop;
+	// poll until the broadcaster sees us.
+	deadline := time.After(time.Second)
+	for broker.SubscriberCount() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("subscription did not register")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	require.NoError(t, broker.Publish(ctx, Event{Method: "notifications/tools/list_changed"}))
+
+	got := readSSEUntil(t, resp.Body, `"method":"notifications/tools/list_changed"`, time.Second)
+	assert.Contains(t, got, ": connected", "expected initial heartbeat")
+	assert.Contains(t, got, `"jsonrpc":"2.0"`)
+}
+
+// readSSEUntil reads from r until the buffered output contains the
+// needle or the deadline is reached. Returns whatever was buffered.
+//
+// Reads run in a goroutine so the timeout actually fires even when
+// the underlying io.Reader is blocked waiting for the next byte —
+// without the goroutine, a missed publish could leave the test
+// hanging until the package-level test timeout (default 10 m). The
+// outer goroutine (this function) owns `got` exclusively; the inner
+// goroutine only writes to `ch`.
+func readSSEUntil(t *testing.T, r interface{ Read([]byte) (int, error) }, needle string, timeout time.Duration) string {
+	t.Helper()
+	type readResult struct {
+		n   int
+		err error
+	}
+	var got strings.Builder
+	deadline := time.After(timeout)
+	for {
+		buf := make([]byte, 256)
+		ch := make(chan readResult, 1)
+		go func() { n, err := r.Read(buf); ch <- readResult{n, err} }()
+		select {
+		case <-deadline:
+			t.Fatalf("did not see %q in SSE stream within %v; got=%q", needle, timeout, got.String())
+			return got.String()
+		case res := <-ch:
+			if res.n > 0 {
+				got.Write(buf[:res.n])
+				if strings.Contains(got.String(), needle) {
+					return got.String()
+				}
+			}
+			if res.err != nil {
+				t.Fatalf("read error before seeing %q in SSE stream: %v; got=%q", needle, res.err, got.String())
+				return got.String()
+			}
+		}
+	}
+}
+
+func TestHandler_SSE_Returns404ForUnknownSession(t *testing.T) {
+	handler, _, _ := newSSEHandler(t)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "ghost-session")
+	rec := httptest.NewRecorder()
+	w := flushRecorder{rec}
+
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_SSE_RevivesExpiredSessionWithToken(t *testing.T) {
+	handler, store, broker := newSSEHandler(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "revived-session")
+	req.Header.Set(handlerTestAuthHeader, "Bearer the-token")
+	rec := httptest.NewRecorder()
+	w := flushRecorder{rec}
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	// Subscription only registers after a successful revive.
+	deadline := time.After(time.Second)
+	for broker.SubscriberCount() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("subscription not registered after revive")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// Verify the session was actually persisted with the token-derived owner.
+	sess, err := store.Get(context.Background(), "revived-session")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, hashToken("the-token"), sess.UserID)
+
+	cancel()
+	<-done
+}
+
+func TestHandler_SSE_RejectsForeignSession(t *testing.T) {
+	handler, store, _ := newSSEHandler(t)
+	ctx := context.Background()
+
+	owned := newTestSession("owned", handlerTestTTL)
+	owned.UserID = hashToken("owner-token")
+	require.NoError(t, store.Create(ctx, owned))
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "owned")
+	req.Header.Set(handlerTestAuthHeader, "Bearer attacker-token")
+	rec := httptest.NewRecorder()
+	w := flushRecorder{rec}
+
+	handler.ServeHTTP(w, req)
+
+	// validateOwnership returns false → handler emits 403, matching the
+	// POST path's StatusForbidden in handleExisting. Both surfaces
+	// must agree on the same store invariant: divergent status codes
+	// would let a probing caller infer different facts about the
+	// session via GET vs POST.
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandler_SSE_FallsThroughWhenNoBroadcaster(t *testing.T) {
+	store := NewMemoryStore(handlerTestTTL)
+	t.Cleanup(func() { _ = store.Close() })
+
+	innerCalled := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		innerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := NewAwareHandler(inner, HandlerConfig{Store: store, TTL: handlerTestTTL})
+
+	sess := newTestSession("plain-sess", handlerTestTTL)
+	sess.UserID = ""
+	require.NoError(t, store.Create(context.Background(), sess))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "plain-sess")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, innerCalled, "without broadcaster, GET must fall through to inner")
+}
+
+func TestWriteSSEEvent_FormatIsJSONRPC2(t *testing.T) {
+	rec := httptest.NewRecorder()
+	err := writeSSEEvent(rec, Event{Method: "notifications/tools/list_changed", Params: map[string]any{"k": "v"}})
+	require.NoError(t, err)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"jsonrpc":"2.0"`)
+	assert.Contains(t, body, `"method":"notifications/tools/list_changed"`)
+	assert.Contains(t, body, `"params":{"k":"v"}`)
+	// SSE frame must end with double newline per WHATWG HTML §server-sent events.
+	assert.True(t, strings.HasSuffix(body, "\n\n"), "expected SSE double-newline terminator, got %q", body)
+}
+
+func TestAcceptsSSE(t *testing.T) {
+	cases := []struct {
+		header string
+		want   bool
+	}{
+		{"", false},
+		{"application/json", false},
+		{"text/event-stream", true},
+		{"application/json, text/event-stream", true},
+		{"text/event-stream; charset=utf-8", true},
+		// RFC 7231 §3.1.1.1: media types are case-insensitive. Strict
+		// proxies that title-case media types must not silently bypass
+		// the SSE branch.
+		{"Text/Event-Stream", true},
+		{"TEXT/EVENT-STREAM", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.header, func(t *testing.T) {
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+			if tc.header != "" {
+				r.Header.Set("Accept", tc.header)
+			}
+			assert.Equal(t, tc.want, acceptsSSE(r))
+		})
+	}
 }

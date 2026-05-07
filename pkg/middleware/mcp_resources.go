@@ -18,6 +18,9 @@ const (
 	logKeyURI           = "uri"
 	logKeyUserID        = "user_id"
 	logKeyError         = "error"
+
+	// mimeTypeJSON is the MIME type for JSON content.
+	mimeTypeJSON = "application/json"
 )
 
 // ResourceListProvider loads managed resources for a given set of scope filters.
@@ -343,7 +346,7 @@ func isTextMIME(mime string) bool {
 		return true
 	}
 	textTypes := []string{
-		"application/json",
+		mimeTypeJSON,
 		"application/xml",
 		"application/yaml",
 		"application/x-yaml",

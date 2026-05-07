@@ -13,6 +13,21 @@ const (
 	// entityTypeDataset is the DataHub entity type string for datasets.
 	entityTypeDataset = "dataset"
 
+	// entityTypeGlossaryTerm is the DataHub entity type string for glossary terms.
+	entityTypeGlossaryTerm = "glossaryTerm"
+
+	// entityTypeContainer is the DataHub entity type string for containers.
+	entityTypeContainer = "container"
+
+	// entityTypeDashboard is the DataHub entity type string for dashboards.
+	entityTypeDashboard = "dashboard"
+
+	// entityTypeDataProduct is the DataHub entity type string for data products.
+	entityTypeDataProduct = "dataProduct"
+
+	// entityTypeDomain is the DataHub entity type string for domains.
+	entityTypeDomain = "domain"
+
 	// opsSeparator is the delimiter used when joining supported operations in error messages.
 	opsSeparator = ", "
 )
@@ -36,10 +51,10 @@ var datasetOnlyOperations = map[actionType]bool{
 // operations. Must stay in sync with the inline fragments in mcp-datahub's
 // GetContextDocumentsQuery (Dataset, GlossaryTerm, GlossaryNode, Container).
 var contextDocumentSupportedTypes = map[string]bool{
-	"dataset":      true,
-	"glossaryTerm": true,
-	"glossaryNode": true,
-	"container":    true,
+	entityTypeDataset:      true,
+	entityTypeGlossaryTerm: true,
+	"glossaryNode":         true,
+	entityTypeContainer:    true,
 }
 
 // contextDocumentOps are change types that require context document support.
@@ -55,8 +70,8 @@ var contextDocumentOps = map[actionType]bool{
 // update_description is supported for the 10 entity types handled by mcp-datahub.
 func supportedOpsForType(entityType string) []string {
 	ops := []string{
-		"add_tag", "remove_tag", "add_glossary_term",
-		"add_documentation", "flag_quality_issue",
+		string(actionAddTag), string(actionRemoveTag), string(actionAddGlossaryTerm),
+		string(actionAddDocumentation), string(actionFlagQualityIssue),
 	}
 
 	if descriptionSupportedTypes[entityType] {
@@ -77,16 +92,16 @@ func supportedOpsForType(entityType string) []string {
 // descriptionSupportedTypes are entity types that support update_description.
 // Must stay in sync with the upstream mcp-datahub descriptionAspectMap.
 var descriptionSupportedTypes = map[string]bool{
-	"dataset":      true,
-	"dashboard":    true,
-	"chart":        true,
-	"dataFlow":     true,
-	"dataJob":      true,
-	"container":    true,
-	"dataProduct":  true,
-	"domain":       true,
-	"glossaryTerm": true,
-	"glossaryNode": true,
+	entityTypeDataset:      true,
+	entityTypeDashboard:    true,
+	"chart":                true,
+	"dataFlow":             true,
+	"dataJob":              true,
+	entityTypeContainer:    true,
+	entityTypeDataProduct:  true,
+	entityTypeDomain:       true,
+	entityTypeGlossaryTerm: true,
+	"glossaryNode":         true,
 }
 
 // validateEntityTypeForChange checks whether a change type is supported for the

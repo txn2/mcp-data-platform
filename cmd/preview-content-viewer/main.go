@@ -76,8 +76,12 @@ nav a.active{background:var(--badge-bg);color:var(--badge-text)}
 // when an unknown ?type= query parameter is provided.
 const sampleMarkdown = "markdown"
 
+// mimeTypeMarkdown is the MIME type for Markdown content; the default
+// sample's content type.
+const mimeTypeMarkdown = "text/markdown"
+
 var samples = map[string][2]string{
-	sampleMarkdown: {"text/markdown", "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
+	sampleMarkdown: {mimeTypeMarkdown, "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
 	"svg":          {"image/svg+xml", `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="80" fill="#3b82f6" opacity="0.8"/><text x="100" y="108" text-anchor="middle" fill="white" font-size="24" font-family="system-ui">SVG</text></svg>`},
 	"jsx":          {"text/jsx", "import { useState } from 'react';\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  return (\n    <div style={{padding: '2rem', fontFamily: 'system-ui'}}>\n      <h1>Counter: {count}</h1>\n      <button onClick={() => setCount(c => c + 1)}\n        style={{padding: '8px 16px', fontSize: '16px', cursor: 'pointer'}}>\n        Increment\n      </button>\n    </div>\n  );\n}\n"},
 	"html":         {"text/html", "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:system-ui;padding:2rem}h1{color:#3b82f6}</style></head>\n<body><h1>Hello from HTML</h1><p>This is rendered in a sandboxed iframe.</p></body>\n</html>"},

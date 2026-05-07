@@ -29,13 +29,21 @@ const (
 	logKeyError = "error"
 )
 
+// Connection kind discriminators identifying which toolkit family a
+// connection instance targets.
+const (
+	connectionKindMCP   = "mcp"
+	connectionKindTrino = "trino"
+	connectionKindS3    = "s3"
+)
+
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
 // connection instances. DataHub is excluded because the platform connects to a
 // single catalog instance configured in the YAML file.
 var knownConnectionKinds = map[string]bool{
-	"trino": true,
-	"s3":    true,
-	"mcp":   true,
+	connectionKindTrino: true,
+	connectionKindS3:    true,
+	connectionKindMCP:   true,
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.
@@ -388,13 +396,23 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 // redactedValue is the placeholder used for sensitive config fields in API responses.
 const redactedValue = "[REDACTED]"
 
+// Field-name constants for legacy or connection-specific sensitive keys
+// kept distinct from the shared sensitive-key set in config_handler.go so
+// the connection schema can evolve independently.
+const (
+	sensKeyOAuthClientSecret = "oauth_client_secret" // #nosec G101 -- field name, not a credential
+	sensKeySecretKey         = "secret_key"          // #nosec G101 -- field name, not a credential
+	sensKeyAccessToken       = "access_token"        // #nosec G101 -- field name, not a credential
+	sensKeyRefreshToken      = "refresh_token"       // #nosec G101 -- field name, not a credential
+)
+
 // connectionSensitiveKeys lists config keys that contain secrets and must be
 // redacted when returning connection instances via the API.
 var connectionSensitiveKeys = []string{
-	"password", "secret_access_key", "secret_key",
-	"token", "access_token", "refresh_token", "api_key",
-	"credential",
-	"client_secret", "oauth_client_secret",
+	sensKeyPassword, sensKeySecretAccessKey, sensKeySecretKey,
+	sensKeyToken, sensKeyAccessToken, sensKeyRefreshToken, sensKeyAPIKey,
+	sensKeyCredential,
+	sensKeyClientSecret, sensKeyOAuthClientSecret,
 }
 
 // platformInternalKeys lists config keys injected by the platform at runtime

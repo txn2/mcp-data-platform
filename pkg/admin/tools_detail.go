@@ -314,7 +314,7 @@ func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDeta
 // fillEnrichmentRuleCount counts cross-enrichment rules attached to
 // this tool. Only meaningful for gateway-proxied tools (kind=mcp).
 func (h *Handler) fillEnrichmentRuleCount(ctx context.Context, kind, connection, toolName string, d *ToolDetail) {
-	if kind != "mcp" || connection == "" || h.deps.EnrichmentStore == nil {
+	if kind != connectionKindMCP || connection == "" || h.deps.EnrichmentStore == nil {
 		return
 	}
 	rules, err := h.deps.EnrichmentStore.List(ctx, connection, toolName, false)
@@ -342,7 +342,7 @@ func toolDescriptionConfigKey(toolName string) string {
 // is setToolVisibility; future bulk-hide / YAML-import / similar
 // handlers must participate in the same lock or they recreate the
 // lost-update race fixed in #343.
-const toolsDenyConfigKey = "tools.deny"
+const toolsDenyConfigKey = platform.ConfigKeyToolsDeny
 
 // toolVisibilityRequest is the body for PUT /admin/tools/{name}/visibility.
 type toolVisibilityRequest struct {

@@ -166,7 +166,7 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
 }
 
 // keySourceByName returns the source of an API key by name, or "" if not found.

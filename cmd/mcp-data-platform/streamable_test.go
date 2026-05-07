@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	mcpsess "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 const (
@@ -165,7 +167,7 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 
 	// Add middleware in innermost-first order (last added = outermost = runs first)
 	// The production order is: enrichment → rules → audit → auth/authz → apps metadata
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)
@@ -309,7 +311,7 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	})
 
 	authenticator, authorizer := buildProductionMiddleware(t, signingKey, issuer)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)
@@ -377,7 +379,7 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 	})
 
 	authenticator, authorizer := buildProductionMiddleware(t, signingKey, issuer)
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	handler := httpauth.MCPAuthGateway("")(streamHandler)
@@ -433,4 +435,151 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 		t.Errorf("expected 'persona: default' in error, got: %q", tc.Text)
 	}
 	t.Logf("Confirmed denial message: %s", tc.Text)
+}
+
+// TestStreamableHTTP_ListChanged_BroadcastViaAwareHandler exercises
+// the broker → SSE half of Bug B's pipeline:
+//
+//   - mcp.Server with Tools.ListChanged: true
+//   - StreamableHTTPHandler in Stateless mode (the production
+//     deployment shape — and the mode the SDK refuses to push from)
+//   - session.AwareHandler wrapping it, with a memory broadcaster
+//   - downstream client opens an SSE long-poll GET against the
+//     session-aware handler
+//   - the test publishes directly through the broadcaster (NOT
+//     through the gateway publish path — that half is covered by
+//     pkg/toolkits/gateway/toolkit_test.go::TestToolkit_BroadcastsToRealSubscriber)
+//   - the SSE client must see notifications/tools/list_changed
+//     within a couple hundred milliseconds, without disconnecting
+//
+// If this test fails, downstream agents (Claude.ai, Claude Desktop)
+// will not see live tool inventory updates even when the gateway
+// publish path works — the SSE channel is dead.
+func TestStreamableHTTP_ListChanged_BroadcastViaAwareHandler(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"},
+		&mcp.ServerOptions{
+			Capabilities: &mcp.ServerCapabilities{
+				Tools: &mcp.ToolCapabilities{ListChanged: true},
+			},
+		})
+
+	streamHandler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{Stateless: true},
+	)
+
+	store := mcpsess.NewMemoryStore(5 * time.Minute)
+	t.Cleanup(func() { _ = store.Close() })
+
+	broker := mcpsess.NewMemoryBroadcaster(nil)
+	t.Cleanup(func() { _ = broker.Close() })
+
+	// Pre-create the session row so the GET passes ownership checks
+	// without a token. Production goes through revive-on-token; for
+	// the test we just want the SSE branch unblocked.
+	const sessionID = "broadcast-test-session"
+	if err := store.Create(ctx, &mcpsess.Session{
+		ID:           sessionID,
+		ExpiresAt:    time.Now().Add(5 * time.Minute),
+		LastActiveAt: time.Now(),
+		CreatedAt:    time.Now(),
+	}); err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+
+	aware := mcpsess.NewAwareHandler(streamHandler, mcpsess.HandlerConfig{
+		Store:       store,
+		TTL:         5 * time.Minute,
+		Broadcaster: broker,
+	})
+	httpServer := httptest.NewServer(aware)
+	defer httpServer.Close()
+
+	// Open the SSE long-poll. In stateless streamable mode the inner
+	// handler would 405 this — the AwareHandler must intercept and
+	// open a long-lived stream.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/", http.NoBody)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Mcp-Session-Id", sessionID)
+
+	resp, err := httpServer.Client().Do(req)
+	if err != nil {
+		t.Fatalf("SSE GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("SSE GET status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+
+	// Wait for the subscription to register inside handleSSE.
+	deadline := time.After(time.Second)
+	for broker.SubscriberCount() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("broadcaster has no subscriber after SSE GET")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// Publish directly through the broadcaster — this validates the
+	// broker → SSE half of the pipeline. The gateway → broker half is
+	// covered separately (see test doc above for cross-reference).
+	if err := broker.Publish(ctx, mcpsess.Event{Method: "notifications/tools/list_changed"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	got := readSSEUntilContains(t, resp.Body, `"method":"notifications/tools/list_changed"`, 2*time.Second)
+	if !strings.Contains(got, `"jsonrpc":"2.0"`) {
+		t.Errorf("expected JSON-RPC 2.0 envelope in stream, got: %q", got)
+	}
+}
+
+// readSSEUntilContains reads from r until either the buffered output
+// contains needle or the deadline elapses. Returns the buffered text.
+// Fails the test if the needle is never seen.
+//
+// Reads run in a goroutine so the timeout actually fires when the
+// underlying body blocks waiting for bytes — without that, a missed
+// publish would block the test until the package-level test timeout.
+// The outer goroutine (this function) owns `got` exclusively; the
+// inner goroutine only writes to `ch`.
+func readSSEUntilContains(t *testing.T, r io.Reader, needle string, timeout time.Duration) string {
+	t.Helper()
+	type readResult struct {
+		n   int
+		err error
+	}
+	var got strings.Builder
+	deadline := time.After(timeout)
+	for {
+		buf := make([]byte, 256)
+		ch := make(chan readResult, 1)
+		go func() { n, err := r.Read(buf); ch <- readResult{n, err} }()
+		select {
+		case <-deadline:
+			t.Fatalf("did not see %q in SSE stream within %v; got=%q", needle, timeout, got.String())
+			return got.String()
+		case res := <-ch:
+			if res.n > 0 {
+				got.Write(buf[:res.n])
+				if strings.Contains(got.String(), needle) {
+					return got.String()
+				}
+			}
+			if res.err != nil {
+				t.Fatalf("read error before seeing %q: %v; got=%q", needle, res.err, got.String())
+				return got.String()
+			}
+		}
+	}
 }

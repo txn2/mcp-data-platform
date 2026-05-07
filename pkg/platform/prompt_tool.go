@@ -25,6 +25,9 @@ const (
 	// separate for documentation clarity at call sites.
 	fieldName    = "name"
 	fieldContent = "content"
+	// fieldStatus is the JSON result key for command-status strings
+	// ("created", "updated", "deleted") returned by manage_prompt.
+	fieldStatus = "status"
 )
 
 // platformPromptCreator adapts the prompt store and platform for the
@@ -148,9 +151,9 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	p.RegisterRuntimePrompt(pr)
 
 	return promptJSONResult(map[string]any{
-		"status":  "created",
-		"id":      pr.ID,
-		fieldName: pr.Name,
+		fieldStatus: "created",
+		"id":        pr.ID,
+		fieldName:   pr.Name,
 	})
 }
 
@@ -193,8 +196,8 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	p.RegisterRuntimePrompt(existing)
 
 	return promptJSONResult(map[string]any{
-		"status":  "updated",
-		fieldName: existing.Name,
+		fieldStatus: "updated",
+		fieldName:   existing.Name,
 	})
 }
 
@@ -261,8 +264,8 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	p.UnregisterRuntimePrompt(input.Name)
 
 	return promptJSONResult(map[string]any{
-		"status":  "deleted",
-		fieldName: input.Name,
+		fieldStatus: "deleted",
+		fieldName:   input.Name,
 	})
 }
 
