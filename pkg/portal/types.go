@@ -61,7 +61,7 @@ type AssetVersion struct {
 func ExtensionForContentType(ct string) string {
 	switch {
 	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
-		return ".html"
+		return extHTML
 	case strings.Contains(ct, "svg"):
 		return ".svg"
 	case strings.Contains(ct, "markdown"):

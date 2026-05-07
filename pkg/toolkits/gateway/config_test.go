@@ -177,3 +177,128 @@ func TestGetStringDefault_EmptyFallsBack(t *testing.T) {
 		t.Errorf("got %q, want %q", got, "fallback")
 	}
 }
+
+func TestEnsureOfflineAccessScope(t *testing.T) {
+	cases := []struct {
+		name  string
+		grant string
+		scope string
+		want  string
+	}{
+		{
+			name:  "client_credentials passes scope through unchanged",
+			grant: OAuthGrantClientCredentials,
+			scope: "read write",
+			want:  "read write",
+		},
+		{
+			name:  "client_credentials with empty scope stays empty",
+			grant: OAuthGrantClientCredentials,
+			scope: "",
+			want:  "",
+		},
+		{
+			name:  "authorization_code with empty scope gets default scope",
+			grant: OAuthGrantAuthorizationCode,
+			scope: "",
+			want:  defaultAuthCodeScope,
+		},
+		{
+			name:  "authorization_code preserves scope already containing offline_access",
+			grant: OAuthGrantAuthorizationCode,
+			scope: "openid profile email offline_access",
+			want:  "openid profile email offline_access",
+		},
+		{
+			name:  "authorization_code with custom scope adds offline_access",
+			grant: OAuthGrantAuthorizationCode,
+			scope: "openid profile",
+			want:  "openid profile offline_access",
+		},
+		{
+			name:  "authorization_code does not duplicate when offline_access already present in middle",
+			grant: OAuthGrantAuthorizationCode,
+			scope: "openid offline_access email",
+			want:  "openid offline_access email",
+		},
+		{
+			name:  "match is case-sensitive per RFC 6749 §3.3",
+			grant: OAuthGrantAuthorizationCode,
+			scope: "openid Offline_Access",
+			want:  "openid Offline_Access offline_access",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ensureOfflineAccessScope(tc.grant, tc.scope)
+			if got != tc.want {
+				t.Errorf("ensureOfflineAccessScope(%q, %q) = %q, want %q",
+					tc.grant, tc.scope, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseConfig_OfflineAccessDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		want string
+	}{
+		{
+			name: "nested authorization_code with no scope -> default scope",
+			cfg: map[string]any{
+				"endpoint":  "https://u.example.com",
+				"auth_mode": AuthModeOAuth,
+				"oauth": map[string]any{
+					"grant":             OAuthGrantAuthorizationCode,
+					"token_url":         "https://idp/token",
+					"authorization_url": "https://idp/authorize",
+					"client_id":         "cid",
+					"client_secret":     "csec",
+				},
+			},
+			want: defaultAuthCodeScope,
+		},
+		{
+			name: "flat authorization_code with explicit scope -> offline_access appended",
+			cfg: map[string]any{
+				"endpoint":                "https://u.example.com",
+				"auth_mode":               AuthModeOAuth,
+				"oauth_grant":             OAuthGrantAuthorizationCode,
+				"oauth_token_url":         "https://idp/token",
+				"oauth_authorization_url": "https://idp/authorize",
+				"oauth_client_id":         "cid",
+				"oauth_client_secret":     "csec",
+				"oauth_scope":             "openid profile",
+			},
+			want: "openid profile offline_access",
+		},
+		{
+			name: "client_credentials leaves scope untouched",
+			cfg: map[string]any{
+				"endpoint":  "https://u.example.com",
+				"auth_mode": AuthModeOAuth,
+				"oauth": map[string]any{
+					"grant":         OAuthGrantClientCredentials,
+					"token_url":     "https://idp/token",
+					"client_id":     "cid",
+					"client_secret": "csec",
+					"scope":         "read",
+				},
+			},
+			want: "read",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseConfig(tc.cfg)
+			if err != nil {
+				t.Fatalf("ParseConfig: %v", err)
+			}
+			if cfg.OAuth.Scope != tc.want {
+				t.Errorf("OAuth.Scope = %q, want %q", cfg.OAuth.Scope, tc.want)
+			}
+		})
+	}
+}

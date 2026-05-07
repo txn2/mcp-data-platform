@@ -23,6 +23,12 @@ const (
 	kindKnowledge  = "knowledge"
 	kindMemory     = "memory"
 	kindMCP        = "mcp"
+	// promptArgTopic is the argument name shared across workflow prompts
+	// that take a free-form subject ("explore", "create-dashboard", etc.).
+	promptArgTopic = "topic"
+	// promptRoleUser is the MCP message role for user-authored content.
+	// Untyped so it converts to mcp.Role at the call site.
+	promptRoleUser = "user"
 )
 
 // registerPlatformPrompts registers platform-level prompts from config.
@@ -222,7 +228,7 @@ func workflowPrompts() []workflowPrompt {
 3. Highlight data products that group related datasets
 4. Note any data quality concerns or deprecation warnings`,
 				Arguments: []PromptArgumentConfig{
-					{Name: "topic", Description: "What topic or subject area?", Required: true},
+					{Name: promptArgTopic, Description: "What topic or subject area?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub},
@@ -238,7 +244,7 @@ func workflowPrompts() []workflowPrompt {
 3. Build an interactive visualization with key metrics and trends
 4. Save it as an artifact I can view and share`,
 				Arguments: []PromptArgumentConfig{
-					{Name: "topic", Description: "What should the dashboard visualize?", Required: true},
+					{Name: promptArgTopic, Description: "What should the dashboard visualize?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub, kindTrino, kindPortal},
@@ -254,7 +260,7 @@ func workflowPrompts() []workflowPrompt {
 3. Produce a well-structured Markdown report with tables, metrics, and insights
 4. Summarize the key takeaways`,
 				Arguments: []PromptArgumentConfig{
-					{Name: "topic", Description: "What should the report cover?", Required: true},
+					{Name: promptArgTopic, Description: "What should the report cover?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub, kindTrino},
@@ -444,7 +450,7 @@ func buildPromptResult(content string) *mcp.GetPromptResult {
 	return &mcp.GetPromptResult{
 		Messages: []*mcp.PromptMessage{
 			{
-				Role: "user",
+				Role: promptRoleUser,
 				Content: &mcp.TextContent{
 					Text: content,
 				},

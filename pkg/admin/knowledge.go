@@ -162,7 +162,7 @@ func (h *KnowledgeHandler) UpdateInsightStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // insightUpdateRequest represents the body of PUT /insights/:id.
@@ -219,7 +219,7 @@ func (h *KnowledgeHandler) UpdateInsight(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // GetStats handles GET /api/v1/admin/knowledge/insights/stats.

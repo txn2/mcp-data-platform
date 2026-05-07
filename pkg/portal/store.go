@@ -14,6 +14,42 @@ import (
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+// SQL column / JSON field name constants shared across the portal package.
+// Many of these strings double as JSON map keys in public-facing payloads;
+// reusing the same constant avoids duplicate literals (goconst) without
+// implying a stricter relationship than equality of the underlying string.
+const (
+	colOwnerID     = "owner_id"
+	colOwnerEmail  = "owner_email"
+	colName        = "name"
+	colDescription = "description"
+	colContentType = "content_type"
+	colTags        = "tags"
+)
+
+// HTTP / domain-level string constants reused across handlers.
+const (
+	mimeTypeOctetStream = "application/octet-stream"
+	mimeTypePNG         = "image/png"
+
+	statusUpdated  = "updated"
+	statusRevoked  = "revoked"
+	statusDeleted  = "deleted"
+	statusReverted = "reverted"
+
+	// keyVersion is the literal "version" used as the JSON response
+	// field name and as the argument to r.PathValue when extracting
+	// the {version} segment. Route registration strings still embed
+	// the literal because Go's http.ServeMux pattern parser doesn't
+	// accept runtime concatenation cleanly — this constant exists so
+	// PathValue and JSON-key sites don't drift apart.
+	keyVersion = "version"
+
+	thumbSizeLarge = "large"
+
+	extHTML = ".html"
+)
+
 // AssetStore persists and queries portal assets.
 type AssetStore interface {
 	Insert(ctx context.Context, asset Asset) error
@@ -936,10 +972,10 @@ func unmarshalAssetJSON(asset *Asset, tags, prov []byte) error {
 
 func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder {
 	if filter.OwnerID != "" {
-		qb = qb.Where(sq.Eq{"owner_id": filter.OwnerID})
+		qb = qb.Where(sq.Eq{colOwnerID: filter.OwnerID})
 	}
 	if filter.ContentType != "" {
-		qb = qb.Where(sq.Eq{"content_type": filter.ContentType})
+		qb = qb.Where(sq.Eq{colContentType: filter.ContentType})
 	}
 	if filter.Tag != "" {
 		tagJSON, _ := json.Marshal([]string{filter.Tag})
@@ -948,9 +984,9 @@ func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder 
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
 		qb = qb.Where(sq.Or{
-			sq.ILike{"name": like},
-			sq.ILike{"description": like},
-			sq.ILike{"owner_email": like},
+			sq.ILike{colName: like},
+			sq.ILike{colDescription: like},
+			sq.ILike{colOwnerEmail: like},
 			sq.Expr("tags::text ILIKE ?", like),
 		})
 	}

@@ -40,6 +40,22 @@ const (
 	toolListConns = "list_connections"
 	// entryPointHTML is the conventional MCP App entry point file.
 	entryPointHTML = "index.html"
+	// ConfigKeyServerDescription is the config_entries key for the live
+	// server description override. Exported so admin handlers can use
+	// the same canonical key (a divergent rename in either package
+	// would silently misroute admin writes from platform reads).
+	ConfigKeyServerDescription = "server.description"
+	// ConfigKeyServerAgentInstructions is the config_entries key for
+	// the live MCP `instructions` field (server-side agent guidance).
+	ConfigKeyServerAgentInstructions = "server.agent_instructions"
+	// ConfigKeyToolsDeny is the config_entries key for the JSON-encoded
+	// platform-wide tool deny list (controls tools/list visibility).
+	ConfigKeyToolsDeny = "tools.deny"
+
+	// Backwards-compatible aliases retained so this file's call sites
+	// stay tidy without re-flowing every reference.
+	cfgKeyServerDescription       = ConfigKeyServerDescription
+	cfgKeyServerAgentInstructions = ConfigKeyServerAgentInstructions
 )
 
 // Default configuration values.
@@ -790,6 +806,13 @@ type SessionsConfig struct {
 
 	// CleanupInterval is how often the cleanup routine runs. Defaults to 1m.
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`
+
+	// BroadcastChannel overrides the postgres LISTEN/NOTIFY channel name
+	// used for cross-replica MCP notification fan-out. Defaults to
+	// "mcp_notifications". Override when multiple deployments share a
+	// single postgres instance and must NOT cross-broadcast
+	// tools/list_changed events to each other's downstream agents.
+	BroadcastChannel string `yaml:"broadcast_channel"`
 }
 
 // LoadConfig loads configuration from a file.
@@ -1015,13 +1038,13 @@ func applySessionDefaults(cfg *Config) {
 // and tools.deny visibility checks) see consistent state.
 func (c *Config) ApplyConfigEntry(key, value string) {
 	switch key {
-	case "server.description":
+	case cfgKeyServerDescription:
 		c.Server.Description = value
 		return
-	case "server.agent_instructions":
+	case cfgKeyServerAgentInstructions:
 		c.Server.AgentInstructions = value
 		return
-	case "tools.deny":
+	case ConfigKeyToolsDeny:
 		deny, err := parseToolsDenyValue(value)
 		if err != nil {
 			slog.Warn("ignoring malformed tools.deny config entry; live deny list unchanged",
@@ -1183,5 +1206,74 @@ func (c *Config) validateSessions(errs []string) []string {
 	if c.Sessions.Store == SessionStoreDatabase && c.Database.DSN == "" {
 		errs = append(errs, "database.dsn is required when sessions.store is \"database\"")
 	}
+	// BroadcastChannel only takes effect for database-backed sessions
+	// (initBroadcaster only consults it on the postgres path). Skip
+	// validation entirely on memory-store deployments so an operator
+	// who set the field experimentally and switched back to memory
+	// doesn't get blocked at startup over a value the platform will
+	// never read.
+	if c.Sessions.Store == SessionStoreDatabase {
+		// Postgres truncates LISTEN identifiers at NAMEDATALEN-1
+		// (63 bytes by default) but pg_notify accepts the full
+		// string. A long-name override would silently misroute:
+		// LISTEN registers the truncated name, NOTIFY uses the full
+		// one, and replicas never hear each other — exactly the
+		// multi-tenant isolation failure mode the override is meant
+		// to prevent. Reject up front.
+		const maxListenIdentifier = 63
+		if len(c.Sessions.BroadcastChannel) > maxListenIdentifier {
+			errs = append(errs, fmt.Sprintf(
+				"sessions.broadcast_channel must be ≤%d bytes (postgres LISTEN identifier limit); got %d",
+				maxListenIdentifier, len(c.Sessions.BroadcastChannel)))
+		}
+		// Postgres unquoted identifier grammar: starts with a letter
+		// or underscore, then letters/digits/underscores/dollar-signs.
+		// pq.Listener.Listen accepts this without explicit quoting,
+		// so an invalid character set would error at runtime in
+		// NewBroadcaster rather than at config validation. Catching
+		// it here gives the operator a precise message instead of the
+		// "memory (postgres unavailable, cross-replica fan-out
+		// disabled)" fallback log.
+		if c.Sessions.BroadcastChannel != "" && !validListenIdentifier(c.Sessions.BroadcastChannel) {
+			errs = append(errs, fmt.Sprintf(
+				"sessions.broadcast_channel %q is not a valid postgres identifier (must match [A-Za-z_][A-Za-z0-9_$]*)",
+				c.Sessions.BroadcastChannel))
+		}
+	}
 	return errs
+}
+
+// validListenIdentifier reports whether s is a valid postgres unquoted
+// identifier — start with letter or underscore, then letters, digits,
+// underscores, or dollar signs.
+func validListenIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if !validIdentifierRune(r, i == 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// validIdentifierRune reports whether r is allowed at the given
+// position in a postgres unquoted identifier (first==true gates the
+// digit/dollar suffix-only characters).
+func validIdentifierRune(r rune, first bool) bool {
+	if isLetterOrUnderscore(r) {
+		return true
+	}
+	if first {
+		return false
+	}
+	return r == '$' || (r >= '0' && r <= '9')
+}
+
+// isLetterOrUnderscore reports whether r is an ASCII letter or
+// underscore — the alphabet portion of postgres's unquoted-identifier
+// grammar.
+func isLetterOrUnderscore(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_'
 }

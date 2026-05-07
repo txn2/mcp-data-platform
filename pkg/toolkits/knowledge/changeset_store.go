@@ -116,13 +116,13 @@ func applyChangesetFilter(qb sq.SelectBuilder, filter ChangesetFilter) sq.Select
 		qb = qb.Where(sq.Eq{"target_urn": filter.EntityURN})
 	}
 	if filter.AppliedBy != "" {
-		qb = qb.Where(sq.Eq{"applied_by": filter.AppliedBy})
+		qb = qb.Where(sq.Eq{colAppliedBy: filter.AppliedBy})
 	}
 	if filter.Since != nil {
-		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
+		qb = qb.Where(sq.GtOrEq{colCreatedAt: *filter.Since})
 	}
 	if filter.Until != nil {
-		qb = qb.Where(sq.LtOrEq{"created_at": *filter.Until})
+		qb = qb.Where(sq.LtOrEq{colCreatedAt: *filter.Until})
 	}
 	if filter.RolledBack != nil {
 		qb = qb.Where(sq.Eq{"rolled_back": *filter.RolledBack})
@@ -170,11 +170,11 @@ func (s *postgresChangesetStore) ListChangesets(ctx context.Context, filter Chan
 
 	limit := filter.EffectiveLimit()
 	selectQB := applyChangesetFilter(psq.Select(
-		"id", "created_at", "target_urn", "change_type", "previous_value", "new_value",
-		"source_insight_ids", "approved_by", "applied_by", "rolled_back",
+		"id", colCreatedAt, "target_urn", "change_type", "previous_value", "new_value",
+		"source_insight_ids", "approved_by", colAppliedBy, "rolled_back",
 		"rolled_back_by", "rolled_back_at",
 	).From("knowledge_changesets"), filter).
-		OrderBy("created_at DESC")
+		OrderBy(colCreatedAt + " DESC")
 	if limit > 0 {
 		selectQB = selectQB.Limit(uint64(limit))
 	}

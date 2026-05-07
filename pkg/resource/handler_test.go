@@ -737,8 +737,8 @@ func TestSanitizeContentType(t *testing.T) {
 	}{
 		{"text/html; charset=utf-8", "text/html"},
 		{"application/json", "application/json"},
-		{"", "application/octet-stream"},
-		{";;;invalid", "application/octet-stream"},
+		{"", mimeTypeOctetStream},
+		{";;;invalid", mimeTypeOctetStream},
 	}
 	for _, tt := range tests {
 		got := sanitizeContentType(tt.input)

@@ -155,6 +155,12 @@ type Platform struct {
 	// Session management
 	sessionStore session.Store
 	sessionCache *middleware.SessionEnrichmentCache
+	// broadcaster delivers server-pushed MCP notifications (e.g.
+	// notifications/tools/list_changed) to SSE long-poll subscribers.
+	// Memory-backed for single-replica / no-DB deployments;
+	// postgres-LISTEN/NOTIFY-backed when the session store is
+	// database-backed so all replicas see every event.
+	broadcaster session.Broadcaster
 
 	// Tuning
 	ruleEngine    *tuning.RuleEngine
@@ -532,6 +538,62 @@ func (p *Platform) WireGatewayTokenStore() {
 	}
 }
 
+// Broadcaster returns the platform's session broadcaster. Always
+// non-nil after New — initSessions runs during platform construction
+// and wires either a postgres LISTEN/NOTIFY broadcaster or an
+// in-memory one.
+func (p *Platform) Broadcaster() session.Broadcaster {
+	return p.broadcaster
+}
+
+// gatewayListChangedNotifier adapts session.Broadcaster onto
+// gatewaykit.ToolListChangedNotifier so the gateway package doesn't
+// have to import pkg/session directly. Holds a reference to the
+// shared broadcaster; Publish errors are swallowed (logged) since
+// tools/list_changed is best-effort.
+type gatewayListChangedNotifier struct {
+	b session.Broadcaster
+}
+
+// NotifyToolsListChanged publishes a notifications/tools/list_changed
+// event to every connected SSE long-poll subscriber.
+func (n gatewayListChangedNotifier) NotifyToolsListChanged(ctx context.Context) {
+	if n.b == nil {
+		return
+	}
+	if err := n.b.Publish(ctx, session.Event{Method: "notifications/tools/list_changed"}); err != nil {
+		// source=gateway lets operators correlate this warning back to
+		// the gateway publish path vs. other broadcaster publishers
+		// (today there are none, but the broadcaster is shared and a
+		// future publisher would otherwise produce identically-shaped
+		// noise in dashboards).
+		slog.Warn("broadcaster: publish tools/list_changed failed",
+			"source", "gateway",
+			"method", "notifications/tools/list_changed",
+			"error", err)
+	}
+}
+
+// WireGatewayBroadcaster attaches the platform's session broadcaster
+// to every live gateway toolkit so SSE long-poll subscribers receive
+// tools/list_changed events whenever a gateway connection is added,
+// removed, or comes up after re-auth.
+//
+// Mirrors WireGatewayTokenStore in placement and lifecycle. Safe to
+// call before or after RegisterTools — gateway toolkits read the
+// notifier atomically per call, so wiring order does not matter.
+func (p *Platform) WireGatewayBroadcaster() {
+	if p.broadcaster == nil {
+		return
+	}
+	notifier := gatewayListChangedNotifier{b: p.broadcaster}
+	for _, tk := range p.toolkitRegistry.All() {
+		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
+			gw.SetToolListChangedNotifier(notifier)
+		}
+	}
+}
+
 // DB returns the platform's database handle, or nil when running
 // without a database. Exposed so admin sub-packages can build their
 // own DB-backed stores (e.g., PostgresPKCEStore for multi-replica
@@ -636,12 +698,12 @@ func (p *Platform) initConfigStore() error {
 // string-valued config_entries store.
 func (p *Platform) buildConfigEntryMap() map[string]string {
 	m := map[string]string{
-		"server.description":        p.config.Server.Description,
-		"server.agent_instructions": p.config.Server.AgentInstructions,
+		ConfigKeyServerDescription:       p.config.Server.Description,
+		ConfigKeyServerAgentInstructions: p.config.Server.AgentInstructions,
 	}
 	if len(p.config.Tools.Deny) > 0 {
 		if buf, err := json.Marshal(p.config.Tools.Deny); err == nil {
-			m["tools.deny"] = string(buf)
+			m[ConfigKeyToolsDeny] = string(buf)
 		}
 	}
 	return m
@@ -850,6 +912,11 @@ func (p *Platform) initAudit(opts *Options) error {
 func (p *Platform) initSessions(opts *Options) error {
 	if opts.SessionStore != nil {
 		p.sessionStore = opts.SessionStore
+		// initBroadcaster runs even when an injected SessionStore is
+		// supplied so that Broadcaster() always returns a non-nil value
+		// after Start (matching the doc contract). The session store
+		// override doesn't override the broadcaster.
+		p.initBroadcaster()
 		return nil
 	}
 
@@ -884,7 +951,61 @@ func (p *Platform) initSessions(opts *Options) error {
 		return fmt.Errorf("unknown session store: %q", p.config.Sessions.Store)
 	}
 
+	p.initBroadcaster()
 	return nil
+}
+
+// initBroadcaster picks the right Broadcaster implementation based on
+// whether we have a database (postgres LISTEN/NOTIFY) or not (in-memory
+// fan-out for single-replica deployments). When postgres setup fails
+// we fall back to memory rather than failing platform startup —
+// tools/list_changed propagation is a UX feature, not a correctness
+// requirement, and the rest of the platform still works without it.
+func (p *Platform) initBroadcaster() {
+	wantPostgres := p.db != nil && p.config.Database.DSN != ""
+	if wantPostgres {
+		// Channel override lets operators isolate deployments that
+		// share a postgres instance — without it, both deployments
+		// would LISTEN on the same channel and cross-broadcast
+		// tools/list_changed to each other's downstream agents.
+		channel := p.config.Sessions.BroadcastChannel
+		if channel == "" {
+			channel = sessionpostgres.DefaultNotifyChannel
+			// Multiple deployments sharing a postgres instance with
+			// the default channel will cross-broadcast
+			// tools/list_changed events to each other's downstream
+			// agents. The doc tells operators to set the field per
+			// deployment when sharing a DB, but the most common
+			// operator error is forgetting to set it — surface a
+			// warning here so the misconfiguration is visible at
+			// startup rather than as a "tool list keeps changing
+			// on its own" mystery in production.
+			slog.Warn("broadcaster: using default channel; if multiple deployments share this postgres instance, set sessions.broadcast_channel per deployment to avoid cross-deployment fan-out",
+				"channel", channel)
+		}
+		b, err := sessionpostgres.NewBroadcaster(p.config.Database.DSN, p.db, channel, slog.Default())
+		if err == nil {
+			p.broadcaster = b
+			slog.Info("broadcaster: postgres LISTEN/NOTIFY",
+				"channel", channel)
+			return
+		}
+		// Fallback path: the operator configured postgres but
+		// NewBroadcaster failed (e.g., role lacks LISTEN privilege).
+		// Don't fail startup — tools/list_changed propagation is a
+		// UX feature, not a correctness requirement — but log
+		// distinguishably from the intentional single-replica path
+		// so log-grep operators can spot a degraded multi-replica
+		// deployment.
+		slog.Warn("broadcaster: postgres init failed — falling back to memory",
+			"error", err)
+	}
+	p.broadcaster = session.NewMemoryBroadcaster(slog.Default())
+	if wantPostgres {
+		slog.Info("broadcaster: memory (postgres unavailable, cross-replica fan-out disabled)")
+	} else {
+		slog.Info("broadcaster: memory (single-replica)")
+	}
 }
 
 // initOAuth initializes the OAuth server if enabled.
@@ -2910,7 +3031,7 @@ func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
 
 	cfg := &datahubConfig{
 		URL:     cfgString(instanceCfg, "url"),
-		Token:   cfgString(instanceCfg, "token"),
+		Token:   cfgString(instanceCfg, cfgKeyToken),
 		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
 		Debug:   cfgBoolDefault(instanceCfg, "debug", false),
 	}
@@ -2958,7 +3079,7 @@ func (p *Platform) getS3Config(instanceName string) *s3Config {
 		Region:         cfgString(instanceCfg, "region"),
 		Endpoint:       cfgString(instanceCfg, "endpoint"),
 		AccessKeyID:    cfgString(instanceCfg, "access_key_id"),
-		SecretKey:      cfgString(instanceCfg, "secret_access_key"),
+		SecretKey:      cfgString(instanceCfg, cfgKeySecretAccessKey),
 		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
 		ConnectionName: cfgString(instanceCfg, "connection_name"),
 		UsePathStyle:   cfgBool(instanceCfg, "use_path_style"),
@@ -3139,65 +3260,81 @@ func closeResource(errs *[]error, closer Closer) {
 //  4. Close database connection (last — nothing else needs it)
 func (p *Platform) Close() error {
 	var errs []error
-
-	// Phase 0: stop background goroutines
 	p.stopBackgroundTrackers()
-
-	// Phase 1a: flush enrichment dedup state to session store
 	p.flushEnrichmentState()
-
-	// Phase 1b: stop session cache goroutine
-	if p.sessionCache != nil {
-		slog.Debug("shutdown: stopping session cache")
-		p.sessionCache.Stop()
-	}
-
-	// Phase 1c: close session store (stop cleanup goroutine)
-	if p.sessionStore != nil {
-		slog.Debug("shutdown: closing session store")
-		closeResource(&errs, p.sessionStore)
-	}
-
-	// Phase 1d: close OAuth store (stop cleanup goroutine)
-	if p.oauthStoreCloser != nil {
-		slog.Debug("shutdown: closing OAuth store")
-		closeResource(&errs, p.oauthStoreCloser)
-	}
-
-	// Phase 2: close audit (cancel cleanup goroutine, wait for exit)
-	if closer, ok := p.auditLogger.(Closer); ok {
-		slog.Debug("shutdown: closing audit logger")
-		closeResource(&errs, closer)
-	}
-	if p.auditStore != nil {
-		slog.Debug("shutdown: closing audit store")
-		closeResource(&errs, p.auditStore)
-	}
-
-	// Phase 3: close providers and toolkit registry
-	slog.Debug("shutdown: closing providers")
-	closeResource(&errs, p.semanticProvider)
-	closeResource(&errs, p.queryProvider)
-	closeResource(&errs, p.storageProvider)
-	if p.portalS3Client != nil {
-		slog.Debug("shutdown: closing portal S3 client")
-		closeResource(&errs, p.portalS3Client)
-	}
-	closeResource(&errs, p.toolkitRegistry)
-
-	// Phase 4: close database connection (last)
-	if p.db != nil {
-		slog.Debug("shutdown: closing database")
-		if err := p.db.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("closing database: %w", err))
-		}
-	}
-
+	p.closeSessionLayer(&errs)
+	p.closeAuditLayer(&errs)
+	p.closeProvidersAndRegistry(&errs)
+	p.closeDatabase(&errs)
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing platform: %v", errs)
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// closeSessionLayer tears down the session cache, session store,
+// broadcaster, and OAuth store in that order. The broadcaster must
+// shut down before the database in Phase 4 because the postgres
+// broadcaster holds its own dedicated LISTEN connection.
+func (p *Platform) closeSessionLayer(errs *[]error) {
+	if p.sessionCache != nil {
+		slog.Debug("shutdown: stopping session cache")
+		p.sessionCache.Stop()
+	}
+	if p.sessionStore != nil {
+		slog.Debug("shutdown: closing session store")
+		closeResource(errs, p.sessionStore)
+	}
+	if p.broadcaster != nil {
+		slog.Debug("shutdown: closing broadcaster")
+		closeResource(errs, p.broadcaster)
+	}
+	if p.oauthStoreCloser != nil {
+		slog.Debug("shutdown: closing OAuth store")
+		closeResource(errs, p.oauthStoreCloser)
+	}
+}
+
+// closeAuditLayer cancels the audit logger's cleanup goroutine and
+// closes the underlying audit store. Order matters: the logger may
+// flush a final batch through the store on close.
+func (p *Platform) closeAuditLayer(errs *[]error) {
+	if closer, ok := p.auditLogger.(Closer); ok {
+		slog.Debug("shutdown: closing audit logger")
+		closeResource(errs, closer)
+	}
+	if p.auditStore != nil {
+		slog.Debug("shutdown: closing audit store")
+		closeResource(errs, p.auditStore)
+	}
+}
+
+// closeProvidersAndRegistry releases provider clients and the
+// toolkit registry. None of these should hold the database handle —
+// the database closes last in closeDatabase.
+func (p *Platform) closeProvidersAndRegistry(errs *[]error) {
+	slog.Debug("shutdown: closing providers")
+	closeResource(errs, p.semanticProvider)
+	closeResource(errs, p.queryProvider)
+	closeResource(errs, p.storageProvider)
+	if p.portalS3Client != nil {
+		slog.Debug("shutdown: closing portal S3 client")
+		closeResource(errs, p.portalS3Client)
+	}
+	closeResource(errs, p.toolkitRegistry)
+}
+
+// closeDatabase closes the database connection last so every other
+// component has had a chance to release its handles.
+func (p *Platform) closeDatabase(errs *[]error) {
+	if p.db == nil {
+		return
+	}
+	slog.Debug("shutdown: closing database")
+	if err := p.db.Close(); err != nil {
+		*errs = append(*errs, fmt.Errorf("closing database: %w", err))
+	}
 }
 
 // stopBackgroundTrackers stops background goroutines for workflow tracking and

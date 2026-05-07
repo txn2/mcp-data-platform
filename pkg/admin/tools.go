@@ -96,6 +96,10 @@ type toolContentBlock struct {
 	Text string `json:"text" example:"| col1 | col2 |\n|------|------|\n| val1 | val2 |"`
 }
 
+// toolContentBlockTypeText is the MCP "text" content-block type discriminator
+// returned to the admin UI when a tool produces a textual payload.
+const toolContentBlockTypeText = "text"
+
 // callTool handles POST /api/v1/admin/tools/call.
 //
 // @Summary      Call a tool
@@ -137,7 +141,7 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		writeJSON(w, http.StatusOK, toolCallResponse{
-			Content:    []toolContentBlock{{Type: "text", Text: "error: " + err.Error()}},
+			Content:    []toolContentBlock{{Type: toolContentBlockTypeText, Text: "error: " + err.Error()}},
 			IsError:    true,
 			DurationMs: durationMs,
 		})
@@ -146,7 +150,7 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 
 	blocks := extractContentBlocks(result.Content)
 	if len(blocks) == 0 && result.IsError {
-		blocks = []toolContentBlock{{Type: "text", Text: "Tool call returned an error with no details."}}
+		blocks = []toolContentBlock{{Type: toolContentBlockTypeText, Text: "Tool call returned an error with no details."}}
 	}
 
 	writeJSON(w, http.StatusOK, toolCallResponse{
@@ -193,10 +197,10 @@ func extractContentBlocks(mcpContent []mcp.Content) []toolContentBlock {
 	for _, c := range mcpContent {
 		switch tc := c.(type) {
 		case *mcp.TextContent:
-			content = append(content, toolContentBlock{Type: "text", Text: tc.Text})
+			content = append(content, toolContentBlock{Type: toolContentBlockTypeText, Text: tc.Text})
 		case *mcp.EmbeddedResource:
 			if tc.Resource != nil && tc.Resource.Text != "" {
-				content = append(content, toolContentBlock{Type: "text", Text: tc.Resource.Text})
+				content = append(content, toolContentBlock{Type: toolContentBlockTypeText, Text: tc.Resource.Text})
 			}
 		}
 	}

@@ -28,7 +28,7 @@ func BuildURI(scheme string, scope Scope, scopeID, category, filename string) st
 // BuildS3Key constructs the S3 object key for a resource blob.
 func BuildS3Key(scope Scope, scopeID, resourceID, filename string) string {
 	scopeDir := string(scope)
-	scopeIDDir := "global"
+	scopeIDDir := string(ScopeGlobal)
 	if scopeID != "" {
 		scopeIDDir = scopeID
 	}
@@ -62,15 +62,15 @@ func ParseURI(scheme, uri string) (ParsedURI, error) {
 	remainder := parts[1]
 
 	switch scopeStr {
-	case "global":
+	case string(ScopeGlobal):
 		return ParsedURI{Scope: ScopeGlobal, Path: remainder}, nil
-	case "persona":
+	case string(ScopePersona):
 		subParts := strings.SplitN(remainder, "/", 2)
 		if len(subParts) < 2 {
 			return ParsedURI{}, fmt.Errorf("persona URI missing scope_id: %s", uri)
 		}
 		return ParsedURI{Scope: ScopePersona, ScopeID: subParts[0], Path: subParts[1]}, nil
-	case "user":
+	case string(ScopeUser):
 		subParts := strings.SplitN(remainder, "/", 2)
 		if len(subParts) < 2 {
 			return ParsedURI{}, fmt.Errorf("user URI missing scope_id: %s", uri)

@@ -31,6 +31,31 @@ const errAdminAssetDeleted = "asset has been deleted"
 // headerContentType is the HTTP Content-Type header name.
 const headerContentType = "Content-Type"
 
+// mimeTypeOctetStream is the default MIME type for binary content.
+const mimeTypeOctetStream = "application/octet-stream"
+
+// mimeTypePNG is the MIME type for PNG images.
+const mimeTypePNG = "image/png"
+
+// statusDeleted is the response status string for soft-deleted resources.
+const statusDeleted = "deleted"
+
+// statusUpdated is the response status string for successfully updated resources.
+const statusUpdated = "updated"
+
+// statusReverted is the response status string for asset version reverts.
+const statusReverted = "reverted"
+
+// roleAdmin is the production role name granting administrative privileges.
+const roleAdmin = "admin"
+
+// defaultAdminEmail is the fallback owner identifier written to audit
+// rows and provenance fields when admin requests carry no identified
+// user (e.g., bootstrap-time API-key clients with no email claim).
+// Distinct from roleAdmin so a future rename of the role doesn't
+// silently change persisted admin attribution.
+const defaultAdminEmail = "admin"
+
 // registerAssetRoutes registers asset management routes if stores are available.
 func (h *Handler) registerAssetRoutes() {
 	if h.deps.AssetStore == nil {
@@ -129,7 +154,7 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = mimeTypeOctetStream
 	}
 	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -174,7 +199,7 @@ func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // updateAdminAssetContent replaces an asset's S3 content (no owner check for admins).
@@ -237,7 +262,7 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // uploadAdminThumbnail uploads a PNG thumbnail for an asset (no owner check for admins).
@@ -261,7 +286,7 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	ct := r.Header.Get(headerContentType)
 	mediaType, _, _ := mime.ParseMediaType(ct)
-	if mediaType != "image/png" {
+	if mediaType != mimeTypePNG {
 		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
 		return
 	}
@@ -277,7 +302,7 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thumbKey := portal.DeriveThumbnailKey(asset.S3Key)
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, "image/png"); err != nil {
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
 		return
 	}
@@ -288,7 +313,7 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // getAdminThumbnail returns an asset's thumbnail (no owner check for admins).
@@ -321,7 +346,7 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerContentType, "image/png")
+	w.Header().Set(headerContentType, mimeTypePNG)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
@@ -335,7 +360,7 @@ func (h *Handler) deleteAdminAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "asset not found or already deleted")
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
 }
 
 // listAdminVersions returns version history for an asset.
@@ -402,7 +427,7 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = mimeTypeOctetStream
 	}
 	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -473,7 +498,7 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "reverted",
+		"status":  statusReverted,
 		"version": assignedVersion,
 	})
 }
@@ -516,7 +541,7 @@ func adminUserEmail(r *http.Request) string {
 	if user := GetUser(r.Context()); user != nil && user.Email != "" {
 		return user.Email
 	}
-	return "admin"
+	return defaultAdminEmail
 }
 
 // adminChangeSummary reads the X-Change-Summary header from the request.

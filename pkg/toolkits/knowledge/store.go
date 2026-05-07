@@ -13,6 +13,15 @@ import (
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+// SQL column names referenced from filter and update builders.
+const (
+	colAppliedBy  = "applied_by"
+	colCreatedAt  = "created_at"
+	colStatus     = "status"
+	colCategory   = "category"
+	colConfidence = "confidence"
+)
+
 // InsightStore persists and queries captured insights.
 type InsightStore interface {
 	Insert(ctx context.Context, insight Insight) error
@@ -136,10 +145,10 @@ func unmarshalInsightJSON(insight *Insight, entityURNs, relatedCols, suggestedAc
 // applyInsightFilter adds filter conditions to a SELECT builder.
 func applyInsightFilter(qb sq.SelectBuilder, filter InsightFilter) sq.SelectBuilder {
 	if filter.Status != "" {
-		qb = qb.Where(sq.Eq{"status": filter.Status})
+		qb = qb.Where(sq.Eq{colStatus: filter.Status})
 	}
 	if filter.Category != "" {
-		qb = qb.Where(sq.Eq{"category": filter.Category})
+		qb = qb.Where(sq.Eq{colCategory: filter.Category})
 	}
 	if filter.EntityURN != "" {
 		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", fmt.Sprintf(`[%q]`, filter.EntityURN)))
@@ -148,16 +157,16 @@ func applyInsightFilter(qb sq.SelectBuilder, filter InsightFilter) sq.SelectBuil
 		qb = qb.Where(sq.Eq{"captured_by": filter.CapturedBy})
 	}
 	if filter.Confidence != "" {
-		qb = qb.Where(sq.Eq{"confidence": filter.Confidence})
+		qb = qb.Where(sq.Eq{colConfidence: filter.Confidence})
 	}
 	if filter.Source != "" {
 		qb = qb.Where(sq.Eq{"source": filter.Source})
 	}
 	if filter.Since != nil {
-		qb = qb.Where(sq.GtOrEq{"created_at": *filter.Since})
+		qb = qb.Where(sq.GtOrEq{colCreatedAt: *filter.Since})
 	}
 	if filter.Until != nil {
-		qb = qb.Where(sq.LtOrEq{"created_at": *filter.Until})
+		qb = qb.Where(sq.LtOrEq{colCreatedAt: *filter.Until})
 	}
 	return qb
 }
@@ -179,12 +188,12 @@ func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insig
 	// Fetch paginated results.
 	limit := filter.EffectiveLimit()
 	selectQB := applyInsightFilter(psq.Select(
-		"id", "created_at", "session_id", "captured_by", "persona", "source", "category",
-		"insight_text", "confidence", "entity_urns", "related_columns",
-		"suggested_actions", "status", "reviewed_by", "reviewed_at",
-		"review_notes", "applied_by", "applied_at", "changeset_ref",
+		"id", colCreatedAt, "session_id", "captured_by", "persona", "source", colCategory,
+		"insight_text", colConfidence, "entity_urns", "related_columns",
+		"suggested_actions", colStatus, "reviewed_by", "reviewed_at",
+		"review_notes", colAppliedBy, "applied_at", "changeset_ref",
 	).From("knowledge_insights"), filter).
-		OrderBy("created_at DESC")
+		OrderBy(colCreatedAt + " DESC")
 	if limit > 0 {
 		selectQB = selectQB.Limit(uint64(limit))
 	}
@@ -282,11 +291,11 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates InsightUp
 		hasUpdates = true
 	}
 	if updates.Category != "" {
-		qb = qb.Set("category", updates.Category)
+		qb = qb.Set(colCategory, updates.Category)
 		hasUpdates = true
 	}
 	if updates.Confidence != "" {
-		qb = qb.Set("confidence", updates.Confidence)
+		qb = qb.Set(colConfidence, updates.Confidence)
 		hasUpdates = true
 	}
 
@@ -294,7 +303,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates InsightUp
 		return fmt.Errorf("no fields to update")
 	}
 
-	qb = qb.Where(sq.Eq{"id": id}).Where(sq.NotEq{"status": StatusApplied})
+	qb = qb.Where(sq.Eq{"id": id}).Where(sq.NotEq{colStatus: StatusApplied})
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -325,16 +334,16 @@ func (s *postgresStore) Stats(ctx context.Context, filter InsightFilter) (*Insig
 		ByStatus:     make(map[string]int),
 	}
 
-	if err := s.countGroupBy(ctx, filter, "status", stats.ByStatus); err != nil {
+	if err := s.countGroupBy(ctx, filter, colStatus, stats.ByStatus); err != nil {
 		return nil, fmt.Errorf("counting by status: %w", err)
 	}
 	stats.TotalPending = stats.ByStatus[StatusPending]
 
-	if err := s.countGroupBy(ctx, filter, "category", stats.ByCategory); err != nil {
+	if err := s.countGroupBy(ctx, filter, colCategory, stats.ByCategory); err != nil {
 		return nil, fmt.Errorf("counting by category: %w", err)
 	}
 
-	if err := s.countGroupBy(ctx, filter, "confidence", stats.ByConfidence); err != nil {
+	if err := s.countGroupBy(ctx, filter, colConfidence, stats.ByConfidence); err != nil {
 		return nil, fmt.Errorf("counting by confidence: %w", err)
 	}
 

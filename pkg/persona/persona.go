@@ -4,6 +4,17 @@ package persona
 // defaultPersonaPriority is the default priority for built-in personas.
 const defaultPersonaPriority = 100
 
+// personaNameAdmin is the canonical name of the built-in admin persona.
+// Distinct from roleAdmin because persona names and OIDC role names
+// live in different namespaces — the role comes from external IdP
+// configuration, the persona name is internal — and a future
+// deployment may need to rename one without renaming the other.
+const personaNameAdmin = "admin"
+
+// roleAdmin is the OIDC role name that maps to the admin persona.
+// Today it equals personaNameAdmin; do not couple them.
+const roleAdmin = "admin"
+
 // Persona defines a user persona with associated permissions and customizations.
 type Persona struct {
 	// Name is the unique identifier for this persona.
@@ -145,10 +156,10 @@ func DefaultPersona() *Persona {
 // AdminPersona creates an admin persona with full access.
 func AdminPersona() *Persona {
 	return &Persona{
-		Name:        "admin",
+		Name:        personaNameAdmin,
 		DisplayName: "Administrator",
 		Description: "Full access to all tools and features",
-		Roles:       []string{"admin"},
+		Roles:       []string{roleAdmin},
 		Tools: ToolRules{
 			Allow: []string{"*"},
 			Deny:  []string{},

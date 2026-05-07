@@ -497,8 +497,16 @@ func TestIsSensitiveKey(t *testing.T) {
 		{"signing_key", true},
 		{"secret_access_key", true},
 		{"client_secret", true},
-		{"KEY", true},   // case insensitive
-		{"Token", true}, // case insensitive
+		// api_key and credential were added to the redaction list to
+		// match the schema-evolution principle: every distinct field
+		// name that may carry a secret must be redacted in admin
+		// responses. Locked here to prevent silent removal.
+		{"api_key", true},
+		{"credential", true},
+		{"API_KEY", true},    // case insensitive
+		{"Credential", true}, // case insensitive
+		{"KEY", true},        // case insensitive
+		{"Token", true},      // case insensitive
 		{"name", false},
 		{"host", false},
 		{"port", false},
@@ -508,6 +516,22 @@ func TestIsSensitiveKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
 			assert.Equal(t, tt.expected, isSensitiveKey(tt.key))
+		})
+	}
+}
+
+// TestSensitiveKeysCoverFieldcryptSet locks in the invariant that the
+// admin redaction list (sensitiveKeys / isSensitiveKey) is a superset
+// of the at-rest encryption layer's set
+// (platform.SensitiveConfigKeyList). Any field the encryption layer
+// treats as a secret must also be redacted by admin endpoints, or a
+// misconfigured deployment (ENCRYPTION_KEY unset, plaintext at rest)
+// leaks through /api/admin/config.
+func TestSensitiveKeysCoverFieldcryptSet(t *testing.T) {
+	for _, k := range platform.SensitiveConfigKeyList() {
+		t.Run(k, func(t *testing.T) {
+			assert.True(t, isSensitiveKey(k),
+				"admin redaction list (sensitiveKeys) must cover encryption-layer key %q — missing entry would leak plaintext when at-rest encryption is disabled", k)
 		})
 	}
 }

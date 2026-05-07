@@ -12,10 +12,28 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // defaultChangelogLimit is the maximum number of changelog entries to return.
 const defaultChangelogLimit = 50
+
+// Config key aliases for whitelisted, hot-reloadable platform settings.
+// Source of truth lives in pkg/platform — these are local references so
+// the admin package depends on the same canonical wire-protocol keys
+// the platform reads (a rename on one side without the other would
+// silently misroute admin writes from platform reads, dropping live
+// overrides).
+const (
+	cfgKeyServerDescription       = platform.ConfigKeyServerDescription
+	cfgKeyServerAgentInstructions = platform.ConfigKeyServerAgentInstructions
+)
+
+// Config store source modes for the merged "effective" view.
+const (
+	configSourceDatabase = "database"
+	configSourceFile     = "file"
+)
 
 // configEntryWhitelist defines the static keys that can be set via the
 // admin API. Dynamic per-tool keys (tool.<name>.description) are accepted
@@ -24,9 +42,9 @@ const defaultChangelogLimit = 50
 // []string and is normally written through the per-tool visibility
 // endpoint, but can also be edited directly via /config/entries.
 var configEntryWhitelist = map[string]bool{
-	"server.description":        true,
-	"server.agent_instructions": true,
-	"tools.deny":                true,
+	cfgKeyServerDescription:       true,
+	cfgKeyServerAgentInstructions: true,
+	toolsDenyConfigKey:            true,
 }
 
 // toolDescriptionPrefix and toolDescriptionSuffix bracket the dynamic
@@ -77,16 +95,62 @@ func (h *Handler) isConfigKeyAllowed(key string) bool {
 	return false
 }
 
+// Sensitive config-key name constants. These match exact keys (lower-cased)
+// inside YAML/JSON config maps that should be redacted when serialized for
+// admin clients. Some are reused by connection_handler.go's redaction list.
+//
+// The full set must match (or be a superset of) the at-rest encryption
+// list in pkg/platform/fieldcrypt.go::sensitiveConfigKeys — any key
+// the encryption layer treats as a secret must also be redacted by the
+// admin endpoints, or a misconfigured deployment (e.g. ENCRYPTION_KEY
+// unset, plaintext at rest) leaks through /api/admin/config.
+// Names declared in connection_handler.go (sensKeySecretKey,
+// sensKeyAccessToken, sensKeyRefreshToken, sensKeyOAuthClientSecret)
+// are package-scoped and re-used by sensitiveKeys below — admin
+// API redaction must cover the same fields the at-rest encryption
+// layer protects.
+const (
+	sensKeyKey             = "key"
+	sensKeySecret          = "secret"
+	sensKeyPassword        = "password"
+	sensKeyToken           = "token"
+	sensKeySigningKey      = "signing_key"
+	sensKeyDSN             = "dsn"
+	sensKeySecretAccessKey = "secret_access_key"
+	sensKeyClientSecret    = "client_secret"
+	sensKeyAPIKey          = "api_key"
+	sensKeyCredential      = "credential"
+)
+
 // sensitiveKeys contains key name patterns that should be redacted.
+// isSensitiveKey uses exact case-insensitive matching against this list,
+// so every distinct field name that may carry a secret must appear here
+// in its canonical (lowercase) form.
+//
+// MUST be a superset of pkg/platform/fieldcrypt.go::sensitiveConfigKeys
+// — any field the encryption layer treats as a secret must also be
+// redacted here, or a misconfigured deployment (ENCRYPTION_KEY unset,
+// plaintext at rest) leaks through /api/admin/config.
+// TestSensitiveKeysCoverFieldcryptSet locks this in.
 var sensitiveKeys = []string{
-	"key",
-	"secret",
-	"password",
-	"token",
-	"signing_key",
-	"dsn",
-	"secret_access_key",
-	"client_secret",
+	sensKeyKey,
+	sensKeySecret,
+	sensKeyPassword,
+	sensKeyToken,
+	sensKeySigningKey,
+	sensKeyDSN,
+	sensKeySecretAccessKey,
+	sensKeyClientSecret,
+	sensKeyAPIKey,
+	sensKeyCredential,
+	// From connection_handler.go's parallel set: these also need
+	// redaction in the global config endpoint, not just the
+	// connection endpoint, because Config.Toolkits map serialization
+	// flows through redactMap.
+	sensKeySecretKey,
+	sensKeyAccessToken,
+	sensKeyRefreshToken,
+	sensKeyOAuthClientSecret,
 }
 
 // configToMap converts a config struct to map[string]any via YAML round-trip.
@@ -228,7 +292,7 @@ func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 			result = append(result, effectiveConfigEntry{
 				Key:       key,
 				Value:     dbEntry.Value,
-				Source:    "database",
+				Source:    configSourceDatabase,
 				UpdatedBy: &dbEntry.UpdatedBy,
 				UpdatedAt: &updatedAt,
 			})
@@ -236,7 +300,7 @@ func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 			result = append(result, effectiveConfigEntry{
 				Key:    key,
 				Value:  fileVal,
-				Source: "file",
+				Source: configSourceFile,
 			})
 		}
 	}
@@ -388,7 +452,7 @@ func redactMap(m map[string]any) {
 	for k, v := range m {
 		if isSensitiveKey(k) {
 			if s, ok := v.(string); ok && s != "" {
-				m[k] = "[REDACTED]"
+				m[k] = redactedValue
 			}
 			continue
 		}

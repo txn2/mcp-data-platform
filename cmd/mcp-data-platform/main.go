@@ -44,6 +44,7 @@ const (
 	defaultReadHeaderTimeout = 10 * time.Second
 	fallbackGracePeriod      = 25 * time.Second
 	fallbackPreShutdownDelay = 2 * time.Second
+	transportHTTP            = "http"
 )
 
 func main() {
@@ -181,7 +182,7 @@ func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platfor
 			return fmt.Errorf("running stdio server: %w", err)
 		}
 		return nil
-	case "http", "sse":
+	case transportHTTP, "sse":
 		// HTTP serves both SSE (/sse, /message) and Streamable HTTP (/mcp).
 		// "sse" is accepted for backward compatibility.
 		return startHTTPServer(ctx, mcpServer, p, opts)
@@ -265,6 +266,20 @@ func resourceMetadataURL(p *platform.Platform) string {
 }
 
 func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+	// Wire platform-wide integrations BEFORE the root handler is built
+	// and before any feature-conditional setup runs. Both calls are
+	// idempotent and no-op when there are no gateway toolkits, so it
+	// is safe to do this unconditionally — and required for correctness
+	// because the SSE long-poll path needs the broadcaster wired into
+	// the gateway toolkit before AwareHandler accepts subscribers, and
+	// because admin.enabled may be false on locked-down replicas yet
+	// the gateway's persisted refresh tokens and tools/list_changed
+	// fan-out are still needed.
+	if p != nil {
+		p.WireGatewayTokenStore()
+		p.WireGatewayBroadcaster()
+	}
+
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()
@@ -350,10 +365,15 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 	var handler http.Handler = streamableHandler
 	if p != nil && p.SessionStore() != nil && hcfg.streamableCfg.Stateless {
 		handler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
-			Store: p.SessionStore(),
-			TTL:   p.Config().Sessions.TTL,
+			Store:       p.SessionStore(),
+			TTL:         p.Config().Sessions.TTL,
+			Broadcaster: p.Broadcaster(),
 		})
-		log.Println("Session-aware handler enabled (external session store)")
+		// Platform.Broadcaster() is non-nil after New (initBroadcaster
+		// wires postgres or memory). The "+ broadcaster" tag is part
+		// of the log line so operators can grep deployments where the
+		// session-aware handler is wired with the SSE long-poll path.
+		log.Println("Session-aware handler enabled (external session store + broadcaster)")
 	}
 
 	return handler
@@ -750,7 +770,8 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.AuditMetricsQuerier = p.AuditStore()
 	}
 
-	p.WireGatewayTokenStore()
+	// Note: WireGatewayTokenStore and WireGatewayBroadcaster run earlier
+	// in startHTTPServer so they apply even when admin is disabled.
 	if engine := wireEnrichmentEngine(p); engine != nil {
 		deps.EnrichmentEngine = engine
 	}

@@ -25,13 +25,18 @@ const errNotFoundFmt = "memory record not found: %s"
 // reference them in column lists, predicates, and updates — repeating
 // the literals would mean drift if a column is ever renamed.
 const (
-	colCreatedBy  = "created_by"
-	colCategory   = "category"
-	colEntityURNs = "entity_urns"
-	colCreatedAt  = "created_at"
-	colDimension  = "dimension"
-	colConfidence = "confidence"
-	colMetadata   = "metadata"
+	colCreatedBy      = "created_by"
+	colCategory       = "category"
+	colEntityURNs     = "entity_urns"
+	colCreatedAt      = "created_at"
+	colDimension      = "dimension"
+	colConfidence     = "confidence"
+	colMetadata       = "metadata"
+	colPersona        = "persona"
+	colContent        = "content"
+	colRelatedColumns = "related_columns"
+	colSource         = "source"
+	colStatus         = "status"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -65,9 +70,9 @@ func (s *postgresStore) Insert(ctx context.Context, record Record) error {
 	}
 
 	columns := []string{
-		"id", colCreatedBy, "persona", colDimension,
-		"content", colCategory, colConfidence, "source",
-		colEntityURNs, "related_columns", colMetadata, "status",
+		"id", colCreatedBy, colPersona, colDimension,
+		colContent, colCategory, colConfidence, colSource,
+		colEntityURNs, colRelatedColumns, colMetadata, colStatus,
 	}
 	values := []any{
 		record.ID, record.CreatedBy, record.Persona, record.Dimension,
@@ -156,7 +161,7 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 	hasUpdates := false
 
 	if updates.Content != "" {
-		qb = qb.Set("content", updates.Content)
+		qb = qb.Set(colContent, updates.Content)
 		hasUpdates = true
 	}
 	if updates.Category != "" {
@@ -190,7 +195,7 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 // Delete soft-deletes a memory record by setting status to archived.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
 	query, args, err := psq.Update(tableName).
-		Set("status", StatusArchived).
+		Set(colStatus, StatusArchived).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": id}).
 		ToSql()
@@ -362,12 +367,12 @@ func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) (
 	qb := psq.Select(recordColumns()...).
 		From(tableName).
 		Where(sq.Expr("entity_urns @> ?::jsonb", urnJSON)).
-		Where(sq.Eq{"status": StatusActive}).
+		Where(sq.Eq{colStatus: StatusActive}).
 		OrderBy("created_at DESC").
 		Limit(uint64(DefaultLimit))
 
 	if persona != "" {
-		qb = qb.Where(sq.Eq{"persona": persona})
+		qb = qb.Where(sq.Eq{colPersona: persona})
 	}
 
 	query, args, err := qb.ToSql()
@@ -404,7 +409,7 @@ func (s *postgresStore) MarkStale(ctx context.Context, ids []string, reason stri
 
 	now := time.Now()
 	query, args, err := psq.Update(tableName).
-		Set("status", StatusStale).
+		Set(colStatus, StatusStale).
 		Set("stale_reason", reason).
 		Set("stale_at", now).
 		Set("updated_at", now).
@@ -456,7 +461,7 @@ func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) erro
 
 	now := time.Now()
 	query, args, err := psq.Update(tableName).
-		Set("status", StatusSuperseded).
+		Set(colStatus, StatusSuperseded).
 		Set(colMetadata, sq.Expr("metadata || ?::jsonb", patch)).
 		Set("updated_at", now).
 		Where(sq.Eq{"id": oldID}).
@@ -487,7 +492,7 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 		qb = qb.Where(sq.Eq{colCreatedBy: filter.CreatedBy})
 	}
 	if filter.Persona != "" {
-		qb = qb.Where(sq.Eq{"persona": filter.Persona})
+		qb = qb.Where(sq.Eq{colPersona: filter.Persona})
 	}
 	if filter.Dimension != "" {
 		qb = qb.Where(sq.Eq{colDimension: filter.Dimension})
@@ -496,10 +501,10 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 		qb = qb.Where(sq.Eq{colCategory: filter.Category})
 	}
 	if filter.Status != "" {
-		qb = qb.Where(sq.Eq{"status": filter.Status})
+		qb = qb.Where(sq.Eq{colStatus: filter.Status})
 	}
 	if filter.Source != "" {
-		qb = qb.Where(sq.Eq{"source": filter.Source})
+		qb = qb.Where(sq.Eq{colSource: filter.Source})
 	}
 	if filter.EntityURN != "" {
 		urnJSON, _ := json.Marshal([]string{filter.EntityURN})
@@ -517,10 +522,10 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 // recordColumns returns the column list for memory record queries.
 func recordColumns() []string {
 	return []string{
-		"id", colCreatedAt, "updated_at", colCreatedBy, "persona", colDimension,
-		"content", colCategory, colConfidence, "source",
-		colEntityURNs, "related_columns", colMetadata,
-		"status", "stale_reason", "stale_at", "last_verified",
+		"id", colCreatedAt, "updated_at", colCreatedBy, colPersona, colDimension,
+		colContent, colCategory, colConfidence, colSource,
+		colEntityURNs, colRelatedColumns, colMetadata,
+		colStatus, "stale_reason", "stale_at", "last_verified",
 	}
 }
 

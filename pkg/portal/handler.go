@@ -434,7 +434,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = mimeTypeOctetStream
 	}
 	w.Header().Set(headerContentType, contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -527,7 +527,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // uploadThumbnail handles PUT /api/v1/portal/assets/{id}/thumbnail.
@@ -563,7 +563,7 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	ct := r.Header.Get(headerContentType)
 	mediaType, _, _ := mime.ParseMediaType(ct)
-	if mediaType != "image/png" {
+	if mediaType != mimeTypePNG {
 		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
 		return
 	}
@@ -579,7 +579,7 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thumbKey := DeriveThumbnailKey(asset.S3Key)
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, "image/png"); err != nil {
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
 		return
 	}
@@ -591,7 +591,7 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // requireOwnedAsset validates auth, fetches the asset, checks deletion and ownership.
@@ -679,7 +679,7 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerContentType, "image/png")
+	w.Header().Set(headerContentType, mimeTypePNG)
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
@@ -760,7 +760,7 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "updated"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // deleteAsset handles DELETE /api/v1/portal/assets/{id}.
@@ -801,7 +801,7 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
 }
 
 // versionedStorageReady returns true if both S3 and version tracking are configured.
@@ -923,7 +923,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	versionNum, err := strconv.Atoi(r.PathValue(keyVersion))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid version number")
 		return
@@ -940,7 +940,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
-	w.Header().Set(headerContentType, cmp.Or(contentType, "application/octet-stream"))
+	w.Header().Set(headerContentType, cmp.Or(contentType, mimeTypeOctetStream))
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
@@ -990,7 +990,7 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versionNum, err := strconv.Atoi(r.PathValue("version"))
+	versionNum, err := strconv.Atoi(r.PathValue(keyVersion))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid version number")
 		return
@@ -1009,8 +1009,8 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "reverted",
-		"version": assignedVersion,
+		"status":   statusReverted,
+		keyVersion: assignedVersion,
 	})
 }
 
@@ -1278,7 +1278,7 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "revoked"})
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusRevoked})
 }
 
 // listSharedWithMe handles GET /api/v1/portal/shared-with-me.

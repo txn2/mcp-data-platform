@@ -39,6 +39,10 @@ var oauthErrorPageTemplate = template.Must(template.New("oauth-error").Parse(
 // generous window that survives slow MFA prompts.
 const pkceTTL = 10 * time.Minute
 
+// schemeHTTP is the URL scheme used when the request is not TLS-terminated
+// and no X-Forwarded-Proto header is present.
+const schemeHTTP = "http"
+
 // PKCEState is the server-side hold for one pending OAuth flow. Maps
 // the random state token to the data the callback handler needs.
 //
@@ -678,7 +682,7 @@ func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirect
 func buildOAuthCallbackURL(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
-		scheme = "http"
+		scheme = schemeHTTP
 	}
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
 		scheme = proto

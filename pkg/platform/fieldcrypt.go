@@ -20,18 +20,40 @@ const encryptedPrefix = "enc:"
 // configKeyPassword is the conventional config-map key for password fields.
 const configKeyPassword = "password"
 
+// Conventional config-map keys for sensitive fields. Defined as
+// constants because the same literals appear in multiple call sites
+// (encryption allowlist + per-toolkit config extraction) and a typo
+// or rename would silently bypass at-rest encryption.
+const (
+	cfgKeySecretAccessKey = "secret_access_key"
+	cfgKeySecretKey       = "secret_key"
+	cfgKeyToken           = "token"
+)
+
 // sensitiveConfigKeys are the config map keys whose values must be encrypted at rest.
 var sensitiveConfigKeys = map[string]bool{
 	configKeyPassword:     true,
-	"secret_access_key":   true,
-	"secret_key":          true,
-	"token":               true,
+	cfgKeySecretAccessKey: true,
+	cfgKeySecretKey:       true,
+	cfgKeyToken:           true,
 	"access_token":        true,
 	"refresh_token":       true,
 	"api_key":             true,
 	"credential":          true,
 	"client_secret":       true,
 	"oauth_client_secret": true,
+}
+
+// SensitiveConfigKeyList returns a copy of the sensitive-key set as a
+// slice for tests in other packages (e.g. pkg/admin) that assert
+// their redaction list covers the encryption layer's set.
+// Returning a copy keeps the underlying map private.
+func SensitiveConfigKeyList() []string {
+	keys := make([]string, 0, len(sensitiveConfigKeys))
+	for k := range sensitiveConfigKeys {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // FieldEncryptor encrypts and decrypts sensitive fields within connection config maps.

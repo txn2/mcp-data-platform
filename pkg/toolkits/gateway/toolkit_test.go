@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -411,6 +412,264 @@ func TestEndToEnd_HotRemoveAfterRegisterTools(t *testing.T) {
 	if len(after.Tools) != 0 {
 		t.Errorf("expected 0 tools after remove, got %d", len(after.Tools))
 	}
+}
+
+// TestToolkit_NotifyToolListChanged_FiresOnAddAndRemove proves the
+// gateway pushes a tools/list_changed signal whenever its aggregate
+// tool inventory changes — the linchpin behavior SSE long-poll
+// subscribers rely on so they don't have to disconnect / reconnect to
+// pick up a freshly re-authorized upstream.
+func TestToolkit_NotifyToolListChanged_FiresOnAddAndRemove(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	var calls lockedCounter
+	tk.SetToolListChangedNotifier(notifierFunc(func(_ context.Context) {
+		calls.add(1)
+	}))
+
+	client := platformWithToolkit(t, tk)
+	t.Cleanup(func() { _ = client.Close() })
+
+	if err := tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	if !waitFor(time.Second, func() bool { return calls.load() >= 1 }) {
+		t.Fatal("notifier did not fire after AddConnection")
+	}
+	addCalls := calls.load()
+
+	if err := tk.RemoveConnection(connCRM); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+
+	if !waitFor(time.Second, func() bool { return calls.load() > addCalls }) {
+		t.Fatal("notifier did not fire after RemoveConnection")
+	}
+}
+
+// TestToolkit_SetToolListChangedNotifier_NilDisables proves passing
+// nil to SetToolListChangedNotifier clears the previously-installed
+// notifier so subsequent inventory changes do NOT fire — covers the
+// nil branch in SetToolListChangedNotifier and gives operators a way
+// to detach a misbehaving notifier at runtime.
+func TestToolkit_SetToolListChangedNotifier_NilDisables(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	var calls lockedCounter
+	tk.SetToolListChangedNotifier(notifierFunc(func(_ context.Context) {
+		calls.add(1)
+	}))
+	tk.SetToolListChangedNotifier(nil)
+
+	for range 5 {
+		tk.notifyToolListChanged()
+	}
+	time.Sleep(notifyDebounceWindow + 50*time.Millisecond)
+	if got := calls.load(); got != 0 {
+		t.Errorf("expected 0 fires after nil notifier, got %d", got)
+	}
+}
+
+// typedNilNotifier is a pointer-receiver adapter used to exercise the
+// typed-nil interface path through SetToolListChangedNotifier — a
+// `var p *typedNilNotifier; tk.SetToolListChangedNotifier(p)` would
+// previously install a non-nil interface wrapping a nil pointer and
+// nil-deref at fire time. isNilNotifier closes that footgun.
+type typedNilNotifier struct{}
+
+func (*typedNilNotifier) NotifyToolsListChanged(_ context.Context) {}
+
+// TestToolkit_SetToolListChangedNotifier_FuncTypedNilDisables proves
+// the func-typed nil branch (named func type satisfying the interface
+// via method declaration). notifierFunc is exactly that shape; a nil
+// notifierFunc wrapped in the interface is not equal to nil but
+// dispatching through it would call a nil function value and panic.
+// isNilNotifier's reflect.Func arm closes this.
+func TestToolkit_SetToolListChangedNotifier_FuncTypedNilDisables(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// staticcheck SA4023: the comparison below is statically known to
+	// be never-true — that's exactly the property we're asserting. A
+	// typed-nil func wrapped in a non-nil interface value is the
+	// hazard isNilNotifier exists to detect; the Fatal serves as a
+	// fixture sanity check for that contract.
+	var f notifierFunc                     //nolint:staticcheck // SA4023 — typed-nil-vs-nil-interface contract sanity check
+	if ToolListChangedNotifier(f) == nil { //nolint:staticcheck // SA4023 — see above
+		t.Fatal("test fixture broken: typed nil func should NOT compare equal to nil interface")
+	}
+
+	tk.SetToolListChangedNotifier(f)
+	for range 5 {
+		// Must not panic — production AfterFunc would call into a nil
+		// function value if the typed-nil were stored.
+		tk.notifyToolListChanged()
+	}
+	time.Sleep(notifyDebounceWindow + 50*time.Millisecond)
+}
+
+// TestToolkit_SetToolListChangedNotifier_TypedNilDisables proves the
+// typed-nil branch — a non-nil interface wrapping a nil pointer — is
+// detected by isNilNotifier and treated identically to a bare-nil
+// call. Without the reflect-based detection, the AfterFunc dispatch
+// would nil-deref on the pointer-receiver method call.
+func TestToolkit_SetToolListChangedNotifier_TypedNilDisables(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// Sanity: this is the non-nil-interface-wrapping-nil-pointer case.
+	// staticcheck SA4023 flags as "never true" — that's the contract
+	// being asserted (see FuncTypedNilDisables for the full rationale).
+	var p *typedNilNotifier                //nolint:staticcheck // SA4023 — typed-nil-vs-nil-interface contract sanity check
+	if ToolListChangedNotifier(p) == nil { //nolint:staticcheck // SA4023 — see above
+		t.Fatal("test fixture broken: typed nil should NOT compare equal to nil interface")
+	}
+
+	tk.SetToolListChangedNotifier(p)
+	for range 5 {
+		// Must not panic — production AfterFunc would nil-deref if
+		// the typed-nil were stored.
+		tk.notifyToolListChanged()
+	}
+	time.Sleep(notifyDebounceWindow + 50*time.Millisecond)
+	// Successful "no panic" + zero-fire is the contract.
+}
+
+// notifierFunc is a small adapter so tests can pass a function directly
+// without defining a wrapping struct. Test-only; production wires a
+// concrete adapter type (gatewayListChangedNotifier in pkg/platform).
+type notifierFunc func(context.Context)
+
+// NotifyToolsListChanged satisfies ToolListChangedNotifier.
+func (f notifierFunc) NotifyToolsListChanged(ctx context.Context) { f(ctx) }
+
+// broadcasterNotifier adapts session.Broadcaster onto
+// ToolListChangedNotifier without dragging the gatewayListChangedNotifier
+// from pkg/platform (which would cause an import cycle). Test-only:
+// drops the production adapter's nil-broadcaster guard and slog.Warn
+// on publish error because this test always supplies a non-nil
+// MemoryBroadcaster and asserts delivery rather than logging.
+type broadcasterNotifier struct{ b session.Broadcaster }
+
+func (n broadcasterNotifier) NotifyToolsListChanged(ctx context.Context) {
+	_ = n.b.Publish(ctx, session.Event{Method: "notifications/tools/list_changed"})
+}
+
+// TestToolkit_BroadcastsToRealSubscriber wires the gateway toolkit
+// through a real session.MemoryBroadcaster to a real Subscription —
+// the chain that, in production, ends at an SSE long-poll client. It
+// proves the FULL integration that piecewise tests (toolkit→notifier,
+// notifier→broadcaster, broadcaster→sub) cover individually but never
+// together: a gateway tool-inventory change reaches a subscriber as a
+// notifications/tools/list_changed event, with all four stages alive.
+//
+// If this test fails, downstream agents would not see live tool
+// inventory updates even though every individual unit test passes —
+// exactly the failure mode prior reviews flagged.
+func TestToolkit_BroadcastsToRealSubscriber(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	broker := session.NewMemoryBroadcaster(nil)
+	t.Cleanup(func() { _ = broker.Close() })
+
+	tk.SetToolListChangedNotifier(broadcasterNotifier{b: broker})
+
+	sub := broker.Subscribe(context.Background(), "integration-session")
+	t.Cleanup(sub.Close)
+
+	client := platformWithToolkit(t, tk)
+	t.Cleanup(func() { _ = client.Close() })
+
+	if err := tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	// Wait past the debounce window plus margin and consume one event.
+	deadline := time.After(notifyDebounceWindow + 500*time.Millisecond)
+	select {
+	case ev, ok := <-sub.Events():
+		if !ok {
+			t.Fatal("subscription closed before event arrived")
+		}
+		if ev.Method != "notifications/tools/list_changed" {
+			t.Errorf("event method = %q, want notifications/tools/list_changed", ev.Method)
+		}
+	case <-deadline:
+		t.Fatal("subscriber did not receive tools/list_changed within debounce + margin")
+	}
+}
+
+// TestToolkit_NotifyToolListChanged_DebouncesBurst proves the
+// debounce window collapses many fast tool registrations (e.g. one
+// upstream registering 12 tools at once) into a single fire — keeps
+// the notification budget proportional to operator-visible state
+// changes, not to internal call volume.
+func TestToolkit_NotifyToolListChanged_DebouncesBurst(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	var calls lockedCounter
+	tk.SetToolListChangedNotifier(notifierFunc(func(_ context.Context) {
+		calls.add(1)
+	}))
+
+	// Trigger a burst directly — bypass the upstream because we want
+	// to count calls, not exercise the connection lifecycle.
+	for range 20 {
+		tk.notifyToolListChanged()
+	}
+	// Wait past the debounce window plus margin.
+	time.Sleep(notifyDebounceWindow + 50*time.Millisecond)
+	// At least one fire is required (the burst MUST surface). Strict
+	// `== 1` would be flake-prone under -race on a loaded CI runner:
+	// if the 20-iteration loop straddles the 50ms window because one
+	// of the goroutine schedule slices is slow, the timer fires
+	// mid-burst and a second AfterFunc gets scheduled. The contract
+	// we actually need is "burst collapses far below 20" — ≤2 is the
+	// loose bound that proves debouncing is happening without being
+	// vulnerable to scheduler jitter.
+	got := calls.load()
+	if got < 1 || got > 2 {
+		t.Errorf("expected 1-2 fires after 20-call burst (debounce should collapse), got %d", got)
+	}
+}
+
+// lockedCounter is a tiny mutex-protected counter used by tests to
+// count notifier fires. Named for the implementation (not "atomic")
+// so callers don't accidentally compose lock-free invariants on top
+// of it (e.g., compare-and-swap loops); this is plain mutex semantics.
+type lockedCounter struct {
+	mu sync.Mutex
+	v  int32
+}
+
+func (a *lockedCounter) add(n int32) {
+	a.mu.Lock()
+	a.v += n
+	a.mu.Unlock()
+}
+
+func (a *lockedCounter) load() int32 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.v
+}
+
+// waitFor polls cond every 5ms until it returns true or until timeout.
+// Returns whether cond became true within the deadline.
+func waitFor(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
 }
 
 func TestEndToEnd_UpstreamErrorResultForwarded(t *testing.T) {

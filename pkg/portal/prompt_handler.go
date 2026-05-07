@@ -384,7 +384,7 @@ func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 		h.deps.PromptRegistrar.UnregisterRuntimePrompt(existing.Name)
 	}
 
-	writePortalJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writePortalJSON(w, http.StatusOK, map[string]string{"status": statusDeleted})
 }
 
 // systemPrompts returns system-registered prompts as Prompt structs, excluding

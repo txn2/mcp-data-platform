@@ -280,17 +280,17 @@ func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolReque
 	}
 
 	switch input.Action {
-	case "bulk_review":
+	case actionBulkReview:
 		return t.handleBulkReview(ctx)
-	case "review":
+	case actionReview:
 		return t.handleReview(ctx, input)
-	case "synthesize":
+	case actionSynthesize:
 		return t.handleSynthesize(ctx, input)
-	case "apply":
+	case actionApply:
 		return t.handleApply(ctx, input)
-	case "approve":
+	case actionApprove:
 		return t.handleApproveReject(ctx, input, StatusApproved)
-	case "reject":
+	case actionReject:
 		return t.handleApproveReject(ctx, input, StatusRejected)
 	default:
 		return errorResult("unknown action: " + input.Action), nil, nil
@@ -371,7 +371,7 @@ func (t *Toolkit) handleReview(ctx context.Context, input applyKnowledgeInput) (
 	}
 
 	result := map[string]any{
-		"entity_urn":       input.EntityURN,
+		fieldEntityURN:     input.EntityURN,
 		"current_metadata": currentMeta,
 		"insights":         insights,
 	}
@@ -414,7 +414,7 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 	proposed := buildProposedChanges(insights, currentMeta)
 
 	result := map[string]any{
-		"entity_urn":        input.EntityURN,
+		fieldEntityURN:      input.EntityURN,
 		"current_metadata":  currentMeta,
 		"approved_insights": insights,
 		"proposed_changes":  proposed,
@@ -463,9 +463,9 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	if t.requireConfirmation && !input.Confirm {
 		return jsonResult(map[string]any{
 			"confirmation_required": true,
-			"entity_urn":            input.EntityURN,
+			fieldEntityURN:          input.EntityURN,
 			"changes_count":         len(input.Changes),
-			"message":               "Set confirm: true to apply these changes.",
+			fieldMessage:            "Set confirm: true to apply these changes.",
 		})
 	}
 
@@ -522,10 +522,10 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 
 	result := map[string]any{
 		"changeset_id":            csID,
-		"entity_urn":              input.EntityURN,
+		fieldEntityURN:            input.EntityURN,
 		"changes_applied":         len(input.Changes),
 		"insights_marked_applied": len(input.InsightIDs),
-		"message":                 fmt.Sprintf("Changes applied to DataHub. Changeset %s recorded for rollback.", csID),
+		fieldMessage:              fmt.Sprintf("Changes applied to DataHub. Changeset %s recorded for rollback.", csID),
 	}
 
 	if len(createdURNs) > 0 {
@@ -775,6 +775,22 @@ func normalizeGlossaryTermURN(term string) string {
 // errFmtExecuting is the format string for change dispatch errors.
 const errFmtExecuting = "executing %s: %w"
 
+// JSON field names used in tool responses.
+const (
+	fieldEntityURN   = "entity_urn"
+	fieldMessage     = "message"
+	fieldDescription = "description"
+	fieldTarget      = "target"
+	fieldDetail      = "detail"
+)
+
+// promptRoleUser is the MCP message Role value for user-authored
+// prompt content. Distinct from `sourceUser` (the insight-provenance
+// enum that happens to share the same string today) because the two
+// namespaces are semantically unrelated and could diverge — a future
+// rename of sourceUser must not silently change the prompt role.
+const promptRoleUser = "user"
+
 // qualityIssueTagURN is the single fixed DataHub tag applied by flag_quality_issue.
 // Instead of encoding quality issue details into dynamic tag names (which pollutes
 // the tag namespace), the detail text is stored as a knowledge insight for admin review.
@@ -939,7 +955,7 @@ func buildInsight(id string, pc *middleware.PlatformContext, input captureInsigh
 		EntityURNs:       input.EntityURNs,
 		RelatedColumns:   input.RelatedColumns,
 		SuggestedActions: input.SuggestedActions,
-		Status:           "pending",
+		Status:           StatusPending,
 	}
 
 	// Ensure slices are non-nil for JSON serialization
@@ -986,7 +1002,7 @@ func errorResult(msg string) *mcp.CallToolResult {
 func successResult(insightID string) (*mcp.CallToolResult, any, error) {
 	output := captureInsightOutput{
 		InsightID: insightID,
-		Status:    "pending",
+		Status:    StatusPending,
 		Message:   "Insight captured. It will be reviewed by a data catalog administrator.",
 	}
 
@@ -1026,7 +1042,7 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{
 				{
-					Role:    "user",
+					Role:    promptRoleUser,
 					Content: &mcp.TextContent{Text: knowledgeCapturePrompt},
 				},
 			},
@@ -1040,7 +1056,7 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{
 				{
-					Role:    "user",
+					Role:    promptRoleUser,
 					Content: &mcp.TextContent{Text: captureKnowledgePromptContent},
 				},
 			},
@@ -1113,7 +1129,7 @@ func metadataToMap(meta *EntityMetadata) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"description":    meta.Description,
+		fieldDescription: meta.Description,
 		"tags":           meta.Tags,
 		"glossary_terms": meta.GlossaryTerms,
 		"owners":         meta.Owners,
@@ -1126,8 +1142,8 @@ func changesToMap(changes []ApplyChange) map[string]any {
 		key := fmt.Sprintf("change_%d", i)
 		entry := map[string]any{
 			"change_type": c.ChangeType,
-			"target":      c.Target,
-			"detail":      c.Detail,
+			fieldTarget:   c.Target,
+			fieldDetail:   c.Detail,
 		}
 		if c.QuerySQL != "" {
 			entry["query_sql"] = c.QuerySQL
