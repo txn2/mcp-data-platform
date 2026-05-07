@@ -16,15 +16,21 @@ var ErrTokenNotFound = errors.New("gateway: oauth token not found")
 // PersistedToken is the row shape for gateway_oauth_tokens. Tokens are
 // stored encrypted at rest by the platform's FieldEncryptor; this struct
 // carries plaintext values to/from the store API.
+//
+// RefreshExpiresAt is optional — only populated when the IdP returned
+// refresh_expires_in (Keycloak does, others may not). Zero means the
+// store row has NULL in refresh_expires_at; callers must NOT interpret
+// that as "never expires".
 type PersistedToken struct {
-	ConnectionName  string
-	AccessToken     string
-	RefreshToken    string
-	ExpiresAt       time.Time
-	Scope           string
-	AuthenticatedBy string
-	AuthenticatedAt time.Time
-	UpdatedAt       time.Time
+	ConnectionName   string
+	AccessToken      string
+	RefreshToken     string
+	ExpiresAt        time.Time
+	RefreshExpiresAt time.Time
+	Scope            string
+	AuthenticatedBy  string
+	AuthenticatedAt  time.Time
+	UpdatedAt        time.Time
 }
 
 // TokenStore persists OAuth tokens for the authorization_code grant so a
@@ -91,18 +97,20 @@ func NewPostgresTokenStore(db *sql.DB, enc TokenEncryptor) *PostgresTokenStore {
 func (s *PostgresTokenStore) Get(ctx context.Context, connection string) (*PersistedToken, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT connection_name, access_token, refresh_token, expires_at,
-                scope, authenticated_by, authenticated_at, updated_at
+                refresh_expires_at, scope, authenticated_by, authenticated_at,
+                updated_at
          FROM gateway_oauth_tokens WHERE connection_name = $1`, connection)
 
 	var (
-		t          PersistedToken
-		accessEnc  sql.NullString
-		refreshEnc sql.NullString
-		expiresAt  sql.NullTime
-		authedAt   sql.NullTime
+		t                PersistedToken
+		accessEnc        sql.NullString
+		refreshEnc       sql.NullString
+		expiresAt        sql.NullTime
+		refreshExpiresAt sql.NullTime
+		authedAt         sql.NullTime
 	)
 	if err := row.Scan(&t.ConnectionName, &accessEnc, &refreshEnc, &expiresAt,
-		&t.Scope, &t.AuthenticatedBy, &authedAt, &t.UpdatedAt); err != nil {
+		&refreshExpiresAt, &t.Scope, &t.AuthenticatedBy, &authedAt, &t.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTokenNotFound
 		}
@@ -126,6 +134,9 @@ func (s *PostgresTokenStore) Get(ctx context.Context, connection string) (*Persi
 	if expiresAt.Valid {
 		t.ExpiresAt = expiresAt.Time
 	}
+	if refreshExpiresAt.Valid {
+		t.RefreshExpiresAt = refreshExpiresAt.Time
+	}
 	if authedAt.Valid {
 		t.AuthenticatedAt = authedAt.Time
 	}
@@ -146,14 +157,16 @@ func (s *PostgresTokenStore) Set(ctx context.Context, t PersistedToken) error {
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO gateway_oauth_tokens
             (connection_name, access_token, refresh_token, expires_at,
-             scope, authenticated_by, authenticated_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             refresh_expires_at, scope, authenticated_by, authenticated_at,
+             updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (connection_name) DO UPDATE
          SET access_token = $2, refresh_token = $3, expires_at = $4,
-             scope = $5, authenticated_by = $6, authenticated_at = $7,
-             updated_at = $8`,
+             refresh_expires_at = $5, scope = $6, authenticated_by = $7,
+             authenticated_at = $8, updated_at = $9`,
 		t.ConnectionName, accessEnc, refreshEnc, nullTime(t.ExpiresAt),
-		t.Scope, t.AuthenticatedBy, nullTime(t.AuthenticatedAt), time.Now().UTC())
+		nullTime(t.RefreshExpiresAt), t.Scope, t.AuthenticatedBy,
+		nullTime(t.AuthenticatedAt), time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("gateway: upsert oauth token: %w", err)
 	}

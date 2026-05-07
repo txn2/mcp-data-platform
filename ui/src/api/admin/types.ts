@@ -515,6 +515,7 @@ export interface GatewayOAuthStatus {
   expires_at?: string;
   last_refreshed_at?: string;
   has_refresh_token: boolean;
+  refresh_expires_at?: string;
   last_error?: string;
   grant?: string;
   token_url?: string;

@@ -30,6 +30,11 @@ type tokenState struct {
 	RefreshToken    string
 	ExpiresAt       time.Time
 	LastRefreshedAt time.Time
+	// RefreshExpiresAt is the absolute deadline after which the refresh
+	// token itself can no longer mint new access tokens. Populated only
+	// when the IdP returns refresh_expires_in (Keycloak does; many others
+	// don't). Zero means "unknown" — DO NOT treat as "never expires".
+	RefreshExpiresAt time.Time
 }
 
 // OAuthStatus is a snapshot of token state suitable for the admin status
@@ -40,10 +45,16 @@ type OAuthStatus struct {
 	ExpiresAt       time.Time `json:"expires_at,omitzero"`
 	LastRefreshedAt time.Time `json:"last_refreshed_at,omitzero"`
 	HasRefreshToken bool      `json:"has_refresh_token"`
-	LastError       string    `json:"last_error,omitempty"`
-	Grant           string    `json:"grant,omitempty"`
-	TokenURL        string    `json:"token_url,omitempty"`
-	Scope           string    `json:"scope,omitempty"`
+	// RefreshExpiresAt is the absolute deadline after which the refresh
+	// token itself stops working. Set only when the IdP includes
+	// refresh_expires_in in its token response (Keycloak does; the OAuth
+	// 2.1 spec leaves it optional). Zero means unknown — the UI should
+	// render an em dash, not "never".
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
+	LastError        string    `json:"last_error,omitempty"`
+	Grant            string    `json:"grant,omitempty"`
+	TokenURL         string    `json:"token_url,omitempty"`
+	Scope            string    `json:"scope,omitempty"`
 	// AuthenticatedBy is the email/id of the operator who completed the
 	// browser flow. Empty for client_credentials and for connections that
 	// have not yet been authorized.
@@ -51,10 +62,14 @@ type OAuthStatus struct {
 	// AuthenticatedAt records when the most recent successful exchange
 	// (initial OAuth dance or refresh) completed.
 	AuthenticatedAt time.Time `json:"authenticated_at,omitzero"`
-	// NeedsReauth is true when the platform cannot mint an access token
-	// without operator interaction. For authorization_code grants this
-	// means: no stored token, or the refresh token has been revoked.
-	// The admin UI surfaces a "Connect" button when this is true.
+	// NeedsReauth is true when the platform cannot mint a new access
+	// token without operator interaction. For authorization_code grants
+	// this means: no stored token, the refresh token has been revoked,
+	// OR the IdP-disclosed RefreshExpiresAt deadline has passed (the
+	// next refresh would fail). The admin UI surfaces a "Connect"
+	// button when this is true. Setting it pre-emptively from
+	// RefreshExpiresAt lets the UI nudge the operator before the next
+	// tool call surfaces the failure.
 	NeedsReauth bool `json:"needs_reauth,omitempty"`
 	// RefreshTokenRevoked is true when the most recent refresh attempt
 	// got a definitive RFC 6749 §5.2 invalid_grant response — meaning
@@ -270,12 +285,17 @@ func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, 
 // IngestTokenResponseInput collects the result of an out-of-band OAuth
 // exchange (e.g. the platform's authorization-code callback handler).
 // Used to keep IngestTokenResponse to a single argument.
+//
+// RefreshExpiresIn is optional: only some IdPs (Keycloak) return it.
+// Zero is interpreted as "not provided" and leaves RefreshExpiresAt
+// at zero — the UI shows an em dash, not "never expires".
 type IngestTokenResponseInput struct {
-	AccessToken     string
-	RefreshToken    string
-	ExpiresIn       int
-	Scope           string
-	AuthenticatedBy string
+	AccessToken      string
+	RefreshToken     string
+	ExpiresIn        int
+	RefreshExpiresIn int
+	Scope            string
+	AuthenticatedBy  string
 }
 
 // IngestTokenResponse stores a token set obtained out-of-band into the
@@ -297,11 +317,12 @@ func (t *oauthTokenSource) IngestTokenResponse(ctx context.Context, in IngestTok
 		t.state.RefreshToken = in.RefreshToken
 	}
 	now := time.Now().UTC()
-	if in.ExpiresIn > 0 {
-		t.state.ExpiresAt = now.Add(time.Duration(in.ExpiresIn) * time.Second)
-	} else {
-		t.state.ExpiresAt = now.Add(1 * time.Hour)
-	}
+	applyExpiriesLocked(&t.state, expiryUpdate{
+		Now:                    now,
+		ExpiresIn:              in.ExpiresIn,
+		RefreshExpiresIn:       in.RefreshExpiresIn,
+		RefreshTokenInResponse: in.RefreshToken != "",
+	})
 	t.state.LastRefreshedAt = now
 	if in.Scope != "" {
 		t.cfg.Scope = in.Scope
@@ -403,13 +424,15 @@ func (t *oauthTokenSource) Status() OAuthStatus {
 	defer t.mu.Unlock()
 	_ = t.ensureLoadedLocked(context.Background())
 	needsReauth := t.cfg.Grant == OAuthGrantAuthorizationCode &&
-		t.state.AccessToken == "" && t.state.RefreshToken == ""
+		(t.state.AccessToken == "" && t.state.RefreshToken == "" ||
+			refreshDeadlinePassed(t.state.RefreshExpiresAt))
 	return OAuthStatus{
 		Configured:          true,
 		TokenAcquired:       t.state.AccessToken != "",
 		ExpiresAt:           t.state.ExpiresAt,
 		LastRefreshedAt:     t.state.LastRefreshedAt,
 		HasRefreshToken:     t.state.RefreshToken != "",
+		RefreshExpiresAt:    t.state.RefreshExpiresAt,
 		LastError:           formatStatusError(t.lastError, t.refreshTokenRevoked, t.cfg.Grant),
 		Grant:               t.cfg.Grant,
 		TokenURL:            t.cfg.TokenURL,
@@ -419,6 +442,14 @@ func (t *oauthTokenSource) Status() OAuthStatus {
 		NeedsReauth:         needsReauth,
 		RefreshTokenRevoked: t.refreshTokenRevoked,
 	}
+}
+
+// refreshDeadlinePassed reports whether the IdP-disclosed refresh-token
+// deadline (if any) is in the past. Returns false when the deadline is
+// zero — most IdPs don't disclose refresh_expires_in, and we must not
+// treat "unknown" as "expired".
+func refreshDeadlinePassed(deadline time.Time) bool {
+	return !deadline.IsZero() && time.Now().After(deadline)
 }
 
 // formatStatusError augments the raw lastError text with a generic
@@ -483,10 +514,16 @@ func (t *oauthTokenSource) refreshLocked(ctx context.Context) error {
 }
 
 // tokenResponse is the standard OAuth 2.1 token endpoint response.
+//
+// RefreshExpiresIn is a Keycloak extension (also emitted by some other
+// IdPs) carrying the refresh token's own lifetime in seconds. RFC 6749
+// does not standardize it, so it's optional — zero means "not provided"
+// and callers must not invent a default.
 type tokenResponse struct {
 	AccessToken      string `json:"access_token"`
 	TokenType        string `json:"token_type"`
 	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in,omitempty"`
 	RefreshToken     string `json:"refresh_token,omitempty"`
 	Scope            string `json:"scope,omitempty"`
 	Error            string `json:"error,omitempty"`
@@ -643,15 +680,80 @@ func (t *oauthTokenSource) applyTokenResponseLocked(tr tokenResponse) {
 	if tr.RefreshToken != "" {
 		t.state.RefreshToken = tr.RefreshToken
 	}
-	if tr.ExpiresIn > 0 {
-		t.state.ExpiresAt = now.Add(time.Duration(tr.ExpiresIn) * time.Second)
-	} else {
-		// Default to one hour when the upstream omits expires_in. Spec
-		// recommends always including it but real implementations vary.
-		t.state.ExpiresAt = now.Add(1 * time.Hour)
-	}
+	applyExpiriesLocked(&t.state, expiryUpdate{
+		Now:                    now,
+		ExpiresIn:              tr.ExpiresIn,
+		RefreshExpiresIn:       tr.RefreshExpiresIn,
+		RefreshTokenInResponse: tr.RefreshToken != "",
+	})
 	t.state.LastRefreshedAt = now
 	t.refreshTokenRevoked = false
+}
+
+// expiryUpdate bundles the inputs to applyExpiriesLocked so the helper's
+// signature stays under revive's argument-limit ceiling. Defined as a
+// struct rather than positional args so call sites read self-
+// documenting and a future field addition doesn't break callers.
+type expiryUpdate struct {
+	Now              time.Time
+	ExpiresIn        int
+	RefreshExpiresIn int
+	// RefreshTokenInResponse is true when the IdP's response payload
+	// included a refresh_token field (regardless of whether its value
+	// is the same as or different from the cached one). Per RFC 6749
+	// §6, an IdP omits refresh_token to mean "the existing one is
+	// still valid" and includes it to signal rotation; we distinguish
+	// "absent" from "echoed" by tracking presence explicitly here.
+	RefreshTokenInResponse bool
+}
+
+// applyExpiriesLocked computes ExpiresAt and RefreshExpiresAt on state
+// from a token-endpoint response. Centralized so the Connect path
+// (IngestTokenResponse) and the acquire/refresh path
+// (applyTokenResponseLocked) cannot diverge on edge-case semantics
+// — the rules below are the contract:
+//
+//   - ExpiresIn > 0: absolute deadline = Now + ExpiresIn.
+//     ExpiresIn == 0: assign a 1-hour default to the freshly-issued
+//     access token regardless of any prior cached deadline. Each
+//     successful exchange yields a NEW access token whose lifetime is
+//     unrelated to the previous one's, so preserving the prior cache
+//     would surface a deadline that belongs to a different token.
+//     The OAuth 2.1 spec recommends always including expires_in but
+//     real implementations vary; the 1-hour default is conservative
+//     enough to trigger refresh well before the upstream's typical
+//     30-min minimum and short enough that a bad guess self-corrects
+//     within an hour. The auth round-tripper handles 401s on tool
+//     calls by treating them as transient — a too-long guess is
+//     recoverable, never silent.
+//
+//   - RefreshExpiresIn > 0: set the absolute refresh deadline.
+//
+//   - RefreshExpiresIn == 0 AND RefreshTokenInResponse: the IdP echoed
+//     or rotated a refresh token without a lifetime hint. The previous
+//     deadline (if any) belonged to the prior token's lifecycle and may
+//     no longer apply. Clear so the UI doesn't surface a stale value.
+//
+//   - RefreshExpiresIn == 0 AND !RefreshTokenInResponse: refresh token
+//     omitted entirely (RFC 6749 §6 "still valid"). Preserve any
+//     existing deadline — the IdP said nothing about this token's
+//     lifetime; clearing would invent "no fixed lifetime".
+//
+// Caller must hold the source's mutex.
+func applyExpiriesLocked(state *tokenState, u expiryUpdate) {
+	if u.ExpiresIn > 0 {
+		state.ExpiresAt = u.Now.Add(time.Duration(u.ExpiresIn) * time.Second)
+	} else {
+		state.ExpiresAt = u.Now.Add(1 * time.Hour)
+	}
+	switch {
+	case u.RefreshExpiresIn > 0:
+		state.RefreshExpiresAt = u.Now.Add(time.Duration(u.RefreshExpiresIn) * time.Second)
+	case u.RefreshTokenInResponse:
+		state.RefreshExpiresAt = time.Time{}
+	default:
+		// Refresh token absent from response — preserve existing deadline.
+	}
 }
 
 // errRefreshTokenRevoked indicates the IdP definitively rejected a
@@ -818,10 +920,11 @@ func (t *oauthTokenSource) ensureLoadedLocked(ctx context.Context) error {
 		return fmt.Errorf("oauth: load token: %w", err)
 	}
 	t.state = tokenState{
-		AccessToken:     rec.AccessToken,
-		RefreshToken:    rec.RefreshToken,
-		ExpiresAt:       rec.ExpiresAt,
-		LastRefreshedAt: rec.UpdatedAt,
+		AccessToken:      rec.AccessToken,
+		RefreshToken:     rec.RefreshToken,
+		ExpiresAt:        rec.ExpiresAt,
+		RefreshExpiresAt: rec.RefreshExpiresAt,
+		LastRefreshedAt:  rec.UpdatedAt,
 	}
 	t.authedBy = rec.AuthenticatedBy
 	t.authedAt = rec.AuthenticatedAt
@@ -846,13 +949,14 @@ func (t *oauthTokenSource) persistLocked(ctx context.Context) error {
 		return nil
 	}
 	if err := t.store.Set(ctx, PersistedToken{
-		ConnectionName:  t.connectionName,
-		AccessToken:     t.state.AccessToken,
-		RefreshToken:    t.state.RefreshToken,
-		ExpiresAt:       t.state.ExpiresAt,
-		Scope:           t.cfg.Scope,
-		AuthenticatedBy: t.authedBy,
-		AuthenticatedAt: t.authedAt,
+		ConnectionName:   t.connectionName,
+		AccessToken:      t.state.AccessToken,
+		RefreshToken:     t.state.RefreshToken,
+		ExpiresAt:        t.state.ExpiresAt,
+		RefreshExpiresAt: t.state.RefreshExpiresAt,
+		Scope:            t.cfg.Scope,
+		AuthenticatedBy:  t.authedBy,
+		AuthenticatedAt:  t.authedAt,
 	}); err != nil {
 		return fmt.Errorf("oauth: persist token: %w", err)
 	}

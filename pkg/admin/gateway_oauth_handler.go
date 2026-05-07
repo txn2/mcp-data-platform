@@ -438,13 +438,18 @@ func (h *Handler) completeOAuthExchange(ctx context.Context, pending *PKCEState,
 }
 
 // authCodeTokenResponse is the parsed token-endpoint response.
+//
+// RefreshExpiresIn is the Keycloak-style hint for the refresh token's
+// own lifetime (seconds). Optional in the OAuth 2.1 spec — zero means
+// the IdP did not disclose it; do NOT default to a non-zero value.
 type authCodeTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	ExpiresIn    int    `json:"expires_in,omitempty"`
-	Scope        string `json:"scope,omitempty"`
-	Error        string `json:"error,omitempty"`
-	ErrorDesc    string `json:"error_description,omitempty"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token,omitempty"`
+	ExpiresIn        int    `json:"expires_in,omitempty"`
+	RefreshExpiresIn int    `json:"refresh_expires_in,omitempty"`
+	Scope            string `json:"scope,omitempty"`
+	Error            string `json:"error,omitempty"`
+	ErrorDesc        string `json:"error_description,omitempty"`
 }
 
 // codeExchangeTimeout bounds the admin's authorization_code POST to the
@@ -582,6 +587,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		"access_token_len", len(tr.AccessToken),
 		"refresh_token_present", tr.RefreshToken != "",
 		"expires_in", tr.ExpiresIn,
+		"refresh_expires_in", tr.RefreshExpiresIn,
 		"scope", tr.Scope)
 	return &tr, nil
 }
@@ -602,12 +608,13 @@ func (h *Handler) persistOAuthTokens(ctx context.Context, pending *PKCEState,
 		}
 	}
 	if err := tk.IngestOAuthToken(ctx, gatewaykit.IngestOAuthTokenInput{
-		Name:            pending.connection,
-		AccessToken:     tr.AccessToken,
-		RefreshToken:    tr.RefreshToken,
-		ExpiresIn:       tr.ExpiresIn,
-		Scope:           tr.Scope,
-		AuthenticatedBy: pending.startedBy,
+		Name:             pending.connection,
+		AccessToken:      tr.AccessToken,
+		RefreshToken:     tr.RefreshToken,
+		ExpiresIn:        tr.ExpiresIn,
+		RefreshExpiresIn: tr.RefreshExpiresIn,
+		Scope:            tr.Scope,
+		AuthenticatedBy:  pending.startedBy,
 	}); err != nil {
 		return fmt.Errorf("ingest oauth token: %w", err)
 	}

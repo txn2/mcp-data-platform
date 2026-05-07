@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"testing"
@@ -94,14 +95,16 @@ func TestPostgresTokenStore_Get_Success(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	expiresAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	refreshExpiresAt := time.Date(2026, 1, 2, 4, 0, 0, 0, time.UTC)
 	authedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	rows := sqlmock.NewRows([]string{
 		"connection_name", "access_token", "refresh_token", "expires_at",
-		"scope", "authenticated_by", "authenticated_at", "updated_at",
+		"refresh_expires_at", "scope", "authenticated_by", "authenticated_at",
+		"updated_at",
 	}).AddRow("vendor", reverse("acc"), reverse("ref"), expiresAt,
-		"api", "alice@example.com", authedAt, updatedAt)
+		refreshExpiresAt, "api", "alice@example.com", authedAt, updatedAt)
 
 	mock.ExpectQuery("SELECT connection_name").
 		WithArgs("vendor").
@@ -116,6 +119,7 @@ func TestPostgresTokenStore_Get_Success(t *testing.T) {
 	assert.Equal(t, "api", got.Scope)
 	assert.Equal(t, "alice@example.com", got.AuthenticatedBy)
 	assert.Equal(t, expiresAt, got.ExpiresAt)
+	assert.Equal(t, refreshExpiresAt, got.RefreshExpiresAt)
 	assert.Equal(t, authedAt, got.AuthenticatedAt)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -157,8 +161,9 @@ func TestPostgresTokenStore_Get_DecryptError(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"connection_name", "access_token", "refresh_token", "expires_at",
-		"scope", "authenticated_by", "authenticated_at", "updated_at",
-	}).AddRow("vendor", "ciphertext", nil, nil, "", "", nil, time.Now())
+		"refresh_expires_at", "scope", "authenticated_by", "authenticated_at",
+		"updated_at",
+	}).AddRow("vendor", "ciphertext", nil, nil, nil, "", "", nil, time.Now())
 
 	mock.ExpectQuery("SELECT connection_name").
 		WithArgs("vendor").
@@ -180,8 +185,9 @@ func TestPostgresTokenStore_Get_DecryptRefreshError(t *testing.T) {
 	// a custom encryptor that errors only on the second call.
 	rows := sqlmock.NewRows([]string{
 		"connection_name", "access_token", "refresh_token", "expires_at",
-		"scope", "authenticated_by", "authenticated_at", "updated_at",
-	}).AddRow("vendor", nil, "ref-cipher", nil, "", "", nil, time.Now())
+		"refresh_expires_at", "scope", "authenticated_by", "authenticated_at",
+		"updated_at",
+	}).AddRow("vendor", nil, "ref-cipher", nil, nil, "", "", nil, time.Now())
 
 	mock.ExpectQuery("SELECT connection_name").
 		WithArgs("vendor").
@@ -193,36 +199,67 @@ func TestPostgresTokenStore_Get_DecryptRefreshError(t *testing.T) {
 	assert.Contains(t, err.Error(), "decrypt refresh_token")
 }
 
+// TestPostgresTokenStore_Set_Success exercises the upsert with two
+// scenarios that distinguish the positional ordering of expires_at
+// (arg 4) and refresh_expires_at (arg 5). Using sqlmock.AnyArg() for
+// both would let a future SQL refactor swap the columns and the test
+// would still pass green — exactly the deadline/lifetime corruption
+// hazard finding #5 (round 1) was hunting. Each case here pins the
+// two arguments to values that disagree on type-or-NULL state, so a
+// column swap fails the expectation.
 func TestPostgresTokenStore_Set_Success(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	cases := []struct {
+		name             string
+		refreshExpiresAt time.Time
+		expectedArg5     driver.Value
+	}{
+		{
+			name:             "with refresh deadline",
+			refreshExpiresAt: time.Now().Add(30 * time.Minute),
+			expectedArg5:     sqlmock.AnyArg(), // non-nil time.Time-equivalent
+		},
+		{
+			name:             "without refresh deadline",
+			refreshExpiresAt: time.Time{},
+			expectedArg5:     nil, // nullTime(zero) → nil → DB NULL
+		},
+	}
 
-	mock.ExpectExec("INSERT INTO gateway_oauth_tokens").
-		WithArgs(
-			"vendor",
-			reverse("access-x"),
-			reverse("refresh-x"),
-			sqlmock.AnyArg(),
-			"api",
-			"alice@example.com",
-			sqlmock.AnyArg(),
-			sqlmock.AnyArg(),
-		).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = db.Close() })
 
-	store := NewPostgresTokenStore(db, reverseEncryptor{})
-	err = store.Set(context.Background(), PersistedToken{
-		ConnectionName:  "vendor",
-		AccessToken:     "access-x",
-		RefreshToken:    "refresh-x",
-		ExpiresAt:       time.Now().Add(time.Hour),
-		Scope:           "api",
-		AuthenticatedBy: "alice@example.com",
-		AuthenticatedAt: time.Now(),
-	})
-	require.NoError(t, err)
-	assert.NoError(t, mock.ExpectationsWereMet())
+			mock.ExpectExec("INSERT INTO gateway_oauth_tokens").
+				WithArgs(
+					"vendor",
+					reverse("access-x"),
+					reverse("refresh-x"),
+					sqlmock.AnyArg(), // expires_at — always non-nil here
+					tc.expectedArg5,  // refresh_expires_at — pinned per case
+					"api",
+					"alice@example.com",
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			store := NewPostgresTokenStore(db, reverseEncryptor{})
+			err = store.Set(context.Background(), PersistedToken{
+				ConnectionName:   "vendor",
+				AccessToken:      "access-x",
+				RefreshToken:     "refresh-x",
+				ExpiresAt:        time.Now().Add(time.Hour),
+				RefreshExpiresAt: tc.refreshExpiresAt,
+				Scope:            "api",
+				AuthenticatedBy:  "alice@example.com",
+				AuthenticatedAt:  time.Now(),
+			})
+			require.NoError(t, err)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestPostgresTokenStore_Set_AccessEncryptError(t *testing.T) {

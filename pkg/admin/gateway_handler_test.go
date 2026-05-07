@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -168,6 +169,109 @@ func TestTestGatewayConnection_RedactedMergedFromStore(t *testing.T) {
 
 	// "bearer" with merged credential should validate and dial successfully.
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestTestGatewayConnection_UsesLiveClientWhenRegistered is the bug
+// regression test for v1.58.1+: when an authorization_code OAuth
+// connection is already wired into the live toolkit with a stored
+// refresh token, the admin "Test connection" endpoint MUST exercise
+// the live upstreamClient (carrying the toolkit's TokenStore-backed
+// auth round-tripper) instead of Probe(cfg) (which builds a parallel
+// client with no TokenStore and fails for auth_code).
+//
+// Distinguishing assertions:
+//
+//   - The seeded connection is authorization_code with a pre-stored
+//     token in the toolkit's TokenStore. The live path's behavior
+//     therefore depends on that store being threaded through.
+//   - The request body's "endpoint" points at a closed listener; the
+//     200 OK with live tools proves the body was ignored.
+//   - Tool LocalName "crm__ping" comes from the LIVE upstream's tool
+//     namespace, confirming the live client (not a probe) issued
+//     tools/list.
+func TestTestGatewayConnection_UsesLiveClientWhenRegistered(t *testing.T) {
+	tokenURL := fakeTokenServerForAdmin(t)
+	liveURL := upstreamMCP(t)
+
+	h, tk := gatewayHandlerDeps(t, &mockConnectionStore{})
+
+	store := gatewaykit.NewMemoryTokenStore()
+	// Seed the access token as already-expired so the live path is
+	// forced to refresh through the fake token server. A 1-hour-valid
+	// cached token would short-circuit oauth.Token() and the test would
+	// pass even if the refresh round-tripper were broken — see round-4
+	// finding #1.
+	if err := store.Set(context.Background(), gatewaykit.PersistedToken{
+		ConnectionName: "crm",
+		AccessToken:    "stale-acc",
+		RefreshToken:   "live-ref",
+		ExpiresAt:      time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+	tk.SetTokenStore(store)
+
+	if err := tk.AddConnection("crm", map[string]any{
+		"endpoint":                liveURL,
+		"connection_name":         "crm",
+		"auth_mode":               "oauth",
+		"oauth_grant":             "authorization_code",
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "3s",
+		"call_timeout":            "3s",
+	}); err != nil {
+		t.Fatalf("seed live OAuth connection: %v", err)
+	}
+
+	body, _ := json.Marshal(testGatewayConnectionRequest{
+		Config: map[string]any{
+			// Deliberately broken — would fail Probe. The live path
+			// ignores this and exercises the wired-up client instead.
+			"endpoint":        "http://127.0.0.1:1/mcp",
+			"connection_name": "crm",
+			"connect_timeout": "200ms",
+			"call_timeout":    "1s",
+		},
+	})
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/crm/test",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp testGatewayConnectionResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.True(t, resp.Healthy, "live OAuth test should succeed (TokenStore-loaded credential reaches upstream)")
+	require.NotEmpty(t, resp.Tools, "live tools/list must populate result")
+	// Search for the expected tool by name rather than indexing — a
+	// future helper that registers more tools must not silently shift
+	// this assertion off the one being checked.
+	var foundPing bool
+	for _, tool := range resp.Tools {
+		if tool.Name == "ping" {
+			foundPing = true
+			assert.Equal(t, "crm__ping", tool.LocalName,
+				"namespace prefix must be applied to live-path tools")
+		}
+	}
+	assert.True(t, foundPing, "expected ping tool from live upstream")
+}
+
+// fakeTokenServerForAdmin stands up a token endpoint that always
+// returns a valid token. Used by the auth_code Test-connection test;
+// extracted to keep the test body focused on the admin contract.
+func fakeTokenServerForAdmin(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"live-acc","refresh_token":"live-ref","expires_in":3600}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 func TestRefreshGatewayConnection_AddsFresh(t *testing.T) {

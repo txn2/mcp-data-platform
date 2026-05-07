@@ -118,7 +118,7 @@ type testGatewayConnectionResponse struct {
 // testGatewayConnection handles POST /api/v1/admin/gateway/connections/{name}/test.
 //
 // @Summary      Test a gateway connection config
-// @Description  Dials the upstream described by the submitted config, lists its tools, and returns them. Does not persist anything. When the submitted config contains "[REDACTED]" sensitive fields and a row with this name already exists, the redacted fields are merged from the stored config.
+// @Description  Tests a gateway connection by listing its tools. When a connection with this name is already registered in the live toolkit AND has an active upstreamClient, the request body is IGNORED and the live client (with its loaded TokenStore + auth round-tripper) is exercised — green proves real tool calls would work right now. When no live client exists for this name (the connection is unregistered, OR it's a placeholder awaiting first OAuth Connect, OR a prior dial left it without a client), falls back to a one-shot dial against the submitted config (preview-before-save semantics). The redacted-field merge from the stored config only applies to the fallback path. Does not persist anything.
 // @Tags         Connections
 // @Accept       json
 // @Produce      json
@@ -132,6 +132,19 @@ type testGatewayConnectionResponse struct {
 // @Router       /admin/gateway/connections/{name}/test [post]
 func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
+
+	// Path 1: connection is wired into the live toolkit. Test what the user
+	// actually has — exercise the live upstreamClient (which carries the
+	// toolkit's TokenStore, OAuth refresh logic, and auth round-tripper) by
+	// issuing a tools/list. This is what tool calls go through, so a green
+	// here means real tool invocations work right now.
+	if h.tryTestLiveConnection(w, r, name) {
+		return
+	}
+
+	// Path 2: connection is NOT live (new connection being previewed before
+	// save, or a placeholder awaiting first authorization_code Connect).
+	// Fall back to a one-shot dial against the submitted config.
 	cfg, ok := h.parseTestConnectionConfig(w, r, name)
 	if !ok {
 		return
@@ -155,6 +168,48 @@ func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) 
 		Healthy: true,
 		Tools:   tools,
 	})
+}
+
+// tryTestLiveConnection runs a tools/list against the live upstreamClient
+// for name. Returns true when it wrote a response (caller must stop).
+// Returns false when no live client exists for this name, signaling the
+// caller to fall through to the config-based Probe path.
+//
+// A placeholder connection (registered but client == nil — typical for
+// authorization_code awaiting Connect) is treated as "not live": false is
+// returned so the existing shortCircuitUnauthorizedAuthCode path can
+// surface the friendly "click Connect" message based on the parsed
+// config, instead of a generic upstream error.
+func (h *Handler) tryTestLiveConnection(w http.ResponseWriter, r *http.Request, name string) bool {
+	tk := h.findGatewayToolkit()
+	if tk == nil || !tk.HasConnection(name) {
+		return false
+	}
+	// listTools has no inner deadline of its own — the upstreamClient's
+	// CallTimeout is enforced only on tool-call paths, not on tools/list.
+	// This ctx is therefore the SOLE bound on the call; if it's removed
+	// or extended, a hung upstream will hold the admin endpoint open.
+	ctx, cancel := context.WithTimeout(r.Context(), gatewaykit.DefaultConnectTimeout)
+	defer cancel()
+
+	tools, err := tk.TestLiveConnection(ctx, name)
+	if err != nil {
+		if errors.Is(err, gatewaykit.ErrConnectionNotLive) {
+			// Placeholder — let the Probe-path's short-circuit produce the
+			// "click Connect" message it was built for.
+			return false
+		}
+		writeJSON(w, http.StatusBadGateway, testGatewayConnectionResponse{
+			Healthy: false,
+			Error:   err.Error(),
+		})
+		return true
+	}
+	writeJSON(w, http.StatusOK, testGatewayConnectionResponse{
+		Healthy: true,
+		Tools:   tools,
+	})
+	return true
 }
 
 // parseTestConnectionConfig decodes the request body, merges any redacted

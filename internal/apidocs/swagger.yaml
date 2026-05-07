@@ -1158,11 +1158,23 @@ definitions:
         type: string
       needs_reauth:
         description: |-
-          NeedsReauth is true when the platform cannot mint an access token
-          without operator interaction. For authorization_code grants this
-          means: no stored token, or the refresh token has been revoked.
-          The admin UI surfaces a "Connect" button when this is true.
+          NeedsReauth is true when the platform cannot mint a new access
+          token without operator interaction. For authorization_code grants
+          this means: no stored token, the refresh token has been revoked,
+          OR the IdP-disclosed RefreshExpiresAt deadline has passed (the
+          next refresh would fail). The admin UI surfaces a "Connect"
+          button when this is true. Setting it pre-emptively from
+          RefreshExpiresAt lets the UI nudge the operator before the next
+          tool call surfaces the failure.
         type: boolean
+      refresh_expires_at:
+        description: |-
+          RefreshExpiresAt is the absolute deadline after which the refresh
+          token itself stops working. Set only when the IdP includes
+          refresh_expires_in in its token response (Keycloak does; the OAuth
+          2.1 spec leaves it optional). Zero means unknown — the UI should
+          render an em dash, not "never".
+        type: string
       refresh_token_revoked:
         description: |-
           RefreshTokenRevoked is true when the most recent refresh attempt
@@ -3224,10 +3236,16 @@ paths:
     post:
       consumes:
       - application/json
-      description: Dials the upstream described by the submitted config, lists its
-        tools, and returns them. Does not persist anything. When the submitted config
-        contains "[REDACTED]" sensitive fields and a row with this name already exists,
-        the redacted fields are merged from the stored config.
+      description: Tests a gateway connection by listing its tools. When a connection
+        with this name is already registered in the live toolkit AND has an active
+        upstreamClient, the request body is IGNORED and the live client (with its
+        loaded TokenStore + auth round-tripper) is exercised — green proves real tool
+        calls would work right now. When no live client exists for this name (the
+        connection is unregistered, OR it's a placeholder awaiting first OAuth Connect,
+        OR a prior dial left it without a client), falls back to a one-shot dial against
+        the submitted config (preview-before-save semantics). The redacted-field merge
+        from the stored config only applies to the fallback path. Does not persist
+        anything.
       parameters:
       - description: Gateway connection name
         in: path
