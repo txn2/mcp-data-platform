@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -411,7 +410,7 @@ func (t *oauthTokenSource) Status() OAuthStatus {
 		ExpiresAt:           t.state.ExpiresAt,
 		LastRefreshedAt:     t.state.LastRefreshedAt,
 		HasRefreshToken:     t.state.RefreshToken != "",
-		LastError:           formatStatusError(t.lastError, t.refreshTokenRevoked, t.cfg.Grant, statusScopeForHint(t.cfg)),
+		LastError:           formatStatusError(t.lastError, t.refreshTokenRevoked, t.cfg.Grant),
 		Grant:               t.cfg.Grant,
 		TokenURL:            t.cfg.TokenURL,
 		Scope:               t.cfg.Scope,
@@ -422,52 +421,19 @@ func (t *oauthTokenSource) Status() OAuthStatus {
 	}
 }
 
-// statusScopeForHint picks the scope string used for the admin-status
-// hint. When ensureOfflineAccessScope augmented the configured scope
-// (cfg.ScopeAugmented), returns the operator-supplied OriginalScope
-// (which may be empty for legacy un-customized connections — the
-// most common upgrade case); otherwise returns cfg.Scope.
-//
-// Using ScopeAugmented rather than `OriginalScope != ""` is required:
-// the legacy empty-scope authorization_code case augments to
-// defaultAuthCodeScope and would otherwise be indistinguishable from
-// a connection whose explicit scope already contains offline_access.
-// That made the diagnostic unreachable for the most common upgrade
-// path. Persisted refresh tokens issued before the offline_access
-// default predate the augmentation; this is what the hint flags.
-func statusScopeForHint(cfg OAuthConfig) string {
-	if cfg.ScopeAugmented {
-		return cfg.OriginalScope
-	}
-	return cfg.Scope
-}
-
-// scopeContains reports whether a space-delimited OAuth scope string
-// contains the given token (case-sensitive per RFC 6749 §3.3). Returns
-// false on empty scope or empty needle.
-func scopeContains(scope, needle string) bool {
-	if scope == "" || needle == "" {
-		return false
-	}
-	return slices.Contains(strings.Fields(scope), needle)
-}
-
-// formatStatusError augments the raw lastError text with an actionable
-// hint when the IdP revoked the refresh token AND the connection's
-// scope omits offline_access. Operators hitting this state otherwise
-// get the cryptic upstream message ("Token is not active") with no
-// hint at the underlying cause — that the IdP refreshed-token lifetime
-// is tied to the SSO session because offline_access wasn't requested.
-func formatStatusError(lastError string, revoked bool, grant, scope string) string {
+// formatStatusError augments the raw lastError text with a generic
+// actionable hint when the IdP rejects refresh on an authorization_code
+// grant. Operators hitting this state otherwise get the cryptic
+// upstream message ("Token is not active") with no clue what to do.
+// The hint deliberately does NOT prescribe a scope name (different
+// IdPs use different ones — Keycloak/Auth0/Okta `offline_access`,
+// Salesforce `refresh_token`); operators are pointed at their IdP's
+// offline-token configuration.
+func formatStatusError(lastError string, revoked bool, grant string) string {
 	if !revoked || grant != OAuthGrantAuthorizationCode {
 		return lastError
 	}
-	if scopeContains(scope, OfflineAccessScope) {
-		return lastError
-	}
-	hint := fmt.Sprintf(
-		"refresh rejected: persisted refresh grant predates the %s default; reauthorize so the IdP issues a token under the augmented scope (and ensure the IdP client has %s assignable)",
-		OfflineAccessScope, OfflineAccessScope)
+	hint := "refresh rejected by IdP — reauthorize and ensure your IdP client is configured to issue offline refresh tokens (e.g. add `offline_access` to oauth_scope on Keycloak/Auth0/Okta, or `refresh_token` on Salesforce, and ensure the IdP client allows that scope)"
 	if lastError == "" {
 		return hint
 	}

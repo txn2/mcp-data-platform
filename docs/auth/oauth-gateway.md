@@ -66,40 +66,54 @@ stored refresh token. Cron jobs and scheduled prompts run untouched
 until the upstream invalidates the refresh token (operator clicks
 **Reconnect** to re-authorize).
 
-### Refresh token longevity (`offline_access`)
+### Refresh token longevity (operator-controlled `oauth_scope`)
 
-Authorization-code grants automatically include `offline_access` in
-the requested scope (default scope: `openid profile email
-offline_access`). Without `offline_access`, IdPs like Keycloak tie the
-refresh token's lifetime to the user's interactive **SSO Session
-Idle** (default ~30 min), so any platform restart longer than that
-idle window forces the operator to reauthorize through the browser.
+The platform sends `oauth_scope` to the IdP **verbatim** — there is
+no automatic augmentation. The operator's input is the source of
+truth.
 
-- Pre-existing connections keep their explicit `oauth_scope`; the
-  platform only adds `offline_access` to it when missing. A scope
-  that already lists `offline_access` (case-sensitive per RFC 6749
-  §3.3) is left untouched.
-- `client_credentials` grants do not get `offline_access` —
-  there is no SSO session for it to outlive.
+By default (no `oauth_scope` set), most IdPs tie the refresh token's
+lifetime to the user's interactive **SSO Session Idle** (default
+~30 min on Keycloak), so any platform restart longer than that idle
+window forces the operator to reauthorize through the browser. To
+get a refresh token that survives platform restarts, add the
+IdP-specific offline-token scope to your connection's `oauth_scope`:
 
-When the IdP rejects a stored refresh token with `invalid_grant` AND
-the operator's persisted (pre-augmentation) `oauth_scope` omitted
-`offline_access` — including the legacy case where it was never set —
-the admin status surface includes an actionable hint that the
-persisted refresh grant predates the `offline_access` default and a
-fresh Reconnect will issue a token under the augmented scope.
-Without that hint, the only visible cause is the cryptic upstream
-message ("Token is not active") with no clue to the underlying
-setting.
+- **Keycloak / Auth0 / Okta**: add `offline_access` to the scope. The
+  IdP must also be configured to grant that scope to your client (see
+  the Keycloak setup below for the prerequisite). Example:
+  `oauth_scope: "openid profile email offline_access"`.
+- **Salesforce**: add `refresh_token` to the scope. Salesforce does
+  not recognize `offline_access`. Example:
+  `oauth_scope: "openid api refresh_token"`.
+- **Custom OAuth servers**: consult your IdP's documentation for the
+  scope name that grants long-lived refresh tokens.
+
+When the IdP rejects a stored refresh token with `invalid_grant`, the
+admin status surface surfaces a generic actionable hint pointing
+operators at their IdP's offline-token configuration. Without it, the
+only visible cause is the cryptic upstream message
+("Token is not active") with no clue what to do.
+
+`client_credentials` grants are unaffected — there is no SSO session
+for them to outlive.
 
 #### Keycloak setup
 
-The `offline_access` client scope must be assignable (Optional or
-Default) to the gateway's client. In Keycloak admin: **Realm →
-Clients → <gateway client> → Client Scopes → Setup**, and ensure
-`offline_access` is listed under Optional or Default. The user
-completing the Connect flow must also have the `offline_access` realm
-role (granted by default to all users in most realms).
+For `offline_access` to be granted, two things must be true:
+
+1. The `offline_access` client scope must be assignable (Optional or
+   Default) to the gateway's client. In Keycloak admin: **Realm →
+   Clients → <gateway client> → Client Scopes → Setup**, ensure
+   `offline_access` is listed under Optional or Default.
+2. The user completing the Connect flow must have the
+   `offline_access` realm role (granted by default to all users in
+   most realms).
+
+Without (1), the IdP rejects the authorization request with
+`invalid_scope: Invalid scopes: ... offline_access`. Drop
+`offline_access` from your `oauth_scope` until you've added it to the
+client's assignable scope set.
 
 ## Token storage
 

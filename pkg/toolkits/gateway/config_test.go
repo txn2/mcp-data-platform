@@ -178,75 +178,19 @@ func TestGetStringDefault_EmptyFallsBack(t *testing.T) {
 	}
 }
 
-func TestEnsureOfflineAccessScope(t *testing.T) {
-	cases := []struct {
-		name  string
-		grant string
-		scope string
-		want  string
-	}{
-		{
-			name:  "client_credentials passes scope through unchanged",
-			grant: OAuthGrantClientCredentials,
-			scope: "read write",
-			want:  "read write",
-		},
-		{
-			name:  "client_credentials with empty scope stays empty",
-			grant: OAuthGrantClientCredentials,
-			scope: "",
-			want:  "",
-		},
-		{
-			name:  "authorization_code with empty scope gets default scope",
-			grant: OAuthGrantAuthorizationCode,
-			scope: "",
-			want:  defaultAuthCodeScope,
-		},
-		{
-			name:  "authorization_code preserves scope already containing offline_access",
-			grant: OAuthGrantAuthorizationCode,
-			scope: "openid profile email offline_access",
-			want:  "openid profile email offline_access",
-		},
-		{
-			name:  "authorization_code with custom scope adds offline_access",
-			grant: OAuthGrantAuthorizationCode,
-			scope: "openid profile",
-			want:  "openid profile offline_access",
-		},
-		{
-			name:  "authorization_code does not duplicate when offline_access already present in middle",
-			grant: OAuthGrantAuthorizationCode,
-			scope: "openid offline_access email",
-			want:  "openid offline_access email",
-		},
-		{
-			name:  "match is case-sensitive per RFC 6749 §3.3",
-			grant: OAuthGrantAuthorizationCode,
-			scope: "openid Offline_Access",
-			want:  "openid Offline_Access offline_access",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ensureOfflineAccessScope(tc.grant, tc.scope)
-			if got != tc.want {
-				t.Errorf("ensureOfflineAccessScope(%q, %q) = %q, want %q",
-					tc.grant, tc.scope, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestParseConfig_OfflineAccessDefault(t *testing.T) {
+// TestParseConfig_ScopeVerbatim proves the platform sends the
+// operator-supplied oauth_scope to the IdP without modification —
+// this is the contract after v1.58.1 rolled back the scope
+// auto-augmentation that broke connections to IdPs whose clients
+// didn't have offline_access in their assignable scope set.
+func TestParseConfig_ScopeVerbatim(t *testing.T) {
 	cases := []struct {
 		name string
 		cfg  map[string]any
 		want string
 	}{
 		{
-			name: "nested authorization_code with no scope -> default scope",
+			name: "authorization_code with no scope stays empty",
 			cfg: map[string]any{
 				"endpoint":  "https://u.example.com",
 				"auth_mode": AuthModeOAuth,
@@ -258,10 +202,10 @@ func TestParseConfig_OfflineAccessDefault(t *testing.T) {
 					"client_secret":     "csec",
 				},
 			},
-			want: defaultAuthCodeScope,
+			want: "",
 		},
 		{
-			name: "flat authorization_code with explicit scope -> offline_access appended",
+			name: "authorization_code with explicit scope passes verbatim",
 			cfg: map[string]any{
 				"endpoint":                "https://u.example.com",
 				"auth_mode":               AuthModeOAuth,
@@ -272,7 +216,23 @@ func TestParseConfig_OfflineAccessDefault(t *testing.T) {
 				"oauth_client_secret":     "csec",
 				"oauth_scope":             "openid profile",
 			},
-			want: "openid profile offline_access",
+			want: "openid profile",
+		},
+		{
+			name: "authorization_code with offline_access typed by operator passes verbatim",
+			cfg: map[string]any{
+				"endpoint":  "https://u.example.com",
+				"auth_mode": AuthModeOAuth,
+				"oauth": map[string]any{
+					"grant":             OAuthGrantAuthorizationCode,
+					"token_url":         "https://idp/token",
+					"authorization_url": "https://idp/authorize",
+					"client_id":         "cid",
+					"client_secret":     "csec",
+					"scope":             "openid profile email offline_access",
+				},
+			},
+			want: "openid profile email offline_access",
 		},
 		{
 			name: "client_credentials leaves scope untouched",
@@ -297,7 +257,7 @@ func TestParseConfig_OfflineAccessDefault(t *testing.T) {
 				t.Fatalf("ParseConfig: %v", err)
 			}
 			if cfg.OAuth.Scope != tc.want {
-				t.Errorf("OAuth.Scope = %q, want %q", cfg.OAuth.Scope, tc.want)
+				t.Errorf("OAuth.Scope = %q, want %q (verbatim contract)", cfg.OAuth.Scope, tc.want)
 			}
 		})
 	}
