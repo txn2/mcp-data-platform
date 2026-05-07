@@ -2144,3 +2144,219 @@ func TestStatus_RefreshRevoked_HintReaches(t *testing.T) {
 		t.Errorf("expected refresh-rejected hint in admin status, got %q", st.LastError)
 	}
 }
+
+// TestApplyTokenResponse_CapturesRefreshExpiresIn covers the Keycloak-style
+// refresh_expires_in path: when the IdP includes it on a token response,
+// applyTokenResponseLocked must compute an absolute deadline for the
+// refresh token, not just for the access token. Uses authorization_code
+// because that's the production grant where refresh tokens (and their
+// lifetimes) actually matter — client_credentials has no refresh path.
+func TestApplyTokenResponse_CapturesRefreshExpiresIn(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	before := time.Now().UTC()
+	src.mu.Lock()
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken: "a", RefreshToken: "r",
+		ExpiresIn: 300, RefreshExpiresIn: 1800,
+	})
+	got := src.state.RefreshExpiresAt
+	src.mu.Unlock()
+	if got.IsZero() {
+		t.Fatal("expected RefreshExpiresAt set, got zero")
+	}
+	earliest := before.Add(1800 * time.Second)
+	latest := time.Now().UTC().Add(1800 * time.Second).Add(time.Second)
+	if got.Before(earliest) || got.After(latest) {
+		t.Errorf("RefreshExpiresAt out of bounds: got %v, want between %v and %v", got, earliest, latest)
+	}
+	st := src.Status()
+	if !st.RefreshExpiresAt.Equal(got) {
+		t.Errorf("Status.RefreshExpiresAt %v != state %v", st.RefreshExpiresAt, got)
+	}
+}
+
+// TestApplyTokenResponse_OmitsRefreshExpiresInOnFreshTokenClears verifies
+// that when a fresh refresh token is issued without an accompanying
+// lifetime hint (the previously-known deadline belonged to a different
+// token), the deadline is cleared. The omitzero JSON tag must then keep
+// the field absent from the marshaled status so the UI doesn't render
+// "0001-01-01" as a date.
+func TestApplyTokenResponse_OmitsRefreshExpiresInOnFreshTokenClears(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	src.mu.Lock()
+	// Prior state belongs to refresh token "old"; deadline known.
+	src.state.RefreshToken = "old"
+	src.state.RefreshExpiresAt = time.Now().Add(time.Hour)
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken: "a", RefreshToken: "new", ExpiresIn: 300,
+		// RefreshExpiresIn deliberately omitted; new refresh token issued.
+	})
+	got := src.state.RefreshExpiresAt
+	src.mu.Unlock()
+	if !got.IsZero() {
+		t.Errorf("expected RefreshExpiresAt to be cleared on token rotation without lifetime hint, got %v", got)
+	}
+	// Round-trip the status through JSON to confirm omitzero keeps the
+	// field absent — a future tag flip from omitzero to omitempty would
+	// silently emit 0001-01-01T00:00:00Z (truthy in JS) and the UI test
+	// would still pass without this assertion.
+	b, err := json.Marshal(src.Status())
+	if err != nil {
+		t.Fatalf("marshal Status: %v", err)
+	}
+	if strings.Contains(string(b), `"refresh_expires_at"`) {
+		t.Errorf("expected refresh_expires_at omitted from JSON when zero, got %s", b)
+	}
+}
+
+// TestApplyTokenResponse_OmitsRefreshExpiresInOnSameTokenEchoClears
+// covers the contrived-but-reachable IdP path where refresh_token is
+// echoed verbatim AND refresh_expires_in is set to 0 / absent. The
+// helper must clear (not preserve) so a stale deadline can't lock
+// NeedsReauth=true in perpetuity. RFC 6749 §6 distinguishes "absent"
+// (still valid, lifetime unchanged) from "present" (rotation signal),
+// so any present refresh_token without a lifetime hint is treated as
+// "lifetime unknown" regardless of whether the value rotated.
+func TestApplyTokenResponse_OmitsRefreshExpiresInOnSameTokenEchoClears(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	src.mu.Lock()
+	src.state.RefreshToken = "rt"
+	src.state.RefreshExpiresAt = time.Now().Add(time.Hour) // stale deadline
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken: "a", RefreshToken: "rt", ExpiresIn: 300,
+		// IdP echoed same refresh_token without refresh_expires_in —
+		// e.g., chose to clear the lifetime to "indefinite".
+	})
+	got := src.state.RefreshExpiresAt
+	src.mu.Unlock()
+	if !got.IsZero() {
+		t.Errorf("expected RefreshExpiresAt cleared on same-token echo without lifetime, got %v", got)
+	}
+}
+
+// TestApplyTokenResponse_OmitsRefreshExpiresInOnUnchangedTokenPreserves
+// verifies the second arm of the partial-response policy: when the IdP
+// omits both refresh_token (token unchanged) and refresh_expires_in, the
+// previously-disclosed deadline is preserved — the IdP said nothing, so
+// inventing "no fixed lifetime" by clearing would be misleading.
+func TestApplyTokenResponse_OmitsRefreshExpiresInOnUnchangedTokenPreserves(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	deadline := time.Now().Add(time.Hour).Truncate(time.Second)
+	src.mu.Lock()
+	src.state.RefreshToken = "rt"
+	src.state.RefreshExpiresAt = deadline
+	src.applyTokenResponseLocked(tokenResponse{
+		AccessToken: "a", ExpiresIn: 300,
+		// Both RefreshToken and RefreshExpiresIn omitted — IdP saying
+		// "still using the same refresh token, deadline unchanged."
+	})
+	got := src.state.RefreshExpiresAt
+	src.mu.Unlock()
+	if !got.Equal(deadline) {
+		t.Errorf("expected deadline preserved (%v), got %v", deadline, got)
+	}
+}
+
+// TestStatus_NeedsReauthOnPastRefreshDeadline verifies that an
+// authorization_code source with a refresh deadline in the past flips
+// NeedsReauth=true even when an access token is still cached. Reaching
+// this state means the next refresh would fail; the admin UI should
+// render the Connect button proactively rather than wait for a tool
+// call to surface the failure.
+func TestStatus_NeedsReauthOnPastRefreshDeadline(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	src.mu.Lock()
+	src.state.AccessToken = "still-valid"
+	src.state.RefreshToken = "rt"
+	src.state.ExpiresAt = time.Now().Add(5 * time.Minute)
+	src.state.RefreshExpiresAt = time.Now().Add(-time.Minute)
+	src.loaded = true
+	src.mu.Unlock()
+
+	st := src.Status()
+	if !st.NeedsReauth {
+		t.Errorf("expected NeedsReauth=true with refresh deadline in the past, got false")
+	}
+}
+
+// TestStatus_NoReauthWhenRefreshDeadlineUnknown guards against the
+// "unknown == expired" misreading: an IdP that doesn't disclose
+// refresh_expires_in leaves RefreshExpiresAt zero, and that must not
+// trigger NeedsReauth.
+func TestStatus_NoReauthWhenRefreshDeadlineUnknown(t *testing.T) {
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+		AuthorizationURL: "https://idp/auth",
+	}, "test", nil)
+	src.mu.Lock()
+	src.state.AccessToken = "valid"
+	src.state.RefreshToken = "rt"
+	src.state.ExpiresAt = time.Now().Add(5 * time.Minute)
+	// RefreshExpiresAt deliberately zero.
+	src.loaded = true
+	src.mu.Unlock()
+
+	if st := src.Status(); st.NeedsReauth {
+		t.Errorf("expected NeedsReauth=false when refresh deadline unknown, got true")
+	}
+}
+
+// TestIngestTokenResponse_PersistsRefreshExpires verifies that the
+// authorization_code Connect callback path (IngestTokenResponse) honors
+// RefreshExpiresIn and writes RefreshExpiresAt into the persistent store
+// — the round-trip the admin UI depends on for the "Refresh expires"
+// row to survive platform restarts.
+func TestIngestTokenResponse_PersistsRefreshExpires(t *testing.T) {
+	store := NewMemoryTokenStore()
+	src := newOAuthTokenSource(OAuthConfig{
+		Grant:    OAuthGrantAuthorizationCode,
+		TokenURL: "https://idp/token",
+		ClientID: "id", ClientSecret: "sec",
+	}, "vendor", store)
+
+	if err := src.IngestTokenResponse(context.Background(), IngestTokenResponseInput{
+		AccessToken: "a", RefreshToken: "r",
+		ExpiresIn: 300, RefreshExpiresIn: 1800,
+		AuthenticatedBy: "alice@example.com",
+	}); err != nil {
+		t.Fatalf("IngestTokenResponse: %v", err)
+	}
+
+	rec, err := store.Get(context.Background(), "vendor")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if rec.RefreshExpiresAt.IsZero() {
+		t.Fatal("expected persisted RefreshExpiresAt, got zero")
+	}
+	if got := time.Until(rec.RefreshExpiresAt); got < 25*time.Minute || got > 31*time.Minute {
+		t.Errorf("RefreshExpiresAt deadline %v out of plausible range", got)
+	}
+}

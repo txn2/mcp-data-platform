@@ -301,6 +301,16 @@ function OAuthStatusCard({ connectionName }: { connectionName: string }) {
             <>
               <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid (idle session timeout, password change, or admin revocation). Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
             </>
+          ) : oauth.token_acquired ? (
+            // Pre-emptive flip: refresh-token deadline has passed (the IdP
+            // disclosed a refresh_expires_in and now() is past it) but the
+            // cached access token is still valid. Tool calls work right now;
+            // the next attempt to mint a fresh access token will fail.
+            // Distinguish this from the "fully unauthorized" case so the
+            // operator doesn't panic-Connect during a healthy moment.
+            <>
+              <span className="font-medium">Reauth needed soon.</span> The current access token still works, but the refresh-token deadline has passed — the next refresh will fail. Click <strong>Connect</strong> at your convenience to issue a fresh credential before the cached token expires.
+            </>
           ) : (
             <>
               <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
@@ -369,6 +379,16 @@ function OAuthStatusGrid({ status }: { status: GatewayOAuthStatus }) {
       icon: <Key className="h-3 w-3 text-muted-foreground" />,
     },
   ];
+  // Some IdPs (Keycloak) disclose refresh_expires_in. Render only when
+  // the platform captured a real value — an em-dash row would be noise
+  // for IdPs that never provide it (Auth0, Okta default config, etc.).
+  if (status.has_refresh_token && status.refresh_expires_at) {
+    items.push({
+      label: "Refresh expires",
+      value: formatRelative(status.refresh_expires_at),
+      icon: <Clock className="h-3 w-3 text-muted-foreground" />,
+    });
+  }
   return (
     <div className="grid grid-cols-2 gap-2 text-xs">
       {items.map((it) => (

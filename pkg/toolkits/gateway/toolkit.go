@@ -823,13 +823,18 @@ func (t *Toolkit) ReacquireOAuthToken(ctx context.Context, name string) error {
 // IngestOAuthTokenInput is the parameter set for IngestOAuthToken.
 // Defined as a struct to keep the public method's argument list under
 // the project's revive limit.
+//
+// RefreshExpiresIn is optional: only some IdPs (Keycloak) emit it on
+// their token-endpoint response. Zero leaves the refresh deadline
+// unknown — the admin UI renders an em dash.
 type IngestOAuthTokenInput struct {
-	Name            string
-	AccessToken     string
-	RefreshToken    string
-	ExpiresIn       int
-	Scope           string
-	AuthenticatedBy string
+	Name             string
+	AccessToken      string
+	RefreshToken     string
+	ExpiresIn        int
+	RefreshExpiresIn int
+	Scope            string
+	AuthenticatedBy  string
 }
 
 // IngestOAuthToken stores tokens obtained from an authorization_code
@@ -864,11 +869,12 @@ func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput
 	// fresh credentials.
 	tmp := newOAuthTokenSource(cfg.OAuth, in.Name, store)
 	if err := tmp.IngestTokenResponse(ctx, IngestTokenResponseInput{
-		AccessToken:     in.AccessToken,
-		RefreshToken:    in.RefreshToken,
-		ExpiresIn:       in.ExpiresIn,
-		Scope:           in.Scope,
-		AuthenticatedBy: in.AuthenticatedBy,
+		AccessToken:      in.AccessToken,
+		RefreshToken:     in.RefreshToken,
+		ExpiresIn:        in.ExpiresIn,
+		RefreshExpiresIn: in.RefreshExpiresIn,
+		Scope:            in.Scope,
+		AuthenticatedBy:  in.AuthenticatedBy,
 	}); err != nil {
 		slog.Error("gateway: IngestOAuthToken — IngestTokenResponse failed",
 			logKeyConnection, in.Name, logKeyError, err)
@@ -1163,6 +1169,64 @@ type ProbeTool struct {
 	Name        string `json:"name"`
 	LocalName   string `json:"local_name"`
 	Description string `json:"description,omitempty"`
+}
+
+// ErrConnectionNotLive is returned by TestLiveConnection when the named
+// connection is registered but does not have a live client (typically an
+// authorization_code OAuth connection awaiting the operator's first
+// Connect, or a connection whose initial dial failed and is sitting as a
+// placeholder). Callers convert this to an actionable user-facing message
+// rather than a generic upstream error.
+var ErrConnectionNotLive = errors.New("gateway: connection has no live client")
+
+// TestLiveConnection exercises the live upstreamClient for the named
+// connection by issuing a `tools/list` request — the same call any tool
+// invocation would trigger to satisfy auth and reach the upstream. It is
+// the correct implementation of an admin "Test connection" button on a
+// connection that is already wired into the toolkit: it uses the live
+// auth round-tripper (loading and refreshing OAuth tokens via the
+// toolkit's TokenStore), so it sees the SAME state that real tool calls
+// see. Probe (the config-only one-shot dial) cannot do this because it
+// builds an isolated client with no token-store access and would always
+// fail for `authorization_code` connections that depend on a persisted
+// refresh token.
+//
+// Returns ErrConnectionNotFound when no row exists for name, and
+// ErrConnectionNotLive when the row is a placeholder awaiting reauth.
+func (t *Toolkit) TestLiveConnection(ctx context.Context, name string) ([]ProbeTool, error) {
+	t.mu.RLock()
+	u, ok := t.connections[name]
+	if !ok {
+		t.mu.RUnlock()
+		return nil, fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
+	}
+	if u.client == nil {
+		t.mu.RUnlock()
+		return nil, fmt.Errorf(errFmtConnection, name, ErrConnectionNotLive)
+	}
+	client := u.client
+	prefix := u.config.ConnectionName
+	if prefix == "" {
+		prefix = name
+	}
+	t.mu.RUnlock()
+
+	tools, err := client.listTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProbeTool, 0, len(tools))
+	for _, rt := range tools {
+		if rt == nil || rt.Name == "" {
+			continue
+		}
+		out = append(out, ProbeTool{
+			Name:        rt.Name,
+			LocalName:   prefix + NamespaceSeparator + rt.Name,
+			Description: rt.Description,
+		})
+	}
+	return out, nil
 }
 
 // Probe dials the upstream described by cfg, lists its tools, and closes the

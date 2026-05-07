@@ -833,6 +833,145 @@ func TestProbe_UnreachableReturnsError(t *testing.T) {
 	}
 }
 
+// TestTestLiveConnection_UsesLiveClient covers the bug behind the
+// "Test connection" UI button: when an authorization_code OAuth
+// connection has a live client (token loaded from store),
+// TestLiveConnection must list tools through that client — exactly
+// what real tool calls do. The pre-fix Probe path built a parallel
+// client with no token store and failed even though the live one was
+// healthy.
+//
+// The test seeds an authorization_code grant + pre-stored token in the
+// toolkit's TokenStore so the live path's distinguishing behavior
+// (TokenStore-backed auth round-tripper) is actually exercised. The
+// final assertion runs Probe(cfg) directly with the same config and
+// asserts it FAILS — the production-faithful demonstration that without
+// TokenStore access the request can't satisfy the auth_code contract,
+// which is the exact bug TestLiveConnection works around.
+func TestTestLiveConnection_UsesLiveClient(t *testing.T) {
+	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
+			AccessToken: "live-acc", RefreshToken: "live-ref", ExpiresIn: 3600,
+		})
+	})
+	upstreamURL := upstreamServer(t)
+
+	store := NewMemoryTokenStore()
+	if err := store.Set(context.Background(), PersistedToken{
+		ConnectionName: connCRM,
+		AccessToken:    "live-acc",
+		RefreshToken:   "live-ref",
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	tk.SetTokenStore(store)
+
+	cfg := map[string]any{
+		"endpoint":                upstreamURL,
+		"connection_name":         connCRM,
+		"auth_mode":               AuthModeOAuth,
+		"oauth_grant":             OAuthGrantAuthorizationCode,
+		"oauth_token_url":         tokenURL,
+		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_client_id":         "id",
+		"oauth_client_secret":     "sec",
+		"connect_timeout":         "3s",
+		"call_timeout":            "3s",
+	}
+	if err := tk.AddConnection(connCRM, cfg); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	tools, err := tk.TestLiveConnection(context.Background(), connCRM)
+	if err != nil {
+		t.Fatalf("TestLiveConnection on auth_code with stored token: %v", err)
+	}
+	if len(tools) == 0 {
+		t.Fatal("expected at least one tool from live client")
+	}
+	for _, pt := range tools {
+		if !strings.HasPrefix(pt.LocalName, connCRM+NamespaceSeparator) {
+			t.Errorf("LocalName %q missing %q prefix", pt.LocalName, connCRM+NamespaceSeparator)
+		}
+	}
+
+	// Regression demonstration: Probe with the same config but no
+	// TokenStore access (its calling contract) MUST fail for auth_code,
+	// because the parallel oauthTokenSource it builds has no token to
+	// load. This is the bug TestLiveConnection works around — proving
+	// it here means a future refactor that accidentally routes
+	// TestLiveConnection through Probe would break this assertion.
+	probeCfg, err := ParseConfig(cfg)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if _, err := Probe(context.Background(), probeCfg); err == nil {
+		t.Fatal("expected Probe to fail for auth_code without TokenStore access; bug regression demonstration is broken")
+	}
+}
+
+// TestTestLiveConnection_NotFound covers the "no row in registry" case.
+// The handler converts this to a probe-fallback path; the toolkit method
+// must signal it with ErrConnectionNotFound rather than panicking.
+func TestTestLiveConnection_NotFound(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	_, err := tk.TestLiveConnection(context.Background(), "missing")
+	if !errors.Is(err, ErrConnectionNotFound) {
+		t.Fatalf("expected ErrConnectionNotFound, got %v", err)
+	}
+}
+
+// TestTestLiveConnection_PlaceholderReportsNotLive ensures a placeholder
+// (registered but client==nil — the typical state for an authorization_code
+// connection awaiting Connect) is reported with ErrConnectionNotLive so
+// the admin handler can fall through to the friendly "click Connect"
+// message instead of producing a misleading upstream error.
+//
+// Drives placeholder creation through the production AddConnection +
+// installDialResult path (authorization_code grant + unreachable
+// endpoint) rather than hand-injecting an upstream — a unit test that
+// assembles its own input doesn't prove the production wiring produces
+// the same shape (CLAUDE.md anti-pattern).
+func TestTestLiveConnection_PlaceholderReportsNotLive(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	// authorization_code with no stored token + unreachable endpoint:
+	// dial fails inside addParsedConnection, installDialResult takes
+	// the OAuthGrantAuthorizationCode branch and parks the connection
+	// as a placeholder (client == nil) instead of removing it.
+	err := tk.AddConnection("placeholder", map[string]any{
+		"endpoint":        "http://127.0.0.1:1/mcp",
+		"connection_name": "placeholder",
+		"auth_mode":       "oauth",
+		"connect_timeout": "200ms",
+		"oauth": map[string]any{
+			"grant":             "authorization_code",
+			"token_url":         "http://127.0.0.1:1/token",
+			"authorization_url": "http://127.0.0.1:1/auth",
+			"client_id":         "id",
+			"client_secret":     "sec",
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddConnection for placeholder setup: %v", err)
+	}
+	if !tk.HasConnection("placeholder") {
+		t.Fatal("expected placeholder to remain registered after dial failure")
+	}
+
+	_, err = tk.TestLiveConnection(context.Background(), "placeholder")
+	if !errors.Is(err, ErrConnectionNotLive) {
+		t.Fatalf("expected ErrConnectionNotLive, got %v", err)
+	}
+}
+
 func TestApplyEnrichment_NoEngineIsNoOp(t *testing.T) {
 	tk := New("primary")
 	res := &mcp.CallToolResult{StructuredContent: map[string]any{"x": 1}}

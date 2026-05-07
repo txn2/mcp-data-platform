@@ -1605,7 +1605,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Dials the upstream described by the submitted config, lists its tools, and returns them. Does not persist anything. When the submitted config contains \"[REDACTED]\" sensitive fields and a row with this name already exists, the redacted fields are merged from the stored config.",
+                "description": "Tests a gateway connection by listing its tools. When a connection with this name is already registered in the live toolkit AND has an active upstreamClient, the request body is IGNORED and the live client (with its loaded TokenStore + auth round-tripper) is exercised \u2014 green proves real tool calls would work right now. When no live client exists for this name (the connection is unregistered, OR it's a placeholder awaiting first OAuth Connect, OR a prior dial left it without a client), falls back to a one-shot dial against the submitted config (preview-before-save semantics). The redacted-field merge from the stored config only applies to the fallback path. Does not persist anything.",
                 "consumes": [
                     "application/json"
                 ],
@@ -7882,8 +7882,12 @@
                     "type": "string"
                 },
                 "needs_reauth": {
-                    "description": "NeedsReauth is true when the platform cannot mint an access token\nwithout operator interaction. For authorization_code grants this\nmeans: no stored token, or the refresh token has been revoked.\nThe admin UI surfaces a \"Connect\" button when this is true.",
+                    "description": "NeedsReauth is true when the platform cannot mint a new access\ntoken without operator interaction. For authorization_code grants\nthis means: no stored token, the refresh token has been revoked,\nOR the IdP-disclosed RefreshExpiresAt deadline has passed (the\nnext refresh would fail). The admin UI surfaces a \"Connect\"\nbutton when this is true. Setting it pre-emptively from\nRefreshExpiresAt lets the UI nudge the operator before the next\ntool call surfaces the failure.",
                     "type": "boolean"
+                },
+                "refresh_expires_at": {
+                    "description": "RefreshExpiresAt is the absolute deadline after which the refresh\ntoken itself stops working. Set only when the IdP includes\nrefresh_expires_in in its token response (Keycloak does; the OAuth\n2.1 spec leaves it optional). Zero means unknown \u2014 the UI should\nrender an em dash, not \"never\".",
+                    "type": "string"
                 },
                 "refresh_token_revoked": {
                     "description": "RefreshTokenRevoked is true when the most recent refresh attempt\ngot a definitive RFC 6749 \u00a75.2 invalid_grant response \u2014 meaning\nthe IdP has invalidated the stored refresh token (idle session\ntimeout, admin revocation, password change, etc.) and the\noperator must complete a fresh browser-side authorization. The\nadmin UI uses this to distinguish \"click Connect to reauthorize\"\nfrom a transient \"click Reacquire to retry\" state.",
