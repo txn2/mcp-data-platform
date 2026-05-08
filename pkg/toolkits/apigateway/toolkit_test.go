@@ -189,11 +189,17 @@ func TestClose_TolerantOfClosedConnections(t *testing.T) {
 	}
 }
 
-func TestTools_NamesInvokeEndpoint(t *testing.T) {
+func TestTools_NamesInvokeAndListEndpoints(t *testing.T) {
 	tk := New("test")
 	tools := tk.Tools()
-	if len(tools) != 1 || tools[0] != ToolInvokeEndpoint {
-		t.Errorf("Tools() = %v; want [%q]", tools, ToolInvokeEndpoint)
+	want := []string{ToolInvokeEndpoint, ToolListEndpoints}
+	if len(tools) != len(want) {
+		t.Fatalf("Tools() = %v; want %v", tools, want)
+	}
+	for i, got := range tools {
+		if got != want[i] {
+			t.Errorf("Tools()[%d] = %q; want %q", i, got, want[i])
+		}
 	}
 }
 
@@ -447,6 +453,161 @@ func TestHandleInvoke_RoutePolicyNotConsultedOnInvalidPath(t *testing.T) {
 	}
 	if pol.calls != 0 {
 		t.Errorf("policy was consulted on invalid path (calls=%d)", pol.calls)
+	}
+}
+
+func TestHandleListEndpoints_RejectsMissingConnection(t *testing.T) {
+	tk := New("test")
+	res, _, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if !res.IsError {
+		t.Error("missing connection should produce IsError")
+	}
+}
+
+func TestHandleListEndpoints_UnknownConnection(t *testing.T) {
+	tk := New("test")
+	res, _, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "ghost",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if !res.IsError {
+		t.Error("unknown connection should produce IsError")
+	}
+}
+
+func TestHandleListEndpoints_NoSpec_ReturnsEmptyWithNote(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c1",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("connection without spec should NOT be an error: %s", textContent(res))
+	}
+	o, ok := out.(ListEndpointsOutput)
+	if !ok {
+		t.Fatalf("out type %T", out)
+	}
+	if len(o.Operations) != 0 {
+		t.Errorf("expected empty operations, got %v", o.Operations)
+	}
+	if o.Note == "" {
+		t.Error("expected non-empty Note for spec-less connection")
+	}
+}
+
+func TestHandleListEndpoints_ReturnsOperations(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{
+		"base_url":     "https://x",
+		"openapi_spec": validMinimalSpec,
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c1",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("expected success, got error: %s", textContent(res))
+	}
+	o, _ := out.(ListEndpointsOutput)
+	if len(o.Operations) != 5 {
+		t.Errorf("expected 5 operations, got %d", len(o.Operations))
+	}
+}
+
+func TestHandleListEndpoints_FiltersByQuery(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{
+		"base_url":     "https://x",
+		"openapi_spec": validMinimalSpec,
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	_, out, _ := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c1",
+		Query:      "orders",
+	})
+	o, _ := out.(ListEndpointsOutput)
+	if len(o.Operations) != 1 {
+		t.Errorf("expected 1 match for 'orders', got %d", len(o.Operations))
+	}
+}
+
+// TestHandleListEndpoints_FiltersByRoutePolicy proves the model
+// only sees operations it could actually invoke. Without this
+// filter the catalog leaks the existence of denied endpoints —
+// information disclosure plus a wasted-turn UX.
+func TestHandleListEndpoints_FiltersByRoutePolicy(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{
+		"base_url":     "https://x",
+		"openapi_spec": validMinimalSpec,
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	// Policy: only GET allowed; DELETE/POST denied.
+	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _ string) (bool, string) {
+		if method == "GET" {
+			return true, ""
+		}
+		return false, "method not allowed"
+	}))
+	_, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c1",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	o, _ := out.(ListEndpointsOutput)
+	for _, op := range o.Operations {
+		if op.Method != "GET" {
+			t.Errorf("policy-filtered list returned %s %s; only GET should appear", op.Method, op.Path)
+		}
+	}
+	// /v1/orders GET, /v1/users GET, /v1/users/{id} GET = 3 ops.
+	if len(o.Operations) != 3 {
+		t.Errorf("expected 3 GET operations, got %d", len(o.Operations))
+	}
+}
+
+// routePolicyFunc adapts an inline closure to the RoutePolicy
+// interface for tests that don't need the full stubRoutePolicy
+// observation surface.
+type routePolicyFunc func(ctx context.Context, conn, method, path string) (bool, string)
+
+func (f routePolicyFunc) Allow(ctx context.Context, conn, method, path string) (allowed bool, reason string) {
+	return f(ctx, conn, method, path)
+}
+
+func TestHandleListEndpoints_HonorsLimit(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{
+		"base_url":     "https://x",
+		"openapi_spec": validMinimalSpec,
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	_, out, _ := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c1",
+		Limit:      2,
+	})
+	o, _ := out.(ListEndpointsOutput)
+	if len(o.Operations) != 2 {
+		t.Errorf("limit=2: got %d", len(o.Operations))
 	}
 }
 

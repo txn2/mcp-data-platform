@@ -83,6 +83,12 @@ const (
 	cfgKeyCallTimeout      = "call_timeout"
 	cfgKeyTrustLevel       = "trust_level"
 	cfgKeyMaxResponseBytes = "max_response_bytes"
+	// cfgKeyOpenAPISpec carries the raw OpenAPI 3.x document (YAML
+	// or JSON) for this connection. Parsed at AddConnection time,
+	// stored on the live connection, and consumed by
+	// api_list_endpoints. Inline-only in v1; URL pin with scheduled
+	// revalidation is deferred.
+	cfgKeyOpenAPISpec = "openapi_spec"
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -119,6 +125,13 @@ type Config struct {
 	// MaxResponseBytes caps how much of an upstream response body is
 	// returned to the model. Defaults to DefaultMaxResponseBytes.
 	MaxResponseBytes int64
+	// OpenAPISpec is the raw OpenAPI 3.x document (YAML or JSON)
+	// for this connection. Optional. When non-empty the toolkit
+	// parses it at AddConnection time and exposes its operations
+	// via api_list_endpoints; an unparseable spec fails the
+	// connection with a clear error rather than silently dropping.
+	// Inline-only in v1.
+	OpenAPISpec string
 }
 
 // MultiConfig holds parsed per-connection configs plus the aggregate
@@ -171,6 +184,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
+	c.OpenAPISpec = getString(cfg, cfgKeyOpenAPISpec)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
