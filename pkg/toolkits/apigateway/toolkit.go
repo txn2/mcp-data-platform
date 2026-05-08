@@ -309,25 +309,9 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 
 	// Run the route policy BEFORE invoke() so an unauthorized call
 	// never produces an outbound HTTP request — and never appears in
-	// the upstream's access log. Validate method/path up front so the
-	// policy sees normalized values (uppercase method, "/-prefixed
-	// path); invoke() re-validates idempotently.
-	if policy != nil {
-		method, mErr := validateMethod(in.Method)
-		if mErr != nil {
-			return errorResult(mErr.Error()), nil, nil //nolint:nilerr // tool error
-		}
-		if pErr := validatePath(in.Path); pErr != nil {
-			return errorResult(pErr.Error()), nil, nil //nolint:nilerr // tool error
-		}
-		allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path)
-		if !allowed {
-			msg := "not authorized for this method/path on this connection"
-			if reason != "" {
-				msg = msg + ": " + reason
-			}
-			return errorResult(msg), nil, nil
-		}
+	// the upstream's access log.
+	if res := checkRoutePolicy(ctx, policy, in); res != nil {
+		return res, nil, nil //nolint:nilerr // tool error surfaced via result
 	}
 
 	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client}, in)
@@ -335,6 +319,38 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol — argument validation surfaced as tool error
 	}
 	return jsonResult(out), out, nil
+}
+
+// checkRoutePolicy runs the optional per-(connection, method, path)
+// authorization gate. Returns nil when the policy is unset or when
+// the call is allowed. Returns a non-nil error result when the
+// method or path validators reject the input, or when the policy
+// denies the call.
+//
+// Method and path are validated up front so the policy sees
+// normalized values (uppercase method, "/-prefixed" path). invoke()
+// re-validates idempotently so the policy step can be skipped when
+// no policy is installed without losing input safety.
+func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *mcp.CallToolResult {
+	if policy == nil {
+		return nil
+	}
+	method, mErr := validateMethod(in.Method)
+	if mErr != nil {
+		return errorResult(mErr.Error())
+	}
+	if pErr := validatePath(in.Path); pErr != nil {
+		return errorResult(pErr.Error())
+	}
+	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path)
+	if allowed {
+		return nil
+	}
+	msg := "not authorized for this method/path on this connection"
+	if reason != "" {
+		msg = msg + ": " + reason
+	}
+	return errorResult(msg)
 }
 
 // jsonResult creates a successful MCP result with the JSON-encoded

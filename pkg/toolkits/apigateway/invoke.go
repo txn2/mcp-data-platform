@@ -186,10 +186,7 @@ func validatePath(p string) error {
 	// All three are refused here so the raw path the policy sees
 	// equals the path the upstream will see (after JoinPath but
 	// before any server-side decoding).
-	if err := checkPathSegments(p); err != nil {
-		return err
-	}
-	return nil
+	return checkPathSegments(p)
 }
 
 // checkPathSegments rejects literal "." / ".." segments, interior

@@ -281,7 +281,7 @@ type stubRoutePolicy struct {
 	gotPath string
 }
 
-func (s *stubRoutePolicy) Allow(_ context.Context, conn, method, path string) (bool, string) {
+func (s *stubRoutePolicy) Allow(_ context.Context, conn, method, path string) (allowed bool, reason string) {
 	s.calls++
 	s.gotConn = conn
 	s.gotMeth = method

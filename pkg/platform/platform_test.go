@@ -5044,8 +5044,8 @@ func TestAPIGatewayRoutePolicy_Allow_DirectCases(t *testing.T) {
 		t.Fatalf("register persona: %v", err)
 	}
 	mapper := &persona.OIDCRoleMapper{Registry: personaReg}
-	auth := persona.NewAuthorizer(personaReg, mapper)
-	policy := apiGatewayRoutePolicy{authn: nil, pa: auth}
+	authzr := persona.NewAuthorizer(personaReg, mapper)
+	policy := apiGatewayRoutePolicy{authn: nil, pa: authzr}
 
 	t.Run("allow rule matches → true", func(t *testing.T) {
 		ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
@@ -5091,7 +5091,7 @@ func TestAPIGatewayRoutePolicy_Allow_DirectCases(t *testing.T) {
 		// reused the pre-extracted roles from PlatformContext.
 		policyNoAuthn := apiGatewayRoutePolicy{
 			authn: panicAuthenticator{},
-			pa:    auth,
+			pa:    authzr,
 		}
 		pc := middleware.NewPlatformContext("req-1")
 		pc.UserID = "u1"
@@ -5103,7 +5103,7 @@ func TestAPIGatewayRoutePolicy_Allow_DirectCases(t *testing.T) {
 		}
 	})
 
-	t.Run("authenticated user with empty roles still uses PlatformContext (no double-verify)", func(t *testing.T) {
+	t.Run("authenticated user with empty roles still uses PlatformContext (no double-verify)", func(_ *testing.T) {
 		// Regression for the resolveRoles guard: if the predicate is
 		// `len(pc.Roles) > 0`, an authenticated user with no role
 		// claims falls through to the Authenticator fallback —
@@ -5113,7 +5113,7 @@ func TestAPIGatewayRoutePolicy_Allow_DirectCases(t *testing.T) {
 		// roles". panicAuthenticator catches the regression.
 		policyNoAuthn := apiGatewayRoutePolicy{
 			authn: panicAuthenticator{},
-			pa:    auth,
+			pa:    authzr,
 		}
 		pc := middleware.NewPlatformContext("req-2")
 		pc.UserID = "u2"

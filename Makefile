@@ -70,18 +70,29 @@ coverage: test
 
 ## lint: Run patch-scoped linter (matches CI's only-new-issues=true exactly)
 ##
-## CI's golangci-lint-action runs with only-new-issues=true, so it only
-## reports findings on lines changed in the PR. To prevent the parity gap
-## where local fails on pre-existing issues that CI doesn't enforce, this
-## target mirrors CI exactly. Use `make lint-full` to scan the entire
-## codebase (useful for housekeeping; not part of `make verify`).
+## CI's golangci-lint-action runs with only-new-issues=true on every PR,
+## reporting findings only on lines changed in the PR. This target
+## mirrors that scope so local fails when CI would fail.
 ##
-## Merge-base is computed against origin/main when available (matches CI's
-## PR base ref) and falls back to local main. If neither is reachable
-## (detached HEAD on a fresh clone, etc.) the patch lint is skipped with
-## a warning rather than silently passing.
+## CRITICAL: golangci-lint's --new-from-rev flag only sees COMMITTED
+## changes, so before any commits the patch is empty and lint
+## early-exits as a no-op — letting bad code reach the commit gate.
+## This target generates a unified-diff patch from the merge-base
+## that includes BOTH committed changes AND working-tree changes
+## (staged + unstaged), then passes it via --new-from-patch. The
+## patch-based path catches the same issues CI would, AND issues in
+## uncommitted code, so `make verify` is a true pre-commit gate.
+##
+## Merge-base resolution: prefer origin/main (matches CI's PR base
+## ref). Falls back to local main only if origin/main is not
+## reachable (detached HEAD, fresh clone before fetch). If neither
+## is reachable the patch lint warns and skips rather than silently
+## passing.
+##
+## Use `make lint-full` to scan the entire codebase (housekeeping;
+## not part of `make verify`).
 lint:
-	@echo "Running patch-scoped lint (matches CI only-new-issues)..."
+	@echo "Running patch-scoped lint (matches CI only-new-issues, includes uncommitted changes)..."
 	@if git rev-parse origin/main >/dev/null 2>&1; then \
 		BASE=origin/main; \
 	elif git rev-parse main >/dev/null 2>&1; then \
@@ -96,12 +107,15 @@ lint:
 		echo "WARN: could not compute merge-base against $$BASE; skipping patch lint."; \
 		exit 0; \
 	fi; \
-	if [ "$$MERGE_BASE" = "$$(git rev-parse HEAD)" ]; then \
-		echo "HEAD == merge-base ($$BASE); no PR diff to lint."; \
+	PATCH=$$(mktemp -t mcpdp-lint-patch.XXXXXX); \
+	trap "rm -f $$PATCH" EXIT; \
+	git diff $$MERGE_BASE > $$PATCH; \
+	if [ ! -s $$PATCH ]; then \
+		echo "No changes vs merge-base ($$BASE); nothing to lint."; \
 		exit 0; \
 	fi; \
-	echo "Linting against merge-base $$MERGE_BASE (from $$BASE)"; \
-	$(GOLINT) run --new-from-rev=$$MERGE_BASE ./...
+	echo "Linting against merge-base $$MERGE_BASE (from $$BASE) — includes uncommitted changes"; \
+	$(GOLINT) run --new-from-patch=$$PATCH ./...
 
 ## lint-full: Run linter against the ENTIRE codebase (not chained into verify)
 ##

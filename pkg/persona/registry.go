@@ -47,26 +47,44 @@ func (r *Registry) Register(p *Persona) error {
 // would silently skip the rule and the operator would see no error.
 func validateAPIRoutes(rules []APIRouteRule) error {
 	for i, rule := range rules {
-		if rule.Connection == "" {
-			return fmt.Errorf("api_routes[%d]: Connection is required", i)
+		if err := validateAPIRouteRule(i, rule); err != nil {
+			return err
 		}
-		if _, err := filepath.Match(rule.Connection, ""); err != nil {
-			return fmt.Errorf("api_routes[%d]: invalid Connection glob %q: %w", i, rule.Connection, err)
-		}
-		for j, m := range rule.Methods {
-			if _, err := filepath.Match(m, ""); err != nil {
-				return fmt.Errorf("api_routes[%d].methods[%d]: invalid glob %q: %w", i, j, m, err)
-			}
-		}
-		for j, p := range rule.Paths {
-			if _, err := filepath.Match(p, ""); err != nil {
-				return fmt.Errorf("api_routes[%d].paths[%d]: invalid glob %q: %w", i, j, p, err)
-			}
-		}
-		switch rule.Action {
-		case "", ActionAllow, ActionDeny:
-		default:
-			return fmt.Errorf("api_routes[%d]: invalid action %q (want %q or %q)", i, rule.Action, ActionAllow, ActionDeny)
+	}
+	return nil
+}
+
+// validateAPIRouteRule validates a single APIRouteRule. Split out of
+// validateAPIRoutes so each loop iteration's branches stay under the
+// gocognit ceiling.
+func validateAPIRouteRule(i int, rule APIRouteRule) error {
+	if rule.Connection == "" {
+		return fmt.Errorf("api_routes[%d]: Connection is required", i)
+	}
+	if _, err := filepath.Match(rule.Connection, ""); err != nil {
+		return fmt.Errorf("api_routes[%d]: invalid Connection glob %q: %w", i, rule.Connection, err)
+	}
+	if err := validateGlobList(i, "methods", rule.Methods); err != nil {
+		return err
+	}
+	if err := validateGlobList(i, "paths", rule.Paths); err != nil {
+		return err
+	}
+	switch rule.Action {
+	case "", ActionAllow, ActionDeny:
+		return nil
+	default:
+		return fmt.Errorf("api_routes[%d]: invalid action %q (want %q or %q)", i, rule.Action, ActionAllow, ActionDeny)
+	}
+}
+
+// validateGlobList checks every glob in a slice via filepath.Match
+// against an empty string — the cheapest way to surface
+// filepath.ErrBadPattern at config-load time.
+func validateGlobList(i int, field string, patterns []string) error {
+	for j, p := range patterns {
+		if _, err := filepath.Match(p, ""); err != nil {
+			return fmt.Errorf("api_routes[%d].%s[%d]: invalid glob %q: %w", i, field, j, p, err)
 		}
 	}
 	return nil

@@ -604,9 +604,9 @@ type apiGatewayRoutePolicy struct {
 //     hot path.
 //  3. Authenticator.Authenticate (fallback for callers that didn't
 //     run through the standard MCP middleware chain).
-func (a apiGatewayRoutePolicy) Allow(ctx context.Context, connection, method, path string) (bool, string) {
+func (a apiGatewayRoutePolicy) Allow(ctx context.Context, connection, method, path string) (allowed bool, reason string) {
 	roles := a.resolveRoles(ctx)
-	allowed, _, reason := a.pa.IsAPIRouteAllowed(ctx, roles, connection, method, path)
+	allowed, _, reason = a.pa.IsAPIRouteAllowed(ctx, roles, connection, method, path)
 	return allowed, reason
 }
 
