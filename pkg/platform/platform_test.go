@@ -4117,11 +4117,12 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("auto-enables mcp gateway toolkit even with no instances", func(t *testing.T) {
-		// Gateway connections are added dynamically via the admin UI, so
-		// the toolkit must be live BEFORE any instance exists. Otherwise
-		// the admin "Add Connection" form is silently inert: the row
-		// saves to the DB but the toolkit doesn't exist to register it.
+	t.Run("auto-enables mcp and api gateway toolkits even with no instances", func(t *testing.T) {
+		// Both gateway toolkits accept connections dynamically through
+		// the admin UI rather than via YAML 'instances' blocks, so each
+		// kind must be live BEFORE any instance exists. Otherwise the
+		// admin "Add Connection" form is silently inert: the row saves
+		// to the DB but the toolkit doesn't exist to register it.
 		p := &Platform{
 			config: &Config{
 				Toolkits: map[string]any{
@@ -4138,6 +4139,13 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 		if enabled, _ := mcpKind[cfgKeyEnabled].(bool); !enabled {
 			t.Error("auto-enabled mcp kind must have enabled=true")
+		}
+		apiKind, ok := p.config.Toolkits[kindAPI].(map[string]any)
+		if !ok {
+			t.Fatal("api gateway toolkit must auto-enable whenever a connection store is available")
+		}
+		if enabled, _ := apiKind[cfgKeyEnabled].(bool); !enabled {
+			t.Error("auto-enabled api kind must have enabled=true")
 		}
 	})
 
@@ -4258,6 +4266,9 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		if _, ok := p.config.Toolkits[kindMCP]; !ok {
 			t.Error("mcp gateway toolkit must auto-enable when persistent store is present")
 		}
+		if _, ok := p.config.Toolkits[kindAPI]; !ok {
+			t.Error("api gateway toolkit must auto-enable when persistent store is present")
+		}
 		if _, ok := p.config.Toolkits["trino"]; !ok {
 			t.Error("trino toolkit must auto-enable when DB instance exists")
 		}
@@ -4286,8 +4297,44 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		if _, ok := p.config.Toolkits[kindMCP]; ok {
 			t.Error("non-persistent store must not auto-enable mcp gateway")
 		}
+		if _, ok := p.config.Toolkits[kindAPI]; ok {
+			t.Error("non-persistent store must not auto-enable api gateway")
+		}
 		if _, ok := p.config.Toolkits["trino"]; ok {
 			t.Error("non-persistent store must not auto-enable trino")
+		}
+	})
+
+	t.Run("merges api-kind DB instance into toolkit config", func(t *testing.T) {
+		// A `Kind: "api"` connection saved through the admin UI must
+		// land in p.config.Toolkits["api"].instances so the toolkit
+		// loader instantiates a per-instance config at startup. Drop
+		// either the autoEnableToolkitKind(kindAPI) call or the kindAPI
+		// entry in manageableKinds and this test fails.
+		p := &Platform{
+			config: &Config{},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: kindAPI, Name: "vendor", Config: map[string]any{"base_url": "https://api.vendor.example"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		apiKind, ok := p.config.Toolkits[kindAPI].(map[string]any)
+		if !ok {
+			t.Fatal("api kind block missing after merge")
+		}
+		instances, ok := apiKind[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("api kind has no instances map after merge")
+		}
+		vendor, ok := instances["vendor"].(map[string]any)
+		if !ok {
+			t.Fatal("vendor instance missing")
+		}
+		if vendor["base_url"] != "https://api.vendor.example" {
+			t.Errorf("base_url = %v; want %q", vendor["base_url"], "https://api.vendor.example")
 		}
 	})
 }

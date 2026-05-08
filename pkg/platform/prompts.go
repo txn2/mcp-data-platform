@@ -23,6 +23,7 @@ const (
 	kindKnowledge  = "knowledge"
 	kindMemory     = "memory"
 	kindMCP        = "mcp"
+	kindAPI        = "api"
 	// promptArgTopic is the argument name shared across workflow prompts
 	// that take a free-form subject ("explore", "create-dashboard", etc.).
 	promptArgTopic = "topic"

@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
@@ -15,6 +16,7 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterFactory("datahub", DataHubFactory)
 	r.RegisterFactory("s3", S3Factory)
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
+	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -82,4 +84,19 @@ func GatewayAggregateFactory(defaultName string, instances map[string]map[string
 		return nil, fmt.Errorf("parsing gateway multi config: %w", err)
 	}
 	return gatewaykit.NewMulti(cfg), nil
+}
+
+// APIGatewayAggregateFactory creates a multi-connection api-gateway
+// toolkit from all configured instances. Per-instance config parse
+// errors fail the factory; per-connection materialization failures
+// (auth-builder errors) are logged and skipped so a single bad
+// connection cannot block platform startup. Outbound HTTP failures
+// happen at invocation time and are surfaced through the tool's
+// response envelope, not at startup.
+func APIGatewayAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	cfg, err := apigatewaykit.ParseMultiConfig(defaultName, instances)
+	if err != nil {
+		return nil, fmt.Errorf("parsing apigateway multi config: %w", err)
+	}
+	return apigatewaykit.NewMulti(cfg), nil
 }

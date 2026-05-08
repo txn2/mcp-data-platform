@@ -1,0 +1,391 @@
+package apigateway
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func TestNew_DefaultsToKindWhenNameEmpty(t *testing.T) {
+	tk := New("")
+	if tk.Name() != Kind {
+		t.Errorf("Name() = %q; want %q", tk.Name(), Kind)
+	}
+}
+
+func TestNew_KeepsExplicitName(t *testing.T) {
+	tk := New("custom")
+	if tk.Name() != "custom" {
+		t.Errorf("Name() = %q; want %q", tk.Name(), "custom")
+	}
+}
+
+func TestKind_IsAPI(t *testing.T) {
+	tk := New("x")
+	if tk.Kind() != "api" {
+		t.Errorf("Kind() = %q; want %q", tk.Kind(), "api")
+	}
+}
+
+func TestNewMulti_LoadsValidConnections(t *testing.T) {
+	mc, err := ParseMultiConfig("default", map[string]map[string]any{
+		"alpha": {"base_url": "https://a.example.com"},
+		"beta":  {"base_url": "https://b.example.com", "auth_mode": AuthModeBearer, "credential": "tok"},
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig: %v", err)
+	}
+	tk := NewMulti(mc)
+	if !tk.HasConnection("alpha") || !tk.HasConnection("beta") {
+		t.Errorf("connections missing: alpha=%v beta=%v", tk.HasConnection("alpha"), tk.HasConnection("beta"))
+	}
+	if tk.Connection() != "default" {
+		t.Errorf("Connection() = %q; want %q", tk.Connection(), "default")
+	}
+}
+
+func TestNewMulti_SkipsBadConnection(t *testing.T) {
+	// Force a per-connection materialization failure by feeding an
+	// already-validated Config that NewAuthenticator will reject. We
+	// build the MultiConfig manually rather than via ParseMultiConfig
+	// (which would catch this at parse time) to exercise the
+	// addParsedConnection error path.
+	prevLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+
+	good := Config{
+		BaseURL: "https://good.example.com", AuthMode: AuthModeNone,
+		ConnectTimeout: time.Second, CallTimeout: time.Second, MaxResponseBytes: 1024,
+		TrustLevel: TrustLevelUntrusted,
+	}
+	bad := Config{
+		BaseURL: "https://bad.example.com", AuthMode: "weird",
+		ConnectTimeout: time.Second, CallTimeout: time.Second, MaxResponseBytes: 1024,
+		TrustLevel: TrustLevelUntrusted,
+	}
+	tk := NewMulti(MultiConfig{
+		Instances: map[string]Config{"good": good, "bad": bad},
+	})
+	if !tk.HasConnection("good") {
+		t.Error("good connection missing")
+	}
+	if tk.HasConnection("bad") {
+		t.Error("bad connection should have been skipped")
+	}
+}
+
+func TestNewMulti_DefaultNameFallsBackToKind(t *testing.T) {
+	tk := NewMulti(MultiConfig{})
+	if tk.Name() != Kind {
+		t.Errorf("Name() = %q; want %q", tk.Name(), Kind)
+	}
+}
+
+func TestAddConnection_RejectsDuplicates(t *testing.T) {
+	tk := New("test")
+	cfg := map[string]any{"base_url": "https://x"}
+	if err := tk.AddConnection("a", cfg); err != nil {
+		t.Fatalf("first AddConnection: %v", err)
+	}
+	if err := tk.AddConnection("a", cfg); !errors.Is(err, ErrConnectionExists) {
+		t.Errorf("second AddConnection: got %v; want ErrConnectionExists", err)
+	}
+}
+
+func TestAddConnection_RejectsBadConfig(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("a", map[string]any{"auth_mode": AuthModeBearer}); err == nil {
+		t.Error("bad config accepted")
+	}
+}
+
+func TestAddConnection_SetsConnectionNameDefault(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("named", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	conns := tk.ListConnections()
+	if len(conns) != 1 || conns[0].Name != "named" {
+		t.Errorf("ListConnections = %#v", conns)
+	}
+}
+
+func TestRemoveConnection(t *testing.T) {
+	tk := New("test")
+	_ = tk.AddConnection("a", map[string]any{"base_url": "https://x"})
+	if err := tk.RemoveConnection("a"); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+	if tk.HasConnection("a") {
+		t.Error("HasConnection still true after Remove")
+	}
+	if err := tk.RemoveConnection("ghost"); !errors.Is(err, ErrConnectionNotFound) {
+		t.Errorf("RemoveConnection(ghost) = %v; want ErrConnectionNotFound", err)
+	}
+}
+
+func TestListConnections_SortedByName(t *testing.T) {
+	tk := New("test")
+	for _, name := range []string{"zeta", "alpha", "mu"} {
+		if err := tk.AddConnection(name, map[string]any{"base_url": "https://x"}); err != nil {
+			t.Fatalf("AddConnection(%s): %v", name, err)
+		}
+	}
+	conns := tk.ListConnections()
+	if len(conns) != 3 {
+		t.Fatalf("len = %d", len(conns))
+	}
+	if conns[0].Name != "alpha" || conns[1].Name != "mu" || conns[2].Name != "zeta" {
+		t.Errorf("not sorted: %+v", conns)
+	}
+}
+
+func TestListConnections_FlagsDefault(t *testing.T) {
+	tk := NewMulti(MultiConfig{
+		DefaultName: "primary",
+		Instances: map[string]Config{
+			"primary": {BaseURL: "https://x", AuthMode: AuthModeNone, ConnectTimeout: time.Second, CallTimeout: time.Second, MaxResponseBytes: 1024, TrustLevel: TrustLevelUntrusted, ConnectionName: "primary"},
+			"backup":  {BaseURL: "https://y", AuthMode: AuthModeNone, ConnectTimeout: time.Second, CallTimeout: time.Second, MaxResponseBytes: 1024, TrustLevel: TrustLevelUntrusted, ConnectionName: "backup"},
+		},
+	})
+	conns := tk.ListConnections()
+	for _, c := range conns {
+		if c.Name == "primary" && !c.IsDefault {
+			t.Error("primary not flagged as default")
+		}
+		if c.Name == "backup" && c.IsDefault {
+			t.Error("backup flagged as default")
+		}
+	}
+}
+
+func TestSetSemanticAndQueryProvider_NoOp(_ *testing.T) {
+	tk := New("test")
+	// v1 stores both providers without consuming them; nil is the only
+	// case worth exercising here. Real provider integration is covered
+	// once response-shaping (issue #373) lands.
+	tk.SetSemanticProvider(nil)
+	tk.SetQueryProvider(nil)
+}
+
+func TestClose_TolerantOfClosedConnections(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("a", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	if err := tk.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
+
+func TestTools_NamesInvokeEndpoint(t *testing.T) {
+	tk := New("test")
+	tools := tk.Tools()
+	if len(tools) != 1 || tools[0] != ToolInvokeEndpoint {
+		t.Errorf("Tools() = %v; want [%q]", tools, ToolInvokeEndpoint)
+	}
+}
+
+// handleInvoke is the only entry point exercised by the MCP server.
+// The tests here exercise it directly because spinning up a full
+// mcp.Server inside a unit test is heavy; the integration test in
+// TestRegisterTools_AgainstRealServer covers the wire-up path.
+func TestHandleInvoke_RejectsMissingConnectionArg(t *testing.T) {
+	tk := New("test")
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if !res.IsError {
+		t.Error("expected IsError=true for missing connection")
+	}
+}
+
+func TestHandleInvoke_ReportsUnknownConnection(t *testing.T) {
+	tk := New("test")
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "ghost", Method: "GET", Path: "/",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if !res.IsError {
+		t.Error("expected IsError=true for unknown connection")
+	}
+}
+
+func TestHandleInvoke_HappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": srv.URL}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, out, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "GET", Path: "/",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("IsError=true: %s", textContent(res))
+	}
+	o, ok := out.(InvokeOutput)
+	if !ok {
+		t.Fatalf("out type = %T", out)
+	}
+	if o.Status != 200 {
+		t.Errorf("status = %d", o.Status)
+	}
+}
+
+func TestHandleInvoke_BadInputProducesToolError(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "PURGE", Path: "/",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke unexpected go error: %v", err)
+	}
+	if !res.IsError {
+		t.Error("invalid method did not produce IsError=true")
+	}
+}
+
+func TestRegisterTools_AgainstRealServer(_ *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
+	tk := New("api")
+	tk.RegisterTools(srv)
+	// No assertion API on mcp.Server for tool counts; the act of
+	// registering without panicking is the assertion. A future SDK
+	// upgrade that breaks the AddTool signature would fail to compile.
+}
+
+func textContent(res *mcp.CallToolResult) string {
+	if len(res.Content) == 0 {
+		return ""
+	}
+	tc, _ := res.Content[0].(*mcp.TextContent)
+	if tc == nil {
+		return ""
+	}
+	return tc.Text
+}
+
+func TestNewHTTPClient_BlocksRedirects(t *testing.T) {
+	cfg := Config{CallTimeout: time.Second}
+	c := newHTTPClient(cfg)
+	req := &http.Request{}
+	via := []*http.Request{}
+	if err := c.CheckRedirect(req, via); err == nil {
+		t.Error("CheckRedirect should signal use-last-response")
+	}
+}
+
+func TestNewHTTPTransport_AppliesConnectTimeout(t *testing.T) {
+	cfg := Config{ConnectTimeout: 1500 * time.Millisecond, CallTimeout: 30 * time.Second}
+	tr := newHTTPTransport(cfg)
+	if tr.TLSHandshakeTimeout != cfg.ConnectTimeout {
+		t.Errorf("TLSHandshakeTimeout = %v; want %v", tr.TLSHandshakeTimeout, cfg.ConnectTimeout)
+	}
+	if tr.DialContext == nil {
+		t.Fatal("DialContext is nil; ConnectTimeout cannot be enforced")
+	}
+}
+
+// TestNewHTTPClient_HasTransport prevents a regression where the
+// transport falls back to http.DefaultTransport (which would silently
+// drop cfg.ConnectTimeout). A nil Transport on the returned Client
+// would mean "use http.DefaultTransport" — and the default has no
+// per-connection timeouts derived from our Config.
+func TestNewHTTPClient_HasTransport(t *testing.T) {
+	c := newHTTPClient(Config{ConnectTimeout: time.Second, CallTimeout: time.Second})
+	if c.Transport == nil {
+		t.Fatal("Client.Transport is nil; cfg.ConnectTimeout would be dropped")
+	}
+	if _, ok := c.Transport.(*http.Transport); !ok {
+		t.Errorf("Client.Transport = %T; want *http.Transport", c.Transport)
+	}
+}
+
+// TestInvoke_ConnectTimeout_FiresFast proves that a connection to an
+// address that accepts neither connections nor reset packets fails
+// within ConnectTimeout, not the larger CallTimeout. Uses a
+// closed-but-listening test server; we close the listener so connect
+// would block forever waiting for accept, and we expect ConnectTimeout
+// to fire.
+//
+// Note: this test cannot use httptest.NewServer (which would actually
+// accept). We construct a listener, immediately close it, and dial the
+// stale port — the kernel responds with RST or the dial blocks until
+// the timeout. RST is fast, but on systems where it isn't, the
+// ConnectTimeout still bounds the wait. The 200ms ConnectTimeout vs
+// 5s CallTimeout gap makes the bound observable.
+func TestInvoke_ConnectTimeout_FiresFast(t *testing.T) {
+	// Use a TEST-NET-1 address (RFC 5737, guaranteed unreachable).
+	// Routing this address discards or blackholes — the dial cannot
+	// complete. ConnectTimeout must terminate it.
+	cfg := Config{
+		BaseURL:          "http://192.0.2.1:80",
+		AuthMode:         AuthModeNone,
+		ConnectTimeout:   200 * time.Millisecond,
+		CallTimeout:      10 * time.Second,
+		MaxResponseBytes: DefaultMaxResponseBytes,
+	}
+	auth, _ := NewAuthenticator(cfg)
+	start := time.Now()
+	out, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
+		Connection: "x", Method: "GET", Path: "/",
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("invoke unexpected error: %v", err)
+	}
+	if out.Status != 0 || out.Error == "" {
+		t.Errorf("got status=%d error=%q; want 0 + error", out.Status, out.Error)
+	}
+	// Allow generous slop for slow CI; the assertion is "much faster
+	// than CallTimeout", not "exactly ConnectTimeout".
+	if elapsed > 3*time.Second {
+		t.Errorf("invoke took %v; ConnectTimeout (%v) was not honored — appears to be using CallTimeout (%v)",
+			elapsed, cfg.ConnectTimeout, cfg.CallTimeout)
+	}
+}
+
+func TestErrorResult_ProducesIsError(t *testing.T) {
+	r := errorResult("bad thing")
+	if !r.IsError {
+		t.Error("IsError = false")
+	}
+	if !strings.Contains(textContent(r), "bad thing") {
+		t.Errorf("error message missing: %s", textContent(r))
+	}
+}
+
+func TestJSONResult_EmbedsPayload(t *testing.T) {
+	r := jsonResult(map[string]any{"x": 1})
+	if r.IsError {
+		t.Error("jsonResult set IsError")
+	}
+	if !strings.Contains(textContent(r), `"x": 1`) {
+		t.Errorf("payload missing: %s", textContent(r))
+	}
+}
