@@ -42,6 +42,76 @@ func TestValidatePath(t *testing.T) {
 	}
 }
 
+// TestValidatePath_RejectsSSRFShapes is the regression test for the
+// gosec G704 SSRF finding. A path that, when string-concatenated to
+// a base URL, would let url.Parse interpret the result as a
+// different host must be rejected up front. buildURL also defends
+// against this via JoinPath + host pinning, but rejecting at
+// validate-time gives the model a clearer error.
+func TestValidatePath_RejectsSSRFShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"protocol-relative", "//evil.example/foo"},
+		{"userinfo injection", "/foo@evil.example/bar"},
+		{"userinfo at start", "@evil.example/bar"},
+		{"CR injection", "/foo\rEvil-Header: x"},
+		{"LF injection", "/foo\nEvil-Header: x"},
+		{"NUL injection", "/foo\x00bar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validatePath(tc.path); err == nil {
+				t.Errorf("validatePath(%q) accepted; want rejection", tc.path)
+			}
+		})
+	}
+}
+
+// TestBuildURL_PinsHostAgainstAttackerInputs confirms that even
+// when adversarial paths bypass validatePath, buildURL preserves
+// the connection's base host. JoinPath normalizes embedded schemes
+// and protocol-relative prefixes by escaping/treating them as path
+// segments rather than letting them change the URL's authority.
+// The host-pin check after JoinPath is defense-in-depth against
+// any future change to JoinPath semantics.
+func TestBuildURL_PinsHostAgainstAttackerInputs(t *testing.T) {
+	cases := []struct {
+		name string
+		base string
+		path string
+	}{
+		{"absolute URL in path", "https://api.example.com", "/https://evil.example/foo"},
+		{"scheme-shaped segment", "https://api.example.com", "/http://evil.example/foo"},
+		{"backslash separator", "https://api.example.com", "/foo\\bar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := buildURL(tc.base, tc.path, nil)
+			if err != nil {
+				return // refusal is also acceptable; the contract is "host stays pinned OR refuse"
+			}
+			parsed, perr := url.Parse(got)
+			if perr != nil {
+				t.Fatalf("buildURL produced an unparseable URL %q: %v", got, perr)
+			}
+			if parsed.Host != "api.example.com" {
+				t.Errorf("HOST ESCAPED: buildURL(%q, %q) host = %q; want %q", tc.base, tc.path, parsed.Host, "api.example.com")
+			}
+		})
+	}
+}
+
+func TestBuildURL_RejectsBaseWithoutSchemeOrHost(t *testing.T) {
+	if _, err := buildURL("/no-scheme", "/foo", nil); err == nil {
+		t.Error("buildURL accepted base_url with no scheme")
+	}
+	if _, err := buildURL("https://", "/foo", nil); err == nil {
+		t.Error("buildURL accepted base_url with no host")
+	}
+}
+
 func TestAuthHeaderForConfig(t *testing.T) {
 	cases := []struct {
 		name string

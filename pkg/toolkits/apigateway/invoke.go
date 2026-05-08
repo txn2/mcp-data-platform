@@ -152,6 +152,20 @@ func validatePath(path string) error {
 	if !strings.HasPrefix(path, "/") {
 		return errors.New("apigateway: path must start with \"/\"")
 	}
+	// Reject path shapes that, when string-concatenated to a base
+	// URL, would let url.Parse interpret the result as a different
+	// host (SSRF). Without this check, path="//evil.com/foo" turns
+	// "https://api.example.com" + path into a protocol-relative URL
+	// pointing at evil.com, and path="@evil.com/foo" injects
+	// userinfo so the final Host becomes evil.com. The host pinning
+	// in buildURL is the primary defense; this rejection is the
+	// up-front diagnostic the model sees.
+	if strings.HasPrefix(path, "//") {
+		return errors.New("apigateway: path must not start with \"//\" (protocol-relative URLs are rejected)")
+	}
+	if strings.ContainsAny(path, "@\r\n\x00") {
+		return errors.New("apigateway: path contains a disallowed character (@, CR, LF, NUL)")
+	}
 	return nil
 }
 
@@ -189,19 +203,33 @@ func validateCustomHeaders(headers map[string]string, authHeader string) error {
 	return nil
 }
 
+// buildURL composes the upstream URL from the connection's base
+// URL and the model-supplied path + query. Defense against SSRF:
+// the base URL is parsed independently of the path; the path is
+// joined with url.URL.JoinPath rather than string-concatenated;
+// and the resulting URL's scheme + host MUST equal the base's. If
+// any of those checks fail (a model-crafted path that escapes the
+// base, a future Go change to JoinPath semantics, etc.) the call
+// is refused before the request is built.
 func buildURL(baseURL, path string, query map[string]any) (string, error) {
-	u, err := url.Parse(baseURL + path)
+	base, err := url.Parse(baseURL)
 	if err != nil {
-		return "", fmt.Errorf("apigateway: parsing url: %w", err)
+		return "", fmt.Errorf("apigateway: parsing base_url: %w", err)
 	}
-	if len(query) == 0 {
-		return u.String(), nil
+	if base.Scheme == "" || base.Host == "" {
+		return "", fmt.Errorf("apigateway: base_url %q must include scheme and host", baseURL)
 	}
-	q := u.Query()
-	for k, v := range query {
-		appendQueryValue(q, k, v)
+	u := base.JoinPath(path)
+	if u.Scheme != base.Scheme || u.Host != base.Host {
+		return "", fmt.Errorf("apigateway: path %q would change the request host (base=%q, joined=%q); refusing", path, base.Host, u.Host)
 	}
-	u.RawQuery = q.Encode()
+	if len(query) > 0 {
+		q := u.Query()
+		for k, v := range query {
+			appendQueryValue(q, k, v)
+		}
+		u.RawQuery = q.Encode()
+	}
 	return u.String(), nil
 }
 
