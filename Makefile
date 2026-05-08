@@ -27,7 +27,7 @@ GOMOD := $(GO) mod
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint fmt clean install help docs-serve docs-build verify \
+.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-build-content-viewer \
@@ -68,15 +68,48 @@ coverage: test
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
-## lint: Run linter (full + patch-scoped to match CI)
+## lint: Run patch-scoped linter (matches CI's only-new-issues=true exactly)
+##
+## CI's golangci-lint-action runs with only-new-issues=true, so it only
+## reports findings on lines changed in the PR. To prevent the parity gap
+## where local fails on pre-existing issues that CI doesn't enforce, this
+## target mirrors CI exactly. Use `make lint-full` to scan the entire
+## codebase (useful for housekeeping; not part of `make verify`).
+##
+## Merge-base is computed against origin/main when available (matches CI's
+## PR base ref) and falls back to local main. If neither is reachable
+## (detached HEAD on a fresh clone, etc.) the patch lint is skipped with
+## a warning rather than silently passing.
 lint:
-	@echo "Running linter..."
-	$(GOLINT) run ./...
 	@echo "Running patch-scoped lint (matches CI only-new-issues)..."
-	@MERGE_BASE=$$(git merge-base main HEAD 2>/dev/null) || true; \
-	if [ -n "$$MERGE_BASE" ] && [ "$$MERGE_BASE" != "$$(git rev-parse HEAD)" ]; then \
-		$(GOLINT) run --new-from-rev=$$MERGE_BASE ./...; \
-	fi
+	@if git rev-parse origin/main >/dev/null 2>&1; then \
+		BASE=origin/main; \
+	elif git rev-parse main >/dev/null 2>&1; then \
+		BASE=main; \
+	else \
+		echo "WARN: neither origin/main nor main is reachable; skipping patch lint."; \
+		echo "      Run \`git fetch origin main\` to enable CI-equivalent linting."; \
+		exit 0; \
+	fi; \
+	MERGE_BASE=$$(git merge-base $$BASE HEAD 2>/dev/null); \
+	if [ -z "$$MERGE_BASE" ]; then \
+		echo "WARN: could not compute merge-base against $$BASE; skipping patch lint."; \
+		exit 0; \
+	fi; \
+	if [ "$$MERGE_BASE" = "$$(git rev-parse HEAD)" ]; then \
+		echo "HEAD == merge-base ($$BASE); no PR diff to lint."; \
+		exit 0; \
+	fi; \
+	echo "Linting against merge-base $$MERGE_BASE (from $$BASE)"; \
+	$(GOLINT) run --new-from-rev=$$MERGE_BASE ./...
+
+## lint-full: Run linter against the ENTIRE codebase (not chained into verify)
+##
+## CI does not enforce findings on pre-existing code, so neither does
+## `make verify`. This target exists for housekeeping passes.
+lint-full:
+	@echo "Running full-codebase linter (informational; not enforced by CI)..."
+	$(GOLINT) run ./...
 
 ## lint-fix: Run linter with auto-fix
 lint-fix:
@@ -236,12 +269,41 @@ swagger-check: swagger
 		exit 1; \
 	fi
 
-## tools-check: Verify all required tools are installed before running verify
+## tools-check: Verify all required tools are installed AND pinned to CI versions
+##
+## Local-vs-CI tool version drift is the most insidious parity gap: different
+## golangci-lint or gosec versions enable different rules with different
+## defaults, so `make verify` can pass locally while CI rejects the same
+## diff. Concrete incident on 2026-05-08: local gosec 2.26.1 silently dropped
+## the G704 SSRF taint rule that CI's pinned v2.22.0 enforces, letting an
+## actual SSRF bug ship to PR #377. See feedback_gate_metric.md.
 tools-check:
-	@echo "Checking required tools..."
-	@missing=""; \
-	which golangci-lint > /dev/null 2>&1 || missing="$$missing  golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
-	which gosec > /dev/null 2>&1         || missing="$$missing  gosec: go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+	@echo "Checking required tools (presence AND pinned versions)..."
+	@missing=""; mismatch=""; \
+	if ! which golangci-lint > /dev/null 2>&1; then \
+		missing="$$missing  golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+	else \
+		v=$$(go version -m $$(which golangci-lint) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /golangci-lint/ {print $$3}'); \
+		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
+			v=$$(golangci-lint version 2>&1 | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+			case "$$v" in v*) ;; *) v="v$$v";; esac; \
+		fi; \
+		if [ "$$v" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+			mismatch="$$mismatch  golangci-lint: have $$v, want $(GOLANGCI_LINT_VERSION) — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+		fi; \
+	fi; \
+	if ! which gosec > /dev/null 2>&1; then \
+		missing="$$missing  gosec: go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+	else \
+		v=$$(go version -m $$(which gosec) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /gosec/ {print $$3}'); \
+		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
+			v=$$(gosec --version 2>&1 | grep -oE 'Version: v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+			case "$$v" in v*) ;; *) v="v$$v";; esac; \
+		fi; \
+		if [ "$$v" != "$(GOSEC_VERSION)" ]; then \
+			mismatch="$$mismatch  gosec: have $$v, want $(GOSEC_VERSION) — go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+		fi; \
+	fi; \
 	which govulncheck > /dev/null 2>&1   || missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest\n"; \
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
 	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
@@ -252,12 +314,26 @@ tools-check:
 	if [ -n "$$missing" ]; then \
 		echo ""; \
 		echo "FAIL: Missing required tools:"; \
-		printf "$$missing"; \
+		printf '%b' "$$missing"; \
 		echo ""; \
 		echo "Install all missing tools before running make verify."; \
 		exit 1; \
+	fi; \
+	if [ -n "$$mismatch" ]; then \
+		echo ""; \
+		echo "FAIL: Tool version mismatch (local differs from CI-pinned)."; \
+		echo "Local versions that drift from CI's create silent parity gaps:"; \
+		echo "make verify can pass while CI rejects the same diff."; \
+		echo ""; \
+		printf '%b' "$$mismatch"; \
+		echo ""; \
+		echo "Pin local tools to the CI versions before running make verify."; \
+		echo "(Override with TOOLS_CHECK_STRICT=0 only if you know what you are doing.)"; \
+		if [ "$(TOOLS_CHECK_STRICT)" != "0" ]; then exit 1; fi; \
+		echo "WARN: proceeding with mismatched tool versions (TOOLS_CHECK_STRICT=0)."; \
+	else \
+		echo "All required tools found at pinned CI versions."; \
 	fi
-	@echo "All required tools found."
 
 ## embed-clean: Reset UI embed dirs to .gitkeep only (matches CI clean checkout)
 embed-clean:
