@@ -1,34 +1,166 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{{.Name}}</title>
+{{/* Open Graph / Twitter Card metadata for link previews. See
+     public_viewer.html for the gating rationale. */}}
+{{if .Description}}<meta name="description" content="{{.Description}}">{{end}}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{.Name}}">
+{{if .Description}}<meta property="og:description" content="{{.Description}}">{{end}}
+{{if .ShareURL}}<meta property="og:url" content="{{.ShareURL}}">{{end}}
+{{if .BrandName}}<meta property="og:site_name" content="{{.BrandName}}">{{end}}
+{{if .OGImageURL}}<meta property="og:image" content="{{.OGImageURL}}">{{end}}
+<meta name="twitter:card" content="{{if .OGImageURL}}summary_large_image{{else}}summary{{end}}">
+<meta name="twitter:title" content="{{.Name}}">
+{{if .Description}}<meta name="twitter:description" content="{{.Description}}">{{end}}
+{{if .OGImageURL}}<meta name="twitter:image" content="{{.OGImageURL}}">{{end}}
 <style>{{.ContentViewerCSS}}</style>
 <style>
-:root{--bg:#fff;--fg:#111;--muted:#666;--border:#e5e5e5;--card-bg:#fafafa;--accent:#2563eb}
-@media(prefers-color-scheme:dark){:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#999;--border:#333;--card-bg:#1a1a1a;--accent:#60a5fa}}
-[data-theme=light]{--bg:#fff;--fg:#111;--muted:#666;--border:#e5e5e5;--card-bg:#fafafa;--accent:#2563eb}
-[data-theme=dark]{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#999;--border:#333;--card-bg:#1a1a1a;--accent:#60a5fa}
+/* Header palette + body palette aliased to the same physical colors so the
+   header CSS lifted from public_viewer.html (asset viewer) and the body
+   rules (.collection-desc/.section-desc/.item-card) read consistent values.
+   Names mirror public_viewer.html's variables for easier diffing. */
+:root, [data-theme="light"] {
+  --bg: #f5f5f5;
+  --bg-surface: #fff;
+  --text: #1a1a1a;
+  --text-muted: #6b7280;
+  --page-border: #e5e5e5;
+  --badge-bg: #e5e7eb;
+  --badge-text: #374151;
+  --toggle-hover: #f3f4f6;
+  --accent: #2563eb;
+  /* Aliases for legacy body rules that still reference the old names. */
+  --fg: var(--text);
+  --muted: var(--text-muted);
+  --border: var(--page-border);
+  --card-bg: var(--bg-surface);
+}
+[data-theme="dark"] {
+  --bg: #111113;
+  --bg-surface: #1a1a1e;
+  --text: #e4e4e7;
+  --text-muted: #71717a;
+  --page-border: #27272a;
+  --badge-bg: #27272a;
+  --badge-text: #a1a1aa;
+  --toggle-hover: #27272a;
+  --accent: #60a5fa;
+  --fg: var(--text);
+  --muted: var(--text-muted);
+  --border: var(--page-border);
+  --card-bg: var(--bg-surface);
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh}
-header{display:flex;align-items:center;gap:12px;padding:0 24px;height:56px;border-bottom:1px solid var(--border);background:var(--card-bg)}
-.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--muted);flex-shrink:0}
-.brand a{display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none}
-.brand a:hover{opacity:.8}
-.brand-logo{width:24px;height:24px;display:flex;align-items:center}
-.brand-logo svg{width:24px;height:24px}
-.brand-implementor .brand-logo{width:auto;height:28px}
-.brand-implementor .brand-logo svg{width:auto;height:28px}
-.brand-name{font-weight:500;font-size:13px;color:var(--muted)}
-.separator{width:1px;height:20px;background:var(--border);flex-shrink:0}
-.header-center{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
-.header-center h1{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
-.header-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
-.theme-toggle{display:flex;gap:2px;border:1px solid var(--border);border-radius:6px;padding:2px}
-.theme-toggle button{background:none;border:none;padding:4px 6px;border-radius:4px;cursor:pointer;color:var(--muted);font-size:12px}
-.theme-toggle button.active{background:var(--border);color:var(--fg)}
-main{max-width:960px;margin:0 auto;padding:32px 24px}
+html, body { height: 100%; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+/* Header — ported verbatim from public_viewer.html so the collection
+   viewer and asset viewer share an identical header on mobile and
+   desktop. Keep these rules in sync with public_viewer.html. */
+.header {
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--page-border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.brand a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+.brand a:hover { opacity: 0.8; }
+.brand-logo {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.brand-logo svg {
+  /* display:block + max-width:100% defends against operator-supplied SVGs
+     whose root element carries width="100%"/height="100%" attributes that
+     would otherwise force the logo to overflow on narrow viewports. */
+  width: 24px;
+  height: 24px;
+  display: block;
+  max-width: 100%;
+}
+.brand-implementor .brand-logo { width: auto; height: 28px; }
+.brand-implementor .brand-logo svg { width: auto; height: 28px; max-width: 100%; }
+.brand-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.separator {
+  width: 1px;
+  height: 20px;
+  background: var(--page-border);
+  flex-shrink: 0;
+}
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.header-center h1 {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--page-border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.theme-toggle:hover { background: var(--toggle-hover); }
+.theme-toggle svg { width: 16px; height: 16px; }
+.notice {
+  box-sizing: border-box;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 24px;
+  border-bottom: 1px solid var(--page-border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+main{max-width:960px;margin:0 auto;padding:32px 24px;width:100%}
 .collection-desc{margin-bottom:32px}
 .collection-desc,.section-desc{font-size:14px;line-height:1.7;color:var(--fg)}
 .collection-desc h1,.section-desc h1{font-size:1.25em;font-weight:700;margin:16px 0 8px}
@@ -79,12 +211,24 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
 .modal-close:hover{background:var(--border)}
 .modal-body{flex:1;overflow:auto;position:relative}
 .modal-body iframe{width:100%;height:100%;border:none}
-.notice{text-align:center;padding:8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
-.expires{font-size:11px;color:var(--muted)}
 </style>
+<script>
+/* Apply the saved theme before <body> paints to avoid a flash-of-light
+   on first render in dark mode. Mirrors the early-execution block in
+   public_viewer.html. */
+(function(){
+  var saved = null;
+  try { saved = localStorage.getItem("mdp-theme"); } catch(e) {}
+  var theme = saved === "dark" || saved === "light"
+    ? saved
+    : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.classList.toggle("dark", theme === "dark");
+})();
+</script>
 </head>
 <body>
-<header>
+<div class="header">
   {{if or .ImplementorName .ImplementorLogoSVG}}
   <div class="brand brand-implementor">
     {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
@@ -97,32 +241,35 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
   <div class="header-center">
     <h1>{{.Name}}</h1>
   </div>
-  <div class="header-right">
-    {{if and .ExpiresAtISO (not .HideExpiration)}}<span class="expires" id="expires"></span>{{end}}
-    <div class="theme-toggle">
-      <button onclick="setTheme('light')" id="tl">Light</button>
-      <button onclick="setTheme('dark')" id="td">Dark</button>
-      <button onclick="setTheme('system')" id="ts">System</button>
-    </div>
-    {{/* Platform brand block. The Go handler always populates BrandName
-         (defaults to "MCP Data Platform") and BrandLogoSVG (defaults to
-         the bundled logo SVG) in pkg/portal/public.go, so in practice these
-         are never empty — but we guard anyway for symmetry with the
-         implementor block and to remain robust to future handler changes
-         that might allow opting out. {{.BrandLogoSVG}} is rendered as
-         template.HTML by the handler (see public.go: template.HTML(brandLogo)),
-         so the inline SVG passes through unescaped. */}}
-    {{if or .BrandName .BrandLogoSVG}}
-    <div class="separator"></div>
-    <div class="brand brand-platform">
-      {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
-      {{if .BrandLogoSVG}}<div class="brand-logo">{{.BrandLogoSVG}}</div>{{end}}
-      {{if .BrandName}}<span class="brand-name">{{.BrandName}}</span>{{end}}
-      {{if .BrandURL}}</a>{{end}}
-    </div>
-    {{end}}
+  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+    <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+  {{/* Platform brand block. The Go handler always populates BrandName
+       (defaults to "MCP Data Platform") and BrandLogoSVG (defaults to
+       the bundled logo SVG) in pkg/portal/public.go, so in practice these
+       are never empty — but we guard anyway for symmetry with the
+       implementor block and to remain robust to future handler changes
+       that might allow opting out. {{.BrandLogoSVG}} is rendered as
+       template.HTML by the handler (see public.go: template.HTML(brandLogo)),
+       so the inline SVG passes through unescaped. */}}
+  {{if or .BrandName .BrandLogoSVG}}
+  <div class="separator"></div>
+  <div class="brand brand-platform">
+    {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+    {{if .BrandLogoSVG}}<div class="brand-logo">{{.BrandLogoSVG}}</div>{{end}}
+    {{if .BrandName}}<span class="brand-name">{{.BrandName}}</span>{{end}}
+    {{if .BrandURL}}</a>{{end}}
   </div>
-</header>
+  {{end}}
+</div>
+{{if or .NoticeText (and .ExpiresAtISO (not .HideExpiration))}}
+<div class="notice" id="notice">
+  {{if and .ExpiresAtISO (not .HideExpiration)}}<span id="expires">This page expires <span id="expiry-rel"></span></span>{{end}}
+  {{if and .ExpiresAtISO (not .HideExpiration) .NoticeText}}<span class="notice-sep"> &middot; </span>{{end}}
+  {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
+</div>
+{{end}}
 
 <main id="main"></main>
 
@@ -136,37 +283,60 @@ main{max-width:960px;margin:0 auto;padding:32px 24px}
   </div>
 </div>
 
-{{if .NoticeText}}<div class="notice">{{.NoticeText}}</div>{{end}}
-
 <script type="application/json" id="collection-data">{{.CollectionJSON}}</script>
 <script>{{.ContentViewerJS}}</script>
 <script>
 (function(){
-  var theme = localStorage.getItem('mdp-theme') || 'system';
-  function applyTheme(t){
-    theme = t; localStorage.setItem('mdp-theme', t);
-    var isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme:dark)').matches);
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    document.documentElement.classList.toggle('dark', isDark);
-    document.querySelectorAll('.theme-toggle button').forEach(function(b){b.className=''});
-    var btn = document.getElementById(t==='light'?'tl':t==='dark'?'td':'ts');
-    if(btn) btn.className='active';
-  }
-  window.setTheme = applyTheme;
-  applyTheme(theme);
+  // Theme toggle — mirrors public_viewer.html's single sun/moon button.
+  // Persists under the same `mdp-theme` key the asset viewer uses, so
+  // navigating between a single-asset share and a collection share keeps
+  // the user's choice. Treat any persisted "system" value (from prior
+  // builds that exposed Light/Dark/System) as a request to follow the
+  // OS preference at render time, then upgrade to the resolved theme.
+  var html = document.documentElement;
+  var btn = document.getElementById('theme-toggle');
+  var sunIcon = document.getElementById('icon-sun');
+  var moonIcon = document.getElementById('icon-moon');
 
-  // Expiration countdown
+  function applyTheme(t){
+    if(t !== 'dark' && t !== 'light'){
+      t = window.matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
+    }
+    html.setAttribute('data-theme', t);
+    html.classList.toggle('dark', t === 'dark');
+    if(sunIcon) sunIcon.style.display = t === 'dark' ? 'block' : 'none';
+    if(moonIcon) moonIcon.style.display = t === 'dark' ? 'none' : 'block';
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('mdp-theme'); } catch(e) {}
+  applyTheme(saved || (window.matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'));
+
+  if(btn){
+    btn.addEventListener('click', function(){
+      var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+      try { localStorage.setItem('mdp-theme', next); } catch(e) {}
+    });
+  }
+
+  // Expiration text rendered in the .notice band (parity with asset viewer):
+  // "This page expires in N day(s)/hour(s)/minute(s)". Computed once on load
+  // — short-share TTLs are typically days, so a per-minute interval would
+  // be needless work; the asset viewer also computes once.
+  var expiryEl = document.getElementById('expiry-rel');
   var expiresISO = '{{.ExpiresAtISO}}';
-  if(expiresISO){
-    var el = document.getElementById('expires');
-    if(el){
-      function updateExpiry(){
-        var diff = new Date(expiresISO) - Date.now();
-        if(diff <= 0){ el.textContent = 'Expired'; return; }
-        var h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000);
-        el.textContent = 'Expires in ' + (h > 0 ? h + 'h ' : '') + m + 'm';
-      }
-      updateExpiry(); setInterval(updateExpiry, 60000);
+  if(expiryEl && expiresISO){
+    var diff = new Date(expiresISO) - new Date();
+    if(diff > 0){
+      var mins = Math.floor(diff / 60000);
+      var hrs = Math.floor(mins / 60);
+      var days = Math.floor(hrs / 24);
+      if(days > 0) expiryEl.textContent = 'in ' + days + ' day' + (days !== 1 ? 's' : '');
+      else if(hrs > 0) expiryEl.textContent = 'in ' + hrs + ' hour' + (hrs !== 1 ? 's' : '');
+      else expiryEl.textContent = 'in ' + Math.max(1, mins) + ' minute' + (mins !== 1 ? 's' : '');
+    } else {
+      expiryEl.textContent = 'soon';
     }
   }
 

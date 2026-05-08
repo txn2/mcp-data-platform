@@ -4,6 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Name}}</title>
+    {{/* Open Graph / Twitter Card metadata for link previews on Slack,
+         iMessage, Twitter/X, LinkedIn, etc. ShareURL and OGImageURL are
+         absolute URLs computed in renderAssetViewer; when either is empty
+         (no PublicBaseURL set and no resolvable Host), the corresponding
+         tag is omitted — most platforms tolerate missing og:image but
+         require og:url to be absolute, so we never emit a relative one. */}}
+    {{if .Description}}<meta name="description" content="{{.Description}}">{{end}}
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{.Name}}">
+    {{if .Description}}<meta property="og:description" content="{{.Description}}">{{end}}
+    {{if .ShareURL}}<meta property="og:url" content="{{.ShareURL}}">{{end}}
+    {{if .BrandName}}<meta property="og:site_name" content="{{.BrandName}}">{{end}}
+    {{if .OGImageURL}}<meta property="og:image" content="{{.OGImageURL}}">{{end}}
+    <meta name="twitter:card" content="{{if .OGImageURL}}summary_large_image{{else}}summary{{end}}">
+    <meta name="twitter:title" content="{{.Name}}">
+    {{if .Description}}<meta name="twitter:description" content="{{.Description}}">{{end}}
+    {{if .OGImageURL}}<meta name="twitter:image" content="{{.OGImageURL}}">{{end}}
     <style>
         :root, [data-theme="light"] {
             --bg: #f5f5f5;
@@ -90,8 +107,14 @@
             align-items: center;
         }
         .brand-logo svg {
+            /* display:block + max-width:100% defend against operator-supplied
+               SVGs whose root element carries width="100%"/height="100%"
+               attributes that would otherwise force the logo to overflow on
+               narrow viewports. */
             width: 24px;
             height: 24px;
+            display: block;
+            max-width: 100%;
         }
         .brand-implementor .brand-logo {
             width: auto;
@@ -100,6 +123,7 @@
         .brand-implementor .brand-logo svg {
             width: auto;
             height: 28px;
+            max-width: 100%;
         }
         .brand-name {
             font-size: 13px;

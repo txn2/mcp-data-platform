@@ -9,10 +9,110 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 )
+
+// resolvePublicBaseURL returns the absolute URL prefix the public viewer
+// should use for canonical (og:url) and asset (og:image) links. When the
+// operator has set portal.public_base_url that wins; otherwise we derive
+// scheme+host from the inbound request — social-media crawlers always
+// follow the share URL, so the request's Host header reflects how end
+// users will reach the page. Returns empty when neither is available
+// (e.g. unit-test requests with no Host); callers should treat empty as
+// "skip absolute-URL OG tags".
+//
+// X-Forwarded-Proto is honored only when r.TLS is nil (a reverse proxy is
+// plausibly in front). When the server is the TLS terminator itself, an
+// attacker-supplied X-Forwarded-Proto must not be allowed to override the
+// real scheme. Multi-proxy chains may produce comma-separated values
+// (e.g. "https, http"); we take the first token, which is the originating
+// client's scheme. Only http/https are accepted — any other value falls
+// back to the default to keep og:url URLs well-formed and prevent a
+// misbehaving proxy (or a request without a trusted-proxy boundary) from
+// emitting a non-HTTP scheme.
+func resolvePublicBaseURL(r *http.Request, configBaseURL string) string {
+	if s := strings.TrimRight(configBaseURL, "/"); s != "" {
+		return s
+	}
+	if r == nil || r.Host == "" {
+		return ""
+	}
+	if r.TLS != nil {
+		return schemeHTTPS + "://" + r.Host
+	}
+	return forwardedScheme(r) + "://" + r.Host
+}
+
+// schemeHTTP and schemeHTTPS are the only two values that may appear in
+// the resolved scheme — used both as the default and as the validation
+// allow-list for X-Forwarded-Proto.
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+)
+
+// forwardedScheme returns "http" by default, upgrading to "https" only when
+// X-Forwarded-Proto explicitly says so. The header may carry a comma-
+// separated chain through multiple proxies (e.g. "https, http"); we use
+// the leftmost token, which is the originating client's scheme. Anything
+// other than "http"/"https" falls back to the default to keep og:url
+// well-formed even if a misbehaving proxy injects an arbitrary value.
+func forwardedScheme(r *http.Request) string {
+	forwarded := r.Header.Get("X-Forwarded-Proto")
+	if forwarded == "" {
+		return schemeHTTP
+	}
+	if i := strings.IndexByte(forwarded, ','); i >= 0 {
+		forwarded = forwarded[:i]
+	}
+	forwarded = strings.TrimSpace(forwarded)
+	if forwarded == schemeHTTP || forwarded == schemeHTTPS {
+		return forwarded
+	}
+	return schemeHTTP
+}
+
+// publicAssetOGImage returns the absolute URL of the OG card image for a
+// single-asset share, or empty if no suitable image exists. Preference
+// order: image-typed asset content → asset thumbnail → empty (template
+// then falls back to the brand logo). Empty baseURL disables absolute
+// URL emission entirely.
+func publicAssetOGImage(asset *Asset, token, baseURL string) string {
+	if baseURL == "" || asset == nil {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(asset.ContentType), "image/") {
+		return baseURL + publicViewPathPrefix + token + "/content"
+	}
+	if asset.ThumbnailS3Key != "" {
+		return baseURL + publicViewPathPrefix + token + "/thumbnail"
+	}
+	return ""
+}
+
+// publicCollectionOGImage returns the absolute URL of the OG card image
+// for a collection share. Preference: collection's own thumbnail → first
+// item with a thumbnail → empty. Empty baseURL disables absolute URL
+// emission entirely.
+func publicCollectionOGImage(coll *Collection, assets map[string]*Asset, token, baseURL string) string {
+	if baseURL == "" || coll == nil {
+		return ""
+	}
+	if coll.ThumbnailS3Key != "" {
+		return baseURL + publicViewPathPrefix + token + "/collection-thumbnail"
+	}
+	for _, sec := range coll.Sections {
+		for _, item := range sec.Items {
+			if a, ok := assets[item.AssetID]; ok && a != nil && a.ThumbnailS3Key != "" {
+				return baseURL + publicViewPathPrefix + token + "/items/" + a.ID + "/thumbnail"
+			}
+		}
+	}
+	return ""
+}
 
 // incrementAccessTimeout bounds the background goroutine that increments
 // share access counters after the HTTP response has been sent.
@@ -20,6 +120,12 @@ const incrementAccessTimeout = 5 * time.Second
 
 // pathKeyAssetID is the path parameter name for asset IDs in collection share URLs.
 const pathKeyAssetID = "assetId"
+
+// pathKeyToken is the path parameter name for share tokens in public viewer URLs.
+const pathKeyToken = "token"
+
+// publicViewPathPrefix is the URL prefix for public share endpoints.
+const publicViewPathPrefix = "/portal/view/"
 
 // defaultLogoSVG is the MCP Data Platform logo used in the public viewer header
 // when no brand logo is configured. Matches the platform-info app's default icon.
@@ -49,7 +155,7 @@ var viewerTemplate = template.Must(template.ParseFS(templateFS, "templates/publi
 var collectionViewerTemplate = template.Must(template.ParseFS(templateFS, "templates/public_collection_viewer.html"))
 
 func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue("token")
+	token := r.PathValue(pathKeyToken)
 	if token == "" {
 		http.NotFound(w, r)
 		return
@@ -142,6 +248,16 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		expiresAtISO = share.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 
+	// OG/Twitter metadata. Empty baseURL → ShareURL/OGImageURL stay empty,
+	// and the template gates each meta tag on its corresponding field, so
+	// requests without a resolvable base URL still render valid HTML — they
+	// just don't emit OG tags (which require absolute URLs anyway).
+	baseURL := resolvePublicBaseURL(r, h.deps.PublicBaseURL)
+	var shareURL string
+	if baseURL != "" {
+		shareURL = baseURL + publicViewPathPrefix + share.Token
+	}
+
 	_ = viewerTemplate.Execute(w, map[string]any{
 		"Name":               asset.Name,
 		"ContentType":        asset.ContentType,
@@ -163,6 +279,8 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"HideExpiration":     share.HideExpiration,
 		"NoticeText":         share.NoticeText,
 		"Embedded":           r.URL.Query().Get("embedded") == "1",
+		"ShareURL":           shareURL,
+		"OGImageURL":         publicAssetOGImage(asset, share.Token, baseURL),
 	})
 }
 
@@ -181,7 +299,7 @@ func validateShareAccess(share *Share) string {
 // publicAssetContent serves the raw content for a single-asset public share.
 // Always fetches from S3 regardless of size — this is a download endpoint.
 func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue("token")
+	token := r.PathValue(pathKeyToken)
 	if token == "" {
 		http.NotFound(w, r)
 		return
@@ -351,6 +469,13 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		expiresAtISO = share.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 
+	// OG/Twitter metadata. See renderAssetViewer for empty-baseURL handling.
+	baseURL := resolvePublicBaseURL(r, h.deps.PublicBaseURL)
+	var shareURL string
+	if baseURL != "" {
+		shareURL = baseURL + publicViewPathPrefix + share.Token
+	}
+
 	_ = collectionViewerTemplate.Execute(w, map[string]any{
 		"Name":               coll.Name,
 		"Description":        coll.Description,
@@ -367,13 +492,15 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		"ExpiresAtISO":       expiresAtISO,
 		"HideExpiration":     share.HideExpiration,
 		"NoticeText":         share.NoticeText,
+		"ShareURL":           shareURL,
+		"OGImageURL":         publicCollectionOGImage(coll, assets, share.Token, baseURL),
 	})
 }
 
 // validateCollectionItemAccess checks that a token/assetId pair is valid for a collection share.
 // Returns the share on success, or writes an HTTP error and returns nil.
 func (h *Handler) validateCollectionItemAccess(w http.ResponseWriter, r *http.Request) *Share {
-	token := r.PathValue("token")
+	token := r.PathValue(pathKeyToken)
 	assetID := r.PathValue(pathKeyAssetID)
 	if token == "" || assetID == "" {
 		http.NotFound(w, r)
@@ -464,6 +591,106 @@ func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.R
 	}
 
 	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	if s3Err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set(headerContentType, contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
+}
+
+// publicAssetThumbnail serves the thumbnail for the asset behind a single-asset
+// public share. Used as the og:image source when the share's asset has a
+// thumbnail but is not itself an image content type. Mirrors
+// publicCollectionItemThumbnail but resolves the asset via the share token
+// rather than a path-bound assetId, since single-asset shares only expose one
+// asset and can't take an assetId path arg.
+func (h *Handler) publicAssetThumbnail(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue(pathKeyToken)
+	if token == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
+	if err != nil || share.AssetID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if msg := validateShareAccess(share); msg != "" {
+		http.Error(w, msg, http.StatusGone)
+		return
+	}
+	if h.deps.S3Client == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	asset, getErr := h.deps.AssetStore.Get(r.Context(), share.AssetID)
+	if getErr != nil || asset.DeletedAt != nil || asset.ThumbnailS3Key == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	if s3Err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set(headerContentType, contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
+}
+
+// resolveCollectionForThumbnail loads a non-deleted collection that has an
+// uploaded thumbnail, given a share token. Writes 404/410 directly on
+// failure and returns nil so callers can early-return without their own
+// guard ladder. Extracted from publicCollectionThumbnail to keep that
+// handler under the cyclomatic-complexity gate.
+func (h *Handler) resolveCollectionForThumbnail(w http.ResponseWriter, r *http.Request) *Collection {
+	token := r.PathValue(pathKeyToken)
+	if token == "" {
+		http.NotFound(w, r)
+		return nil
+	}
+	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
+	if err != nil || share.CollectionID == "" {
+		http.NotFound(w, r)
+		return nil
+	}
+	if msg := validateShareAccess(share); msg != "" {
+		http.Error(w, msg, http.StatusGone)
+		return nil
+	}
+	if h.deps.CollectionStore == nil || h.deps.S3Client == nil {
+		http.NotFound(w, r)
+		return nil
+	}
+	coll, collErr := h.deps.CollectionStore.Get(r.Context(), share.CollectionID)
+	if collErr != nil || coll.DeletedAt != nil || coll.ThumbnailS3Key == "" {
+		http.NotFound(w, r)
+		return nil
+	}
+	return coll
+}
+
+// publicCollectionThumbnail serves the collection's own thumbnail behind a
+// collection public share. Used as the og:image source when the collection
+// has a thumbnail uploaded. Falls through to 404 if the collection has no
+// thumbnail; the og:image gating in publicCollectionOGImage prevents the
+// template from emitting a URL pointing at this endpoint in that case.
+func (h *Handler) publicCollectionThumbnail(w http.ResponseWriter, r *http.Request) {
+	coll := h.resolveCollectionForThumbnail(w, r)
+	if coll == nil {
+		return
+	}
+
+	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, coll.ThumbnailS3Key)
 	if s3Err != nil {
 		http.NotFound(w, r)
 		return
