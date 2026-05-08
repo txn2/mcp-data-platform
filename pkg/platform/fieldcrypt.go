@@ -32,16 +32,17 @@ const (
 
 // sensitiveConfigKeys are the config map keys whose values must be encrypted at rest.
 var sensitiveConfigKeys = map[string]bool{
-	configKeyPassword:     true,
-	cfgKeySecretAccessKey: true,
-	cfgKeySecretKey:       true,
-	cfgKeyToken:           true,
-	"access_token":        true,
-	"refresh_token":       true,
-	"api_key":             true,
-	"credential":          true,
-	"client_secret":       true,
-	"oauth_client_secret": true,
+	configKeyPassword:      true,
+	cfgKeySecretAccessKey:  true,
+	cfgKeySecretKey:        true,
+	cfgKeyToken:            true,
+	"access_token":         true,
+	"refresh_token":        true,
+	"api_key":              true,
+	"credential":           true,
+	"client_secret":        true,
+	"oauth_client_secret":  true,
+	"oauth2_client_secret": true, // api gateway client_credentials grant
 }
 
 // SensitiveConfigKeyList returns a copy of the sensitive-key set as a

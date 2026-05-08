@@ -151,6 +151,7 @@ var sensitiveKeys = []string{
 	sensKeyAccessToken,
 	sensKeyRefreshToken,
 	sensKeyOAuthClientSecret,
+	sensKeyOAuth2ClientSecret,
 }
 
 // configToMap converts a config struct to map[string]any via YAML round-trip.

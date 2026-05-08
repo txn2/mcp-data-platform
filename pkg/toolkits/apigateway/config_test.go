@@ -46,6 +46,57 @@ func TestParseConfig_StripsTrailingSlashes(t *testing.T) {
 	}
 }
 
+func TestParseConfig_OAuth2ClientCredentials(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url":             "https://api.example.com",
+		"auth_mode":            AuthModeOAuth2ClientCredentials,
+		"oauth2_token_url":     "https://idp.example/token",
+		"oauth2_client_id":     "client-123",
+		"oauth2_client_secret": "secret-xyz",
+		"oauth2_scopes":        []any{"read:users", "write:orders"},
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if c.OAuth2.TokenURL != "https://idp.example/token" {
+		t.Errorf("TokenURL = %q", c.OAuth2.TokenURL)
+	}
+	if c.OAuth2.ClientID != "client-123" {
+		t.Errorf("ClientID = %q", c.OAuth2.ClientID)
+	}
+	if c.OAuth2.ClientSecret != "secret-xyz" {
+		t.Errorf("ClientSecret stored incorrectly")
+	}
+	if c.OAuth2.EndpointAuthStyle != OAuth2AuthStyleHeader {
+		t.Errorf("default EndpointAuthStyle = %q; want %q", c.OAuth2.EndpointAuthStyle, OAuth2AuthStyleHeader)
+	}
+	if len(c.OAuth2.Scopes) != 2 || c.OAuth2.Scopes[0] != "read:users" {
+		t.Errorf("Scopes = %v", c.OAuth2.Scopes)
+	}
+}
+
+func TestGetStringSlice_AcceptsBothShapes(t *testing.T) {
+	// Programmatic construction yields []string; YAML unmarshaling
+	// yields []any. parseOAuth2Config must accept both.
+	cfg := map[string]any{
+		"a": []string{"x", "y"},
+		"b": []any{"x", "y"},
+		"c": []any{"x", 42, "y"}, // mixed: ints dropped
+	}
+	if got := getStringSlice(cfg, "a"); len(got) != 2 || got[0] != "x" {
+		t.Errorf("[]string: got %v", got)
+	}
+	if got := getStringSlice(cfg, "b"); len(got) != 2 || got[0] != "x" {
+		t.Errorf("[]any: got %v", got)
+	}
+	if got := getStringSlice(cfg, "c"); len(got) != 2 || got[0] != "x" || got[1] != "y" {
+		t.Errorf("mixed: got %v", got)
+	}
+	if got := getStringSlice(cfg, "missing"); got != nil {
+		t.Errorf("missing key: got %v; want nil", got)
+	}
+}
+
 func TestParseConfig_BearerAuth(t *testing.T) {
 	c, err := ParseConfig(map[string]any{
 		"base_url":   "https://api.example.com",
@@ -162,6 +213,48 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"connect_timeout": "-1s",
 			},
 			want: "connect_timeout must be positive",
+		},
+		{
+			name: "oauth2 missing token_url",
+			cfg: map[string]any{
+				"base_url":             "https://x",
+				"auth_mode":            AuthModeOAuth2ClientCredentials,
+				"oauth2_client_id":     "c",
+				"oauth2_client_secret": "s",
+			},
+			want: "oauth2.token_url is required",
+		},
+		{
+			name: "oauth2 missing client_id",
+			cfg: map[string]any{
+				"base_url":             "https://x",
+				"auth_mode":            AuthModeOAuth2ClientCredentials,
+				"oauth2_token_url":     "https://idp/token",
+				"oauth2_client_secret": "s",
+			},
+			want: "oauth2.client_id is required",
+		},
+		{
+			name: "oauth2 missing client_secret",
+			cfg: map[string]any{
+				"base_url":         "https://x",
+				"auth_mode":        AuthModeOAuth2ClientCredentials,
+				"oauth2_token_url": "https://idp/token",
+				"oauth2_client_id": "c",
+			},
+			want: "oauth2.client_secret is required",
+		},
+		{
+			name: "oauth2 invalid endpoint_auth_style",
+			cfg: map[string]any{
+				"base_url":                   "https://x",
+				"auth_mode":                  AuthModeOAuth2ClientCredentials,
+				"oauth2_token_url":           "https://idp/token",
+				"oauth2_client_id":           "c",
+				"oauth2_client_secret":       "s",
+				"oauth2_endpoint_auth_style": "invalid",
+			},
+			want: "invalid oauth2.endpoint_auth_style",
 		},
 	}
 	for _, tc := range cases {

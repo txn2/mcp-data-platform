@@ -32,6 +32,18 @@ const (
 	// be onboarded without code changes.
 	AuthModeAPIKey = "api_key"
 
+	// AuthModeOAuth2ClientCredentials acquires a bearer token via
+	// the OAuth 2.1 client_credentials grant — server-to-server,
+	// no human in the loop. The platform exchanges the configured
+	// client_id + client_secret for a token at OAuth.TokenURL and
+	// applies it as "Authorization: Bearer <token>" on outbound
+	// calls. Tokens are cached + refreshed automatically by the
+	// underlying golang.org/x/oauth2 library; no DB state is
+	// required because every restart can re-acquire from credentials.
+	// The authorization_code grant (which DOES require DB-persisted
+	// refresh tokens + a browser flow) is its own follow-up issue.
+	AuthModeOAuth2ClientCredentials = "oauth2_client_credentials" // #nosec G101 -- mode name, not a credential
+
 	// APIKeyPlacementHeader (default) sends the credential as an HTTP
 	// header named by APIKeyHeader.
 	APIKeyPlacementHeader = "header"
@@ -89,6 +101,18 @@ const (
 	// api_list_endpoints. Inline-only in v1; URL pin with scheduled
 	// revalidation is deferred.
 	cfgKeyOpenAPISpec = "openapi_spec"
+
+	// OAuth2 config keys are top-level (not nested under "oauth2")
+	// because the platform's FieldEncryptor walks only the top
+	// level of the config map. A nested oauth2.client_secret would
+	// be stored unencrypted; flat keys let the existing
+	// encryption-at-rest pickup work without changes to the
+	// encryptor. Mirrors how the MCP gateway lays out oauth_*.
+	cfgKeyOAuth2TokenURL     = "oauth2_token_url"           // #nosec G101 -- map key, not a credential
+	cfgKeyOAuth2ClientID     = "oauth2_client_id"           // #nosec G101 -- map key, not a credential
+	cfgKeyOAuth2ClientSecret = "oauth2_client_secret"       // #nosec G101 -- map key, not a credential
+	cfgKeyOAuth2Scopes       = "oauth2_scopes"              // #nosec G101 -- map key, not a credential
+	cfgKeyOAuth2EndpointAuth = "oauth2_endpoint_auth_style" // #nosec G101 -- "header" or "params" — map key, not a credential
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -132,7 +156,47 @@ type Config struct {
 	// connection with a clear error rather than silently dropping.
 	// Inline-only in v1.
 	OpenAPISpec string
+	// OAuth2 carries the OAuth 2.1 parameters used when AuthMode
+	// is oauth2_client_credentials. Empty for non-OAuth modes.
+	OAuth2 OAuth2Config
 }
+
+// OAuth2Config describes the OAuth 2.1 client_credentials grant
+// parameters. The platform exchanges ClientID + ClientSecret at
+// TokenURL for an access token (cached + refreshed by the
+// golang.org/x/oauth2 library) and applies it as
+// "Authorization: Bearer <token>" on outbound calls.
+//
+// Authorization-code (browser-driven, refresh-token-persisting)
+// grants are deferred to a follow-up — they require DB state
+// (PKCE verifier table, refresh-token cache) and an admin reauth
+// callback handler that this PR intentionally does not bring in.
+type OAuth2Config struct {
+	// TokenURL is the upstream's token endpoint. Required.
+	TokenURL string
+	// ClientID is the platform's registered client id. Required.
+	ClientID string
+	// ClientSecret is the platform's registered client secret.
+	// Required. Encrypted at rest via the platform's
+	// FieldEncryptor (sensitive-key list already includes
+	// "client_secret"; the nested map's value is encrypted before
+	// storage in connection_instances.config).
+	ClientSecret string
+	// Scopes is an optional list of OAuth scopes to request.
+	Scopes []string
+	// EndpointAuthStyle controls how the client credentials are
+	// transmitted at token-fetch time. "header" (default) sends
+	// them as HTTP Basic auth on the token request; "params"
+	// sends them as POST body parameters. Some IdPs require one
+	// or the other; "header" is the OAuth 2.1 default.
+	EndpointAuthStyle string
+}
+
+// EndpointAuthStyle values.
+const (
+	OAuth2AuthStyleHeader = "header"
+	OAuth2AuthStyleParams = "params"
+)
 
 // MultiConfig holds parsed per-connection configs plus the aggregate
 // toolkit's default connection name.
@@ -185,6 +249,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
 	c.OpenAPISpec = getString(cfg, cfgKeyOpenAPISpec)
+	c.OAuth2 = parseOAuth2Config(cfg)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -229,8 +294,29 @@ func (c Config) validateAuth() error {
 		return nil
 	case AuthModeAPIKey:
 		return c.validateAPIKeyAuth()
+	case AuthModeOAuth2ClientCredentials:
+		return c.validateOAuth2()
 	default:
-		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, or api_key)", c.AuthMode)
+		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, or oauth2_client_credentials)", c.AuthMode)
+	}
+}
+
+func (c Config) validateOAuth2() error {
+	if c.OAuth2.TokenURL == "" {
+		return errors.New("apigateway: oauth2.token_url is required when auth_mode is \"oauth2_client_credentials\"")
+	}
+	if c.OAuth2.ClientID == "" {
+		return errors.New("apigateway: oauth2.client_id is required when auth_mode is \"oauth2_client_credentials\"")
+	}
+	if c.OAuth2.ClientSecret == "" {
+		return errors.New("apigateway: oauth2.client_secret is required when auth_mode is \"oauth2_client_credentials\"")
+	}
+	switch c.OAuth2.EndpointAuthStyle {
+	case OAuth2AuthStyleHeader, OAuth2AuthStyleParams:
+		return nil
+	default:
+		return fmt.Errorf("apigateway: invalid oauth2.endpoint_auth_style %q (want %q or %q)",
+			c.OAuth2.EndpointAuthStyle, OAuth2AuthStyleHeader, OAuth2AuthStyleParams)
 	}
 }
 
@@ -249,6 +335,43 @@ func (c Config) validateAPIKeyAuth() error {
 		}
 	default:
 		return fmt.Errorf("apigateway: invalid api_key_placement %q (want header or query)", c.APIKeyPlacement)
+	}
+	return nil
+}
+
+// parseOAuth2Config extracts the OAuth2 fields from the top-level
+// config map (flat keys; see the cfgKeyOAuth2* declarations for
+// the rationale). Returns a zero-value OAuth2Config when no OAuth2
+// keys are set; validation against AuthMode happens in Validate.
+func parseOAuth2Config(cfg map[string]any) OAuth2Config {
+	return OAuth2Config{
+		TokenURL:          getString(cfg, cfgKeyOAuth2TokenURL),
+		ClientID:          getString(cfg, cfgKeyOAuth2ClientID),
+		ClientSecret:      getString(cfg, cfgKeyOAuth2ClientSecret),
+		EndpointAuthStyle: getStringDefault(cfg, cfgKeyOAuth2EndpointAuth, OAuth2AuthStyleHeader),
+		Scopes:            getStringSlice(cfg, cfgKeyOAuth2Scopes),
+	}
+}
+
+// getStringSlice reads a []string from the config map. Accepts
+// either []string (programmatic construction) or []any (YAML
+// unmarshaling). Empty/missing returns nil.
+func getStringSlice(cfg map[string]any, key string) []string {
+	raw, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, isStr := item.(string); isStr {
+				out = append(out, s)
+			}
+		}
+		return out
 	}
 	return nil
 }
