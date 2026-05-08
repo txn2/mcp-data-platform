@@ -35,6 +35,7 @@ const (
 	connectionKindMCP   = "mcp"
 	connectionKindTrino = "trino"
 	connectionKindS3    = "s3"
+	connectionKindAPI   = "api"
 )
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
@@ -44,6 +45,7 @@ var knownConnectionKinds = map[string]bool{
 	connectionKindTrino: true,
 	connectionKindS3:    true,
 	connectionKindMCP:   true,
+	connectionKindAPI:   true,
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.

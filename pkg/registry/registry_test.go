@@ -394,6 +394,46 @@ func TestGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
 	}
 }
 
+func TestAPIGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
+	tk, err := APIGatewayAggregateFactory(regTestTest, map[string]map[string]any{})
+	if err != nil {
+		t.Fatalf("APIGatewayAggregateFactory: %v", err)
+	}
+	if tk.Kind() != "api" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "api")
+	}
+	if got := tk.Tools(); len(got) != 1 || got[0] != "api_invoke_endpoint" {
+		t.Errorf("expected [api_invoke_endpoint], got %v", got)
+	}
+	_ = tk.Close()
+}
+
+func TestAPIGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
+	_, err := APIGatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {}, // missing base_url
+	})
+	if err == nil {
+		t.Fatal("expected parse error for missing base_url")
+	}
+}
+
+func TestAPIGatewayAggregateFactory_LoadsValidInstance(t *testing.T) {
+	tk, err := APIGatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"acme": {
+			"base_url":   "https://api.example.com",
+			"auth_mode":  "bearer",
+			"credential": "tok",
+		},
+	})
+	if err != nil {
+		t.Fatalf("APIGatewayAggregateFactory: %v", err)
+	}
+	if tk.Kind() != "api" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "api")
+	}
+	_ = tk.Close()
+}
+
 func TestGatewayAggregateFactory_UnreachableInstanceAbsorbed(t *testing.T) {
 	// Unreachable endpoint must not fail the factory — the toolkit still
 	// constructs and the platform startup continues. The failed initial
