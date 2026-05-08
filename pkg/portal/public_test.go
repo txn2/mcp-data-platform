@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	htmlpkg "html"
 	"net/http"
@@ -1704,4 +1705,376 @@ func TestPublicAssetContentLargeStillDownloads(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "big content", w.Body.String())
+}
+
+// --- OG / link-preview metadata ---
+
+// TestResolvePublicBaseURL covers each branch of the base-URL resolver:
+// configured value wins, request-derived fallback works, X-Forwarded-Proto
+// is honored only when not directly TLS, multi-proxy chains are collapsed
+// to the originating client scheme, and missing Host yields empty (so
+// callers omit OG tags rather than emit relative URLs that crawlers reject).
+func TestResolvePublicBaseURL(t *testing.T) {
+	t.Run("configured value wins and trailing slash is trimmed", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+		req.Host = "should-be-ignored.example.com"
+		got := resolvePublicBaseURL(req, "https://share.example.com/")
+		assert.Equal(t, "https://share.example.com", got)
+	})
+	t.Run("falls back to request scheme+host when config empty", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/x", http.NoBody)
+		req.Host = "example.com"
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "http://example.com", got)
+	})
+	t.Run("X-Forwarded-Proto upgrades scheme behind a proxy", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/x", http.NoBody)
+		req.Host = "example.com"
+		req.Header.Set("X-Forwarded-Proto", "https")
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "https://example.com", got)
+	})
+	t.Run("X-Forwarded-Proto with comma-chain takes first token", func(t *testing.T) {
+		// Multi-proxy chains can produce values like "https, http".
+		// The leftmost value is the originating client's scheme — taking
+		// it whole would yield "https, http://example.com/...", which is
+		// malformed and would be rejected by every social-media crawler.
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/x", http.NoBody)
+		req.Host = "example.com"
+		req.Header.Set("X-Forwarded-Proto", "https, http")
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "https://example.com", got)
+	})
+	t.Run("X-Forwarded-Proto with bogus value falls back to default", func(t *testing.T) {
+		// Only http/https are accepted; anything else must fall back to
+		// the default scheme to prevent a misbehaving proxy from emitting
+		// non-HTTP og:url URLs (e.g. "javascript://..." or "ftp://...").
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/x", http.NoBody)
+		req.Host = "example.com"
+		req.Header.Set("X-Forwarded-Proto", "javascript")
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "http://example.com", got)
+	})
+	t.Run("X-Forwarded-Proto cannot downgrade direct TLS scheme", func(t *testing.T) {
+		// When the server is the TLS terminator itself (r.TLS != nil),
+		// an attacker-controlled X-Forwarded-Proto must not be allowed to
+		// override the real scheme. Without this guard, a request
+		// arriving on https:// could emit http:// og:url tags, a
+		// gratuitous client-trust regression.
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+		req.Host = "example.com"
+		req.TLS = &tls.ConnectionState{}
+		req.Header.Set("X-Forwarded-Proto", "http")
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "https://example.com", got)
+	})
+	t.Run("empty when no config and no Host", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+		req.Host = ""
+		got := resolvePublicBaseURL(req, "")
+		assert.Equal(t, "", got)
+	})
+}
+
+// TestPublicAssetOGImage covers the og:image URL selection for single-asset
+// shares: image content types win, then thumbnail key, else empty.
+func TestPublicAssetOGImage(t *testing.T) {
+	const base = "https://share.example.com"
+	t.Run("image content type uses asset content URL", func(t *testing.T) {
+		got := publicAssetOGImage(&Asset{ContentType: "image/png"}, "tok", base)
+		assert.Equal(t, base+"/portal/view/tok/content", got)
+	})
+	t.Run("non-image with thumbnail uses thumbnail URL", func(t *testing.T) {
+		got := publicAssetOGImage(&Asset{ContentType: "text/csv", ThumbnailS3Key: "k"}, "tok", base)
+		assert.Equal(t, base+"/portal/view/tok/thumbnail", got)
+	})
+	t.Run("non-image without thumbnail returns empty", func(t *testing.T) {
+		got := publicAssetOGImage(&Asset{ContentType: "text/csv"}, "tok", base)
+		assert.Equal(t, "", got)
+	})
+	t.Run("empty baseURL disables emission entirely", func(t *testing.T) {
+		got := publicAssetOGImage(&Asset{ContentType: "image/png"}, "tok", "")
+		assert.Equal(t, "", got)
+	})
+	t.Run("nil asset returns empty without panicking", func(t *testing.T) {
+		got := publicAssetOGImage(nil, "tok", base)
+		assert.Equal(t, "", got)
+	})
+}
+
+// TestPublicCollectionOGImage covers og:image selection for collection
+// shares: collection's own thumbnail wins, else first item with thumbnail,
+// else empty.
+func TestPublicCollectionOGImage(t *testing.T) {
+	const base = "https://share.example.com"
+	t.Run("collection thumbnail wins", func(t *testing.T) {
+		coll := &Collection{ThumbnailS3Key: "k"}
+		got := publicCollectionOGImage(coll, nil, "tok", base)
+		assert.Equal(t, base+"/portal/view/tok/collection-thumbnail", got)
+	})
+	t.Run("falls back to first item with thumbnail", func(t *testing.T) {
+		coll := &Collection{Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}, {AssetID: "a2"}}},
+		}}
+		assets := map[string]*Asset{
+			"a1": {ID: "a1"},                          // no thumbnail
+			"a2": {ID: "a2", ThumbnailS3Key: "thumb"}, // has thumbnail
+		}
+		got := publicCollectionOGImage(coll, assets, "tok", base)
+		assert.Equal(t, base+"/portal/view/tok/items/a2/thumbnail", got)
+	})
+	t.Run("returns empty when no thumbnails available", func(t *testing.T) {
+		coll := &Collection{Sections: []CollectionSection{
+			{Items: []CollectionItem{{AssetID: "a1"}}},
+		}}
+		assets := map[string]*Asset{"a1": {ID: "a1"}}
+		got := publicCollectionOGImage(coll, assets, "tok", base)
+		assert.Equal(t, "", got)
+	})
+	t.Run("empty baseURL disables emission entirely", func(t *testing.T) {
+		coll := &Collection{ThumbnailS3Key: "k"}
+		got := publicCollectionOGImage(coll, nil, "tok", "")
+		assert.Equal(t, "", got)
+	})
+}
+
+// TestPublicAssetViewerEmitsOGMetadata asserts the asset viewer renders
+// og:title/og:url/og:image/og:site_name and the Twitter card variants.
+// Uses an explicit PublicBaseURL so the test doesn't depend on the
+// httptest Host fallback path (covered separately by
+// TestResolvePublicBaseURL).
+func TestPublicAssetViewerEmitsOGMetadata(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", Name: "Cover.png", ContentType: "image/png",
+		Description: "Quarterly cover image",
+		S3Bucket:    "b1", S3Key: "assets/a1.png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{getByTokenRes: share},
+		S3Client:      &mockS3Client{getData: []byte("png"), getCT: "image/png"},
+		PublicBaseURL: "https://share.example.com",
+		BrandName:     "ACME Data Platform",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	assert.Contains(t, body, `<meta property="og:type" content="website">`)
+	assert.Contains(t, body, `<meta property="og:title" content="Cover.png">`)
+	assert.Contains(t, body, `<meta property="og:description" content="Quarterly cover image">`)
+	assert.Contains(t, body, `<meta property="og:url" content="https://share.example.com/portal/view/tok1">`)
+	assert.Contains(t, body, `<meta property="og:site_name" content="ACME Data Platform">`)
+	// Image-typed asset → og:image points at /content (raw asset).
+	assert.Contains(t, body, `<meta property="og:image" content="https://share.example.com/portal/view/tok1/content">`)
+	// Twitter card upgrades to summary_large_image when og:image is present.
+	assert.Contains(t, body, `<meta name="twitter:card" content="summary_large_image">`)
+	assert.Contains(t, body, `<meta name="twitter:title" content="Cover.png">`)
+	assert.Contains(t, body, `<meta name="twitter:image" content="https://share.example.com/portal/view/tok1/content">`)
+}
+
+// TestPublicAssetViewerOGFallsBackToSummaryWhenNoImage asserts a non-image,
+// no-thumbnail asset still emits Twitter+OG basics but downgrades the
+// Twitter card to "summary" and omits og:image.
+func TestPublicAssetViewerOGFallsBackToSummaryWhenNoImage(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", Name: "data.csv", ContentType: "text/csv",
+		S3Bucket: "b1", S3Key: "assets/a1.csv",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:    &mockAssetStore{getAsset: asset},
+		ShareStore:    &mockShareStore{getByTokenRes: share},
+		S3Client:      &mockS3Client{getData: []byte("a,b\n1,2"), getCT: "text/csv"},
+		PublicBaseURL: "https://share.example.com",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	assert.NotContains(t, body, `property="og:image"`,
+		"og:image must be omitted when asset isn't an image and has no thumbnail")
+	assert.Contains(t, body, `<meta name="twitter:card" content="summary">`,
+		"twitter:card must downgrade to summary when no image is available")
+}
+
+// TestPublicCollectionViewerEmitsOGMetadata asserts collection share pages
+// emit OG/Twitter meta tags pointing at the collection's own thumbnail
+// endpoint when one is configured.
+func TestPublicCollectionViewerEmitsOGMetadata(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	coll := &Collection{
+		ID: "c1", Name: "Q4 Review", Description: "Executive review pack",
+		ThumbnailS3Key: "collections/c1/thumb.png",
+		CreatedAt:      now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockMultiAssetStore{assets: map[string]*Asset{}},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+		PublicBaseURL:   "https://share.example.com",
+		BrandName:       "ACME Data Platform",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	assert.Contains(t, body, `<meta property="og:title" content="Q4 Review">`)
+	assert.Contains(t, body, `<meta property="og:description" content="Executive review pack">`)
+	assert.Contains(t, body, `<meta property="og:url" content="https://share.example.com/portal/view/tok1">`)
+	assert.Contains(t, body, `<meta property="og:image" content="https://share.example.com/portal/view/tok1/collection-thumbnail">`)
+	assert.Contains(t, body, `<meta name="twitter:card" content="summary_large_image">`)
+}
+
+// --- Public single-asset thumbnail endpoint ---
+
+func TestPublicAssetThumbnail(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", Name: "doc.pdf", ContentType: "application/pdf",
+		S3Bucket: "b1", S3Key: "assets/a1.pdf", ThumbnailS3Key: "thumb/a1.png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{getData: []byte("pngdata"), getCT: "image/png"},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "pngdata", w.Body.String())
+}
+
+func TestPublicAssetThumbnailNotFoundWhenNoThumbKey(t *testing.T) {
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{ID: "a1", Name: "doc.pdf", ContentType: "application/pdf"} // no ThumbnailS3Key
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicAssetThumbnailRejectsCollectionShare(t *testing.T) {
+	// A collection-share token must not resolve via the single-asset
+	// thumbnail endpoint — share.AssetID is empty, so we 404.
+	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- Public collection thumbnail endpoint ---
+
+func TestPublicCollectionThumbnail(t *testing.T) {
+	now := time.Now()
+	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	coll := &Collection{
+		ID: "c1", Name: "Q4", ThumbnailS3Key: "collections/c1/thumb.png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{getData: []byte("png"), getCT: "image/png"},
+		S3Bucket:        "b1",
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/collection-thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "png", w.Body.String())
+}
+
+func TestPublicCollectionThumbnailNotFoundWhenNoKey(t *testing.T) {
+	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	coll := &Collection{ID: "c1", Name: "Q4"} // no ThumbnailS3Key
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{getResult: coll},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/collection-thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPublicCollectionThumbnailRejectsAssetShare(t *testing.T) {
+	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+
+	h := NewHandler(Deps{
+		AssetStore:      &mockAssetStore{},
+		ShareStore:      &mockShareStore{getByTokenRes: share},
+		CollectionStore: &mockCollectionStore{},
+		S3Client:        &mockS3Client{},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/collection-thumbnail", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
