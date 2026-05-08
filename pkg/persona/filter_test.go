@@ -395,6 +395,139 @@ func TestToolFilter_IsConnectionAllowed(t *testing.T) {
 	}
 }
 
+func TestToolFilter_IsAPIRouteAllowed(t *testing.T) {
+	filter := NewToolFilter(NewRegistry())
+
+	type tc struct {
+		name       string
+		persona    *Persona
+		connection string
+		method     string
+		path       string
+		want       bool
+	}
+
+	cases := []tc{
+		{
+			name:       "nil persona denies",
+			persona:    nil,
+			connection: "crm-prod",
+			method:     "GET",
+			path:       "/v1/users",
+			want:       false,
+		},
+		{
+			name:       "no APIRoutes configured — passthrough (true)",
+			persona:    &Persona{Name: "p"},
+			connection: "crm-prod",
+			method:     "GET",
+			path:       "/v1/users",
+			want:       true,
+		},
+		{
+			name: "rules for a different connection do not gate this one",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "billing-*", Methods: []string{"GET"}},
+			}},
+			connection: "crm-prod",
+			method:     "POST",
+			path:       "/v1/users",
+			want:       true, // no rule touches crm-prod → passthrough
+		},
+		{
+			name: "matching allow rule with explicit method",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			}},
+			connection: "crm-prod",
+			method:     "GET",
+			path:       "/v1/users/123",
+			want:       true,
+		},
+		{
+			name: "method mismatch denies even if path allowed",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			}},
+			connection: "crm-prod",
+			method:     "DELETE",
+			path:       "/v1/users/123",
+			want:       false,
+		},
+		{
+			name: "path mismatch denies even if method allowed",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			}},
+			connection: "crm-prod",
+			method:     "GET",
+			path:       "/v1/orders",
+			want:       false,
+		},
+		{
+			name: "empty Methods means any method is allowed",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Paths: []string{"/v1/users/*"}},
+			}},
+			connection: "crm-prod",
+			method:     "DELETE",
+			path:       "/v1/users/abc",
+			want:       true,
+		},
+		{
+			name: "empty Paths means any path is allowed",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"POST"}},
+			}},
+			connection: "crm-prod",
+			method:     "POST",
+			path:       "/anything/here",
+			want:       true,
+		},
+		{
+			name: "deny takes precedence over allow",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"DELETE"}, Action: ActionDeny},
+				{Connection: "crm-*"}, // allow-all
+			}},
+			connection: "crm-prod",
+			method:     "DELETE",
+			path:       "/v1/anything",
+			want:       false,
+		},
+		{
+			name: "deny on different method does not block allow",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"DELETE"}, Action: ActionDeny},
+				{Connection: "crm-*", Methods: []string{"GET"}},
+			}},
+			connection: "crm-prod",
+			method:     "GET",
+			path:       "/v1/users",
+			want:       true,
+		},
+		{
+			name: "rules touch connection but no matching allow → deny",
+			persona: &Persona{Name: "p", APIRoutes: []APIRouteRule{
+				{Connection: "crm-*", Methods: []string{"GET"}},
+			}},
+			connection: "crm-prod",
+			method:     "POST",
+			path:       "/v1/users",
+			want:       false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := filter.IsAPIRouteAllowed(c.persona, c.connection, c.method, c.path)
+			if got != c.want {
+				t.Errorf("IsAPIRouteAllowed(%s, %s %s) = %v, want %v", c.connection, c.method, c.path, got, c.want)
+			}
+		})
+	}
+}
+
 // Verify interface compliance.
 var (
 	_ RoleMapper            = (*mockRoleMapper)(nil)

@@ -145,11 +145,11 @@ func validateMethod(method string) (string, error) {
 	return m, nil
 }
 
-func validatePath(path string) error {
-	if path == "" {
+func validatePath(p string) error {
+	if p == "" {
 		return errors.New("apigateway: path is required")
 	}
-	if !strings.HasPrefix(path, "/") {
+	if !strings.HasPrefix(p, "/") {
 		return errors.New("apigateway: path must start with \"/\"")
 	}
 	// Reject path shapes that, when string-concatenated to a base
@@ -160,11 +160,59 @@ func validatePath(path string) error {
 	// userinfo so the final Host becomes evil.com. The host pinning
 	// in buildURL is the primary defense; this rejection is the
 	// up-front diagnostic the model sees.
-	if strings.HasPrefix(path, "//") {
+	if strings.HasPrefix(p, "//") {
 		return errors.New("apigateway: path must not start with \"//\" (protocol-relative URLs are rejected)")
 	}
-	if strings.ContainsAny(path, "@\r\n\x00") {
+	if strings.ContainsAny(p, "@\r\n\x00") {
 		return errors.New("apigateway: path contains a disallowed character (@, CR, LF, NUL)")
+	}
+	// Reject path segments that JoinPath or the upstream would
+	// normalize to something different from what filepath.Match
+	// sees. Without this check, persona APIRoutes globs do not
+	// reliably bound the model:
+	//
+	//   - Literal "." / "..": "/v1/users/.." matches "/v1/users/*"
+	//     but JoinPath resolves to "/v1".
+	//   - Empty interior segments ("//"): "/v1//admin/secret" does
+	//     NOT match a literal "/v1/admin/*" glob, but JoinPath
+	//     collapses the double slash and the upstream sees
+	//     "/v1/admin/secret" — bypassing a deny rule scoped to
+	//     "/v1/admin/*".
+	//   - Percent-encoded dot segments: "%2E%2E" passes a literal
+	//     "." / ".." string compare but RFC 3986 says servers MAY
+	//     decode %2E for path resolution; many do (Apache default,
+	//     several SaaS APIs).
+	//
+	// All three are refused here so the raw path the policy sees
+	// equals the path the upstream will see (after JoinPath but
+	// before any server-side decoding).
+	if err := checkPathSegments(p); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkPathSegments rejects literal "." / ".." segments, interior
+// empty segments (collapse vector), and percent-encoded dot
+// segments. See validatePath for the security rationale.
+func checkPathSegments(p string) error {
+	parts := strings.Split(p, "/")
+	for i, seg := range parts {
+		// Leading slash makes parts[0] == ""; allowed.
+		// A single trailing slash makes parts[last] == ""; allowed.
+		if seg == "" {
+			if i == 0 || i == len(parts)-1 {
+				continue
+			}
+			return errors.New("apigateway: path must not contain empty segments (\"//\")")
+		}
+		decoded, err := url.PathUnescape(seg)
+		if err != nil {
+			return errors.New("apigateway: path contains a malformed percent-escape")
+		}
+		if decoded == "." || decoded == ".." {
+			return errors.New("apigateway: path must not contain \".\" or \"..\" segments (literal or percent-encoded)")
+		}
 	}
 	return nil
 }

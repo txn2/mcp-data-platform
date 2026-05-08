@@ -28,6 +28,62 @@ func TestRegistry_RegisterEmptyName(t *testing.T) {
 	}
 }
 
+// TestRegistry_RegisterRejectsBadAPIRoutes catches misconfigurations
+// that would silently disable a deny rule (matchPattern returns
+// false on filepath.ErrBadPattern — safe for allow rules but
+// fail-open for deny rules) or leave rules ignored (empty
+// Connection skipped by matchingRouteRules without diagnostic).
+func TestRegistry_RegisterRejectsBadAPIRoutes(t *testing.T) {
+	cases := []struct {
+		name string
+		rule APIRouteRule
+	}{
+		{
+			name: "empty Connection",
+			rule: APIRouteRule{Connection: "", Methods: []string{"GET"}},
+		},
+		{
+			name: "malformed Connection glob",
+			rule: APIRouteRule{Connection: "crm-["},
+		},
+		{
+			name: "malformed Method glob",
+			rule: APIRouteRule{Connection: "crm-*", Methods: []string{"GE["}},
+		},
+		{
+			name: "malformed Path glob",
+			rule: APIRouteRule{Connection: "crm-*", Paths: []string{"/v1/[users"}},
+		},
+		{
+			name: "unknown action",
+			rule: APIRouteRule{Connection: "crm-*", Action: "warn"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := NewRegistry()
+			p := &Persona{Name: "p", APIRoutes: []APIRouteRule{tc.rule}}
+			if err := reg.Register(p); err == nil {
+				t.Errorf("Register accepted persona with bad rule %+v; want error", tc.rule)
+			}
+		})
+	}
+}
+
+func TestRegistry_RegisterAcceptsValidAPIRoutes(t *testing.T) {
+	reg := NewRegistry()
+	p := &Persona{
+		Name: "ok",
+		APIRoutes: []APIRouteRule{
+			{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			{Connection: "*", Action: ActionDeny, Methods: []string{"DELETE"}},
+		},
+	}
+	if err := reg.Register(p); err != nil {
+		t.Errorf("Register rejected valid APIRoutes: %v", err)
+	}
+}
+
 func TestRegistry_GetNotFound(t *testing.T) {
 	reg := NewRegistry()
 

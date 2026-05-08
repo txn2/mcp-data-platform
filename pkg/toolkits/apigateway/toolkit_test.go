@@ -270,6 +270,186 @@ func TestHandleInvoke_BadInputProducesToolError(t *testing.T) {
 	}
 }
 
+// stubRoutePolicy lets tests assert handleInvoke's gating without
+// depending on the persona package.
+type stubRoutePolicy struct {
+	calls   int
+	allowed bool
+	reason  string
+	gotConn string
+	gotMeth string
+	gotPath string
+}
+
+func (s *stubRoutePolicy) Allow(_ context.Context, conn, method, path string) (bool, string) {
+	s.calls++
+	s.gotConn = conn
+	s.gotMeth = method
+	s.gotPath = path
+	return s.allowed, s.reason
+}
+
+func TestHandleInvoke_RoutePolicyDeniesBeforeInvoke(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("upstream was contacted but route policy should have denied the call")
+	}))
+	defer srv.Close()
+
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": srv.URL}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	pol := &stubRoutePolicy{allowed: false, reason: "DELETE not allowed"}
+	tk.SetRoutePolicy(pol)
+
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "DELETE", Path: "/v1/users/123",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke unexpected go error: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("expected IsError=true on policy denial; got %s", textContent(res))
+	}
+	if pol.calls != 1 {
+		t.Errorf("policy called %d times; want 1", pol.calls)
+	}
+	if pol.gotMeth != "DELETE" || pol.gotConn != "c1" || pol.gotPath != "/v1/users/123" {
+		t.Errorf("policy received wrong args: conn=%q method=%q path=%q", pol.gotConn, pol.gotMeth, pol.gotPath)
+	}
+	if !strings.Contains(textContent(res), "DELETE not allowed") {
+		t.Errorf("denial reason missing from result: %s", textContent(res))
+	}
+}
+
+func TestHandleInvoke_RoutePolicyAllowsThenInvokes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": srv.URL}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	pol := &stubRoutePolicy{allowed: true}
+	tk.SetRoutePolicy(pol)
+
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "GET", Path: "/v1/users",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("policy allowed but result is error: %s", textContent(res))
+	}
+	if pol.calls != 1 {
+		t.Errorf("policy not consulted; calls=%d", pol.calls)
+	}
+}
+
+// Methods are normalized (uppercased) BEFORE the policy sees them so
+// persona configs can use the conventional uppercase form regardless
+// of how the model formats the input.
+func TestHandleInvoke_RoutePolicyReceivesNormalizedMethod(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": srv.URL}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	pol := &stubRoutePolicy{allowed: true}
+	tk.SetRoutePolicy(pol)
+
+	_, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "get", Path: "/v1/users",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if pol.gotMeth != "GET" {
+		t.Errorf("policy saw method=%q; want %q (normalized)", pol.gotMeth, "GET")
+	}
+}
+
+func TestHandleInvoke_NoPolicyMeansPassthrough(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": srv.URL}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	// no SetRoutePolicy → policy is nil, the call should proceed.
+
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "GET", Path: "/v1/users",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("nil policy should not block call: %s", textContent(res))
+	}
+}
+
+// Validation errors (unsupported method, malformed path) surface BEFORE
+// the policy is consulted, so the persona doesn't have to validate
+// input shape.
+func TestHandleInvoke_RoutePolicyNotConsultedOnInvalidMethod(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	pol := &stubRoutePolicy{allowed: true}
+	tk.SetRoutePolicy(pol)
+
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "PURGE", Path: "/foo",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke unexpected go error: %v", err)
+	}
+	if !res.IsError {
+		t.Error("invalid method should produce IsError")
+	}
+	if pol.calls != 0 {
+		t.Errorf("policy was consulted on invalid method (calls=%d)", pol.calls)
+	}
+}
+
+// Path validation runs before the policy is consulted (mirrors the
+// invalid-method case). Path with a forbidden character ("@" triggers
+// the SSRF guard) should error without invoking the policy.
+func TestHandleInvoke_RoutePolicyNotConsultedOnInvalidPath(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	pol := &stubRoutePolicy{allowed: true}
+	tk.SetRoutePolicy(pol)
+
+	res, _, err := tk.handleInvoke(context.Background(), nil, InvokeInput{
+		Connection: "c1", Method: "GET", Path: "/@evil/foo",
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke unexpected go error: %v", err)
+	}
+	if !res.IsError {
+		t.Error("invalid path should produce IsError")
+	}
+	if pol.calls != 0 {
+		t.Errorf("policy was consulted on invalid path (calls=%d)", pol.calls)
+	}
+}
+
 func TestRegisterTools_AgainstRealServer(_ *testing.T) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
 	tk := New("api")

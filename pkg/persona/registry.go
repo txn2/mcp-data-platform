@@ -2,6 +2,7 @@ package persona
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sync"
 )
@@ -29,8 +30,45 @@ func (r *Registry) Register(p *Persona) error {
 	if p.Name == "" {
 		return fmt.Errorf("persona name is required")
 	}
+	if err := validateAPIRoutes(p.APIRoutes); err != nil {
+		return fmt.Errorf("persona %q: %w", p.Name, err)
+	}
 
 	r.personas[p.Name] = p
+	return nil
+}
+
+// validateAPIRoutes catches misconfigurations in APIRoutes at
+// registration time so a typo can't silently disable a deny rule
+// (matchPattern returns false on filepath.ErrBadPattern, which is
+// the safe default for allow rules but lets a malformed deny rule
+// fail open). Also rejects an empty Connection — required per the
+// APIRouteRule docstring; without this check matchingRouteRules
+// would silently skip the rule and the operator would see no error.
+func validateAPIRoutes(rules []APIRouteRule) error {
+	for i, rule := range rules {
+		if rule.Connection == "" {
+			return fmt.Errorf("api_routes[%d]: Connection is required", i)
+		}
+		if _, err := filepath.Match(rule.Connection, ""); err != nil {
+			return fmt.Errorf("api_routes[%d]: invalid Connection glob %q: %w", i, rule.Connection, err)
+		}
+		for j, m := range rule.Methods {
+			if _, err := filepath.Match(m, ""); err != nil {
+				return fmt.Errorf("api_routes[%d].methods[%d]: invalid glob %q: %w", i, j, m, err)
+			}
+		}
+		for j, p := range rule.Paths {
+			if _, err := filepath.Match(p, ""); err != nil {
+				return fmt.Errorf("api_routes[%d].paths[%d]: invalid glob %q: %w", i, j, p, err)
+			}
+		}
+		switch rule.Action {
+		case "", ActionAllow, ActionDeny:
+		default:
+			return fmt.Errorf("api_routes[%d]: invalid action %q (want %q or %q)", i, rule.Action, ActionAllow, ActionDeny)
+		}
+	}
 	return nil
 }
 
