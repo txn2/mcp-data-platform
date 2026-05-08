@@ -344,6 +344,14 @@ func scrubTransportError(err error) string {
 
 func executeRequest(client *http.Client, req *http.Request, maxBytes int64) InvokeOutput {
 	start := time.Now()
+	// #nosec G107 G704 -- req.URL is constructed by buildURL, which parses the
+	// operator-configured base_url independently, joins the model-supplied
+	// path via url.URL.JoinPath (no string concatenation), and refuses any
+	// result whose scheme/host differs from the base. validatePath additionally
+	// rejects path shapes (//, @, CR/LF/NUL) that would let url.Parse be
+	// tricked into changing the host. The dynamic URL is therefore pinned to
+	// the connection's pre-registered host; SSRF is defeated at the construction
+	// site even though gosec's taint analysis cannot see the runtime guards.
 	resp, err := client.Do(req)
 	duration := time.Since(start).Milliseconds()
 	if err != nil {
