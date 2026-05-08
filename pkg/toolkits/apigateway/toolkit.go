@@ -49,9 +49,25 @@ type Toolkit struct {
 
 	mu          sync.RWMutex
 	connections map[string]*conn
+	routePolicy RoutePolicy
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+}
+
+// RoutePolicy gates an api_invoke_endpoint call by (connection, method,
+// path) on top of the platform's existing tool/connection authorization.
+// Layered design: the MCP middleware's Authorizer.IsAuthorized check
+// covers "may this user call api_invoke_endpoint at all?" and "on this
+// connection at all?". RoutePolicy answers the more specific question
+// "may this user call THIS method on THIS path of this connection?".
+//
+// Reason is included for audit/log clarity when Allowed is false.
+// Implementations must read the caller's roles from ctx (typically via
+// the middleware's pre-authenticated user or an Authenticator) and
+// resolve them to a persona's APIRoutes rules.
+type RoutePolicy interface {
+	Allow(ctx context.Context, connection, method, path string) (allowed bool, reason string)
 }
 
 // conn carries the materialized state for a single registered
@@ -150,6 +166,27 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.queryProvider = provider
+}
+
+// SetRoutePolicy installs a per-(connection, method, path) authorization
+// gate. When set, api_invoke_endpoint consults the policy after the
+// connection lookup and before the upstream call. A nil policy means
+// no per-route gating — the platform's existing tool/connection
+// authorization is the sole gate (backward-compatible).
+func (t *Toolkit) SetRoutePolicy(p RoutePolicy) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.routePolicy = p
+}
+
+// RoutePolicy returns the currently installed route policy, or nil if
+// none has been wired. Exposed so platform-side tests can verify that
+// WireAPIGatewayRoutePolicy actually installed a policy and exercise
+// it directly without spinning up a full MCP server.
+func (t *Toolkit) RoutePolicy() RoutePolicy {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.routePolicy
 }
 
 // AddConnection parses a raw config map, materializes the per-
@@ -264,9 +301,17 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	}
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
+	policy := t.routePolicy
 	t.mu.RUnlock()
 	if !ok {
 		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+	}
+
+	// Run the route policy BEFORE invoke() so an unauthorized call
+	// never produces an outbound HTTP request — and never appears in
+	// the upstream's access log.
+	if res := checkRoutePolicy(ctx, policy, in); res != nil {
+		return res, nil, nil //nolint:nilerr // tool error surfaced via result
 	}
 
 	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client}, in)
@@ -274,6 +319,38 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol — argument validation surfaced as tool error
 	}
 	return jsonResult(out), out, nil
+}
+
+// checkRoutePolicy runs the optional per-(connection, method, path)
+// authorization gate. Returns nil when the policy is unset or when
+// the call is allowed. Returns a non-nil error result when the
+// method or path validators reject the input, or when the policy
+// denies the call.
+//
+// Method and path are validated up front so the policy sees
+// normalized values (uppercase method, "/-prefixed" path). invoke()
+// re-validates idempotently so the policy step can be skipped when
+// no policy is installed without losing input safety.
+func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *mcp.CallToolResult {
+	if policy == nil {
+		return nil
+	}
+	method, mErr := validateMethod(in.Method)
+	if mErr != nil {
+		return errorResult(mErr.Error())
+	}
+	if pErr := validatePath(in.Path); pErr != nil {
+		return errorResult(pErr.Error())
+	}
+	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path)
+	if allowed {
+		return nil
+	}
+	msg := "not authorized for this method/path on this connection"
+	if reason != "" {
+		msg = msg + ": " + reason
+	}
+	return errorResult(msg)
 }
 
 // jsonResult creates a successful MCP result with the JSON-encoded

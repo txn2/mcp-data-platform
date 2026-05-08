@@ -27,6 +27,7 @@ import (
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -4886,4 +4887,265 @@ func TestWireGatewayBroadcaster_NoBroadcaster(t *testing.T) {
 	// Force broadcaster nil to exercise the early-return.
 	p.broadcaster = nil
 	p.WireGatewayBroadcaster() // must not panic
+}
+
+// TestWireAPIGatewayRoutePolicy_DeniesViaInstalledPolicy proves the
+// persona authorizer is actually wired into a live api gateway
+// toolkit by exercising the deny path through the toolkit's public
+// MCP handler. Removing the SetRoutePolicy call in
+// WireAPIGatewayRoutePolicy makes this test pass an upstream call
+// (no policy → no gate); leaving it produces IsError=true here.
+//
+// A regression that drops the wiring would silently let through any
+// (method, path) on every persona — exactly the failure mode the
+// wiring exists to prevent.
+func TestWireAPIGatewayRoutePolicy_DeniesViaInstalledPolicy(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Construct an api gateway toolkit and register it.
+	mc, err := apigatewaykit.ParseMultiConfig("api", map[string]map[string]any{
+		"crm": {"base_url": "https://api.example.com"},
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig: %v", err)
+	}
+	tk := apigatewaykit.NewMulti(mc)
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Pre-condition: before the wire call, the toolkit has no policy
+	// installed. (Catches any future change that pre-wires from
+	// inside the toolkit constructor — would defeat the test.)
+	if tk.RoutePolicy() != nil {
+		t.Fatal("toolkit already has a route policy before WireAPIGatewayRoutePolicy")
+	}
+
+	// Install a persona with a deny-all rule for the "crm" connection.
+	denyAll := &persona.Persona{
+		Name:  "denyall",
+		Roles: []string{"denyall"},
+		Tools: persona.ToolRules{Allow: []string{"*"}},
+		APIRoutes: []persona.APIRouteRule{
+			{Connection: "crm", Action: persona.ActionDeny}, // deny everything on crm
+		},
+	}
+	if err := p.personaRegistry.Register(denyAll); err != nil {
+		t.Fatalf("Register persona: %v", err)
+	}
+
+	// Wire — this is the call under test. A regression that drops
+	// the SetRoutePolicy call inside WireAPIGatewayRoutePolicy makes
+	// tk.RoutePolicy() stay nil and fails the next assertion.
+	p.WireAPIGatewayRoutePolicy()
+
+	pol := tk.RoutePolicy()
+	if pol == nil {
+		t.Fatal("WireAPIGatewayRoutePolicy did not install a route policy on the toolkit")
+	}
+
+	// Functional assertion: the installed policy actually consults
+	// the persona registry and denies based on APIRoutes. Build a
+	// pre-authenticated context with the deny-all persona's role
+	// and confirm a route call is refused.
+	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
+		UserID: "u1",
+		Roles:  []string{"denyall"},
+	})
+	allowed, reason := pol.Allow(ctx, "crm", "GET", "/v1/anything")
+	if allowed {
+		t.Errorf("denyAll persona's route policy allowed call (reason=%q); wiring is wrong", reason)
+	}
+	if reason == "" {
+		t.Error("expected non-empty reason on denial")
+	}
+
+	// Idempotent: re-running the wire call must not panic or
+	// double-install in a way that breaks behavior.
+	p.WireAPIGatewayRoutePolicy()
+	if tk.RoutePolicy() == nil {
+		t.Error("route policy lost after second WireAPIGatewayRoutePolicy call")
+	}
+}
+
+// TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp proves the wiring
+// helper is safe when no api gateway toolkit is registered.
+func TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.WireAPIGatewayRoutePolicy() // must not panic when no api toolkit registered
+}
+
+// TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp proves the helper
+// silently no-ops when the platform's authorizer is not the
+// persona-based implementation (custom authorizer use-case).
+func TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.authorizer = nil // simulate "no authorizer"
+	p.WireAPIGatewayRoutePolicy()
+}
+
+// panicAuthenticator fails the test if its Authenticate is called.
+// Used to prove the apiGatewayRoutePolicy doesn't redundantly call
+// Authenticate when PlatformContext.Roles is already populated by
+// the upstream MCP middleware (the common hot-path case).
+type panicAuthenticator struct{}
+
+func (panicAuthenticator) Authenticate(_ context.Context) (*middleware.UserInfo, error) {
+	panic("Authenticate called when PlatformContext.Roles should have been used")
+}
+
+// TestAPIGatewayRoutePolicy_Allow_DirectCases exercises the closure
+// that bridges persona.Authorizer onto apigateway.RoutePolicy. Three
+// scenarios: pre-auth user with allow rule passes, pre-auth user with
+// deny rule is refused, no roles in ctx hits the fail-closed path.
+func TestAPIGatewayRoutePolicy_Allow_DirectCases(t *testing.T) {
+	personaReg := persona.NewRegistry()
+	if err := personaReg.Register(&persona.Persona{
+		Name:  "analyst",
+		Roles: []string{"analyst"},
+		Tools: persona.ToolRules{Allow: []string{"*"}},
+		APIRoutes: []persona.APIRouteRule{
+			{Connection: "crm", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			{Connection: "crm", Methods: []string{"DELETE"}, Action: persona.ActionDeny},
+		},
+	}); err != nil {
+		t.Fatalf("register persona: %v", err)
+	}
+	mapper := &persona.OIDCRoleMapper{Registry: personaReg}
+	authzr := persona.NewAuthorizer(personaReg, mapper)
+	policy := apiGatewayRoutePolicy{authn: nil, pa: authzr}
+
+	t.Run("allow rule matches → true", func(t *testing.T) {
+		ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
+			UserID: "u1", Roles: []string{"analyst"},
+		})
+		allowed, reason := policy.Allow(ctx, "crm", "GET", "/v1/users/123")
+		if !allowed {
+			t.Errorf("got allowed=false, reason=%q; want allowed=true", reason)
+		}
+	})
+
+	t.Run("deny rule matches → false with reason", func(t *testing.T) {
+		ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
+			UserID: "u1", Roles: []string{"analyst"},
+		})
+		allowed, reason := policy.Allow(ctx, "crm", "DELETE", "/v1/users/123")
+		if allowed {
+			t.Error("DELETE was allowed despite deny rule")
+		}
+		if reason == "" {
+			t.Error("expected non-empty reason on denial")
+		}
+	})
+
+	t.Run("connection with no APIRoutes for resolved persona → passthrough", func(t *testing.T) {
+		// Empty roles resolve to DefaultPersona (no APIRoutes). The
+		// route policy is layered on top of the platform's main
+		// IsAuthorized gate; when the persona has no APIRoutes
+		// touching the connection the route check is a no-op (true).
+		// Fail-closed for unauthenticated callers is the platform's
+		// MCPToolCallMiddleware's job, not this adapter's.
+		allowed, _ := policy.Allow(context.Background(), "crm", "GET", "/v1/users/1")
+		if !allowed {
+			t.Error("expected passthrough for persona without APIRoutes for crm")
+		}
+	})
+
+	t.Run("PlatformContext roles preferred over Authenticator (no double-verify)", func(t *testing.T) {
+		// Confirms the resolveRoles preference: MCPToolCallMiddleware's
+		// PlatformContext.Roles is read instead of forcing a second
+		// Authenticate call. Use an Authenticator that would PANIC if
+		// invoked — if the test passes, the role-resolution path
+		// reused the pre-extracted roles from PlatformContext.
+		policyNoAuthn := apiGatewayRoutePolicy{
+			authn: panicAuthenticator{},
+			pa:    authzr,
+		}
+		pc := middleware.NewPlatformContext("req-1")
+		pc.UserID = "u1"
+		pc.Roles = []string{"analyst"}
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+		allowed, _ := policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users/123")
+		if !allowed {
+			t.Error("PlatformContext.Roles path did not produce allow decision")
+		}
+	})
+
+	t.Run("authenticated user with empty roles still uses PlatformContext (no double-verify)", func(_ *testing.T) {
+		// Regression for the resolveRoles guard: if the predicate is
+		// `len(pc.Roles) > 0`, an authenticated user with no role
+		// claims falls through to the Authenticator fallback —
+		// reintroducing the redundant signature verification this
+		// path was meant to avoid. The correct signal is "auth
+		// middleware ran" (pc.UserID populated), not "user has
+		// roles". panicAuthenticator catches the regression.
+		policyNoAuthn := apiGatewayRoutePolicy{
+			authn: panicAuthenticator{},
+			pa:    authzr,
+		}
+		pc := middleware.NewPlatformContext("req-2")
+		pc.UserID = "u2"
+		pc.Roles = nil // authenticated but role-less
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+		// We don't care about the Allow outcome — only that
+		// Authenticate is NOT called (panic would fail the test).
+		_, _ = policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users")
+	})
+
+	t.Run("connection-targeted persona but auth context absent → fail-closed", func(t *testing.T) {
+		// Build a custom registry where the default persona has
+		// APIRoutes touching crm — empty roles still resolve to it,
+		// so the route check actually applies, and an unmatched
+		// (method, path) is denied.
+		reg := persona.NewRegistry()
+		def := &persona.Persona{
+			Name:  "default",
+			Roles: []string{},
+			Tools: persona.ToolRules{Allow: []string{"*"}},
+			APIRoutes: []persona.APIRouteRule{
+				{Connection: "crm", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
+			},
+		}
+		_ = reg.Register(def)
+		reg.SetDefault("default")
+		mapper2 := &persona.OIDCRoleMapper{Registry: reg}
+		auth2 := persona.NewAuthorizer(reg, mapper2)
+		policy2 := apiGatewayRoutePolicy{authn: nil, pa: auth2}
+		allowed, _ := policy2.Allow(context.Background(), "crm", "DELETE", "/v1/anything")
+		if allowed {
+			t.Error("DELETE on path-restricted connection allowed without explicit allow rule")
+		}
+	})
 }

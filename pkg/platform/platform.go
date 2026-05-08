@@ -53,6 +53,7 @@ import (
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -571,6 +572,89 @@ func (n gatewayListChangedNotifier) NotifyToolsListChanged(ctx context.Context) 
 			"source", "gateway",
 			"method", "notifications/tools/list_changed",
 			"error", err)
+	}
+}
+
+// apiGatewayRoutePolicy adapts persona.Authorizer onto
+// apigatewaykit.RoutePolicy so the api gateway toolkit can gate
+// (connection, method, path) against the caller's persona without
+// importing pkg/persona directly. The platform creates one of these
+// at boot and wires it into every live api gateway toolkit.
+//
+// Layered design: the standard MCP middleware's Authorizer.IsAuthorized
+// already gates "may this user call api_invoke_endpoint at all?" and
+// "on this connection at all?". This adapter adds the per-route check
+// (which HTTP method on which path) that the standard middleware
+// cannot express.
+type apiGatewayRoutePolicy struct {
+	authn middleware.Authenticator
+	pa    *persona.Authorizer
+}
+
+// Allow extracts the caller's roles from ctx and consults the persona
+// authorizer's APIRoutes rules for this (connection, method, path).
+//
+// Role-resolution preference order (in practice the upstream
+// MCPToolCallMiddleware almost always populates option 2 — the JWT
+// has already been parsed + verified there, so reusing those roles
+// avoids a redundant signature verification per call):
+//  1. Pre-authenticated user (admin browser-cookie paths).
+//  2. PlatformContext.Roles (set by MCPToolCallMiddleware after a
+//     successful Authenticate). Cheapest path on the MCP tool-call
+//     hot path.
+//  3. Authenticator.Authenticate (fallback for callers that didn't
+//     run through the standard MCP middleware chain).
+func (a apiGatewayRoutePolicy) Allow(ctx context.Context, connection, method, path string) (allowed bool, reason string) {
+	roles := a.resolveRoles(ctx)
+	allowed, _, reason = a.pa.IsAPIRouteAllowed(ctx, roles, connection, method, path)
+	return allowed, reason
+}
+
+// resolveRoles is split out so the preference order is testable in
+// isolation and Allow stays under the cyclomatic-complexity ceiling.
+//
+// The PlatformContext check uses UserID (not len(Roles)>0) as the
+// signal that MCPToolCallMiddleware ran successfully. A legitimately
+// authenticated user can have zero roles (default-persona-only
+// deployments, missing role-claim path); guarding on len(Roles)>0
+// would force a redundant Authenticate call for those users —
+// exactly the double-verify the layered preference order is meant
+// to avoid.
+func (a apiGatewayRoutePolicy) resolveRoles(ctx context.Context) []string {
+	if userInfo := middleware.GetPreAuthenticatedUser(ctx); userInfo != nil {
+		return userInfo.Roles
+	}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil && pc.UserID != "" {
+		return pc.Roles
+	}
+	if a.authn != nil {
+		if userInfo, err := a.authn.Authenticate(ctx); err == nil && userInfo != nil {
+			return userInfo.Roles
+		}
+	}
+	return nil
+}
+
+// WireAPIGatewayRoutePolicy installs a per-(connection, method, path)
+// authorization gate on every live api gateway toolkit. No-op when
+// the platform's authorizer is not the persona-based implementation
+// (custom authorizers may opt in later via their own wiring).
+//
+// Mirrors WireGatewayTokenStore / WireGatewayBroadcaster in placement
+// and lifecycle. Safe to call before or after RegisterTools.
+func (p *Platform) WireAPIGatewayRoutePolicy() {
+	if p.authorizer == nil {
+		return
+	}
+	pa, ok := p.authorizer.(*persona.Authorizer)
+	if !ok {
+		return
+	}
+	policy := apiGatewayRoutePolicy{authn: p.authenticator, pa: pa}
+	for _, tk := range p.toolkitRegistry.All() {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			api.SetRoutePolicy(policy)
+		}
 	}
 }
 

@@ -120,6 +120,78 @@ func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) 
 	return false
 }
 
+// IsAPIRouteAllowed reports whether the persona may invoke (method, path)
+// on the named connection through the HTTP API gateway. Layered on top
+// of IsConnectionAllowed: callers MUST also pass the connection-level
+// gate; this function adds per-(method, path) granularity for kind=api
+// connections.
+//
+// Semantics (also documented on APIRouteRule):
+//   - If no APIRoutes entry's Connection glob matches the connection, the
+//     check is a no-op (returns true) — the existing connection-level
+//     check is the sole gate, preserving backward-compat for personas
+//     written before APIRoutes existed.
+//   - If at least one APIRoutes entry matches the connection, the call
+//     must pass: no matching deny rule, AND at least one matching allow
+//     rule.
+//   - A nil persona always denies (fail-closed).
+func (*ToolFilter) IsAPIRouteAllowed(persona *Persona, connection, method, path string) bool {
+	if persona == nil {
+		return false
+	}
+	relevant := matchingRouteRules(persona.APIRoutes, connection)
+	if len(relevant) == 0 {
+		// No rule touches this connection — the route check is a no-op
+		// and the existing connection-level gate decides.
+		return true
+	}
+	for _, rule := range relevant {
+		if rule.Action == ActionDeny && routeRuleMatches(rule, method, path) {
+			return false
+		}
+	}
+	for _, rule := range relevant {
+		if rule.Action != ActionDeny && routeRuleMatches(rule, method, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchingRouteRules returns the subset of rules whose Connection glob
+// matches the given connection name. Extracted so callers can pre-filter
+// the rule set once instead of re-scanning per check.
+func matchingRouteRules(rules []APIRouteRule, connection string) []APIRouteRule {
+	var out []APIRouteRule
+	for _, r := range rules {
+		if r.Connection != "" && matchPattern(r.Connection, connection) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// routeRuleMatches reports whether a rule's Methods and Paths globs
+// both match the given method and path. Empty Methods or Paths means
+// "any value" for that dimension.
+func routeRuleMatches(rule APIRouteRule, method, path string) bool {
+	return matchAny(rule.Methods, method) && matchAny(rule.Paths, path)
+}
+
+// matchAny returns true if patterns is empty (treated as "any") or if
+// any pattern in the slice matches the value.
+func matchAny(patterns []string, value string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if matchPattern(p, value) {
+			return true
+		}
+	}
+	return false
+}
+
 // FilterTools filters a list of tools based on persona rules.
 func (f *ToolFilter) FilterTools(persona *Persona, tools []string) []string {
 	if persona == nil {
@@ -185,6 +257,27 @@ func (a *Authorizer) IsAuthorized(ctx context.Context, _ string, roles []string,
 		return false, personaName, "connection not allowed for persona: " + personaName
 	}
 
+	return true, personaName, ""
+}
+
+// IsAPIRouteAllowed authorizes (method, path) on the named HTTP API
+// gateway connection for the user with the given roles. Layered on
+// top of IsAuthorized: the caller (the api gateway toolkit) is
+// expected to have already passed the tool/connection-level gate via
+// the standard MCP middleware, and this method adds per-route
+// granularity. Returns the resolved persona name (for audit) and a
+// reason on denial.
+func (a *Authorizer) IsAPIRouteAllowed(ctx context.Context, roles []string, connection, method, path string) (allowed bool, personaName, reason string) {
+	per, err := a.roleMapper.MapToPersona(ctx, roles)
+	if err != nil {
+		return false, "", "failed to determine persona"
+	}
+	if per != nil {
+		personaName = per.Name
+	}
+	if !a.filter.IsAPIRouteAllowed(per, connection, method, path) {
+		return false, personaName, "persona " + personaName + " disallows " + method + " " + path + " on connection " + connection
+	}
 	return true, personaName, ""
 }
 

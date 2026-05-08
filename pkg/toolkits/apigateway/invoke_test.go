@@ -59,6 +59,23 @@ func TestValidatePath_RejectsSSRFShapes(t *testing.T) {
 		{"CR injection", "/foo\rEvil-Header: x"},
 		{"LF injection", "/foo\nEvil-Header: x"},
 		{"NUL injection", "/foo\x00bar"},
+		// "/v1/users/.." matches a "/v1/users/*" persona allow rule
+		// but JoinPath resolves it to "/v1" — letting the model
+		// escape the persona's intended scope. Refuse at the
+		// boundary so persona globs bound the model reliably.
+		{"parent traversal segment", "/v1/users/.."},
+		{"current segment", "/v1/users/."},
+		{"nested traversal", "/v1/../etc/passwd"},
+		// Empty interior segment ("//") would get collapsed by
+		// JoinPath, bypassing literal-pattern persona rules.
+		{"interior double-slash", "/v1//admin/secret"},
+		{"three slashes", "/v1///admin"},
+		// Percent-encoded dot segments: many servers decode
+		// %2E during path resolution (RFC 3986 allows it).
+		{"percent-encoded ..", "/v1/users/%2E%2E"},
+		{"percent-encoded .. lowercase", "/v1/users/%2e%2e"},
+		{"percent-encoded . segment", "/v1/users/%2E"},
+		{"malformed percent escape", "/v1/users/%2"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

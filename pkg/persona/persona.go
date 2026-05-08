@@ -40,6 +40,15 @@ type Persona struct {
 	// empty, all connections are permitted (backward-compatible default).
 	Connections ConnectionRules `json:"connections" yaml:"connections"`
 
+	// APIRoutes defines per-(connection, method, path) rules for the HTTP
+	// API gateway toolkit (kind=api). Layered on top of Connections: if a
+	// persona is allowed a connection at the tool/connection level, APIRoutes
+	// can further restrict which HTTP methods and paths the model can invoke
+	// against that connection. Personas with no APIRoutes entries for a
+	// given connection get the existing connection-level behavior unchanged
+	// (backward-compatible). See pkg/persona/filter.go IsAPIRouteAllowed.
+	APIRoutes []APIRouteRule `json:"api_routes,omitempty" yaml:"api_routes,omitempty"`
+
 	// Context defines per-persona overrides for the platform description and
 	// agent instructions returned by the platform_info tool.
 	Context ContextOverrides `json:"context" yaml:"context"`
@@ -75,6 +84,49 @@ type ConnectionRules struct {
 	// Deny patterns for denied connections (takes precedence over Allow).
 	Deny []string `json:"deny,omitempty" yaml:"deny,omitempty"`
 }
+
+// APIRouteRule constrains the HTTP API gateway's api_invoke_endpoint
+// tool to specific (method, path) combinations on connections matched
+// by Connection. A persona's APIRoutes list is consulted only for
+// kind=api connections; other toolkit kinds ignore it.
+//
+// Semantics, evaluated against a single (connection, method, path) tuple:
+//   - Rules whose Connection glob does not match are skipped.
+//   - Among matching rules: any "deny" rule whose Methods+Paths match
+//     denies the call (deny takes precedence).
+//   - Otherwise, at least one "allow" rule whose Methods+Paths match
+//     must be present for the call to be authorized.
+//   - If NO rule matches the connection at all, the API route check is
+//     a no-op — the existing ConnectionRules check is the sole gate
+//     (backward-compatible behavior).
+//
+// Empty Methods or Paths slices mean "any" — a rule with empty Methods
+// and Paths matches every method+path combination on the connection.
+type APIRouteRule struct {
+	// Connection is a glob (e.g. "crm-*") matched against the connection
+	// name. Required.
+	Connection string `json:"connection" yaml:"connection"`
+
+	// Methods is a list of HTTP method globs (e.g. ["GET", "HEAD"]).
+	// Empty = any method. Patterns are case-sensitive — typically
+	// uppercase ("GET", "POST", etc.) since the toolkit normalizes
+	// inbound methods to uppercase before this check runs.
+	Methods []string `json:"methods,omitempty" yaml:"methods,omitempty"`
+
+	// Paths is a list of path globs (e.g. ["/v1/users/*", "/v1/orders/**"]).
+	// Empty = any path.
+	Paths []string `json:"paths,omitempty" yaml:"paths,omitempty"`
+
+	// Action is "allow" (default) or "deny". Deny rules take precedence
+	// over allow rules within the matching-Connection subset.
+	Action string `json:"action,omitempty" yaml:"action,omitempty"`
+}
+
+// API route action values. Empty Action defaults to ActionAllow.
+const (
+	ActionAllow = "allow"
+	ActionDeny  = "deny"
+)
 
 // ContextOverrides defines per-persona overrides for the description and
 // agent instructions that the platform_info tool returns. These let you

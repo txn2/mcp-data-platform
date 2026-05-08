@@ -278,6 +278,7 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	if p != nil {
 		p.WireGatewayTokenStore()
 		p.WireGatewayBroadcaster()
+		p.WireAPIGatewayRoutePolicy()
 	}
 
 	mux := http.NewServeMux()
