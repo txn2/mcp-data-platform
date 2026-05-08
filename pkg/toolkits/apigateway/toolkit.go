@@ -33,6 +33,12 @@ const (
 	// literal as the registration site.
 	ToolInvokeEndpoint = "api_invoke_endpoint"
 
+	// ToolListEndpoints names the tool that returns OperationSummary
+	// candidates from a connection's parsed OpenAPI spec. Companion
+	// to ToolInvokeEndpoint: the model uses list to discover what's
+	// available, then invoke to call it.
+	ToolListEndpoints = "api_list_endpoints"
+
 	logKeyConnection = "connection"
 	logKeyError      = "error"
 )
@@ -72,12 +78,14 @@ type RoutePolicy interface {
 
 // conn carries the materialized state for a single registered
 // connection: parsed config, the Authenticator implementing its auth
-// mode, and a per-connection HTTP client whose Transport tunes
-// idle-connection behavior independently from other connections.
+// mode, a per-connection HTTP client, and (when the connection's
+// config supplied an OpenAPI spec) the parsed operation index that
+// api_list_endpoints serves.
 type conn struct {
-	cfg    Config
-	auth   Authenticator
-	client *http.Client
+	cfg        Config
+	auth       Authenticator
+	client     *http.Client
+	operations []OperationSummary
 }
 
 // New builds an empty toolkit. Connections are added later via
@@ -128,9 +136,10 @@ func (t *Toolkit) Name() string { return t.name }
 // require the model to pass `connection` explicitly).
 func (t *Toolkit) Connection() string { return t.defaultName }
 
-// RegisterTools registers api_invoke_endpoint with the MCP server.
-// Future PRs add api_list_endpoints and api_get_endpoint_schema
-// under the same toolkit (see RFC #364).
+// RegisterTools registers the api gateway's MCP tools.
+// api_get_endpoint_schema (the third tool from RFC #364) lands in a
+// follow-up PR; for v1 the model gets the operation summaries via
+// api_list_endpoints and constructs invoke calls from there.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  ToolInvokeEndpoint,
@@ -144,11 +153,101 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"available kind=api connections.",
 		InputSchema: invokeEndpointSchema,
 	}, t.handleInvoke)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  ToolListEndpoints,
+		Title: "List API Endpoints",
+		Description: "List operations exposed by a registered API connection's OpenAPI " +
+			"document. Use this BEFORE api_invoke_endpoint to discover what method+path " +
+			"combinations the upstream supports. Optional `query` does a case-insensitive " +
+			"substring match against operation_id, path, summary, and tags. Returns " +
+			"operation_id, method, path, summary, and tags for each match. If the " +
+			"connection has no OpenAPI spec configured, returns an empty list with a " +
+			"note. Persona policy still applies at invoke time — a listed operation " +
+			"may still be refused by api_invoke_endpoint.",
+		InputSchema: listEndpointsSchema,
+	}, t.handleListEndpoints)
 }
 
 // Tools returns the list of tool names this toolkit registers.
 func (*Toolkit) Tools() []string {
-	return []string{ToolInvokeEndpoint}
+	return []string{ToolInvokeEndpoint, ToolListEndpoints}
+}
+
+// ListEndpointsInput is the parsed argument shape for
+// api_list_endpoints. Field names match the JSON schema.
+type ListEndpointsInput struct {
+	Connection string `json:"connection"`
+	Query      string `json:"query,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
+// ListEndpointsOutput is the structured result. Empty + Note when
+// the connection has no OpenAPI spec configured (so the model can
+// distinguish "no spec" from "no matches").
+type ListEndpointsOutput struct {
+	Operations []OperationSummary `json:"operations"`
+	Note       string             `json:"note,omitempty"`
+}
+
+// defaultListEndpointsLimit caps the result set when the caller
+// doesn't specify limit. Keeps the response from blowing context on
+// large APIs while staying generous enough for casual queries; the
+// model can request more by passing limit explicitly.
+const defaultListEndpointsLimit = 50
+
+func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (*mcp.CallToolResult, any, error) {
+	if in.Connection == "" {
+		return errorResult("connection is required"), nil, nil
+	}
+	t.mu.RLock()
+	c, ok := t.connections[in.Connection]
+	policy := t.routePolicy
+	t.mu.RUnlock()
+	if !ok {
+		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+	}
+	if len(c.operations) == 0 {
+		out := ListEndpointsOutput{
+			Operations: []OperationSummary{},
+			Note:       "no openapi_spec configured for this connection — call api_invoke_endpoint with method+path directly",
+		}
+		return jsonResult(out), out, nil
+	}
+	// Filter through the route policy so a persona only sees the
+	// operations it could actually invoke. Without this, a persona
+	// scoped to GET /v1/users/* still sees DELETE /v1/users/{id}
+	// listed and the model wastes a turn discovering the denial at
+	// invoke time.
+	visible := filterByRoutePolicy(ctx, policy, in.Connection, c.operations)
+	limit := in.Limit
+	if limit <= 0 {
+		limit = defaultListEndpointsLimit
+	}
+	out := ListEndpointsOutput{
+		Operations: rankOperations(visible, in.Query, limit),
+	}
+	return jsonResult(out), out, nil
+}
+
+// filterByRoutePolicy returns the subset of operations the supplied
+// route policy permits for this connection. A nil policy is a
+// passthrough (returns ops unchanged) — backward-compatible with
+// deployments that haven't installed a policy yet. Operations the
+// policy denies are dropped silently from the result; the model
+// sees a curated catalog of what it can actually call.
+func filterByRoutePolicy(ctx context.Context, policy RoutePolicy, connection string, ops []OperationSummary) []OperationSummary {
+	if policy == nil {
+		return ops
+	}
+	out := make([]OperationSummary, 0, len(ops))
+	for _, op := range ops {
+		allowed, _ := policy.Allow(ctx, connection, op.Method, op.Path)
+		if allowed {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 // SetSemanticProvider stores the semantic provider. Reserved for
@@ -212,10 +311,19 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
+	var operations []OperationSummary
+	if cfg.OpenAPISpec != "" {
+		doc, perr := parseOpenAPISpec(cfg.OpenAPISpec)
+		if perr != nil {
+			return fmt.Errorf("apigateway: %s: %w", name, perr)
+		}
+		operations = buildOperationIndex(doc)
+	}
 	c := &conn{
-		cfg:    cfg,
-		auth:   auth,
-		client: newHTTPClient(cfg),
+		cfg:        cfg,
+		auth:       auth,
+		client:     newHTTPClient(cfg),
+		operations: operations,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()

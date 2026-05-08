@@ -2,6 +2,30 @@ package apigateway
 
 import "encoding/json"
 
+// listEndpointsSchema is the JSON Schema for the api_list_endpoints tool input.
+//
+//nolint:gochecknoglobals // MCP tool schema must be a package-level var
+var listEndpointsSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["connection"],
+  "properties": {
+    "connection": {
+      "type": "string",
+      "description": "Name of the registered API connection (kind=api). Required."
+    },
+    "query": {
+      "type": "string",
+      "description": "Optional case-insensitive substring search across operation_id, path, summary, and tags. Empty returns the full list (capped by limit)."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Optional cap on the number of operations returned. Defaults to 50. Pass a higher value when exploring large APIs."
+    }
+  }
+}`)
+
 // invokeEndpointSchema is the JSON Schema for the api_invoke_endpoint tool input.
 //
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
