@@ -2238,6 +2238,82 @@ info:
   title: MCP Data Platform API
   version: "1.0"
 paths:
+  /admin/api-gateway/connections/{name}/oauth-start:
+    post:
+      consumes:
+      - application/json
+      description: Generates a PKCE verifier, derives the SHA256 challenge, registers
+        a state token, and returns the authorization URL the operator should open
+        in their browser. The upstream IdP redirects back to /api/v1/admin/api-gateway/oauth/callback
+        after the user authenticates.
+      parameters:
+      - description: API gateway connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Optional return URL
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Begin OAuth authorization-code flow for an API gateway connection
+      tags:
+      - Connections
+  /admin/api-gateway/oauth/callback:
+    get:
+      description: Public endpoint hit by the upstream IdP after the operator authenticates.
+        Exchanges the code for tokens and persists them via the API gateway's TokenStore.
+        Renders an HTML error page on failure so a stranded browser tab still gives
+        a useful message.
+      parameters:
+      - description: OAuth authorization code
+        in: query
+        name: code
+        type: string
+      - description: PKCE state token from oauth-start
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: OAuth error code from upstream
+        in: query
+        name: error
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Found
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      summary: OAuth authorization-code callback for API gateway connections
+      tags:
+      - Connections
   /admin/audit/events:
     get:
       description: Returns paginated audit events with optional filtering.

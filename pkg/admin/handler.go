@@ -149,6 +149,14 @@ const publicPrefix = "/api/v1/admin/public/"
 // session.
 const oauthCallbackPrefix = "/api/v1/admin/oauth/"
 
+// apiGatewayOAuthCallbackPrefix is the parallel callback URL for the
+// HTTP API gateway's authorization-code flow. Kept distinct from the
+// MCP gateway's prefix so an operator can read the URL and tell which
+// connection family the redirect belongs to. Same admin-session
+// bypass rationale as oauthCallbackPrefix — PKCE state, not session,
+// authenticates the callback.
+const apiGatewayOAuthCallbackPrefix = "/api/v1/admin/api-gateway/oauth/"
+
 // Handler provides admin REST API endpoints.
 type Handler struct {
 	mux        *http.ServeMux
@@ -204,7 +212,8 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, docsPrefix) ||
 		strings.HasPrefix(r.URL.Path, publicPrefix) ||
-		strings.HasPrefix(r.URL.Path, oauthCallbackPrefix) {
+		strings.HasPrefix(r.URL.Path, oauthCallbackPrefix) ||
+		strings.HasPrefix(r.URL.Path, apiGatewayOAuthCallbackPrefix) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
@@ -229,6 +238,7 @@ func (h *Handler) registerRoutes() {
 	h.registerConnectionRoutes()
 	h.registerGatewayRoutes()
 	h.registerGatewayOAuthRoutes()
+	h.registerAPIGatewayOAuthRoutes()
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 }

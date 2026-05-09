@@ -75,6 +75,31 @@ func TestParseConfig_OAuth2ClientCredentials(t *testing.T) {
 	}
 }
 
+func TestParseConfig_OAuth2AuthorizationCode(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url":                 "https://api.example.com",
+		"auth_mode":                AuthModeOAuth2AuthorizationCode,
+		"oauth2_token_url":         "https://idp.example/token",
+		"oauth2_authorization_url": "https://idp.example/auth",
+		"oauth2_client_id":         "client-123",
+		"oauth2_client_secret":     "secret-xyz",
+		"oauth2_scopes":            []any{"openid", "profile"},
+		"oauth2_prompt":            "consent",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if c.AuthMode != AuthModeOAuth2AuthorizationCode {
+		t.Errorf("AuthMode = %q; want %q", c.AuthMode, AuthModeOAuth2AuthorizationCode)
+	}
+	if c.OAuth2.AuthorizationURL != "https://idp.example/auth" {
+		t.Errorf("AuthorizationURL = %q", c.OAuth2.AuthorizationURL)
+	}
+	if c.OAuth2.Prompt != "consent" {
+		t.Errorf("Prompt = %q; want %q", c.OAuth2.Prompt, "consent")
+	}
+}
+
 func TestGetStringSlice_AcceptsBothShapes(t *testing.T) {
 	// Programmatic construction yields []string; YAML unmarshaling
 	// yields []any. parseOAuth2Config must accept both.
@@ -255,6 +280,31 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_endpoint_auth_style": "invalid",
 			},
 			want: "invalid oauth2.endpoint_auth_style",
+		},
+		{
+			name: "oauth2_authorization_code missing authorization_url",
+			cfg: map[string]any{
+				"base_url":             "https://x",
+				"auth_mode":            AuthModeOAuth2AuthorizationCode,
+				"oauth2_token_url":     "https://idp/token",
+				"oauth2_client_id":     "c",
+				"oauth2_client_secret": "s",
+			},
+			want: "oauth2.authorization_url is required",
+		},
+		{
+			// authorization_code still requires the same client
+			// fields as client_credentials — verifies that the
+			// authorization_code validator chains validateOAuth2.
+			name: "oauth2_authorization_code missing client_secret",
+			cfg: map[string]any{
+				"base_url":                 "https://x",
+				"auth_mode":                AuthModeOAuth2AuthorizationCode,
+				"oauth2_token_url":         "https://idp/token",
+				"oauth2_client_id":         "c",
+				"oauth2_authorization_url": "https://idp/auth",
+			},
+			want: "oauth2.client_secret is required",
 		},
 	}
 	for _, tc := range cases {

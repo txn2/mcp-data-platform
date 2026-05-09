@@ -56,9 +56,40 @@ type Toolkit struct {
 	mu          sync.RWMutex
 	connections map[string]*conn
 	routePolicy RoutePolicy
+	tokenStore  TokenStore
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+}
+
+// TokenStore returns the OAuth token store wired into this toolkit,
+// or nil when the toolkit was constructed without one. The admin
+// OAuth-callback handler calls this to persist tokens after the
+// authorization-code exchange.
+func (t *Toolkit) TokenStore() TokenStore {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.tokenStore
+}
+
+// SetTokenStore wires the persistent OAuth token store. Required
+// for the authorization_code grant: the Authenticator reads
+// existing tokens at first call and writes back rotated tokens
+// after refresh. Connections registered before SetTokenStore is
+// called will pick up the store on first use; the toolkit re-runs
+// the wire step in addParsedConnection to keep startup-order
+// independent (mirrors how the MCP gateway threads its TokenStore).
+func (t *Toolkit) SetTokenStore(s TokenStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tokenStore = s
+	// Re-thread into any already-materialized authorization_code
+	// connections so wiring order doesn't matter.
+	for _, c := range t.connections {
+		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
+			ac.SetTokenStore(s)
+		}
+	}
 }
 
 // RoutePolicy gates an api_invoke_endpoint call by (connection, method,
@@ -329,6 +360,13 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	defer t.mu.Unlock()
 	if _, exists := t.connections[name]; exists {
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
+	}
+	// Wire the token store into authorization_code authenticators
+	// inline so a connection added BEFORE SetTokenStore still
+	// becomes functional once SetTokenStore runs (which re-threads
+	// the store across all connections). Either ordering works.
+	if ac, ok := auth.(*oauth2AuthorizationCodeAuth); ok && t.tokenStore != nil {
+		ac.SetTokenStore(t.tokenStore)
 	}
 	t.connections[name] = c
 	return nil

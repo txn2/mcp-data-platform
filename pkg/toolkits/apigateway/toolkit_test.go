@@ -730,3 +730,55 @@ func TestJSONResult_EmbedsPayload(t *testing.T) {
 		t.Errorf("payload missing: %s", textContent(r))
 	}
 }
+
+// TestToolkit_SetTokenStore_RethreadsAuthorizationCodeAuth proves the
+// wiring contract that platform.WireAPIGatewayTokenStore depends on:
+// when SetTokenStore is called AFTER addParsedConnection has already
+// materialized an authorization_code Authenticator, the new store
+// must reach the existing Authenticator (not just future ones).
+//
+// Without this re-thread, an api gateway connection registered before
+// the platform's WireAPIGatewayTokenStore call would silently come
+// up with no persistence — the failure mode that v1.57.1 surfaced on
+// the MCP gateway side.
+func TestToolkit_SetTokenStore_RethreadsAuthorizationCodeAuth(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	if tk.TokenStore() != nil {
+		t.Fatal("freshly built toolkit unexpectedly has a TokenStore")
+	}
+
+	err := tk.AddConnection("acme", map[string]any{
+		"base_url":                 "https://api.example.com",
+		"auth_mode":                AuthModeOAuth2AuthorizationCode,
+		"oauth2_token_url":         "https://idp.example/token",
+		"oauth2_authorization_url": "https://idp.example/auth",
+		"oauth2_client_id":         "id",
+		"oauth2_client_secret":     "sec",
+	})
+	if err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	want := NewMemoryTokenStore()
+	tk.SetTokenStore(want)
+
+	if got := tk.TokenStore(); got != want {
+		t.Errorf("TokenStore after SetTokenStore = %v; want %v", got, want)
+	}
+
+	tk.mu.RLock()
+	c := tk.connections["acme"]
+	tk.mu.RUnlock()
+	if c == nil {
+		t.Fatal("connection vanished")
+	}
+	ac, ok := c.auth.(*oauth2AuthorizationCodeAuth)
+	if !ok {
+		t.Fatalf("expected *oauth2AuthorizationCodeAuth, got %T", c.auth)
+	}
+	if ac.store != want {
+		t.Error("re-thread did not deliver the new store to the existing Authenticator")
+	}
+}

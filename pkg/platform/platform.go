@@ -116,15 +116,16 @@ type Platform struct {
 	auditStore *auditpostgres.Store
 
 	// Config store
-	configStore       configstore.Store
-	fileDefaults      map[string]string
-	connectionStore   ConnectionStore
-	connectionSources *ConnectionSourceMap
-	enrichmentStore   enrichment.Store
-	gatewayTokenStore gatewaykit.TokenStore
-	restEncryptor     *RestFieldEncryptor
-	personaStore      PersonaStore
-	apiKeyStore       APIKeyStore
+	configStore          configstore.Store
+	fileDefaults         map[string]string
+	connectionStore      ConnectionStore
+	connectionSources    *ConnectionSourceMap
+	enrichmentStore      enrichment.Store
+	gatewayTokenStore    gatewaykit.TokenStore
+	apigatewayTokenStore apigatewaykit.TokenStore
+	restEncryptor        *RestFieldEncryptor
+	personaStore         PersonaStore
+	apiKeyStore          APIKeyStore
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -444,6 +445,7 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
 	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
+	p.apigatewayTokenStore = apigatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
 	return nil
 }
 
@@ -633,6 +635,30 @@ func (a apiGatewayRoutePolicy) resolveRoles(ctx context.Context) []string {
 		}
 	}
 	return nil
+}
+
+// APIGatewayTokenStore returns the persistent OAuth token store used
+// by the api gateway's authorization_code grant. nil when the
+// platform was constructed without a database — auth_mode
+// oauth2_authorization_code requires a database to function.
+func (p *Platform) APIGatewayTokenStore() apigatewaykit.TokenStore {
+	return p.apigatewayTokenStore
+}
+
+// WireAPIGatewayTokenStore attaches the persistent OAuth token
+// store to every live api gateway toolkit. Mirrors
+// WireGatewayTokenStore in placement and lifecycle. Safe to call
+// multiple times — the toolkit's SetTokenStore re-threads any
+// already-materialized authorization_code Authenticators.
+func (p *Platform) WireAPIGatewayTokenStore() {
+	if p.apigatewayTokenStore == nil {
+		return
+	}
+	for _, tk := range p.toolkitRegistry.All() {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			api.SetTokenStore(p.apigatewayTokenStore)
+		}
+	}
 }
 
 // WireAPIGatewayRoutePolicy installs a per-(connection, method, path)
