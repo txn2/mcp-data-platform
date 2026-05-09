@@ -31,6 +31,73 @@ var listEndpointsSchema = json.RawMessage(`{
   }
 }`)
 
+// apiExportInputSchema is the JSON Schema for the api_export tool
+// input. Mirrors invokeEndpointSchema for connection/method/path/
+// query/headers/body and adds the portal-asset metadata fields
+// (name, description, tags, idempotency_key, create_public_link)
+// matched to trino_export's surface.
+//
+//nolint:gochecknoglobals // MCP tool schema must be a package-level var
+var apiExportInputSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["connection", "method", "path", "name"],
+  "properties": {
+    "connection": {
+      "type": "string",
+      "description": "Name of the registered API connection (kind=api). Required."
+    },
+    "method": {
+      "type": "string",
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
+      "description": "HTTP method. Required."
+    },
+    "path": {
+      "type": "string",
+      "description": "Request path joined to the connection's base URL. Required. Must start with \"/\"."
+    },
+    "query": {
+      "type": "object",
+      "description": "Optional query string parameters.",
+      "additionalProperties": true
+    },
+    "headers": {
+      "type": "object",
+      "description": "Optional custom request headers. Sending Authorization or the connection's api_key header is rejected.",
+      "additionalProperties": {"type": "string"}
+    },
+    "body": {
+      "description": "Optional request body. Same encoding rules as api_invoke_endpoint."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1800,
+      "description": "Optional per-call timeout override. Capped at 30 minutes."
+    },
+    "name": {
+      "type": "string",
+      "description": "Asset display name; doubles as download filename. Keep short and ASCII-only (letters, digits, spaces, hyphens, dots). Required."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional asset description shown in the portal."
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional asset tags."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Optional idempotency key. When supplied, a prior export by this user with the same key returns the existing asset's metadata without re-running the upstream call."
+    },
+    "create_public_link": {
+      "type": "boolean",
+      "description": "When true, also create a public share link for the resulting asset. Returns share_url alongside the asset metadata."
+    }
+  }
+}`)
+
 // invokeEndpointSchema is the JSON Schema for the api_invoke_endpoint tool input.
 //
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var

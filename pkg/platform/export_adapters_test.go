@@ -163,9 +163,14 @@ func TestExportShareCreatorAdapter_NoBaseURL(t *testing.T) {
 
 	url, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
 	require.NoError(t, err)
-	// Returns just the token when no base URL
-	assert.NotEmpty(t, url)
-	assert.NotContains(t, url, "http")
+	// Empty baseURL → empty share URL. The share row IS still
+	// inserted (token exists in DB) so the API caller can compute
+	// the URL later; surfacing a bare token in `share_url` would
+	// put a non-URL value in a URL-typed field, which is
+	// misleading. The api-gateway-side adapter behaves the same
+	// way — see TestAPIExportShareCreatorAdapter_NoBaseURL.
+	assert.Empty(t, url)
+	assert.NotNil(t, store.inserted)
 }
 
 func TestExportShareCreatorAdapter_InsertError(t *testing.T) {

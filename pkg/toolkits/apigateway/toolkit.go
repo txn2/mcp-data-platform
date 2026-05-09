@@ -62,6 +62,10 @@ type Toolkit struct {
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 	embedder         embedding.Provider
+
+	// exportDeps holds platform-side dependencies for api_export
+	// (nil = export disabled, tool not registered).
+	exportDeps *ExportDeps
 }
 
 // TokenStore returns the OAuth token store wired into this toolkit,
@@ -213,11 +217,27 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"may still be refused by api_invoke_endpoint.",
 		InputSchema: listEndpointsSchema,
 	}, t.handleListEndpoints)
+
+	// api_export is registered only when ExportDeps were wired by
+	// the platform (portal asset store available). Skipping the
+	// registration when deps are nil keeps the model from seeing
+	// a tool it can never successfully call.
+	t.registerExportTool(s)
 }
 
 // Tools returns the list of tool names this toolkit registers.
-func (*Toolkit) Tools() []string {
-	return []string{ToolInvokeEndpoint, ToolListEndpoints}
+// api_export is included only when the toolkit was constructed
+// with ExportDeps wired so callers (audit / introspection) see the
+// tool list that actually exists at runtime.
+func (t *Toolkit) Tools() []string {
+	tools := []string{ToolInvokeEndpoint, ToolListEndpoints}
+	t.mu.RLock()
+	hasExport := t.exportDeps != nil
+	t.mu.RUnlock()
+	if hasExport {
+		tools = append(tools, exportToolName)
+	}
+	return tools
 }
 
 // ListEndpointsInput is the parsed argument shape for
@@ -524,6 +544,17 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client}, in)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol — argument validation surfaced as tool error
+	}
+	// Clear the api_export hint when the toolkit was built without
+	// export deps — the model would otherwise be told to use a tool
+	// that isn't registered on this deployment. The hint itself
+	// originates in executeRequest which has no toolkit handle, so
+	// the gating happens here at the call site.
+	t.mu.RLock()
+	hasExport := t.exportDeps != nil
+	t.mu.RUnlock()
+	if !hasExport {
+		out.Hint = ""
 	}
 	return jsonResult(out), out, nil
 }
