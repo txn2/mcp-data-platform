@@ -402,10 +402,11 @@ const redactedValue = "[REDACTED]"
 // kept distinct from the shared sensitive-key set in config_handler.go so
 // the connection schema can evolve independently.
 const (
-	sensKeyOAuthClientSecret = "oauth_client_secret" // #nosec G101 -- field name, not a credential
-	sensKeySecretKey         = "secret_key"          // #nosec G101 -- field name, not a credential
-	sensKeyAccessToken       = "access_token"        // #nosec G101 -- field name, not a credential
-	sensKeyRefreshToken      = "refresh_token"       // #nosec G101 -- field name, not a credential
+	sensKeyOAuthClientSecret  = "oauth_client_secret"  // #nosec G101 -- field name, not a credential
+	sensKeyOAuth2ClientSecret = "oauth2_client_secret" // #nosec G101 -- field name, not a credential
+	sensKeySecretKey          = "secret_key"           // #nosec G101 -- field name, not a credential
+	sensKeyAccessToken        = "access_token"         // #nosec G101 -- field name, not a credential
+	sensKeyRefreshToken       = "refresh_token"        // #nosec G101 -- field name, not a credential
 )
 
 // connectionSensitiveKeys lists config keys that contain secrets and must be
@@ -414,7 +415,7 @@ var connectionSensitiveKeys = []string{
 	sensKeyPassword, sensKeySecretAccessKey, sensKeySecretKey,
 	sensKeyToken, sensKeyAccessToken, sensKeyRefreshToken, sensKeyAPIKey,
 	sensKeyCredential,
-	sensKeyClientSecret, sensKeyOAuthClientSecret,
+	sensKeyClientSecret, sensKeyOAuthClientSecret, sensKeyOAuth2ClientSecret,
 }
 
 // platformInternalKeys lists config keys injected by the platform at runtime
