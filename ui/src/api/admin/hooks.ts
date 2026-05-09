@@ -750,6 +750,25 @@ export function useStartGatewayOAuth() {
   });
 }
 
+// useStartAPIGatewayOAuth kicks off the authorization_code flow for
+// an HTTP API gateway connection (kind=api). Mirrors useStartGatewayOAuth
+// but targets the api-gateway-specific admin route. Returns the
+// authorization URL the operator's browser should be redirected to;
+// the upstream IdP will redirect back to /api/v1/admin/api-gateway/oauth/callback
+// after authentication.
+export function useStartAPIGatewayOAuth() {
+  return useMutation({
+    mutationFn: ({ name, returnURL }: { name: string; returnURL?: string }) =>
+      apiFetch<import("./types").GatewayOAuthStartResponse>(
+        `/api-gateway/connections/${name}/oauth-start`,
+        {
+          method: "POST",
+          body: JSON.stringify({ return_url: returnURL ?? "" }),
+        },
+      ),
+  });
+}
+
 export function useEnrichmentRules(connection: string, enabled = true) {
   return useQuery({
     queryKey: ["enrichment-rules", connection],
