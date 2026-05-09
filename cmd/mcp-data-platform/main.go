@@ -280,6 +280,7 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		p.WireGatewayBroadcaster()
 		p.WireAPIGatewayRoutePolicy()
 		p.WireAPIGatewayTokenStore()
+		p.WireAPIGatewayEmbeddingProvider()
 	}
 
 	mux := http.NewServeMux()

@@ -22,6 +22,11 @@ var listEndpointsSchema = json.RawMessage(`{
       "minimum": 1,
       "maximum": 500,
       "description": "Optional cap on the number of operations returned. Defaults to 50. Pass a higher value when exploring large APIs."
+    },
+    "ranking": {
+      "type": "string",
+      "enum": ["lexical", "semantic", "hybrid"],
+      "description": "Optional ranking algorithm. \"lexical\" (default) is case-insensitive substring match — fast and deterministic but misses when your phrasing differs from the spec author's. \"semantic\" ranks by embedding cosine similarity, which finds endpoints by intent (\"create order\" → POST /v1/orders) even when no words overlap. \"hybrid\" blends both — best for free-form intent queries that may also share path/tag vocabulary. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains why."
     }
   }
 }`)

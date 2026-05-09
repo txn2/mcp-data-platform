@@ -661,6 +661,23 @@ func (p *Platform) WireAPIGatewayTokenStore() {
 	}
 }
 
+// WireAPIGatewayEmbeddingProvider attaches the platform's embedding
+// provider to every live api gateway toolkit. Enables the
+// "semantic" and "hybrid" ranking modes of api_list_endpoints; when
+// the platform was built without an embedding provider (memory
+// disabled or explicitly noop) the call is a no-op and the toolkit
+// silently falls back to lexical for any non-lexical request.
+func (p *Platform) WireAPIGatewayEmbeddingProvider() {
+	if p.embeddingProv == nil {
+		return
+	}
+	for _, tk := range p.toolkitRegistry.All() {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			api.SetEmbeddingProvider(p.embeddingProv)
+		}
+	}
+}
+
 // WireAPIGatewayRoutePolicy installs a per-(connection, method, path)
 // authorization gate on every live api gateway toolkit. No-op when
 // the platform's authorizer is not the persona-based implementation

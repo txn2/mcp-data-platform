@@ -58,21 +58,37 @@ func parseOpenAPISpec(raw string) (*openapi3.T, error) {
 // The returned slice is sorted by (path, method) for stable output
 // across runs — the model's training distribution prefers stable
 // ordering when comparing tool catalogs across turns.
-func buildOperationIndex(doc *openapi3.T) []OperationSummary {
+//
+// embedTexts is a parallel slice (same indices, same length) whose
+// entries are the per-operation text that semantic ranking embeds.
+// Kept off OperationSummary so the JSON response shape stays slim
+// and the description (often paragraphs long) doesn't bloat the
+// model's context. nil when doc has no operations.
+func buildOperationIndex(doc *openapi3.T) (ops []OperationSummary, embedTexts []string) {
 	if doc == nil || doc.Paths == nil {
-		return nil
+		return nil, nil
 	}
-	var ops []OperationSummary
 	for path, item := range doc.Paths.Map() {
-		ops = appendItemOperations(ops, path, item)
+		ops, embedTexts = appendItemOperations(ops, embedTexts, path, item)
 	}
-	sort.Slice(ops, func(i, j int) bool {
-		if ops[i].Path != ops[j].Path {
-			return ops[i].Path < ops[j].Path
+	indices := make([]int, len(ops))
+	for i := range indices {
+		indices[i] = i
+	}
+	sort.Slice(indices, func(i, j int) bool {
+		a, b := ops[indices[i]], ops[indices[j]]
+		if a.Path != b.Path {
+			return a.Path < b.Path
 		}
-		return ops[i].Method < ops[j].Method
+		return a.Method < b.Method
 	})
-	return ops
+	sortedOps := make([]OperationSummary, len(ops))
+	sortedTexts := make([]string, len(embedTexts))
+	for newIdx, oldIdx := range indices {
+		sortedOps[newIdx] = ops[oldIdx]
+		sortedTexts[newIdx] = embedTexts[oldIdx]
+	}
+	return sortedOps, sortedTexts
 }
 
 // pathItemMethods enumerates the (method, *Operation) pairs on a
@@ -94,10 +110,13 @@ var pathItemMethods = []struct {
 
 // appendItemOperations adds every operation defined on a PathItem
 // to the running summary slice. Operations without operationId get
-// a synthesized "METHOD path" id so they remain addressable.
-func appendItemOperations(ops []OperationSummary, path string, item *openapi3.PathItem) []OperationSummary {
+// a synthesized "METHOD path" id so they remain addressable. The
+// parallel embedTexts slice carries the per-operation text used by
+// semantic ranking — kept off OperationSummary so descriptions
+// (often paragraphs) don't bloat the JSON response.
+func appendItemOperations(ops []OperationSummary, embedTexts []string, path string, item *openapi3.PathItem) (outOps []OperationSummary, outTexts []string) {
 	if item == nil {
-		return ops
+		return ops, embedTexts
 	}
 	for _, m := range pathItemMethods {
 		op := m.get(item)
@@ -108,15 +127,42 @@ func appendItemOperations(ops []OperationSummary, path string, item *openapi3.Pa
 		if id == "" {
 			id = m.method + " " + path
 		}
-		ops = append(ops, OperationSummary{
+		summary := OperationSummary{
 			OperationID: id,
 			Method:      m.method,
 			Path:        path,
 			Summary:     op.Summary,
 			Tags:        op.Tags,
-		})
+		}
+		ops = append(ops, summary)
+		embedTexts = append(embedTexts, buildEmbedText(summary, op.Description))
 	}
-	return ops
+	return ops, embedTexts
+}
+
+// buildEmbedText composes the text fed to the embedding provider.
+// Concatenates the fields the model is most likely to phrase a
+// query around: summary first (the natural-language description an
+// API author writes), then description (richer detail when the
+// author bothered), then path (so domain nouns leak into the
+// embedding), then tags (categories). Method is excluded — the
+// HTTP verb is rarely semantically meaningful relative to a query
+// like "list orders" or "create user".
+func buildEmbedText(op OperationSummary, description string) string {
+	parts := make([]string, 0, 4)
+	if op.Summary != "" {
+		parts = append(parts, op.Summary)
+	}
+	if description != "" {
+		parts = append(parts, description)
+	}
+	if op.Path != "" {
+		parts = append(parts, op.Path)
+	}
+	if len(op.Tags) > 0 {
+		parts = append(parts, strings.Join(op.Tags, " "))
+	}
+	return strings.Join(parts, " ")
 }
 
 // rankOperations returns the subset of ops whose operation_id,
