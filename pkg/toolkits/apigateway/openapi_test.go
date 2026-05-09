@@ -134,7 +134,7 @@ func TestBuildOperationIndex_AllMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc)
 	if len(ops) != 5 {
 		t.Fatalf("expected 5 operations, got %d: %+v", len(ops), ops)
 	}
@@ -162,7 +162,7 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc)
 	if len(ops) != 1 {
 		t.Fatalf("expected 1 operation, got %+v", ops)
 	}
@@ -172,14 +172,14 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 }
 
 func TestBuildOperationIndex_NilDoc(t *testing.T) {
-	if got := buildOperationIndex(nil); got != nil {
-		t.Errorf("buildOperationIndex(nil) = %v; want nil", got)
+	if ops, texts := buildOperationIndex(nil); ops != nil || texts != nil {
+		t.Errorf("buildOperationIndex(nil) = (%v, %v); want (nil, nil)", ops, texts)
 	}
 }
 
 func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc)
 
 	all := rankOperations(ops, "", 0)
 	if len(all) != len(ops) {
@@ -193,7 +193,7 @@ func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 
 func TestRankOperations_SubstringMatchesIDPathSummaryTags(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc)
 
 	cases := []struct {
 		name  string

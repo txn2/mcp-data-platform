@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -60,6 +61,7 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+	embedder         embedding.Provider
 }
 
 // TokenStore returns the OAuth token store wired into this toolkit,
@@ -112,11 +114,24 @@ type RoutePolicy interface {
 // mode, a per-connection HTTP client, and (when the connection's
 // config supplied an OpenAPI spec) the parsed operation index that
 // api_list_endpoints serves.
+//
+// embedTexts is the parallel-indexed text fed to the embedding
+// provider for semantic ranking; embeddings are populated lazily on
+// the first non-lexical api_list_endpoints call (so an unreachable
+// embedding service does not block platform startup). embedHash is
+// sha256 of the OpenAPI spec — re-embed when the hash changes.
+// embedMu serializes the lazy populate so concurrent calls embed
+// once.
 type conn struct {
-	cfg        Config
-	auth       Authenticator
-	client     *http.Client
-	operations []OperationSummary
+	cfg         Config
+	auth        Authenticator
+	client      *http.Client
+	operations  []OperationSummary
+	embedTexts  []string
+	embeddings  [][]float32
+	embedHash   string
+	embedMu     sync.Mutex
+	embedFailed bool
 }
 
 // New builds an empty toolkit. Connections are added later via
@@ -211,6 +226,7 @@ type ListEndpointsInput struct {
 	Connection string `json:"connection"`
 	Query      string `json:"query,omitempty"`
 	Limit      int    `json:"limit,omitempty"`
+	Ranking    string `json:"ranking,omitempty"`
 }
 
 // ListEndpointsOutput is the structured result. Empty + Note when
@@ -255,10 +271,36 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	if limit <= 0 {
 		limit = defaultListEndpointsLimit
 	}
-	out := ListEndpointsOutput{
-		Operations: rankOperations(visible, in.Query, limit),
+	mode, modeErr := parseRankingMode(in.Ranking)
+	if modeErr != nil {
+		return errorResult(modeErr.Error()), nil, nil
+	}
+	ranked, fellBack := rankWithMode(ctx, rankRequest{
+		tk: t, conn: c, ops: visible, query: in.Query, limit: limit, mode: mode,
+	})
+	out := ListEndpointsOutput{Operations: ranked}
+	if fellBack {
+		out.Note = fmt.Sprintf("ranking %q fell back to lexical: embedding pipeline unavailable for this connection", mode)
 	}
 	return jsonResult(out), out, nil
+}
+
+// parseRankingMode maps the input string to a RankingMode. Empty
+// (omitted from the call) defaults to lexical for backward
+// compatibility — adding semantic ranking to the toolkit must not
+// silently change behavior for callers that don't pass the new
+// field.
+func parseRankingMode(raw string) (RankingMode, error) {
+	switch raw {
+	case "", string(RankingLexical):
+		return RankingLexical, nil
+	case string(RankingSemantic):
+		return RankingSemantic, nil
+	case string(RankingHybrid):
+		return RankingHybrid, nil
+	default:
+		return "", fmt.Errorf(`invalid ranking %q (want "lexical", "semantic", or "hybrid")`, raw)
+	}
 }
 
 // filterByRoutePolicy returns the subset of operations the supplied
@@ -288,6 +330,18 @@ func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.semanticProvider = provider
+}
+
+// SetEmbeddingProvider wires the embedding model used by the
+// "semantic" and "hybrid" ranking modes of api_list_endpoints. nil
+// (the default) disables non-lexical ranking; calls that request
+// it fall back to lexical with a note. Per-connection embedding
+// vectors are computed lazily on the first non-lexical call so an
+// unreachable embedding service does not block platform startup.
+func (t *Toolkit) SetEmbeddingProvider(p embedding.Provider) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.embedder = p
 }
 
 // SetQueryProvider stores the query provider. Reserved for future
@@ -342,19 +396,26 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
-	var operations []OperationSummary
+	var (
+		operations []OperationSummary
+		embedTexts []string
+		embedHash  string
+	)
 	if cfg.OpenAPISpec != "" {
 		doc, perr := parseOpenAPISpec(cfg.OpenAPISpec)
 		if perr != nil {
 			return fmt.Errorf("apigateway: %s: %w", name, perr)
 		}
-		operations = buildOperationIndex(doc)
+		operations, embedTexts = buildOperationIndex(doc)
+		embedHash = specHash(cfg.OpenAPISpec)
 	}
 	c := &conn{
 		cfg:        cfg,
 		auth:       auth,
 		client:     newHTTPClient(cfg),
 		operations: operations,
+		embedTexts: embedTexts,
+		embedHash:  embedHash,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
