@@ -1456,6 +1456,10 @@ func (p *Platform) initPortal() error {
 
 	// Wire trino_export if portal + trino are both configured
 	p.wireTrinoExport()
+	// Same wiring for api_export — uses the same portal asset
+	// store + S3 client so the model gets a single "exports"
+	// surface in the portal regardless of source toolkit.
+	p.wireAPIGatewayExport()
 
 	return nil
 }
@@ -1675,7 +1679,12 @@ func (a *exportShareCreatorAdapter) CreatePublicShare(ctx context.Context, asset
 	if a.baseURL != "" {
 		return fmt.Sprintf("%s/portal/view/%s", a.baseURL, token), nil
 	}
-	return token, nil
+	// Empty baseURL → empty share URL. Returning the bare token
+	// here would put a non-URL value into the model-visible
+	// `share_url` field; the api-gateway-side adapter does the
+	// same thing and the JSON envelopes both use omitempty to
+	// hide the field cleanly when no URL is computable.
+	return "", nil
 }
 
 // generateShareToken generates a cryptographically random hex token for share links.
@@ -3619,4 +3628,182 @@ func parseEntryFromMap(m map[string]any) (middleware.SentTableEntry, bool) {
 		}
 	}
 	return entry, true
+}
+
+// wireAPIGatewayExport injects portal dependencies into api gateway
+// toolkits for api_export. Mirrors wireTrinoExport: same portal
+// asset store, same S3 client, same share creator. The two
+// toolkits each carry their own ExportDeps types (no shared
+// interface yet) so a thin set of adapters bridges them to the
+// shared portal stores.
+func (p *Platform) wireAPIGatewayExport() {
+	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
+		slog.Debug("api_export: disabled by portal.export.enabled")
+		return
+	}
+	if p.portalS3Client == nil || p.portalAssetStore == nil {
+		slog.Debug("api_export: portal S3 or asset store not configured, skipping")
+		return
+	}
+
+	apiToolkits := p.toolkitRegistry.GetByKind(apigatewaykit.Kind)
+	if len(apiToolkits) == 0 {
+		slog.Debug("api_export: no api gateway toolkits registered, skipping")
+		return
+	}
+
+	// Reuse the same ExportConfig knobs as trino_export — operators
+	// configure the cap once and both _export tools honor it.
+	tcfg := p.parseExportConfig()
+	exportCfg := apigatewaykit.ExportConfig{
+		MaxBytes:       tcfg.MaxBytes,
+		DefaultTimeout: tcfg.DefaultTimeout,
+		MaxTimeout:     tcfg.MaxTimeout,
+	}
+
+	for _, tk := range apiToolkits {
+		apiTk, ok := tk.(*apigatewaykit.Toolkit)
+		if !ok {
+			continue
+		}
+		apiTk.SetExportDeps(apigatewaykit.ExportDeps{
+			AssetStore:   &apiExportAssetStoreAdapter{store: p.portalAssetStore},
+			VersionStore: &apiExportVersionStoreAdapter{store: p.portalVersionStore},
+			S3Client:     p.portalS3Client,
+			ShareCreator: &apiExportShareCreatorAdapter{
+				shareStore: p.portalShareStore,
+				baseURL:    p.config.Portal.PublicBaseURL,
+			},
+			S3Bucket: p.config.Portal.S3Bucket,
+			S3Prefix: p.config.Portal.S3Prefix,
+			BaseURL:  p.config.Portal.PublicBaseURL,
+			Config:   exportCfg,
+			GetUserContext: func(ctx context.Context) *apigatewaykit.ExportUserContext {
+				pc := middleware.GetPlatformContext(ctx)
+				if pc == nil {
+					return nil
+				}
+				return &apigatewaykit.ExportUserContext{
+					UserID:    pc.UserID,
+					UserEmail: pc.UserEmail,
+					SessionID: pc.SessionID,
+				}
+			},
+		})
+	}
+
+	slog.Info("api_export wired",
+		"max_bytes", exportCfg.MaxBytes,
+	)
+}
+
+// apiExportAssetStoreAdapter adapts portal.AssetStore to
+// apigatewaykit.ExportAssetStore. Mirrors exportAssetStoreAdapter
+// (the trino-side adapter) — the only divergence is the locally-
+// defined apigatewaykit.ExportAsset type that callers pass in.
+type apiExportAssetStoreAdapter struct {
+	store portal.AssetStore
+}
+
+func (a *apiExportAssetStoreAdapter) InsertExportAsset(ctx context.Context, asset apigatewaykit.ExportAsset) error { //nolint:revive // implements apigateway.ExportAssetStore
+	if err := a.store.Insert(ctx, portal.Asset{
+		ID:          asset.ID,
+		OwnerID:     asset.OwnerID,
+		OwnerEmail:  asset.OwnerEmail,
+		Name:        asset.Name,
+		Description: asset.Description,
+		ContentType: asset.ContentType,
+		S3Bucket:    asset.S3Bucket,
+		S3Key:       asset.S3Key,
+		SizeBytes:   asset.SizeBytes,
+		Tags:        asset.Tags,
+		Provenance: portal.Provenance{
+			UserID:    asset.Provenance.UserID,
+			SessionID: asset.Provenance.SessionID,
+			ToolCalls: convertAPIGatewayProvenanceCalls(asset.Provenance.ToolCalls),
+		},
+		SessionID:      asset.SessionID,
+		IdempotencyKey: asset.IdempotencyKey,
+	}); err != nil {
+		return fmt.Errorf("inserting api_export asset: %w", err)
+	}
+	return nil
+}
+
+func (a *apiExportAssetStoreAdapter) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*apigatewaykit.ExportAssetRef, error) { //nolint:revive // implements apigateway.ExportAssetStore
+	asset, err := a.store.GetByIdempotencyKey(ctx, ownerID, key)
+	if err != nil {
+		return nil, fmt.Errorf("looking up api_export idempotency key: %w", err)
+	}
+	return &apigatewaykit.ExportAssetRef{
+		ID:        asset.ID,
+		SizeBytes: asset.SizeBytes,
+	}, nil
+}
+
+// apiExportVersionStoreAdapter adapts portal.VersionStore to
+// apigatewaykit.ExportVersionStore.
+type apiExportVersionStoreAdapter struct {
+	store portal.VersionStore
+}
+
+func (a *apiExportVersionStoreAdapter) CreateExportVersion(ctx context.Context, ver apigatewaykit.ExportVersion) (int, error) { //nolint:revive // implements apigateway.ExportVersionStore
+	n, err := a.store.CreateVersion(ctx, portal.AssetVersion{
+		ID:            ver.ID,
+		AssetID:       ver.AssetID,
+		S3Key:         ver.S3Key,
+		S3Bucket:      ver.S3Bucket,
+		ContentType:   ver.ContentType,
+		SizeBytes:     ver.SizeBytes,
+		CreatedBy:     ver.CreatedBy,
+		ChangeSummary: ver.ChangeSummary,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("creating api_export version: %w", err)
+	}
+	return n, nil
+}
+
+// apiExportShareCreatorAdapter creates public share links for
+// api_export assets. Same shape as the trino-side adapter; the
+// share row in the DB is identical.
+type apiExportShareCreatorAdapter struct {
+	shareStore portal.ShareStore
+	baseURL    string
+}
+
+func (a *apiExportShareCreatorAdapter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements apigateway.ExportShareCreator
+	token, err := generateShareToken()
+	if err != nil {
+		return "", fmt.Errorf("generating share token: %w", err)
+	}
+	share := portal.Share{
+		ID:         generateUUID(),
+		AssetID:    assetID,
+		Token:      token,
+		CreatedBy:  createdBy,
+		NoticeText: "Proprietary & Confidential. Only share with authorized viewers.",
+	}
+	if err := a.shareStore.Insert(ctx, share); err != nil {
+		return "", fmt.Errorf("inserting api_export share: %w", err)
+	}
+	if a.baseURL != "" {
+		return fmt.Sprintf("%s/portal/view/%s", a.baseURL, token), nil
+	}
+	return "", nil
+}
+
+// convertAPIGatewayProvenanceCalls is the apigateway-flavored
+// counterpart to convertProvenanceCalls. Same shape, different
+// source type.
+func convertAPIGatewayProvenanceCalls(calls []apigatewaykit.ExportProvenanceCall) []portal.ProvenanceToolCall {
+	result := make([]portal.ProvenanceToolCall, len(calls))
+	for i, c := range calls {
+		result[i] = portal.ProvenanceToolCall{
+			ToolName:   c.ToolName,
+			Timestamp:  c.Timestamp,
+			Parameters: c.Parameters,
+		}
+	}
+	return result
 }

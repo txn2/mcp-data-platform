@@ -77,8 +77,20 @@ type InvokeOutput struct {
 	Headers       map[string][]string `json:"headers,omitempty"`
 	Body          any                 `json:"body,omitempty"`
 	BodyTruncated bool                `json:"body_truncated,omitempty"`
-	DurationMs    int64               `json:"duration_ms"`
-	Error         string              `json:"error,omitempty"`
+	// Pagination is populated when the upstream response carries a
+	// recognizable cursor (RFC 5988 Link rel="next", @odata.nextLink,
+	// next_cursor, etc). The model uses this to decide whether to
+	// issue a follow-up call. The gateway does NOT auto-follow so
+	// each loop iteration stays observable in audit + conversation.
+	Pagination *PaginationInfo `json:"pagination,omitempty"`
+	// Hint surfaces operator-actionable advice to the model when the
+	// response itself can't carry it — most importantly the "use
+	// api_export instead" suggestion when the body exceeded
+	// max_response_bytes. Distinct from Error: Hint is informational,
+	// the call still succeeded.
+	Hint       string `json:"hint,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
+	Error      string `json:"error,omitempty"`
 }
 
 // invocation bundles a connection lookup with its supporting types so
@@ -414,13 +426,23 @@ func executeRequest(client *http.Client, req *http.Request, maxBytes int64) Invo
 		}
 	}
 	parsed := decodeBody(resp.Header.Get("Content-Type"), body)
-	return InvokeOutput{
+	out := InvokeOutput{
 		Status:        resp.StatusCode,
 		Headers:       selectResponseHeaders(resp.Header),
 		Body:          parsed,
 		BodyTruncated: truncated,
+		Pagination:    detectPagination(resp.Header, parsed),
 		DurationMs:    time.Since(start).Milliseconds(),
 	}
+	if truncated {
+		// The body exceeded the connection's max_response_bytes
+		// cap. Steer the model toward api_export, which streams
+		// the response directly into a portal asset without
+		// returning the bytes through the MCP turn — same path
+		// trino_export uses for query results that don't fit.
+		out.Hint = "response exceeded max_response_bytes; use api_export to stream the full response into a portal asset (no model-context cost)"
+	}
+	return out
 }
 
 func readBody(r io.Reader, maxBytes int64) (body []byte, truncated bool, err error) {
