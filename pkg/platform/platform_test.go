@@ -4996,6 +4996,84 @@ func TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp(t *testing.T) {
 	p.WireAPIGatewayRoutePolicy() // must not panic when no api toolkit registered
 }
 
+// TestWireAPIGatewayTokenStore proves the api gateway parallel of
+// WireGatewayTokenStore: when the platform has a non-nil
+// apigatewayTokenStore, calling WireAPIGatewayTokenStore must reach
+// every registered api gateway toolkit's SetTokenStore. Without this,
+// authorization_code grants would silently come up with no
+// persistence and refresh tokens would vanish on process restart.
+//
+// Owns: structural contract (a) WireAPIGatewayTokenStore is a no-op
+// when the platform has no token store (stateless mode), and (b) when
+// a store is set it actually reaches the toolkit. The Authenticator's
+// behavior with a wired store is covered by the apigateway package's
+// own tests.
+func TestWireAPIGatewayTokenStore(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Build an api gateway toolkit and register it.
+	mc, err := apigatewaykit.ParseMultiConfig("api", map[string]map[string]any{
+		"crm": {"base_url": "https://api.example.com"},
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig: %v", err)
+	}
+	tk := apigatewaykit.NewMulti(mc)
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Pre-condition: no DB → apigatewayTokenStore is nil → wire must
+	// be a safe no-op and leave the toolkit's TokenStore unset.
+	if p.apigatewayTokenStore != nil {
+		t.Fatalf("expected nil apigatewayTokenStore in test (no DB), got %T", p.apigatewayTokenStore)
+	}
+	p.WireAPIGatewayTokenStore()
+	if tk.TokenStore() != nil {
+		t.Error("WireAPIGatewayTokenStore set a TokenStore when platform store is nil")
+	}
+
+	// Now simulate the DB-backed mode: install a memory store as the
+	// platform-level token store and re-wire. Every api gateway
+	// toolkit must observe the store.
+	want := apigatewaykit.NewMemoryTokenStore()
+	p.apigatewayTokenStore = want
+	p.WireAPIGatewayTokenStore()
+	if got := tk.TokenStore(); got == nil {
+		t.Fatal("WireAPIGatewayTokenStore did not deliver the store to the toolkit")
+	}
+}
+
+// TestWireAPIGatewayTokenStore_NoToolkit_NoOp proves the helper is
+// safe when no api gateway toolkit is registered. Mirrors
+// TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp.
+func TestWireAPIGatewayTokenStore_NoToolkit_NoOp(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.apigatewayTokenStore = apigatewaykit.NewMemoryTokenStore()
+	p.WireAPIGatewayTokenStore() // no api toolkit registered → must not panic
+}
+
 // TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp proves the helper
 // silently no-ops when the platform's authorizer is not the
 // persona-based implementation (custom authorizer use-case).

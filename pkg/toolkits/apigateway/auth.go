@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -40,6 +41,14 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		return newAPIKeyAuth(c)
 	case AuthModeOAuth2ClientCredentials:
 		return newOAuth2ClientCredentialsAuth(c), nil
+	case AuthModeOAuth2AuthorizationCode:
+		// authorization_code requires a TokenStore. NewAuthenticator
+		// alone cannot supply one (it has no DB handle); the toolkit's
+		// addParsedConnection wires the TokenStore at materialization
+		// time. Returning the un-stored variant here keeps the call
+		// site consistent — the toolkit immediately calls
+		// SetTokenStore on it.
+		return newOAuth2AuthorizationCodeAuth(c), nil
 	default:
 		return nil, fmt.Errorf("apigateway: no authenticator for auth_mode %q", c.AuthMode)
 	}
@@ -144,6 +153,22 @@ type oauth2ClientCredentialsAuth struct {
 // staying generous for IdPs with slow first-token issuance.
 const oauth2TokenFetchTimeout = 30 * time.Second
 
+// newTokenExchangeClient builds the http.Client used for any
+// credential-bearing POST to an OAuth token endpoint (initial code
+// exchange, refresh-token grant, client_credentials acquire). The
+// CheckRedirect hook refuses 3xx so a misconfigured or compromised
+// IdP cannot redirect the form body — which carries client_secret
+// and (on refresh) the long-lived refresh_token — to an attacker
+// URL. Mirrors the MCP gateway's same-purpose helper.
+func newTokenExchangeClient() *http.Client {
+	return &http.Client{
+		Timeout: oauth2TokenFetchTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 	authStyle := oauth2.AuthStyleInHeader
 	if c.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
@@ -158,10 +183,12 @@ func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 	}
 	// Bound token-endpoint requests via a custom http.Client. The
 	// oauth2 library reads ctx-value oauth2.HTTPClient and falls
-	// back to http.DefaultClient (no timeout) otherwise.
-	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{
-		Timeout: oauth2TokenFetchTimeout,
-	})
+	// back to http.DefaultClient (no timeout) otherwise. CheckRedirect
+	// refuses to follow 3xx so a misconfigured or compromised IdP
+	// cannot redirect this credential-bearing POST (carrying
+	// client_secret in the form body or HTTP Basic header) to an
+	// attacker URL.
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient())
 	// The token source caches in-memory and re-fetches when expired.
 	// Wrap with oauth2.ReuseTokenSource so the cache is reused
 	// across Apply calls; clientcredentials.Config.TokenSource
@@ -219,4 +246,276 @@ func tokenFetchError(err error) error {
 		return errors.New("apigateway: oauth2 token fetch failed (details redacted)")
 	}
 	return fmt.Errorf("apigateway: oauth2 token fetch failed: %s", msg)
+}
+
+// ErrNeedsReauth is the structured error api_invoke_endpoint surfaces
+// when an authorization_code connection's stored refresh token is
+// missing, expired beyond refresh_expires_at, or definitively rejected
+// by the IdP (RFC 6749 §5.2 invalid_grant on the refresh_token grant).
+// Transient failures (network, 5xx, request cancellation) DO NOT
+// produce this error — see Apply for the distinction.
+//
+// The error message intentionally points the operator at the
+// platform's reauth path rather than echoing the underlying IdP
+// response (which can include sensitive material from a partial
+// grant exchange). See tokenFetchError for the parallel scrubber on
+// transport failures.
+var ErrNeedsReauth = errors.New("apigateway: oauth2 connection needs admin reconnect")
+
+// errRefreshTokenRevoked wraps the underlying error when the IdP
+// definitively rejects a refresh_token grant — RFC 6749 §5.2
+// invalid_grant at HTTP 400. Distinguished from transient failures
+// (network drops, 5xx, request cancellation) so Apply only deletes
+// the persisted row when the IdP says the refresh is dead. Without
+// this distinction a single flaky-network event during a tool call
+// would permanently invalidate a long-lived refresh token.
+var errRefreshTokenRevoked = errors.New("apigateway: refresh token rejected by IdP (invalid_grant)")
+
+// oauth2AuthorizationCodeAuth applies an OAuth 2.1 access token
+// acquired via the user-driven authorization_code grant. The
+// initial token is fetched at admin "Connect" time by the API
+// gateway's OAuth callback handler and persisted (with refresh
+// token) to TokenStore. Subsequent calls read the cached access
+// token; when it expires the underlying golang.org/x/oauth2
+// TokenSource silently exchanges the refresh token for a fresh
+// access token and writes both back to the store. When the IdP
+// rejects the refresh token (revoked, refresh_expires_at passed),
+// Apply returns ErrNeedsReauth and the admin must click Connect
+// again.
+type oauth2AuthorizationCodeAuth struct {
+	cfg   Config
+	store TokenStore
+}
+
+func newOAuth2AuthorizationCodeAuth(c Config) *oauth2AuthorizationCodeAuth {
+	return &oauth2AuthorizationCodeAuth{cfg: c}
+}
+
+// SetTokenStore wires the persistent token store. Required before
+// Apply can be called — the toolkit's addParsedConnection invokes
+// this immediately after constructing the Authenticator. Stored as
+// a method (not a constructor argument) because NewAuthenticator
+// is called from contexts (config validation, factory code) that
+// don't have a database handle.
+func (a *oauth2AuthorizationCodeAuth) SetTokenStore(s TokenStore) {
+	a.store = s
+}
+
+// Apply attaches the cached or freshly-refreshed access token. The
+// flow:
+//  1. Read the persisted token. ErrTokenNotFound → ErrNeedsReauth.
+//  2. If access token still valid (with the library's 10s buffer),
+//     attach it as Authorization: Bearer <token>.
+//  3. If expired, exchange refresh_token → fresh access token via
+//     the IdP's token endpoint. On success, persist the new token
+//     pair (the IdP MAY rotate the refresh token).
+//  4. On REVOKED refresh (RFC 6749 §5.2 invalid_grant @ 400, OR
+//     refresh_expires_at passed, OR refresh token absent): delete
+//     the row and return ErrNeedsReauth so the admin sees the
+//     reconnect prompt.
+//  5. On TRANSIENT failure (network drop, 5xx, ctx cancellation):
+//     return the scrubbed error WITHOUT deleting the row. The
+//     persisted refresh stays intact so a retry on the next call
+//     can succeed; misclassifying a transient failure as revoked
+//     would force the operator to manually reconnect over a
+//     network blip.
+func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
+	if a.store == nil {
+		return errors.New("apigateway: oauth2 authorization_code: token store not wired")
+	}
+	ctx := req.Context()
+	persisted, err := a.store.Get(ctx, a.cfg.ConnectionName)
+	if err != nil {
+		if errors.Is(err, ErrTokenNotFound) {
+			return ErrNeedsReauth
+		}
+		return fmt.Errorf("apigateway: load oauth token: %w", err)
+	}
+	tok := persistedToOAuth2Token(*persisted)
+	if tok.Valid() {
+		req.Header.Set(authorizationHeader, "Bearer "+tok.AccessToken)
+		return nil
+	}
+	// Access token expired (or about to). Refresh.
+	fresh, refreshErr := a.refresh(ctx, persisted)
+	if refreshErr != nil {
+		// Distinguish revoked from transient. Revoked → delete row
+		// (admin must reconnect). Transient → keep row, surface the
+		// error so the caller can retry.
+		if isRevokedRefresh(refreshErr) {
+			_ = a.store.Delete(ctx, a.cfg.ConnectionName)
+			return ErrNeedsReauth
+		}
+		return refreshErr
+	}
+	req.Header.Set(authorizationHeader, "Bearer "+fresh.AccessToken)
+	return nil
+}
+
+// isRevokedRefresh reports whether the refresh-error indicates the
+// IdP definitively rejected the refresh token (vs a transient
+// failure that may succeed on retry). The local-side checks
+// (no refresh token persisted, refresh_expires_at passed) are
+// always definitive. For IdP responses, only RFC 6749 §5.2
+// invalid_grant at HTTP 400 is treated as definitive — matching
+// the MCP gateway's isRefreshDeadError. Keep this in sync with
+// pkg/toolkits/gateway/oauth.go:isRefreshDeadError.
+func isRevokedRefresh(err error) bool {
+	if errors.Is(err, errRefreshTokenRevoked) {
+		return true
+	}
+	// Local-side definitive errors (no refresh token, refresh
+	// expired) — the refresh() helper produces these BEFORE any
+	// network call, so they are safe to treat as revoked even
+	// without an IdP response.
+	if errors.Is(err, errNoRefreshToken) || errors.Is(err, errRefreshExpired) {
+		return true
+	}
+	return false
+}
+
+// errNoRefreshToken / errRefreshExpired are sentinel locals so
+// Apply can fold them into the "needs reauth" branch alongside
+// errRefreshTokenRevoked. Both indicate state that won't recover
+// without admin action.
+var (
+	errNoRefreshToken = errors.New("apigateway: no refresh token persisted")
+	errRefreshExpired = errors.New("apigateway: refresh token has expired")
+)
+
+// refresh exchanges the persisted refresh_token for a fresh access
+// token at the IdP's token endpoint and writes the result back to
+// the store. The new refresh token (if rotated by the IdP) is
+// persisted alongside the new access token, with RefreshExpiresAt
+// updated when the IdP echoes refresh_expires_in (Keycloak-style).
+// Errors are scrubbed via tokenFetchError before the caller sees
+// them so IdP response bodies and embedded URL credentials don't
+// leak; RFC 6749 §5.2 invalid_grant at HTTP 400 is wrapped with
+// errRefreshTokenRevoked so Apply can distinguish it from
+// transient failures.
+func (a *oauth2AuthorizationCodeAuth) refresh(ctx context.Context, persisted *PersistedToken) (*oauth2.Token, error) {
+	if persisted.RefreshToken == "" {
+		return nil, errNoRefreshToken
+	}
+	if !persisted.RefreshExpiresAt.IsZero() && time.Now().After(persisted.RefreshExpiresAt) {
+		return nil, errRefreshExpired
+	}
+	endpoint := oauth2.Endpoint{
+		TokenURL:  a.cfg.OAuth2.TokenURL,
+		AuthStyle: oauth2.AuthStyleInHeader,
+	}
+	if a.cfg.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
+		endpoint.AuthStyle = oauth2.AuthStyleInParams
+	}
+	cfg := &oauth2.Config{
+		ClientID:     a.cfg.OAuth2.ClientID,
+		ClientSecret: a.cfg.OAuth2.ClientSecret,
+		Endpoint:     endpoint,
+		Scopes:       a.cfg.OAuth2.Scopes,
+	}
+	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, newTokenExchangeClient())
+
+	src := cfg.TokenSource(refreshCtx, persistedToOAuth2Token(*persisted))
+	fresh, err := src.Token()
+	if err != nil {
+		return nil, classifyRefreshError(err)
+	}
+	// Persist the rotated token (IdP MAY have issued a new
+	// refresh_token; keep the old one if the response didn't carry
+	// one). RefreshExpiresAt is recomputed from the IdP's
+	// refresh_expires_in extra-field when present; on rotation
+	// without a fresh hint, it's reset to zero so a stale Keycloak
+	// deadline doesn't outlive the rotation.
+	updated := *persisted
+	updated.AccessToken = fresh.AccessToken
+	if fresh.RefreshToken != "" {
+		updated.RefreshToken = fresh.RefreshToken
+	}
+	updated.ExpiresAt = fresh.Expiry
+	updated.RefreshExpiresAt = computeRefreshExpiresAt(fresh, persisted, time.Now())
+	if setErr := a.store.Set(ctx, updated); setErr != nil {
+		// Persistence failure: the model still gets a working
+		// token this turn, but next process restart will re-fetch
+		// using the OLD refresh token. That's safe (the IdP would
+		// just reject if the refresh was rotated and revoked) — log
+		// the failure, return success on the in-memory token.
+		slog.Warn("apigateway: persisting refreshed oauth token failed",
+			"connection", a.cfg.ConnectionName, "error", setErr)
+	}
+	return fresh, nil
+}
+
+// classifyRefreshError wraps the underlying refresh error with
+// errRefreshTokenRevoked when the IdP's response is RFC 6749 §5.2
+// invalid_grant @ HTTP 400 (the canonical "this refresh is dead"
+// signal) and otherwise scrubs via tokenFetchError so the caller
+// receives a transient-vs-revoked distinguishable error without
+// any IdP body content leaking into logs or model output.
+func classifyRefreshError(err error) error {
+	var retrieve *oauth2.RetrieveError
+	if errors.As(err, &retrieve) &&
+		retrieve.Response != nil &&
+		retrieve.Response.StatusCode == http.StatusBadRequest &&
+		retrieve.ErrorCode == "invalid_grant" {
+		// Wrap so errors.Is(err, errRefreshTokenRevoked) holds. The
+		// scrubbed message comes through tokenFetchError so no IdP
+		// body content leaks.
+		return fmt.Errorf("apigateway: refresh dead: %s (%w)", tokenFetchError(err).Error(), errRefreshTokenRevoked)
+	}
+	return tokenFetchError(err)
+}
+
+// computeRefreshExpiresAt extracts the refresh-token deadline from
+// the IdP's response. golang.org/x/oauth2 stores extension fields
+// (refresh_expires_in is one) in tok.Extra. The returned time.Time
+// follows the policy:
+//   - refresh_expires_in > 0 → absolute deadline = now + that many seconds
+//   - refresh token rotated AND no refresh_expires_in → zero (IdP
+//     did not disclose a fresh deadline; do NOT keep the old one,
+//     it belonged to the previous refresh token)
+//   - refresh token NOT rotated AND no refresh_expires_in → keep
+//     the prior deadline (still tracking the same refresh token)
+func computeRefreshExpiresAt(fresh *oauth2.Token, prior *PersistedToken, now time.Time) time.Time {
+	if secs := refreshExpiresInSeconds(fresh); secs > 0 {
+		return now.Add(time.Duration(secs) * time.Second)
+	}
+	if fresh.RefreshToken != "" {
+		// Rotated without a fresh deadline → clear the old one.
+		return time.Time{}
+	}
+	return prior.RefreshExpiresAt
+}
+
+// refreshExpiresInSeconds reads refresh_expires_in from the
+// oauth2.Token's Extra fields and coerces to int64 seconds. The
+// JSON decoder in golang.org/x/oauth2 leaves numeric extension
+// fields as float64 (the JSON-default), so the cast checks both
+// shapes for safety.
+func refreshExpiresInSeconds(tok *oauth2.Token) int64 {
+	v := tok.Extra("refresh_expires_in")
+	if v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
+}
+
+// persistedToOAuth2Token converts the row form to the library form.
+// AccessToken absent → token treated as expired (Valid() returns false)
+// because the zero ExpiresAt time is in the past; the refresh path
+// kicks in.
+func persistedToOAuth2Token(p PersistedToken) *oauth2.Token {
+	return &oauth2.Token{
+		AccessToken:  p.AccessToken,
+		RefreshToken: p.RefreshToken,
+		Expiry:       p.ExpiresAt,
+	}
 }

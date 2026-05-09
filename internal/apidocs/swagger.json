@@ -9,6 +9,116 @@
     "host": "localhost:8080",
     "basePath": "/api/v1",
     "paths": {
+        "/admin/api-gateway/connections/{name}/oauth-start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Generates a PKCE verifier, derives the SHA256 challenge, registers a state token, and returns the authorization URL the operator should open in their browser. The upstream IdP redirects back to /api/v1/admin/api-gateway/oauth/callback after the user authenticates.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Begin OAuth authorization-code flow for an API gateway connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API gateway connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional return URL",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-gateway/oauth/callback": {
+            "get": {
+                "description": "Public endpoint hit by the upstream IdP after the operator authenticates. Exchanges the code for tokens and persists them via the API gateway's TokenStore. Renders an HTML error page on failure so a stranded browser tab still gives a useful message.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "OAuth authorization-code callback for API gateway connections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth authorization code",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "PKCE state token from oauth-start",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth error code from upstream",
+                        "name": "error",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/audit/events": {
             "get": {
                 "security": [

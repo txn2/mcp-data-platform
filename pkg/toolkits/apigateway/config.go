@@ -44,6 +44,15 @@ const (
 	// refresh tokens + a browser flow) is its own follow-up issue.
 	AuthModeOAuth2ClientCredentials = "oauth2_client_credentials" // #nosec G101 -- mode name, not a credential
 
+	// AuthModeOAuth2AuthorizationCode runs the user-driven OAuth 2.1
+	// authorization-code grant: an admin completes a one-time browser
+	// flow at connection setup; the resulting refresh token is
+	// persisted (encrypted) so subsequent platform restarts and
+	// background workloads keep working without further interaction.
+	// Tokens are refreshed automatically before expiry. Requires the
+	// platform's database (refresh-token state survives restarts).
+	AuthModeOAuth2AuthorizationCode = "oauth2_authorization_code" // #nosec G101 -- mode name, not a credential
+
 	// APIKeyPlacementHeader (default) sends the credential as an HTTP
 	// header named by APIKeyHeader.
 	APIKeyPlacementHeader = "header"
@@ -113,6 +122,8 @@ const (
 	cfgKeyOAuth2ClientSecret = "oauth2_client_secret"       // #nosec G101 -- map key, not a credential
 	cfgKeyOAuth2Scopes       = "oauth2_scopes"              // #nosec G101 -- map key, not a credential
 	cfgKeyOAuth2EndpointAuth = "oauth2_endpoint_auth_style" // #nosec G101 -- "header" or "params" — map key, not a credential
+	cfgKeyOAuth2AuthURL      = "oauth2_authorization_url"   // #nosec G101 -- map key, not a credential
+	cfgKeyOAuth2Prompt       = "oauth2_prompt"              // #nosec G101 -- map key, not a credential
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -190,6 +201,21 @@ type OAuth2Config struct {
 	// sends them as POST body parameters. Some IdPs require one
 	// or the other; "header" is the OAuth 2.1 default.
 	EndpointAuthStyle string
+	// AuthorizationURL is the upstream's authorization endpoint.
+	// Required only for the authorization_code grant — that's
+	// where the platform redirects the admin's browser to start
+	// the flow.
+	AuthorizationURL string
+	// Prompt is an optional OIDC prompt parameter (RFC OIDC
+	// §3.1.2.1). Common values: "login" (force credential prompt),
+	// "consent" (force consent screen), "select_account",
+	// "none" (silent auth). Empty by default — the IdP decides.
+	// Operators of strict OIDC realms (Keycloak, Auth0, Okta)
+	// typically set this to "login" so admin Reconnect actions
+	// always re-prompt the user. Pure-OAuth (non-OIDC) providers
+	// often reject unknown parameters with invalid_request, so
+	// leave empty for those.
+	Prompt string
 }
 
 // EndpointAuthStyle values.
@@ -296,9 +322,26 @@ func (c Config) validateAuth() error {
 		return c.validateAPIKeyAuth()
 	case AuthModeOAuth2ClientCredentials:
 		return c.validateOAuth2()
+	case AuthModeOAuth2AuthorizationCode:
+		return c.validateOAuth2AuthCode()
 	default:
-		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, or oauth2_client_credentials)", c.AuthMode)
+		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, oauth2_client_credentials, or oauth2_authorization_code)", c.AuthMode)
 	}
+}
+
+// validateOAuth2AuthCode adds the authorization_code-specific
+// requirement (AuthorizationURL) on top of the client_credentials
+// validation. ClientSecret is still required because OAuth 2.1
+// authorization-code with confidential clients exchanges
+// (client_id, client_secret, code) for tokens.
+func (c Config) validateOAuth2AuthCode() error {
+	if err := c.validateOAuth2(); err != nil {
+		return err
+	}
+	if c.OAuth2.AuthorizationURL == "" {
+		return errors.New("apigateway: oauth2.authorization_url is required when auth_mode is \"oauth2_authorization_code\"")
+	}
+	return nil
 }
 
 func (c Config) validateOAuth2() error {
@@ -350,6 +393,8 @@ func parseOAuth2Config(cfg map[string]any) OAuth2Config {
 		ClientSecret:      getString(cfg, cfgKeyOAuth2ClientSecret),
 		EndpointAuthStyle: getStringDefault(cfg, cfgKeyOAuth2EndpointAuth, OAuth2AuthStyleHeader),
 		Scopes:            getStringSlice(cfg, cfgKeyOAuth2Scopes),
+		AuthorizationURL:  getString(cfg, cfgKeyOAuth2AuthURL),
+		Prompt:            getString(cfg, cfgKeyOAuth2Prompt),
 	}
 }
 
