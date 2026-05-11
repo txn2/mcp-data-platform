@@ -55,6 +55,11 @@ ok "Docker is running"
 which air > /dev/null 2>&1 || fail "air not found. Install: go install github.com/air-verse/air@latest"
 ok "air installed"
 
+# python3 is used to build connection-registration JSON bodies safely
+# (no shell interpolation of model-supplied secrets / spec text).
+which python3 > /dev/null 2>&1 || fail "python3 not found. Required for fixture connection registration."
+ok "python3 available"
+
 # Node modules
 if [ ! -d ui/node_modules ]; then
   info "Installing UI dependencies..."
@@ -63,13 +68,14 @@ fi
 ok "UI dependencies ready"
 
 # Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
-# 9000 = seaweedfs, 9180 = dev-mcp-mock OAuth, 9181 = dev-mcp-mock MCP)
-for port in 5432 8080 5173 9000 9180 9181; do
+# 9000 = seaweedfs, 9180 = dev-mcp-mock OAuth, 9181 = dev-mcp-mock MCP,
+# 9281 = mcp-test fixture, 9282 = api-test fixture)
+for port in 5432 8080 5173 9000 9180 9181 9281 9282; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000, 9180, 9181 are free"
+ok "Ports 5432, 8080, 5173, 9000, 9180, 9181, 9281, 9282 are free"
 
 echo ""
 
@@ -105,6 +111,33 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "SeaweedFS ready on :9000"
+
+# Wait for the mcp-test fixture. First run pulls the image, which can
+# take longer than the other waits — give it up to 60s before failing.
+info "Waiting for mcp-test fixture..."
+for i in $(seq 1 60); do
+  if curl -sf http://localhost:9281/healthz > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "mcp-test fixture did not become healthy within 60s (check 'docker logs acme-dev-mcp-test')"
+  fi
+  sleep 1
+done
+ok "mcp-test fixture ready on :9281"
+
+# Wait for the api-test fixture.
+info "Waiting for api-test fixture..."
+for i in $(seq 1 60); do
+  if curl -sf http://localhost:9282/healthz > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "api-test fixture did not become healthy within 60s (check 'docker logs acme-dev-api-test')"
+  fi
+  sleep 1
+done
+ok "api-test fixture ready on :9282"
 
 # Create the portal-assets S3 bucket (requires aws CLI)
 if which aws > /dev/null 2>&1; then
@@ -201,6 +234,104 @@ else
   echo -e "  ${YELLOW}⚠${NC} dev-mock connection register returned HTTP $DEVMOCK_HTTP — admin API may not be ready"
 fi
 
+# Register the mcp-test fixture as an MCP-gateway connection. Same
+# rationale as dev-mock: go through the admin API so AddConnection
+# discovers the upstream's tools and registers them live. mcp-test
+# serves streamable HTTP at "/", so the endpoint includes a trailing
+# slash; api-key auth uses the X-API-Key header (matches the fixture's
+# api_keys.file entry, default placement).
+info "Registering mcp-test fixture connection..."
+MCPTEST_DEV_KEY_VAL="${MCPTEST_DEV_KEY:-mcptest-dev-key-2024}"
+MCPTEST_BODY=$(MCPTEST_DEV_KEY_VAL="$MCPTEST_DEV_KEY_VAL" python3 -c '
+import json, os
+key = os.environ.get("MCPTEST_DEV_KEY_VAL", "")
+body = {
+    "config": {
+        "endpoint": "http://localhost:9281/",
+        "auth_mode": "api_key",
+        "credential": key,
+        "connection_name": "mcp-test-fixture",
+        "connect_timeout": "5s",
+        "call_timeout": "10s",
+    },
+    "description": "Dev fixture: ghcr.io/plexara/mcp-test — identity, data, failure, streaming groups",
+}
+print(json.dumps(body))
+')
+MCPTEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$MCPTEST_BODY" \
+  http://localhost:8080/api/v1/admin/connection-instances/mcp/mcp-test-fixture || echo "000")
+if [ "$MCPTEST_HTTP" = "200" ] || [ "$MCPTEST_HTTP" = "201" ]; then
+  ok "mcp-test fixture connection registered (tools: mcp-test-fixture__*)"
+else
+  echo -e "  ${YELLOW}⚠${NC} mcp-test connection register returned HTTP $MCPTEST_HTTP — admin API may not be ready"
+fi
+
+# Register the api-test fixture as an apigateway connection.
+#
+# api-test v1.1.0+ publishes its OpenAPI 3.1 spec at /openapi.yaml. We
+# pull it and inline it into the connection's openapi_spec field so
+# api_list_endpoints returns the 14 operations the fixture serves
+# (whoami, headers, fixed/{key}, sized, lorem, status/{code}, slow,
+# flaky, echo). Operations in the spec are pathed under /v1/..., so
+# base_url omits the /v1 suffix — the gateway joins base_url + the
+# operation path verbatim.
+#
+# The platform sends the api key as the X-API-Key header (default
+# placement). If the OpenAPI fetch fails (older image, transient
+# error), we still register the connection without a spec so
+# api_invoke_endpoint works against direct paths.
+info "Fetching api-test OpenAPI spec..."
+APITEST_OPENAPI=$(curl -sf http://localhost:9282/openapi.yaml || true)
+if [ -n "$APITEST_OPENAPI" ]; then
+  APITEST_OPENAPI_BYTES=${#APITEST_OPENAPI}
+  ok "api-test OpenAPI spec fetched (${APITEST_OPENAPI_BYTES} bytes)"
+else
+  echo -e "  ${YELLOW}⚠${NC} api-test /openapi.yaml unavailable — registering without spec (api_list_endpoints will be empty)"
+fi
+
+info "Registering api-test fixture connection..."
+APITEST_DEV_KEY_VAL="${APITEST_DEV_KEY:-apitest-dev-key-2024}"
+APITEST_BODY=$(APITEST_OPENAPI="$APITEST_OPENAPI" APITEST_DEV_KEY_VAL="$APITEST_DEV_KEY_VAL" python3 -c '
+import json, os
+spec = os.environ.get("APITEST_OPENAPI", "")
+key = os.environ.get("APITEST_DEV_KEY_VAL", "")
+config = {
+    "base_url": "http://localhost:9282",
+    "auth_mode": "api_key",
+    "credential": key,
+    "api_key_placement": "header",
+    "api_key_header": "X-API-Key",
+    "connection_name": "api-test-fixture",
+    "connect_timeout": "5s",
+    "call_timeout": "10s",
+    "trust_level": "untrusted",
+}
+if spec:
+    config["openapi_spec"] = spec
+body = {
+    "config": config,
+    "description": "Dev fixture: ghcr.io/plexara/api-test — identity, data, failure, echo endpoints",
+}
+print(json.dumps(body))
+')
+APITEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$APITEST_BODY" \
+  http://localhost:8080/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
+if [ "$APITEST_HTTP" = "200" ] || [ "$APITEST_HTTP" = "201" ]; then
+  if [ -n "$APITEST_OPENAPI" ]; then
+    ok "api-test fixture connection registered with OpenAPI spec (api_list_endpoints will resolve)"
+  else
+    ok "api-test fixture connection registered (no OpenAPI spec)"
+  fi
+else
+  echo -e "  ${YELLOW}⚠${NC} api-test connection register returned HTTP $APITEST_HTTP — admin API may not be ready"
+fi
+
 echo ""
 
 # ─── Start Vite dev server ──────────────────────────────────────────
@@ -229,11 +360,17 @@ echo -e "${BOLD}${GREEN}══════════════════�
 echo -e "${BOLD}${GREEN}  Development environment ready${NC}"
 echo -e "${BOLD}${GREEN}══════════════════════════════════════════${NC}"
 echo ""
-echo -e "  Portal UI:    ${CYAN}http://localhost:5173/portal/${NC}"
-echo -e "  Go API:       ${CYAN}http://localhost:8080${NC}"
-echo -e "  API Key:      ${CYAN}acme-dev-key-2024${NC}"
-echo -e "  MCP gateway:  ${CYAN}dev-mock connection pre-wired to the local mock${NC}"
-echo -e "                ${CYAN}(http://localhost:9181/mcp + http://localhost:9180 OAuth)${NC}"
+echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
+echo -e "  Go API:           ${CYAN}http://localhost:8080${NC}"
+echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
+echo ""
+echo -e "  ${BOLD}Pre-wired upstream fixtures${NC}"
+echo -e "  dev-mock (MCP):   ${CYAN}http://localhost:9181/mcp${NC} (echo, add, now)"
+echo -e "                    ${CYAN}OAuth at http://localhost:9180${NC}"
+echo -e "  mcp-test (MCP):   ${CYAN}http://localhost:9281/${NC}  portal: ${CYAN}http://localhost:9281/portal/${NC}"
+echo -e "                    ${CYAN}API key: $MCPTEST_DEV_KEY_VAL${NC}"
+echo -e "  api-test (HTTP):  ${CYAN}http://localhost:9282/v1${NC}  portal: ${CYAN}http://localhost:9282/portal/${NC}"
+echo -e "                    ${CYAN}API key: $APITEST_DEV_KEY_VAL${NC}"
 echo ""
 echo -e "  Go files  → air rebuilds automatically"
 echo -e "  UI files  → Vite hot-reloads automatically"
