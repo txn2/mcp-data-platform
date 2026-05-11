@@ -55,9 +55,9 @@ var apiExportInputSchema = json.RawMessage(`{
       "type": "string",
       "description": "Request path joined to the connection's base URL. Required. Must start with \"/\"."
     },
-    "query": {
+    "query_params": {
       "type": "object",
-      "description": "Optional query string parameters.",
+      "description": "Optional HTTP query-string parameters sent to the upstream. Distinct from api_list_endpoints's \"query\" field (which is search text).",
       "additionalProperties": true
     },
     "headers": {
@@ -118,9 +118,9 @@ var invokeEndpointSchema = json.RawMessage(`{
       "type": "string",
       "description": "Request path joined to the connection's base URL. Examples: \"/v1/users/123\", \"/api/items\". Required. Must start with \"/\"."
     },
-    "query": {
+    "query_params": {
       "type": "object",
-      "description": "Optional query string parameters. Values may be strings, numbers, or booleans; arrays send the parameter once per value.",
+      "description": "Optional HTTP query-string parameters sent to the upstream. Values may be strings, numbers, or booleans; arrays send the parameter once per value. Distinct from api_list_endpoints's \"query\" field (which is search text).",
       "additionalProperties": true
     },
     "headers": {

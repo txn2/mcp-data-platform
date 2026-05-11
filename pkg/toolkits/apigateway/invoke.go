@@ -61,7 +61,7 @@ type InvokeInput struct {
 	Connection     string            `json:"connection"`
 	Method         string            `json:"method"`
 	Path           string            `json:"path"`
-	Query          map[string]any    `json:"query,omitempty"`
+	Query          map[string]any    `json:"query_params,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	Body           any               `json:"body,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`

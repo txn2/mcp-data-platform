@@ -190,7 +190,7 @@ type exportInput struct {
 	Connection       string            `json:"connection"`
 	Method           string            `json:"method"`
 	Path             string            `json:"path"`
-	Query            map[string]any    `json:"query"`
+	Query            map[string]any    `json:"query_params"`
 	Headers          map[string]string `json:"headers"`
 	Body             any               `json:"body"`
 	TimeoutSeconds   int               `json:"timeout_seconds"`
