@@ -1,0 +1,60 @@
+# mcp-test fixture config for `make dev`.
+#
+# Anonymous mode: the platform's mcp-gateway connects to this fixture
+# with auth_mode=api_key (X-API-Key), so the fixture itself doesn't
+# need to gate its MCP endpoint behind OIDC. Anonymous makes the
+# `dev/start.sh` health probe and admin-API registration trivial.
+#
+# Portal + audit are on so developers can open
+# http://localhost:9281/portal/ and see every call the platform made
+# to this fixture (compare request_in vs request_out vs response).
+#
+# Env vars (set by docker-compose.yml):
+#   MCPTEST_DEV_KEY         API key the platform sends as X-API-Key
+#   MCPTEST_COOKIE_SECRET   Portal session cookie secret
+#   MCPTEST_DATABASE_URL    Points at acme-dev-postgres, database mcp_test
+
+server:
+  name: mcp-test-fixture
+  address: ":8080"
+  base_url: "http://localhost:9281"
+  streamable:
+    session_timeout: 30m
+
+oidc:
+  enabled: false
+
+api_keys:
+  file:
+    - name: dev-fixture
+      key: "${MCPTEST_DEV_KEY}"
+      description: "platform-side mcp-gateway X-API-Key"
+  db:
+    enabled: true
+
+auth:
+  allow_anonymous: true
+  require_for_mcp: false
+  require_for_portal: false
+
+database:
+  url: "${MCPTEST_DATABASE_URL}"
+
+audit:
+  enabled: true
+  capture_payloads: true
+  capture_headers: true
+  max_payload_bytes: 65536
+  max_notifications: 100
+
+portal:
+  enabled: true
+  cookie_name: mcp_test_fixture_session
+  cookie_secret: "${MCPTEST_COOKIE_SECRET}"
+  cookie_secure: false
+
+tools:
+  identity:  { enabled: true }
+  data:      { enabled: true }
+  failure:   { enabled: true }
+  streaming: { enabled: true }

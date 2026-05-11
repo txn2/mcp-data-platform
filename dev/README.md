@@ -27,7 +27,9 @@ This starts:
 | SeaweedFS (S3) | `:9000` | Portal asset storage |
 | Go API server | `http://localhost:8080` | Hot-reloads on `.go` file changes via air |
 | Vite UI | `http://localhost:5173/portal/` | Hot module replacement |
-| dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | Local mock for exercising the MCP gateway feature |
+| dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
+| mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
+| api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 9 deterministic `/v1/*` paths (14 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 
@@ -53,6 +55,38 @@ Switching the `dev-mock` connection to OAuth in the portal lets you
 walk the full PKCE flow against the in-process mock — no external
 provider needed. See [Gateway Toolkit](../docs/server/gateway.md) for
 the connection-config reference and OAuth grant types.
+
+### mcp-test and api-test fixtures
+
+In addition to the in-process `dev-mcp-mock`, `make dev` brings up two
+prebuilt fixture containers and registers them as platform connections:
+
+- **`mcp-test-fixture`** (kind `mcp`) — `ghcr.io/plexara/mcp-test` on
+  `http://localhost:9281/`. A 12-tool deterministic MCP server across
+  four groups (`identity`, `data`, `failure`, `streaming`) for
+  exercising the MCP gateway against a realistic upstream. Its own
+  portal at `http://localhost:9281/portal/` shows every call the
+  platform made (full request/response payloads + headers).
+- **`api-test-fixture`** (kind `api`) — `ghcr.io/plexara/api-test` on
+  `http://localhost:9282`. Nine deterministic HTTP paths under `/v1`
+  (`/whoami`, `/headers`, `/fixed/{key}`, `/sized?bytes=N`, `/lorem`,
+  `/status/{code}`, `/slow?ms=N`, `/flaky`, `/echo`) — 14 operations
+  total because `/v1/echo` accepts all six HTTP methods (GET, POST,
+  PUT, PATCH, DELETE, HEAD). Exercises the apigateway tools
+  (`api_invoke_endpoint`, `api_list_endpoints`, `api_export`). The
+  fixture publishes an OpenAPI 3.1 spec at `/openapi.yaml`;
+  `dev/start.sh` fetches it at registration time and inlines it into
+  the connection config, so `api_list_endpoints` returns the full
+  catalog. Portal at `http://localhost:9282/portal/`.
+
+Both fixtures use the shared `acme-dev-postgres` instance (databases
+`mcp_test` and `apitest`, created on first volume init via
+`dev/fixtures/postgres-init.sql`). Fixture configs live under
+`dev/fixtures/`.
+
+Both fixtures run in anonymous mode at the HTTP level; the platform
+authenticates outbound with `X-API-Key`. Their own portals therefore
+require no login — open them directly.
 
 Press **Ctrl-C** to stop all services.
 

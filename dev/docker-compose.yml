@@ -19,11 +19,65 @@ services:
       - "5432:5432"
     volumes:
       - acme_postgres_data:/var/lib/postgresql/data
+      # Init script creates the mcp_test and apitest databases used by the
+      # mcp-test and api-test fixtures. Runs once on first startup against
+      # a fresh data volume; `make dev-down` removes the volume so the
+      # next `make dev` re-applies it.
+      - ./fixtures/postgres-init.sql:/docker-entrypoint-initdb.d/01-fixture-dbs.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U platform -d mcp_platform"]
       interval: 3s
       timeout: 3s
       retries: 10
+
+  # mcp-test: deterministic MCP fixture used by `make dev` to exercise
+  # the platform's mcp-gateway connector against a real upstream.
+  # dev/start.sh registers this as the `mcp-test-fixture` MCP connection
+  # so its 12 tools (identity / data / failure / streaming) appear in
+  # the platform's tools/list as `mcp-test-fixture__*`.
+  #
+  # Anonymous mode (no OIDC); the platform sends MCPTEST_DEV_KEY as
+  # X-API-Key. Open http://localhost:9281/portal/ to inspect every call
+  # the platform made (audit log + portal SPA).
+  mcp-test:
+    image: ghcr.io/plexara/mcp-test:v1.2.0@sha256:85b1d6af2b45a6a4dd9fc9d5278ad5bfdc642b258dfab52600851c26d77c74b7
+    container_name: acme-dev-mcp-test
+    environment:
+      MCPTEST_DATABASE_URL: postgres://platform:platform_secret@postgres:5432/mcp_test?sslmode=disable
+      MCPTEST_DEV_KEY: ${MCPTEST_DEV_KEY:-mcptest-dev-key-2024}
+      MCPTEST_COOKIE_SECRET: ${MCPTEST_COOKIE_SECRET:-mcptest-dev-cookie-secret-please-change-32b}
+    command: ["--config", "/app/configs/mcp-test.yaml"]
+    volumes:
+      - ./fixtures/mcp-test.yaml:/app/configs/mcp-test.yaml:ro
+    ports:
+      - "127.0.0.1:9281:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # api-test: deterministic HTTP fixture for the platform's apigateway
+  # toolkit. dev/start.sh registers this as the `api-test-fixture` api
+  # connection so `api_invoke_endpoint` / `api_list_endpoints` /
+  # `api_export` have a working upstream out of the box.
+  #
+  # Anonymous mode (no OIDC); the platform sends APITEST_DEV_KEY as
+  # X-API-Key. Open http://localhost:9282/portal/ to inspect every call
+  # the platform made.
+  api-test:
+    image: ghcr.io/plexara/api-test:v1.1.0@sha256:0a2b5d255f54243525a49a6b5c62b88c52c9e34e157e160de97d303dddb4b19b
+    container_name: acme-dev-api-test
+    environment:
+      APITEST_DB_URL: postgres://platform:platform_secret@postgres:5432/apitest?sslmode=disable
+      APITEST_DEV_KEY: ${APITEST_DEV_KEY:-apitest-dev-key-2024}
+      APITEST_COOKIE_SECRET: ${APITEST_COOKIE_SECRET:-apitest-dev-cookie-secret-please-change-32b}
+    command: ["--config", "/app/configs/api-test.yaml"]
+    volumes:
+      - ./fixtures/api-test.yaml:/app/configs/api-test.yaml:ro
+    ports:
+      - "127.0.0.1:9282:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   seaweedfs:
     image: chrislusf/seaweedfs:3.88@sha256:98e034880fed76fdf508b20cae9de57b0e1f93f5910c89a94fe936af91c59abe
