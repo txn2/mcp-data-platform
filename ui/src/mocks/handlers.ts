@@ -1155,6 +1155,46 @@ export const handlers = [
     });
   }),
 
+  http.post(`${PORTAL_BASE}/assets`, async ({ request }) => {
+    const body = (await request.json()) as {
+      name?: string;
+      description?: string;
+      content_type?: string;
+      content?: string;
+      tags?: string[];
+    };
+    if (!body.name?.trim()) {
+      return HttpResponse.json({ detail: "name is required" }, { status: 400 });
+    }
+    if (!body.content_type?.trim()) {
+      return HttpResponse.json({ detail: "content_type is required" }, { status: 400 });
+    }
+    if (!body.content) {
+      return HttpResponse.json({ detail: "content is required" }, { status: 400 });
+    }
+    const id = `ast-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const newAsset = {
+      id,
+      owner_id: "user-1",
+      owner_email: "you@example.com",
+      name: body.name.trim(),
+      description: (body.description ?? "").trim(),
+      content_type: body.content_type.trim(),
+      s3_bucket: "mock-bucket",
+      s3_key: `portal/user-1/${id}/content`,
+      size_bytes: body.content.length,
+      tags: body.tags ?? [],
+      provenance: { tool_calls: [] },
+      session_id: "",
+      current_version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+    portalAssets.unshift(newAsset);
+    return HttpResponse.json(newAsset, { status: 201 });
+  }),
+
   http.get(`${PORTAL_BASE}/assets/:id`, ({ params }) => {
     const asset = portalAssets.find(
       (a) => a.id === params.id && !a.deleted_at,

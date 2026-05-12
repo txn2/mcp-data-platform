@@ -83,6 +83,24 @@ func TestSubstituteArgs(t *testing.T) {
 			args:    map[string]string{"a": "{b}", "b": "hello"},
 			want:    "hello and hello",
 		},
+		{
+			name:    "double-brace placeholder",
+			content: "Hello {{name}}.",
+			args:    map[string]string{"name": "Alice"},
+			want:    "Hello Alice.",
+		},
+		{
+			name:    "mixed single and double brace",
+			content: "{{name}} ({role}) — {{name}} again",
+			args:    map[string]string{"name": "Alice", "role": "admin"},
+			want:    "Alice (admin) — Alice again",
+		},
+		{
+			name:    "double-brace processed before single-brace to avoid {name}-eating-{{name}}",
+			content: "{{name}}",
+			args:    map[string]string{"name": "Alice"},
+			want:    "Alice",
+		},
 	}
 
 	for _, tt := range tests {

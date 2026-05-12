@@ -1810,6 +1810,25 @@ definitions:
       updated_at:
         type: string
     type: object
+  portal.createAssetRequest:
+    properties:
+      content:
+        example: '# Prompt content'
+        type: string
+      content_type:
+        example: text/markdown
+        type: string
+      description:
+        example: Saved from prompt library
+        type: string
+      name:
+        example: My Prompt
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
   portal.createCollectionRequest:
     properties:
       description:
@@ -4450,6 +4469,56 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List assets
+      tags:
+      - Assets
+    post:
+      consumes:
+      - application/json
+      description: Creates a new asset by uploading inline text content (markdown,
+        HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset
+        portal without going through the MCP save_artifact tool.
+      parameters:
+      - description: Asset content and metadata
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createAssetRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.Asset'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create asset from inline content
       tags:
       - Assets
   /portal/assets/{id}:

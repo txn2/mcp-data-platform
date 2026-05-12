@@ -3842,3 +3842,202 @@ func TestMemoryNotRegisteredWithoutStore(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// --- createAsset (POST /api/v1/portal/assets) ---
+
+func postCreateAssetJSON(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+func TestCreateAssetSuccess(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{},
+		&User{UserID: "u1", Email: "u1@example.com"},
+	)
+	body := `{"name":"My Prompt","description":"snapshot","content_type":"text/markdown","content":"# Hello","tags":["p"]}`
+	w := postCreateAssetJSON(t, h, body)
+
+	require.Equal(t, http.StatusCreated, w.Code)
+	var asset Asset
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &asset))
+	assert.Equal(t, "u1", asset.OwnerID)
+	assert.Equal(t, "u1@example.com", asset.OwnerEmail)
+	assert.Equal(t, "My Prompt", asset.Name)
+	assert.Equal(t, "snapshot", asset.Description)
+	assert.Equal(t, "text/markdown", asset.ContentType)
+	assert.Equal(t, "test-bucket", asset.S3Bucket)
+	assert.Contains(t, asset.S3Key, "portal/u1/")
+	assert.Contains(t, asset.S3Key, ".md")
+	assert.Equal(t, int64(len("# Hello")), asset.SizeBytes)
+	assert.Equal(t, []string{"p"}, asset.Tags)
+}
+
+func TestCreateAssetNoUser(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, nil)
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown","content":"y"}`)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestCreateAssetInvalidJSON(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	w := postCreateAssetJSON(t, h, `not-json`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetMissingName(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	w := postCreateAssetJSON(t, h, `{"name":"  ","content_type":"text/markdown","content":"x"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetMissingContentType(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	w := postCreateAssetJSON(t, h, `{"name":"x","content":"y"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetUnsupportedContentType(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"application/pdf","content":"y"}`)
+	assert.Equal(t, http.StatusUnsupportedMediaType, w.Code)
+}
+
+func TestCreateAssetMissingContent(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetTooLarge(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	huge := strings.Repeat("a", MaxContentUploadBytes+1)
+	body, err := json.Marshal(map[string]string{"name": "x", "content_type": "text/markdown", "content": huge})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestCreateAssetNameTooLong(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	longName := strings.Repeat("a", 256)
+	body, err := json.Marshal(map[string]string{"name": longName, "content_type": "text/markdown", "content": "x"})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetDescriptionTooLong(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	longDesc := strings.Repeat("d", 2001)
+	body, err := json.Marshal(map[string]string{"name": "x", "description": longDesc, "content_type": "text/markdown", "content": "y"})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetTooManyTags(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	tags := make([]string, 21)
+	for i := range tags {
+		tags[i] = "t"
+	}
+	body, err := json.Marshal(map[string]any{"name": "x", "content_type": "text/markdown", "content": "y", "tags": tags})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestCreateAssetLegitimateMaxSizeWithMetadata verifies that a request with
+// content at the size limit AND realistic max-allowed metadata (name,
+// description, tags) is accepted — i.e. the LimitReader headroom is large
+// enough that the JSON wrapper plus metadata doesn't truncate the body.
+func TestCreateAssetLegitimateMaxSizeWithMetadata(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{},
+		&User{UserID: "u1", Email: "u1@example.com"},
+	)
+	tags := make([]string, 20)
+	for i := range tags {
+		tags[i] = strings.Repeat("t", 100)
+	}
+	body, err := json.Marshal(map[string]any{
+		"name":         strings.Repeat("n", 255),
+		"description":  strings.Repeat("d", 2000),
+		"content_type": "text/markdown",
+		"content":      strings.Repeat("a", MaxContentUploadBytes),
+		"tags":         tags,
+	})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestCreateAssetContentTypeCaseInsensitive(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{},
+		&User{UserID: "u1", Email: "u1@example.com"},
+	)
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"Text/Markdown","content":"y"}`)
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestCreateAssetTagTooLong(t *testing.T) {
+	h := newTestHandlerWithVersions(&mockAssetStore{}, &mockShareStore{}, &mockVersionStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	body, err := json.Marshal(map[string]any{
+		"name":         "x",
+		"content_type": "text/markdown",
+		"content":      "y",
+		"tags":         []string{strings.Repeat("t", 101)},
+	})
+	require.NoError(t, err)
+	w := postCreateAssetJSON(t, h, string(body))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAssetStorageNotReady(t *testing.T) {
+	// No S3Client and no VersionStore = storage not ready.
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{},
+		ShareStore: &mockShareStore{},
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown","content":"y"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCreateAssetS3PutError(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{putErr: fmt.Errorf("s3 fail")},
+		&User{UserID: "u1"},
+	)
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown","content":"y"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCreateAssetInsertError(t *testing.T) {
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{insertErr: fmt.Errorf("db fail")},
+		&mockShareStore{},
+		&mockVersionStore{},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown","content":"y"}`)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}

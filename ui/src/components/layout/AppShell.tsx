@@ -9,6 +9,7 @@ import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { SharedWithMePage } from "@/pages/shared/SharedWithMePage";
 import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
+import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
@@ -68,14 +69,15 @@ function readPath(): string {
   return route;
 }
 
-/** Routes that auto-collapse the sidebar (asset detail views). */
+/** Routes that auto-collapse the sidebar (detail/viewer views). */
 function isAssetRoute(path: string): boolean {
   const route = path.split("#")[0] ?? "";
   return (
     /^\/assets\/.+$/.test(route) ||
     /^\/admin\/assets\/.+$/.test(route) ||
     /^\/collections\/.+\/assets\/.+$/.test(route) ||
-    /^\/shared\/assets\/.+$/.test(route)
+    /^\/shared\/assets\/.+$/.test(route) ||
+    /^\/prompts\/.+$/.test(route)
   );
 }
 
@@ -170,6 +172,7 @@ export function AppShell() {
   const sharedAssetMatch = route.match(/^\/shared\/assets\/(.+)$/);
   const assetMatch = route.match(/^\/assets\/(.+)$/);
   const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
+  const promptViewMatch = route.match(/^\/prompts\/(.+)$/);
   // Collection routes: /collections/:id and /collections/:id/edit
   const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
   const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
@@ -184,7 +187,9 @@ export function AppShell() {
         ? "Edit Collection"
         : collectionViewMatch
           ? "Collection"
-          : (pageTitles[route] ?? "Assets");
+          : promptViewMatch
+            ? "Prompt"
+            : (pageTitles[route] ?? "Assets");
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -257,6 +262,13 @@ export function AppShell() {
           )}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
+          {!isAdminRoute && promptViewMatch && (
+            <PromptViewerPage
+              promptId={promptViewMatch[1]!}
+              onNavigate={navigate}
+              onBack={() => navigate("/prompts")}
+            />
+          )}
           {collectionAssetMatch && (
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}

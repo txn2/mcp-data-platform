@@ -242,6 +242,26 @@ export function useCopyAsset() {
   });
 }
 
+export function useCreateAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      description?: string;
+      content_type: string;
+      content: string;
+      tags?: string[];
+    }) =>
+      apiFetch<Asset>("/assets", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
 // --- Versions ---
 
 export function useAssetVersions(assetId: string) {
@@ -585,7 +605,15 @@ export function useCreateMyPrompt() {
 export function useUpdateMyPrompt() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string; name?: string; display_name?: string; description?: string; content?: string; category?: string }) =>
+    mutationFn: ({ id, ...body }: {
+      id: string;
+      name?: string;
+      display_name?: string;
+      description?: string;
+      content?: string;
+      category?: string;
+      arguments?: { name: string; description: string; required: boolean }[];
+    }) =>
       apiFetch<import("@/api/admin/types").Prompt>(`/prompts/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),
