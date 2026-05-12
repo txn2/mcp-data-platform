@@ -605,7 +605,15 @@ export function useCreateMyPrompt() {
 export function useUpdateMyPrompt() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string; name?: string; display_name?: string; description?: string; content?: string; category?: string }) =>
+    mutationFn: ({ id, ...body }: {
+      id: string;
+      name?: string;
+      display_name?: string;
+      description?: string;
+      content?: string;
+      category?: string;
+      arguments?: { name: string; description: string; required: boolean }[];
+    }) =>
       apiFetch<import("@/api/admin/types").Prompt>(`/prompts/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),

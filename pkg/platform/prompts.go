@@ -187,6 +187,9 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 // substituteArgs replaces {arg_name} placeholders in content with values from
 // the arguments map. Unresolved placeholders are left as-is. Keys are sorted
 // to ensure deterministic output when values contain other argument placeholders.
+// substituteArgs replaces both {name} and {{name}} placeholders with values
+// from args. Double-brace is processed first so that a {{name}} placeholder
+// is not accidentally consumed by a {name} replacement of a substring.
 func substituteArgs(content string, args map[string]string) string {
 	if len(args) == 0 {
 		return content
@@ -199,6 +202,7 @@ func substituteArgs(content string, args map[string]string) string {
 
 	result := content
 	for _, name := range keys {
+		result = strings.ReplaceAll(result, "{{"+name+"}}", args[name])
 		result = strings.ReplaceAll(result, "{"+name+"}", args[name])
 	}
 	return result
