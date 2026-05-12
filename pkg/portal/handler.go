@@ -139,6 +139,7 @@ func (h *Handler) registerRoutes() {
 	// Authenticated routes
 	h.mux.HandleFunc("GET /api/v1/portal/me", h.getMe)
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
+	h.mux.HandleFunc("POST /api/v1/portal/assets", h.createAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
@@ -1938,4 +1939,151 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 	}
 
 	return &newAsset, nil
+}
+
+// createAssetRequest is the request body for creating an asset from inline content.
+type createAssetRequest struct {
+	Name        string   `json:"name" example:"My Prompt"`
+	Description string   `json:"description,omitempty" example:"Saved from prompt library"`
+	ContentType string   `json:"content_type" example:"text/markdown"`
+	Content     string   `json:"content" example:"# Prompt content"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
+// allowedCreateAssetContentTypes lists the MIME types accepted by the inline
+// asset-create endpoint. Binary types (images, etc.) must continue to go
+// through the MCP save_artifact tool, which handles base64 decoding.
+var allowedCreateAssetContentTypes = map[string]struct{}{
+	"text/markdown":    {},
+	"text/plain":       {},
+	"text/html":        {},
+	"text/jsx":         {},
+	"text/csv":         {},
+	"image/svg+xml":    {},
+	"application/json": {},
+}
+
+// validateCreateAssetRequest validates the request body and returns the
+// normalized name and content type, or an httpError with the appropriate
+// status code. Extracted from createAsset to keep its cyclomatic complexity
+// within the project's ≤10 limit.
+func validateCreateAssetRequest(req createAssetRequest) (name, contentType string, err *httpError) {
+	name = strings.TrimSpace(req.Name)
+	if vErr := ValidateAssetName(name); vErr != nil {
+		return "", "", &httpError{http.StatusBadRequest, vErr.Error()}
+	}
+	contentType = strings.ToLower(strings.TrimSpace(req.ContentType))
+	if contentType == "" {
+		return "", "", &httpError{http.StatusBadRequest, "content_type is required"}
+	}
+	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
+		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_artifact tool for binary types"}
+	}
+	if req.Content == "" {
+		return "", "", &httpError{http.StatusBadRequest, "content is required"}
+	}
+	if int64(len(req.Content)) > MaxContentUploadBytes {
+		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}
+	}
+	if vErr := ValidateDescription(strings.TrimSpace(req.Description)); vErr != nil {
+		return "", "", &httpError{http.StatusBadRequest, vErr.Error()}
+	}
+	if vErr := ValidateTags(req.Tags); vErr != nil {
+		return "", "", &httpError{http.StatusBadRequest, vErr.Error()}
+	}
+	return name, contentType, nil
+}
+
+// createAsset handles POST /api/v1/portal/assets.
+//
+// @Summary      Create asset from inline content
+// @Description  Creates a new asset by uploading inline text content (markdown, HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset portal without going through the MCP save_artifact tool.
+// @Tags         Assets
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createAssetRequest  true  "Asset content and metadata"
+// @Success      201  {object}  Asset
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      415  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets [post]
+func (h *Handler) createAsset(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	var req createAssetRequest
+	// LimitReader cap = content cap + 64 KB headroom for JSON wrapper and metadata
+	// (name 255 + description 2000 + 20×100 tags + JSON keys/quotes ≈ ~5 KB worst-case).
+	// Without sufficient headroom, a legitimate near-cap content with max metadata
+	// would be truncated mid-JSON and return 400 instead of either 201 or 413.
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxContentUploadBytes+64<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	name, ct, verr := validateCreateAssetRequest(req)
+	if verr != nil {
+		writeError(w, verr.code, verr.msg)
+		return
+	}
+
+	if !h.versionedStorageReady() {
+		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	ctx := r.Context()
+	newID := uuid.New().String()
+	s3Key := fmt.Sprintf("portal/%s/%s/content%s", user.UserID, newID, ExtensionForContentType(ct))
+	data := []byte(req.Content)
+
+	if err := h.deps.S3Client.PutObject(ctx, h.deps.S3Bucket, s3Key, data, ct); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
+		return
+	}
+
+	tags := append([]string(nil), req.Tags...)
+	newAsset := Asset{
+		ID:          newID,
+		OwnerID:     user.UserID,
+		OwnerEmail:  user.Email,
+		Name:        name,
+		Description: strings.TrimSpace(req.Description),
+		ContentType: ct,
+		S3Bucket:    h.deps.S3Bucket,
+		S3Key:       s3Key,
+		SizeBytes:   int64(len(data)),
+		Tags:        tags,
+	}
+
+	if err := h.deps.AssetStore.Insert(ctx, newAsset); err != nil {
+		h.cleanupOrphanedS3(ctx, h.deps.S3Bucket, s3Key)
+		writeError(w, http.StatusInternalServerError, "failed to create asset")
+		return
+	}
+
+	v1 := AssetVersion{
+		ID:            uuid.New().String(),
+		AssetID:       newID,
+		S3Key:         s3Key,
+		S3Bucket:      h.deps.S3Bucket,
+		ContentType:   ct,
+		SizeBytes:     int64(len(data)),
+		CreatedBy:     user.Email,
+		ChangeSummary: "Initial version",
+	}
+	if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
+		slog.Warn("failed to create initial version for new asset", // #nosec G706 -- structured log, not user-facing
+			"asset_id", newID, "error", err)
+	}
+
+	writeJSON(w, http.StatusCreated, newAsset)
 }

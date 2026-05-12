@@ -242,6 +242,26 @@ export function useCopyAsset() {
   });
 }
 
+export function useCreateAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      description?: string;
+      content_type: string;
+      content: string;
+      tags?: string[];
+    }) =>
+      apiFetch<Asset>("/assets", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
 // --- Versions ---
 
 export function useAssetVersions(assetId: string) {
