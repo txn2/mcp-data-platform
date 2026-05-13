@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 // expiryBuffer is the safety margin before token expiry at which we'll
@@ -97,6 +100,7 @@ type oauthTokenSource struct {
 	connectionName string
 	client         *http.Client
 	store          TokenStore // nil for client_credentials grants
+	events         *authevents.Writer
 
 	mu                  sync.Mutex
 	state               tokenState
@@ -167,6 +171,16 @@ func newOAuthTokenSourceWithClient(cfg OAuthConfig, connection string, store Tok
 		client:         client,
 		store:          store,
 	}
+}
+
+// SetAuthEvents wires the audit-event writer. nil-safe — the helper
+// methods on *authevents.Writer short-circuit when the receiver is
+// nil. Set by the toolkit's connection-wiring path (toolkit.go's
+// AddConnection / addParsedConnection) alongside the token store.
+func (t *oauthTokenSource) SetAuthEvents(w *authevents.Writer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.events = w
 }
 
 // Token returns a non-expired access token, refreshing or re-acquiring
@@ -243,7 +257,12 @@ func (t *oauthTokenSource) Token(ctx context.Context) (string, error) {
 func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, returned bool, err error) {
 	slog.Debug("gateway/oauth: cached token expired, attempting refresh",
 		logKeyConnection, t.connectionName)
+	beforeExp := t.state.ExpiresAt
+	beforeRefExp := t.state.RefreshExpiresAt
+	beforeRefresh := t.state.RefreshToken
+	start := time.Now()
 	err = t.refreshLocked(ctx)
+	durationMS := time.Since(start).Milliseconds()
 	switch {
 	case err == nil:
 		// Persist failures are non-fatal: the in-memory token works
@@ -251,10 +270,28 @@ func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, 
 		// (self-healing). Log so operators can spot DB issues; don't
 		// surface on lastError (would be cleared by the next success
 		// anyway, and Status would flap).
+		rotated := t.state.RefreshToken != "" && t.state.RefreshToken != beforeRefresh
 		if pErr := t.persistLocked(ctx); pErr != nil {
-			slog.Warn("gateway/oauth: persist after refresh failed (in-memory token still valid)",
-				logKeyConnection, t.connectionName,
-				logKeyError, pErr)
+			if rotated {
+				slog.Error("gateway/oauth: rotated refresh token issued but persist failed — connection may be unrecoverable",
+					logKeyConnection, t.connectionName, logKeyError, pErr)
+				t.events.RotationPersistenceFailed(ctx, connoauth.KindMCP, t.connectionName,
+					authevents.SystemToolCall, t.cfg.TokenURL, pErr.Error())
+			} else {
+				slog.Warn("gateway/oauth: persist after refresh failed (in-memory token still valid)",
+					logKeyConnection, t.connectionName,
+					logKeyError, pErr)
+			}
+		} else {
+			t.events.RefreshSucceeded(ctx, connoauth.KindMCP, t.connectionName,
+				authevents.SystemToolCall, t.cfg.TokenURL, authevents.RefreshDetail{
+					BeforeExpiresAt:        beforeExp,
+					BeforeRefreshExpiresAt: beforeRefExp,
+					AfterExpiresAt:         t.state.ExpiresAt,
+					AfterRefreshExpiresAt:  t.state.RefreshExpiresAt,
+					RotatedRefresh:         rotated,
+					DurationMS:             durationMS,
+				})
 		}
 		t.lastError = ""
 		return t.state.AccessToken, true, nil
@@ -266,7 +303,23 @@ func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, 
 		slog.Info("gateway/oauth: refresh token rejected by IdP — clearing stale state",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
-		t.clearStaleStateLocked(ctx)
+		t.events.RefreshFailedRevoked(ctx, connoauth.KindMCP, t.connectionName,
+			authevents.SystemToolCall, t.cfg.TokenURL, authevents.RefreshDetail{
+				BeforeExpiresAt:        beforeExp,
+				BeforeRefreshExpiresAt: beforeRefExp,
+				IDPErrorCode:           "invalid_grant",
+				DurationMS:             durationMS,
+			})
+		// Only emit token_deleted_revoked when the row was actually
+		// deleted from the store. clearStaleStateLocked returns
+		// false when the underlying Delete failed — emitting the
+		// audit event in that case would put a "row deleted" line
+		// in the History panel for a row that still exists in
+		// postgres and will replay on next restart.
+		if t.clearStaleStateLocked(ctx) {
+			t.events.TokenDeletedRevoked(ctx, connoauth.KindMCP, t.connectionName,
+				authevents.SystemToolCall, t.cfg.TokenURL, "invalid_grant")
+		}
 		return "", false, nil
 	default:
 		// Transient failure (503/network/timeout/etc): refresh token
@@ -277,6 +330,12 @@ func (t *oauthTokenSource) tryRefreshLocked(ctx context.Context) (token string, 
 		slog.Warn("gateway/oauth: refresh failed (transient or unrecognized)",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
+		t.events.RefreshFailedTransient(ctx, connoauth.KindMCP, t.connectionName,
+			authevents.SystemToolCall, t.cfg.TokenURL, authevents.RefreshDetail{
+				BeforeExpiresAt:        beforeExp,
+				BeforeRefreshExpiresAt: beforeRefExp,
+				DurationMS:             durationMS,
+			})
 		t.lastError = err.Error()
 		return "", true, err
 	}
@@ -865,13 +924,20 @@ const staleCleanupTimeout = 5 * time.Second
 // so the caller's already-recorded error (the IdP rejection text) is
 // preserved for Status display. The Delete failure is surfaced via a
 // dedicated slog.Warn for log-aggregator alerts.
-func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
+// clearStaleStateLocked returns true when the persisted row was
+// either deleted or did not exist; false when an underlying
+// store.Delete error left the row in place. Caller uses the return
+// value to decide whether to emit a TokenDeletedRevoked audit event —
+// without it, a failed delete would still produce a "row deleted"
+// event in the History panel and on the next restart the dead refresh
+// token would replay.
+func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) bool {
 	t.state = tokenState{}
 	t.authedBy = ""
 	t.authedAt = time.Time{}
 	t.refreshTokenRevoked = true
 	if t.store == nil {
-		return
+		return true
 	}
 	// Intentional: caller's ctx may already be expiring (the rejection
 	// we're cleaning up after often arrives just before deadline).
@@ -883,7 +949,9 @@ func (t *oauthTokenSource) clearStaleStateLocked(_ context.Context) {
 		slog.Warn("gateway/oauth: failed to delete stale token row",
 			logKeyConnection, t.connectionName,
 			logKeyError, err)
+		return false
 	}
+	return true
 }
 
 // ensureLoadedLocked reads the persisted token row (if any) into the

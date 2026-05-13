@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -213,6 +214,18 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
 
+	// Capture whether a token row existed before the delete so we know
+	// whether to emit token_deleted_admin. The ConnectionStore.Delete
+	// may cascade-clear the connection_oauth_tokens row depending on
+	// FK config; either way we record the operator-initiated delete.
+	hadToken := false
+	if h.deps.ConnOAuthStore != nil {
+		if _, getErr := h.deps.ConnOAuthStore.Get(r.Context(),
+			connoauth.Key{Kind: kind, Name: name}); getErr == nil {
+			hadToken = true
+		}
+	}
+
 	if err := h.deps.ConnectionStore.Delete(r.Context(), kind, name); err != nil {
 		if errors.Is(err, platform.ErrConnectionNotFound) {
 			writeError(w, http.StatusNotFound, "connection instance not found")
@@ -228,6 +241,23 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 	// Update the connection source map.
 	if h.deps.ConnectionSources != nil {
 		h.deps.ConnectionSources.Remove(kind, name)
+	}
+
+	if hadToken {
+		// Best-effort: also wipe the token row so a re-created connection
+		// with the same name doesn't inherit a dead credential.
+		_ = h.deps.ConnOAuthStore.Delete(r.Context(),
+			connoauth.Key{Kind: kind, Name: name})
+		actor := authorEmailOrID(r.Context())
+		if actor == "" {
+			// Fallback so the event validates even when an unauthenticated
+			// delete makes it past the auth middleware (test paths,
+			// future API-key flows that don't populate User). Marker
+			// distinct from any real email/UUID so dashboards can find
+			// these in the audit history.
+			actor = "admin:unattributed"
+		}
+		h.deps.AuthEvents.TokenDeletedAdmin(r.Context(), kind, name, actor)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

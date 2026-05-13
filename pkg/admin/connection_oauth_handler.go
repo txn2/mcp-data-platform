@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -39,6 +40,7 @@ func (h *Handler) registerConnectionOAuthRoutes() {
 	}
 	h.mux.HandleFunc("POST /api/v1/admin/connections/{kind}/{name}/oauth-start", h.startConnectionOAuth)
 	h.mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/oauth-status", h.connectionOAuthStatus)
+	h.mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/auth-events", h.connectionAuthEvents)
 	h.mux.HandleFunc("POST /api/v1/admin/connections/{kind}/{name}/reacquire-oauth", h.reacquireConnectionOAuth)
 	h.publicMux.HandleFunc("GET /api/v1/admin/oauth/callback", h.connectionOAuthCallback)
 	// Legacy API-gateway callback URL. Existing deployments may have
@@ -139,6 +141,7 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 		"authorization_url_host", urlHostForLog(cfg.AuthorizationURL),
 		"return_url", body.ReturnURL,
 		"ttl", pkceTTL)
+	h.deps.AuthEvents.ConnectStarted(r.Context(), kind, name, startedBy, cfg.TokenURL, body.ReturnURL)
 
 	writeJSON(w, http.StatusOK, startConnectionOAuthResponse{
 		AuthorizationURL: authURL,
@@ -178,8 +181,104 @@ func (h *Handler) connectionOAuthStatus(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	src := connoauth.NewSource(h.deps.ConnOAuthStore, connoauth.Key{Kind: kind, Name: name}, cfg)
-	writeJSON(w, http.StatusOK, src.Status(r.Context()))
+	src := connoauth.NewSource(h.deps.ConnOAuthStore, connoauth.Key{Kind: kind, Name: name}, cfg).
+		WithEvents(h.deps.AuthEvents).
+		WithActor(authorEmailOrID(r.Context()))
+	status := src.Status(r.Context())
+	status.LastRevocation = h.lastRevocationFor(r.Context(), kind, name)
+	writeJSON(w, http.StatusOK, status)
+}
+
+// lastRevocationFor reads the most recent revocation event for the
+// connection from the auth-events table, if any. Returns nil when the
+// store is unavailable, the lookup fails, or no revocation event
+// exists. Powering this from the events table (not transient
+// in-memory state) means the answer survives process restarts —
+// operators see "your previous session was killed at 10:42" even
+// after a redeploy clears the in-memory view.
+func (h *Handler) lastRevocationFor(ctx context.Context, kind, name string) *connoauth.RevocationEvent {
+	if h.deps.AuthEventStore == nil {
+		return nil
+	}
+	events, err := h.deps.AuthEventStore.List(ctx, authevents.Filter{Kind: kind, Name: name, Limit: 10})
+	if err != nil {
+		return nil
+	}
+	for _, ev := range events {
+		if ev.Type != authevents.TypeTokenDeletedRevoked &&
+			ev.Type != authevents.TypeRefreshFailedRevoked {
+			continue
+		}
+		reason := extractRevocationReason(ev)
+		return &connoauth.RevocationEvent{
+			OccurredAt: ev.OccurredAt,
+			Reason:     reason,
+			IDPHost:    ev.IDPHost,
+		}
+	}
+	return nil
+}
+
+// extractRevocationReason pulls the reason field from a revocation
+// event's detail payload. The two relevant Types use different
+// detail shapes: TypeTokenDeletedRevoked is {"reason": "..."} while
+// TypeRefreshFailedRevoked is {... "idp_error_code": "..."} (the
+// RefreshDetail shape). Either way, we want a single short string
+// to surface in the UI.
+func extractRevocationReason(ev authevents.Event) string {
+	if len(ev.Detail) == 0 {
+		return ""
+	}
+	// Try the deletion event's shape first.
+	var byReason struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(ev.Detail, &byReason); err == nil && byReason.Reason != "" {
+		return byReason.Reason
+	}
+	// Fall back to RefreshDetail.IDPErrorCode.
+	var rd authevents.RefreshDetail
+	if err := json.Unmarshal(ev.Detail, &rd); err == nil && rd.IDPErrorCode != "" {
+		return rd.IDPErrorCode
+	}
+	return ""
+}
+
+// connectionAuthEvents handles GET /connections/{kind}/{name}/auth-events.
+// Returns the most recent 30 events for the connection so the portal
+// can render the History panel. Admin-only (the handler's auth
+// middleware enforces this).
+//
+// @Summary      OAuth lifecycle history for a connection
+// @Tags         Connections
+// @Produce      json
+// @Param        kind  path  string  true  "Connection kind"
+// @Param        name  path  string  true  "Connection name"
+// @Success      200   {array}   authevents.Event
+// @Failure      404   {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/{kind}/{name}/auth-events [get]
+func (h *Handler) connectionAuthEvents(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue(pathKeyKind)
+	name := r.PathValue(pathKeyName)
+	if h.deps.AuthEventStore == nil {
+		writeJSON(w, http.StatusOK, []authevents.Event{})
+		return
+	}
+	events, err := h.deps.AuthEventStore.List(r.Context(), authevents.Filter{
+		Kind: kind, Name: name, Limit: 30,
+	})
+	if err != nil {
+		slog.Warn("auth-events: list failed",
+			logKeyKind, kind, logKeyName, name, logKeyError, err)
+		writeError(w, http.StatusInternalServerError, "failed to load auth events")
+		return
+	}
+	if events == nil {
+		events = []authevents.Event{}
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 // reacquireConnectionOAuth handles POST /connections/{kind}/{name}/reacquire-oauth.
@@ -216,7 +315,9 @@ func (h *Handler) reacquireConnectionOAuth(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	src := connoauth.NewSource(h.deps.ConnOAuthStore, connoauth.Key{Kind: kind, Name: name}, cfg)
+	src := connoauth.NewSource(h.deps.ConnOAuthStore, connoauth.Key{Kind: kind, Name: name}, cfg).
+		WithEvents(h.deps.AuthEvents).
+		WithActor(authorEmailOrID(r.Context()))
 	if err := src.Reacquire(r.Context()); err != nil {
 		if errors.Is(err, connoauth.ErrNeedsReauth) {
 			writeError(w, http.StatusConflict, "connection needs admin reconnect")
@@ -366,6 +467,13 @@ func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// Connect with no idea why it doesn't stick.
 		return fmt.Errorf("persist token: %w", persistErr)
 	}
+	h.deps.AuthEvents.ConnectCompleted(ctx, pending.kind, pending.connection, pending.startedBy,
+		cfg.TokenURL, authevents.ConnectCompletedDetail{
+			Scope:            result.Scope,
+			ExpiresAt:        result.ExpiresAt,
+			RefreshExpiresAt: result.RefreshExpiresAt,
+			HasRefreshToken:  result.RefreshToken != "",
+		})
 	if err := handler.AfterConnect(ctx, pending.connection, inst.Config); err != nil {
 		// Log but do not fail the Connect — the token IS persisted;
 		// the post-auth side effect (e.g., MCP gateway tool

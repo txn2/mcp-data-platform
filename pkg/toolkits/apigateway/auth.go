@@ -8,10 +8,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
+
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 // Authenticator applies a connection's authentication scheme to an
@@ -283,8 +287,14 @@ var errRefreshTokenRevoked = errors.New("apigateway: refresh token rejected by I
 // Apply returns ErrNeedsReauth and the admin must click Connect
 // again.
 type oauth2AuthorizationCodeAuth struct {
-	cfg   Config
-	store TokenStore
+	cfg Config
+	// mu guards store and events against concurrent SetTokenStore /
+	// SetAuthEvents (called by the toolkit's threading paths) while
+	// Apply reads them on every outbound request. Without this,
+	// `go test -race` flags the field access pattern.
+	mu     sync.RWMutex
+	store  TokenStore
+	events *authevents.Writer
 }
 
 func newOAuth2AuthorizationCodeAuth(c Config) *oauth2AuthorizationCodeAuth {
@@ -298,7 +308,29 @@ func newOAuth2AuthorizationCodeAuth(c Config) *oauth2AuthorizationCodeAuth {
 // is called from contexts (config validation, factory code) that
 // don't have a database handle.
 func (a *oauth2AuthorizationCodeAuth) SetTokenStore(s TokenStore) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.store = s
+}
+
+// SetAuthEvents wires the audit-event writer. nil-safe — the
+// helper methods on *authevents.Writer short-circuit. Wired from
+// the platform alongside SetTokenStore so every outbound refresh
+// emits its lifecycle event.
+func (a *oauth2AuthorizationCodeAuth) SetAuthEvents(w *authevents.Writer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.events = w
+}
+
+// snapshot returns the current store and events under read lock so
+// Apply / refresh / handleRevoked can read them without holding the
+// lock across an outbound HTTP call (which would serialize every
+// request through this single mutex).
+func (a *oauth2AuthorizationCodeAuth) snapshot() (TokenStore, *authevents.Writer) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.store, a.events
 }
 
 // Apply attaches the cached or freshly-refreshed access token. The
@@ -320,11 +352,12 @@ func (a *oauth2AuthorizationCodeAuth) SetTokenStore(s TokenStore) {
 //     would force the operator to manually reconnect over a
 //     network blip.
 func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
-	if a.store == nil {
+	store, _ := a.snapshot()
+	if store == nil {
 		return errors.New("apigateway: oauth2 authorization_code: token store not wired")
 	}
 	ctx := req.Context()
-	persisted, err := a.store.Get(ctx, a.cfg.ConnectionName)
+	persisted, err := store.Get(ctx, a.cfg.ConnectionName)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
 			return ErrNeedsReauth
@@ -343,13 +376,74 @@ func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
 		// (admin must reconnect). Transient → keep row, surface the
 		// error so the caller can retry.
 		if isRevokedRefresh(refreshErr) {
-			_ = a.store.Delete(ctx, a.cfg.ConnectionName)
+			a.handleRevoked(ctx, persisted, refreshErr)
 			return ErrNeedsReauth
 		}
 		return refreshErr
 	}
 	req.Header.Set(authorizationHeader, "Bearer "+fresh.AccessToken)
 	return nil
+}
+
+// handleRevoked is the shared revoked-refresh cleanup for the
+// toolkit's Apply path. Mirrors connoauth.Source.handleRevoked: an
+// INFO log replaces the previously silent `_ = Delete(...)` and the
+// authevents row pair (refresh_failed_revoked + token_deleted_revoked)
+// surfaces the deletion on the History panel so operators see exactly
+// when and why the token vanished.
+func (a *oauth2AuthorizationCodeAuth) handleRevoked(ctx context.Context, persisted *PersistedToken, refreshErr error) {
+	store, events := a.snapshot()
+	reason := classifyRevokedReason(refreshErr)
+	tokenURL := a.cfg.OAuth2.TokenURL
+	events.RefreshFailedRevoked(ctx, connoauth.KindAPI, a.cfg.ConnectionName,
+		authevents.SystemToolCall, tokenURL, authevents.RefreshDetail{
+			BeforeExpiresAt:        persisted.ExpiresAt,
+			BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+			IDPErrorCode:           reason,
+		})
+	if store == nil {
+		return
+	}
+	if delErr := store.Delete(ctx, a.cfg.ConnectionName); delErr != nil {
+		slog.Warn("apigateway: delete revoked token row failed",
+			logKeyConnection, a.cfg.ConnectionName, "error", delErr)
+		return
+	}
+	// Log AFTER the delete so the "row deleted" claim is factually
+	// true even when the store's Delete fails (which falls through
+	// to the WARN above and the return).
+	slog.Info("apigateway: connection token row deleted: refresh rejected by IdP",
+		logKeyConnection, a.cfg.ConnectionName,
+		"reason", reason, "token_url_host", urlHost(tokenURL))
+	events.TokenDeletedRevoked(ctx, connoauth.KindAPI, a.cfg.ConnectionName,
+		authevents.SystemToolCall, tokenURL, reason)
+}
+
+// classifyRevokedReason maps the toolkit's sentinel errors into the
+// stable machine-readable strings the History panel renders. Mirrors
+// connoauth.classifyRevokedReason so the panel can correlate events
+// from either refresh path without per-source special-casing.
+func classifyRevokedReason(err error) string {
+	switch {
+	case errors.Is(err, errRefreshTokenRevoked):
+		return "invalid_grant"
+	case errors.Is(err, errNoRefreshToken):
+		return "no_refresh_token"
+	case errors.Is(err, errRefreshExpired):
+		return "refresh_expired"
+	}
+	return "revoked"
+}
+
+// urlHost returns the host portion of u for log fields, falling back
+// to the raw value when parsing fails. Local helper so the package
+// doesn't need to depend on net/url across more files.
+func urlHost(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return u
+	}
+	return parsed.Host
 }
 
 // isRevokedRefresh reports whether the refresh-error indicates the
@@ -394,14 +488,21 @@ var (
 // errRefreshTokenRevoked so Apply can distinguish it from
 // transient failures.
 func (a *oauth2AuthorizationCodeAuth) refresh(ctx context.Context, persisted *PersistedToken) (*oauth2.Token, error) {
+	store, events := a.snapshot()
+	tokenURL := a.cfg.OAuth2.TokenURL
 	if persisted.RefreshToken == "" {
+		// Caller treats this as "revoked" and handleRevoked emits
+		// RefreshFailedRevoked + TokenDeletedRevoked with
+		// IDPErrorCode="no_refresh_token". No skipped event here —
+		// would duplicate the History panel entry for one incident.
 		return nil, errNoRefreshToken
 	}
 	if !persisted.RefreshExpiresAt.IsZero() && time.Now().After(persisted.RefreshExpiresAt) {
+		// Same: IDPErrorCode="refresh_expired" via handleRevoked.
 		return nil, errRefreshExpired
 	}
 	endpoint := oauth2.Endpoint{
-		TokenURL:  a.cfg.OAuth2.TokenURL,
+		TokenURL:  tokenURL,
 		AuthStyle: oauth2.AuthStyleInHeader,
 	}
 	if a.cfg.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
@@ -415,10 +516,21 @@ func (a *oauth2AuthorizationCodeAuth) refresh(ctx context.Context, persisted *Pe
 	}
 	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, newTokenExchangeClient())
 
+	start := time.Now()
 	src := cfg.TokenSource(refreshCtx, persistedToOAuth2Token(*persisted))
 	fresh, err := src.Token()
+	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
-		return nil, classifyRefreshError(err)
+		classified := classifyRefreshError(err)
+		if !isRevokedRefresh(classified) {
+			events.RefreshFailedTransient(ctx, connoauth.KindAPI, a.cfg.ConnectionName,
+				authevents.SystemToolCall, tokenURL, authevents.RefreshDetail{
+					BeforeExpiresAt:        persisted.ExpiresAt,
+					BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+					DurationMS:             durationMS,
+				})
+		}
+		return nil, classified
 	}
 	// Persist the rotated token (IdP MAY have issued a new
 	// refresh_token; keep the old one if the response didn't carry
@@ -428,19 +540,32 @@ func (a *oauth2AuthorizationCodeAuth) refresh(ctx context.Context, persisted *Pe
 	// deadline doesn't outlive the rotation.
 	updated := *persisted
 	updated.AccessToken = fresh.AccessToken
+	rotated := fresh.RefreshToken != "" && fresh.RefreshToken != persisted.RefreshToken
 	if fresh.RefreshToken != "" {
 		updated.RefreshToken = fresh.RefreshToken
 	}
 	updated.ExpiresAt = fresh.Expiry
 	updated.RefreshExpiresAt = computeRefreshExpiresAt(fresh, persisted, time.Now())
-	if setErr := a.store.Set(ctx, updated); setErr != nil {
-		// Persistence failure: the model still gets a working
-		// token this turn, but next process restart will re-fetch
-		// using the OLD refresh token. That's safe (the IdP would
-		// just reject if the refresh was rotated and revoked) — log
-		// the failure, return success on the in-memory token.
-		slog.Warn("apigateway: persisting refreshed oauth token failed",
-			"connection", a.cfg.ConnectionName, "error", setErr)
+	if setErr := store.Set(ctx, updated); setErr != nil {
+		if rotated {
+			slog.Error("apigateway: rotated refresh token issued but persist failed — connection may be unrecoverable",
+				logKeyConnection, a.cfg.ConnectionName, "error", setErr)
+			events.RotationPersistenceFailed(ctx, connoauth.KindAPI, a.cfg.ConnectionName,
+				authevents.SystemToolCall, tokenURL, setErr.Error())
+		} else {
+			slog.Warn("apigateway: persisting refreshed oauth token failed",
+				logKeyConnection, a.cfg.ConnectionName, "error", setErr)
+		}
+	} else {
+		events.RefreshSucceeded(ctx, connoauth.KindAPI, a.cfg.ConnectionName,
+			authevents.SystemToolCall, tokenURL, authevents.RefreshDetail{
+				BeforeExpiresAt:        persisted.ExpiresAt,
+				BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+				AfterExpiresAt:         fresh.Expiry,
+				AfterRefreshExpiresAt:  updated.RefreshExpiresAt,
+				RotatedRefresh:         rotated,
+				DurationMS:             durationMS,
+			})
 	}
 	return fresh, nil
 }

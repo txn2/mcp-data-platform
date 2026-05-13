@@ -513,6 +513,10 @@ func (failingStore) Delete(_ context.Context, _ Key) error {
 	return errors.New("store: connection refused")
 }
 
+func (failingStore) List(_ context.Context) ([]PersistedToken, error) {
+	return nil, errors.New("store: connection refused")
+}
+
 // TestSource_Token_StoreError — when the store returns a transient
 // error (not ErrTokenNotFound), Token() must surface it as a wrapped
 // error rather than misclassifying it as NeedsReauth.

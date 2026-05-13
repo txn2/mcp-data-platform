@@ -1160,6 +1160,58 @@
                 }
             }
         },
+        "/admin/connections/{kind}/{name}/auth-events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "OAuth lifecycle history for a connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection kind",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/authevents.Event"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connections/{kind}/{name}/oauth-start": {
             "post": {
                 "security": [
@@ -8125,6 +8177,74 @@
                 }
             }
         },
+        "authevents.Event": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "description": "Actor is who/what initiated the event. See SystemXxx constants\nfor synthetic actors; operator-driven events use the email or\napikey:name. Required (empty string is rejected at insert).",
+                    "type": "string"
+                },
+                "connection_kind": {
+                    "description": "Kind is the connection kind (mcp, api, future).",
+                    "type": "string"
+                },
+                "connection_name": {
+                    "description": "Name is the connection name within the kind.",
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "Detail is per-Type JSON. May be nil for events with no extra\npayload.\n\nswaggertype tag tells swag (used by make swagger) to treat the\nfield as a generic object; without it swag can't resolve\njson.RawMessage and the generation step fails.",
+                    "type": "object"
+                },
+                "event_type": {
+                    "description": "Type is one of the declared TypeXxx constants. Required.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/authevents.Type"
+                        }
+                    ]
+                },
+                "id": {
+                    "description": "ID is the server-assigned row UUID. Empty on inserts; populated\nby the store after the INSERT \u2026 RETURNING id.",
+                    "type": "string"
+                },
+                "idp_host": {
+                    "description": "IDPHost is the host portion of the IdP token endpoint. Empty\nwhen not relevant to the event (e.g., TypeTokenDeletedAdmin).",
+                    "type": "string"
+                },
+                "occurred_at": {
+                    "description": "OccurredAt is wall-clock time of the event. Empty on inserts;\nthe store stamps NOW().",
+                    "type": "string"
+                }
+            }
+        },
+        "authevents.Type": {
+            "type": "string",
+            "enum": [
+                "connect_started",
+                "connect_completed",
+                "refresh_succeeded",
+                "refresh_failed_transient",
+                "refresh_failed_revoked",
+                "refresh_skipped_no_token",
+                "refresh_skipped_expired",
+                "refresh_rotation_persistence_failed",
+                "token_deleted_revoked",
+                "token_deleted_admin"
+            ],
+            "x-enum-varnames": [
+                "TypeConnectStarted",
+                "TypeConnectCompleted",
+                "TypeRefreshSucceeded",
+                "TypeRefreshFailedTransient",
+                "TypeRefreshFailedRevoked",
+                "TypeRefreshSkippedNoToken",
+                "TypeRefreshSkippedExpired",
+                "TypeRefreshRotationPersistenceFailed",
+                "TypeTokenDeletedRevoked",
+                "TypeTokenDeletedAdmin"
+            ]
+        },
         "connoauth.OAuthStatus": {
             "type": "object",
             "properties": {
@@ -8156,6 +8276,14 @@
                     "description": "LastRefreshedAt is the persisted row's UpdatedAt \u2014 the time of\nthe most recent successful write (initial Connect or silent\nrefresh).",
                     "type": "string"
                 },
+                "last_revocation": {
+                    "description": "LastRevocation, when present, describes the most recent IdP-\ndriven revocation (refresh_failed_revoked /\ntoken_deleted_revoked) for the connection. Populated by the\nadmin status handler from the authevents history; never set by\nthe Source's own Status() because the Source doesn't know\nabout the events table. The UI uses it to render the \"revoked\"\nstate of the OAuth status card (distinct from \"never\nconnected\") so an operator immediately sees that a Connect is\nneeded because the IdP killed the chain, not because the\nconnection was never set up.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/connoauth.RevocationEvent"
+                        }
+                    ]
+                },
                 "needs_reauth": {
                     "description": "NeedsReauth is true when no access token can be minted without\noperator interaction. The admin UI surfaces a Connect button\nwhen this is true.",
                     "type": "boolean"
@@ -8174,6 +8302,23 @@
                 },
                 "token_url": {
                     "description": "TokenURL is the IdP's token endpoint, surfaced so the admin\nstatus panel can show \"auth against https://iam.example.com/...\"\nat a glance. Operator-authored config; safe to expose.",
+                    "type": "string"
+                }
+            }
+        },
+        "connoauth.RevocationEvent": {
+            "type": "object",
+            "properties": {
+                "idp_host": {
+                    "description": "IDPHost is the host portion of the IdP token URL the\nrevocation came from. Lets the portal show \"rejected by\nidp.example.com at 10:42\" at a glance.",
+                    "type": "string"
+                },
+                "occurred_at": {
+                    "description": "OccurredAt is when the IdP rejected the refresh (or the local\npre-check found no refresh token / expired refresh).",
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "Reason is the machine-readable revocation reason from the\nevent detail (`invalid_grant`, `no_refresh_token`,\n`refresh_expired`, or the generic `revoked` fallback).",
                     "type": "string"
                 }
             }

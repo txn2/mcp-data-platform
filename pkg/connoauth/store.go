@@ -21,6 +21,13 @@ type Store interface {
 	// call. Returns nil (not ErrTokenNotFound) for missing rows so
 	// idempotent cleanup callers don't need to special-case absence.
 	Delete(ctx context.Context, key Key) error
+	// List returns metadata for every persisted row. Used by the
+	// background refresher to decide which connections need
+	// proactive refresh. AccessToken and RefreshToken are NOT
+	// populated in the returned slice — the refresher only needs
+	// deadlines, kind, and name to pick targets; the per-row Get
+	// loads the secret material when it actually refreshes.
+	List(ctx context.Context) ([]PersistedToken, error)
 }
 
 // FieldEncryptor abstracts the platform's at-rest field encryption so
@@ -102,3 +109,33 @@ func (s *MemoryStore) Delete(_ context.Context, key Key) error {
 	delete(s.tokens, key)
 	return nil
 }
+
+// List returns metadata for every persisted row. AccessToken is
+// blanked and RefreshToken is replaced with the refreshTokenSentinel
+// when the underlying row has a non-empty refresh token (and left
+// empty otherwise). The sentinel matches PostgresStore.List's
+// behavior so the Refresher's `if row.RefreshToken == "" { return }`
+// branch works the same against either backend — without this
+// alignment, a Refresher backed by MemoryStore would silently skip
+// every row.
+func (s *MemoryStore) List(_ context.Context) ([]PersistedToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PersistedToken, 0, len(s.tokens))
+	for _, t := range s.tokens {
+		hasRefresh := t.RefreshToken != ""
+		t.AccessToken = ""
+		t.RefreshToken = ""
+		if hasRefresh {
+			t.RefreshToken = refreshTokenSentinel
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// refreshTokenSentinel is the marker both Store backends emit from
+// List to signal "this row has a refresh token, but the actual value
+// has not been loaded." Distinct from "" so the Refresher's
+// no-refresh-token skip branch can distinguish.
+const refreshTokenSentinel = "(present)"

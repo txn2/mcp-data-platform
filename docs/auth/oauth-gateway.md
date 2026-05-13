@@ -98,6 +98,44 @@ only visible cause is the cryptic upstream message
 `client_credentials` grants are unaffected — there is no SSO session
 for them to outlive.
 
+### Background refresh + auth event history (#395)
+
+The platform runs a background refresher loop (default every 5 minutes)
+that proactively refreshes any connection whose access token will
+expire within 5 minutes OR whose IdP-disclosed refresh token will
+expire within 1 hour. This is the keepalive that survives the
+specialist-admin scenario: an operator connects once, no one touches
+the connection for hours or days, and tools continue to work
+because the platform kept the chain alive in the background.
+
+For IdPs that don't disclose a `refresh_expires_in` field (Google,
+Salesforce default, Blackbaud), set the per-connection
+`oauth2_refresh_max_lifetime` field to give the refresher a synthetic
+deadline. Examples:
+
+- Blackbaud: `oauth2_refresh_max_lifetime: "60d"`
+- Microsoft Graph (sliding 90d): `oauth2_refresh_max_lifetime: "90d"`
+- Salesforce (when configured for inactivity-based refresh expiry): set
+  to the connected app's `Refresh Token Policy` window
+
+Every connect, refresh, rotation, revocation, and admin deletion is
+recorded in the `connection_auth_events` table (90-day retention). The
+portal renders the most recent events under each connection's OAuth
+status card via a collapsible **History** section so operators can
+answer "when was this token last refreshed, and what triggered the
+deletion?" without reading pod logs.
+
+When the IdP revokes a refresh token, the OAuth status card now
+distinguishes three states:
+
+- **Never connected**: no token row has ever existed.
+- **Revoked**: a token row existed and was deleted because the IdP
+  rejected the refresh. The card surfaces the timestamp and the
+  RFC 6749 machine-readable reason (`invalid_grant`,
+  `no_refresh_token`, `refresh_expired`).
+- **Connected**: a valid token row exists; status grid renders as
+  normal.
+
 #### Keycloak setup
 
 For `offline_access` to be granted, two things must be true:

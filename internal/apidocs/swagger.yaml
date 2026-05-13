@@ -1066,6 +1066,73 @@ definitions:
         example: database
         type: string
     type: object
+  authevents.Event:
+    properties:
+      actor:
+        description: |-
+          Actor is who/what initiated the event. See SystemXxx constants
+          for synthetic actors; operator-driven events use the email or
+          apikey:name. Required (empty string is rejected at insert).
+        type: string
+      connection_kind:
+        description: Kind is the connection kind (mcp, api, future).
+        type: string
+      connection_name:
+        description: Name is the connection name within the kind.
+        type: string
+      detail:
+        description: |-
+          Detail is per-Type JSON. May be nil for events with no extra
+          payload.
+
+          swaggertype tag tells swag (used by make swagger) to treat the
+          field as a generic object; without it swag can't resolve
+          json.RawMessage and the generation step fails.
+        type: object
+      event_type:
+        allOf:
+        - $ref: '#/definitions/authevents.Type'
+        description: Type is one of the declared TypeXxx constants. Required.
+      id:
+        description: |-
+          ID is the server-assigned row UUID. Empty on inserts; populated
+          by the store after the INSERT … RETURNING id.
+        type: string
+      idp_host:
+        description: |-
+          IDPHost is the host portion of the IdP token endpoint. Empty
+          when not relevant to the event (e.g., TypeTokenDeletedAdmin).
+        type: string
+      occurred_at:
+        description: |-
+          OccurredAt is wall-clock time of the event. Empty on inserts;
+          the store stamps NOW().
+        type: string
+    type: object
+  authevents.Type:
+    enum:
+    - connect_started
+    - connect_completed
+    - refresh_succeeded
+    - refresh_failed_transient
+    - refresh_failed_revoked
+    - refresh_skipped_no_token
+    - refresh_skipped_expired
+    - refresh_rotation_persistence_failed
+    - token_deleted_revoked
+    - token_deleted_admin
+    type: string
+    x-enum-varnames:
+    - TypeConnectStarted
+    - TypeConnectCompleted
+    - TypeRefreshSucceeded
+    - TypeRefreshFailedTransient
+    - TypeRefreshFailedRevoked
+    - TypeRefreshSkippedNoToken
+    - TypeRefreshSkippedExpired
+    - TypeRefreshRotationPersistenceFailed
+    - TypeTokenDeletedRevoked
+    - TypeTokenDeletedAdmin
   connoauth.OAuthStatus:
     properties:
       authenticated_at:
@@ -1107,6 +1174,20 @@ definitions:
           the most recent successful write (initial Connect or silent
           refresh).
         type: string
+      last_revocation:
+        allOf:
+        - $ref: '#/definitions/connoauth.RevocationEvent'
+        description: |-
+          LastRevocation, when present, describes the most recent IdP-
+          driven revocation (refresh_failed_revoked /
+          token_deleted_revoked) for the connection. Populated by the
+          admin status handler from the authevents history; never set by
+          the Source's own Status() because the Source doesn't know
+          about the events table. The UI uses it to render the "revoked"
+          state of the OAuth status card (distinct from "never
+          connected") so an operator immediately sees that a Connect is
+          needed because the IdP killed the chain, not because the
+          connection was never set up.
       needs_reauth:
         description: |-
           NeedsReauth is true when no access token can be minted without
@@ -1136,6 +1217,26 @@ definitions:
           TokenURL is the IdP's token endpoint, surfaced so the admin
           status panel can show "auth against https://iam.example.com/..."
           at a glance. Operator-authored config; safe to expose.
+        type: string
+    type: object
+  connoauth.RevocationEvent:
+    properties:
+      idp_host:
+        description: |-
+          IDPHost is the host portion of the IdP token URL the
+          revocation came from. Lets the portal show "rejected by
+          idp.example.com at 10:42" at a glance.
+        type: string
+      occurred_at:
+        description: |-
+          OccurredAt is when the IdP rejected the refresh (or the local
+          pre-check found no refresh token / expired refresh).
+        type: string
+      reason:
+        description: |-
+          Reason is the machine-readable revocation reason from the
+          event detail (`invalid_grant`, `no_refresh_token`,
+          `refresh_expired`, or the generic `revoked` fallback).
         type: string
     type: object
   enrichment.Action:
@@ -3065,6 +3166,38 @@ paths:
       summary: List connections
       tags:
       - System
+  /admin/connections/{kind}/{name}/auth-events:
+    get:
+      parameters:
+      - description: Connection kind
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/authevents.Event'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: OAuth lifecycle history for a connection
+      tags:
+      - Connections
   /admin/connections/{kind}/{name}/oauth-start:
     post:
       consumes:

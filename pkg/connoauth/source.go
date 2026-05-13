@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 )
 
 // tokenFetchTimeout caps how long a single token-endpoint request
@@ -27,6 +29,16 @@ const tokenFetchTimeout = 30 * time.Second
 // Mirrors the prior MCP gateway constant so behavior is unchanged
 // after the refactor.
 const expiryBuffer = 30 * time.Second
+
+// Log field names. Named so revive's add-constant lint doesn't flag
+// the repeated string literals across every audit and refresh log
+// line — and so a typo can't silently re-label a field across the
+// dozen+ slog call sites in this file.
+const (
+	logKeyKind  = "kind"
+	logKeyName  = "name"
+	logKeyError = "error"
+)
 
 // newTokenExchangeClient builds the http.Client used for any
 // credential-bearing POST to an OAuth token endpoint. CheckRedirect
@@ -63,6 +75,15 @@ type Source struct {
 	// rather than package-global so tests can inject a fake transport
 	// without mutating shared state.
 	client *http.Client
+	// events writes the lifecycle audit trail. nil-safe — the helper
+	// methods on *authevents.Writer short-circuit when the receiver
+	// is nil. Set via WithEvents.
+	events *authevents.Writer
+	// actor is recorded on emitted events so operators can tell
+	// background-refresh from tool-call-triggered refresh apart in
+	// the History panel. Defaults to SystemToolCall (the historical
+	// caller); the background refresher sets SystemBackgroundRefresh.
+	actor string
 }
 
 // NewSource builds a Source for the (key, cfg) pair. The store is
@@ -75,7 +96,26 @@ func NewSource(store Store, key Key, cfg Config) *Source {
 		key:    key,
 		cfg:    cfg,
 		client: newTokenExchangeClient(),
+		actor:  authevents.SystemToolCall,
 	}
+}
+
+// WithEvents wires the audit-event writer. Returns s so callers can
+// chain construction inline. nil is accepted (events become a no-op).
+func (s *Source) WithEvents(w *authevents.Writer) *Source {
+	s.events = w
+	return s
+}
+
+// WithActor sets the audit-event actor for events this Source emits.
+// Used by the background refresher to record events as
+// SystemBackgroundRefresh; the default (SystemToolCall) is correct
+// for callers that hand the Source out per outbound request.
+func (s *Source) WithActor(actor string) *Source {
+	if actor != "" {
+		s.actor = actor
+	}
+	return s
 }
 
 // Token returns a non-expired access token, refreshing transparently
@@ -99,18 +139,59 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 	fresh, refreshErr := s.refresh(ctx, persisted)
 	if refreshErr != nil {
 		if isRevokedRefresh(refreshErr) {
-			// Definitive: the IdP rejected the refresh, or there is
-			// nothing to refresh with. Delete the row so subsequent
-			// process restarts don't replay a dead credential.
-			if delErr := s.store.Delete(ctx, s.key); delErr != nil {
-				slog.Warn("connoauth: delete revoked token row failed",
-					"kind", s.key.Kind, "name", s.key.Name, "error", delErr)
-			}
+			s.handleRevoked(ctx, persisted, refreshErr)
 			return "", ErrNeedsReauth
 		}
 		return "", refreshErr
 	}
 	return fresh.AccessToken, nil
+}
+
+// handleRevoked is the shared revoked-refresh cleanup used by Token()
+// and Reacquire(). The row is deleted (a dead credential must not be
+// replayed across process restarts) AND the deletion is observable:
+// an INFO log line replaces the previously silent `_ = Delete(...)`,
+// and an authevents row pair (refresh_failed_revoked +
+// token_deleted_revoked) lands in the History panel so operators see
+// the why and when on the connection's status card.
+func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, refreshErr error) {
+	reason := classifyRevokedReason(refreshErr)
+	idpHost := urlHost(s.cfg.TokenURL)
+	s.events.RefreshFailedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+		authevents.RefreshDetail{
+			BeforeExpiresAt:        persisted.ExpiresAt,
+			BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+			IDPErrorCode:           reason,
+		})
+	if delErr := s.store.Delete(ctx, s.key); delErr != nil {
+		slog.Warn("connoauth: delete revoked token row failed",
+			logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, delErr)
+		return
+	}
+	// Log AFTER the delete succeeded so the "row deleted" claim
+	// is factually true. The prior ordering emitted the INFO line
+	// before attempting the delete, which produced a misleading
+	// audit trail when the delete itself failed.
+	slog.Info("connoauth: connection token row deleted: refresh rejected by IdP",
+		logKeyKind, s.key.Kind, logKeyName, s.key.Name,
+		"reason", reason, logKeyTokenURLHost, idpHost)
+	s.events.TokenDeletedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL, reason)
+}
+
+// classifyRevokedReason maps the sentinel errors used internally to
+// the short, machine-readable strings recorded in event details. The
+// strings are stable across releases — the History panel and any SIEM
+// dashboards consume them.
+func classifyRevokedReason(err error) string {
+	switch {
+	case errors.Is(err, errRefreshTokenRevoked):
+		return "invalid_grant"
+	case errors.Is(err, errNoRefreshToken):
+		return "no_refresh_token"
+	case errors.Is(err, errRefreshExpired):
+		return "refresh_expired"
+	}
+	return "revoked"
 }
 
 // accessTokenStillValid reports whether the cached access token can
@@ -205,10 +286,7 @@ func (s *Source) Reacquire(ctx context.Context) error {
 	_, refreshErr := s.refresh(ctx, persisted)
 	if refreshErr != nil {
 		if isRevokedRefresh(refreshErr) {
-			if delErr := s.store.Delete(ctx, s.key); delErr != nil {
-				slog.Warn("connoauth: delete revoked token row failed",
-					"kind", s.key.Kind, "name", s.key.Name, "error", delErr)
-			}
+			s.handleRevoked(ctx, persisted, refreshErr)
 			return ErrNeedsReauth
 		}
 		return refreshErr
@@ -230,9 +308,19 @@ func (s *Source) Reacquire(ctx context.Context) error {
 // refresh, the rotation is durable across process restarts.
 func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth2.Token, error) {
 	if persisted.RefreshToken == "" {
+		// No event emission here. Caller treats this sentinel as
+		// "revoked" via isRevokedRefresh and calls handleRevoked,
+		// which records the cause as IDPErrorCode="no_refresh_token"
+		// in the RefreshFailedRevoked + TokenDeletedRevoked pair.
+		// Emitting RefreshSkippedNoToken in addition would make the
+		// History panel show three events for a single incident,
+		// contradicting the "distinct from RefreshFailedRevoked"
+		// contract on the Skipped types.
 		return nil, errNoRefreshToken
 	}
 	if !persisted.RefreshExpiresAt.IsZero() && time.Now().After(persisted.RefreshExpiresAt) {
+		// Same rationale: handleRevoked emits the cause via
+		// IDPErrorCode="refresh_expired"; no additional event here.
 		return nil, errRefreshExpired
 	}
 	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, s.client)
@@ -243,23 +331,59 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 	// whether the caller is Token() (which only enters refresh()
 	// after detecting expiry) or Reacquire() (which forces refresh
 	// even on a still-valid token).
+	start := time.Now()
 	src := cfg.TokenSource(refreshCtx, &oauth2.Token{
 		AccessToken:  persisted.AccessToken,
 		RefreshToken: persisted.RefreshToken,
 		Expiry:       time.Now().Add(-time.Hour),
 	})
 	fresh, err := src.Token()
+	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
-		return nil, classifyRefreshError(err)
+		classified := classifyRefreshError(err)
+		if !isRevokedRefresh(classified) {
+			// Transient: record it but do not delete the row. The
+			// revoked branch is handled by handleRevoked() in the
+			// caller, which also emits its own event.
+			s.events.RefreshFailedTransient(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+				authevents.RefreshDetail{
+					BeforeExpiresAt:        persisted.ExpiresAt,
+					BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+					DurationMS:             durationMS,
+				})
+		}
+		return nil, classified
 	}
-	if err := s.persistRefreshed(ctx, persisted, fresh); err != nil {
-		// Persistence failure is non-fatal for the in-memory request:
-		// the caller can use the fresh access token for this turn,
-		// and the next refresh will re-persist. Log so operators can
-		// spot DB issues; don't return the error (the caller's
-		// downstream HTTP request would fail spuriously).
-		slog.Warn("connoauth: persist refreshed token failed (in-memory token still valid)",
-			"kind", s.key.Kind, "name", s.key.Name, "error", err)
+	rotated := fresh.RefreshToken != "" && fresh.RefreshToken != persisted.RefreshToken
+	if persistErr := s.persistRefreshed(ctx, persisted, fresh); persistErr != nil {
+		if rotated {
+			// Rotation-persistence-failure is permanent credential
+			// loss for one-time-use-rotation IdPs (Blackbaud,
+			// rotation-enabled Keycloak, etc.). Emit at ERROR so
+			// operators see the page; emit the authevent so the
+			// History panel shows the spot where the connection
+			// died.
+			slog.Error("connoauth: rotated refresh token issued but persist failed — connection may be unrecoverable",
+				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
+			s.events.RotationPersistenceFailed(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+				persistErr.Error())
+		} else {
+			// Non-rotation persist failure: in-memory token works
+			// for this turn; next refresh re-persists. Warn so
+			// operators can spot DB issues.
+			slog.Warn("connoauth: persist refreshed token failed (in-memory token still valid)",
+				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
+		}
+	} else {
+		s.events.RefreshSucceeded(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+			authevents.RefreshDetail{
+				BeforeExpiresAt:        persisted.ExpiresAt,
+				BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+				AfterExpiresAt:         fresh.Expiry,
+				AfterRefreshExpiresAt:  refreshDeadlineFromToken(fresh, time.Now()),
+				RotatedRefresh:         rotated,
+				DurationMS:             durationMS,
+			})
 	}
 	return fresh, nil
 }
