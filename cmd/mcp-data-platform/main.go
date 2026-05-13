@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -283,6 +284,12 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		p.WireAPIGatewayRoutePolicy()
 		p.WireAPIGatewayTokenStore()
 		p.WireAPIGatewayEmbeddingProvider()
+		// Start the background OAuth refresher once toolkits and
+		// connection store are wired. Single-call here (not in the
+		// platform constructor) so the resolver can read the live
+		// ConnectionStore + OAuthKindHandlers from the fully-set-up
+		// platform — these are not available at platform.New time.
+		startConnOAuthRefresher(p)
 	}
 
 	mux := http.NewServeMux()
@@ -797,6 +804,8 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	// for backward compatibility during rollout.
 	deps.ConnOAuthStore = p.ConnOAuthStore()
 	deps.OAuthKinds = buildOAuthKindHandlers(p)
+	deps.AuthEvents = p.AuthEventWriter()
+	deps.AuthEventStore = p.AuthEventStore()
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(
@@ -815,6 +824,133 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	}
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+}
+
+// connOAuthConfigResolver bridges the connoauth refresher's
+// ConfigResolver interface to the platform's ConnectionStore +
+// OAuthKindHandlers wiring. The refresher cannot import the platform
+// package directly (import cycle), so this adapter lives in main.go
+// where both packages are already imported.
+type connOAuthConfigResolver struct {
+	store     admin.ConnectionStore
+	kinds     admin.OAuthKindHandlers
+	maxLifeFn func(kind, name string, cfg map[string]any) time.Duration
+}
+
+// ResolveConfig fetches the connection_instances row for (kind, name)
+// and parses out the connoauth.Config via the per-kind handler. The
+// ErrConfigNotResolvable sentinel is returned when the connection no
+// longer exists OR is configured for a non-OAuth auth mode — the
+// refresher treats either as "skip" rather than "fail" so a stale
+// token row doesn't stall keepalive for other connections.
+func (r *connOAuthConfigResolver) ResolveConfig(ctx context.Context, key connoauth.Key) (connoauth.Config, error) {
+	handler, ok := r.kinds[key.Kind]
+	if !ok {
+		return connoauth.Config{}, connoauth.ErrConfigNotResolvable
+	}
+	inst, err := r.store.Get(ctx, key.Kind, key.Name)
+	if err != nil {
+		return connoauth.Config{}, connoauth.ErrConfigNotResolvable
+	}
+	cfg, err := handler.ParseOAuthConfig(inst.Config)
+	if err != nil {
+		return connoauth.Config{}, connoauth.ErrConfigNotResolvable
+	}
+	return cfg, nil
+}
+
+// MaxLifetime reads the per-connection oauth2_refresh_max_lifetime
+// config field. Zero when unset; the refresher then relies on
+// IdP-disclosed deadlines only (which is correct for Keycloak / Auth0
+// / Okta but inadequate for Blackbaud / Microsoft / Salesforce that
+// don't disclose refresh-token deadlines but enforce wall-clock max
+// lifetimes anyway).
+func (r *connOAuthConfigResolver) MaxLifetime(ctx context.Context, key connoauth.Key) time.Duration {
+	if r.maxLifeFn == nil {
+		return 0
+	}
+	inst, err := r.store.Get(ctx, key.Kind, key.Name)
+	if err != nil {
+		return 0
+	}
+	return r.maxLifeFn(key.Kind, key.Name, inst.Config)
+}
+
+// readMaxLifetime extracts the operator-configured wall-clock max
+// lifetime for the refresh token, parsing the standard Go duration
+// string format ("60d" via the d-suffix helper). Returns zero when
+// the field is absent, empty, or unparseable — the refresher
+// gracefully degrades to IdP-disclosed-deadline-only mode in that
+// case.
+func readMaxLifetime(_, _ string, cfg map[string]any) time.Duration {
+	raw, _ := cfg[configKeyOAuthRefreshMaxLifetime].(string)
+	if raw == "" {
+		return 0
+	}
+	d, err := parseDurationWithDays(raw)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// configKeyOAuthRefreshMaxLifetime is the connection_instances
+// config key that holds the operator's wall-clock refresh-token max
+// lifetime hint. Stored as a duration string ("60d", "90d", "30d").
+const configKeyOAuthRefreshMaxLifetime = "oauth2_refresh_max_lifetime"
+
+// hoursPerDay names the magic number 24 so the lint rule on
+// numeric literals doesn't fire and so the math reads as intent.
+const hoursPerDay = 24
+
+// parseDurationWithDays is time.ParseDuration with a "d" suffix
+// shorthand added. The stdlib's time.ParseDuration tops out at "h" —
+// "60d" is unparseable. Refresh-token deadlines are routinely
+// expressed in days by operators (Blackbaud 60d, Microsoft 90d), so
+// asking them to write "1440h" instead would be a thousand-cuts UX
+// failure.
+func parseDurationWithDays(s string) (time.Duration, error) {
+	if head, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(head)
+		if err != nil {
+			return 0, fmt.Errorf("parse duration %q: %w", s, err)
+		}
+		if days < 0 {
+			return 0, fmt.Errorf("parse duration %q: negative days", s)
+		}
+		return time.Duration(days) * hoursPerDay * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse duration %q: %w", s, err)
+	}
+	return d, nil
+}
+
+// startConnOAuthRefresher kicks off the keepalive loop. Called after
+// the toolkit registry + connection store are wired so the resolver
+// can read connection_instances rows. multi-replica is taken from
+// the platform's session-store mode — database-backed sessions
+// implies multi-replica intent.
+func startConnOAuthRefresher(p *platform.Platform) {
+	if p.ConnOAuthStore() == nil {
+		return
+	}
+	store := p.ConnectionStore()
+	if store == nil {
+		return
+	}
+	kinds := buildOAuthKindHandlers(p)
+	if len(kinds) == 0 {
+		return
+	}
+	resolver := &connOAuthConfigResolver{
+		store:     store,
+		kinds:     kinds,
+		maxLifeFn: readMaxLifetime,
+	}
+	multiReplica := p.Config() != nil && p.Config().Sessions.Store == platform.SessionStoreDatabase
+	p.StartConnOAuthRefresher(resolver, multiReplica)
 }
 
 // buildOAuthKindHandlers assembles the per-kind OAuth adapter registry

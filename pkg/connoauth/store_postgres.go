@@ -152,6 +152,56 @@ func (s *PostgresStore) Set(ctx context.Context, t PersistedToken) error {
 	return nil
 }
 
+// List returns metadata for every row in connection_oauth_tokens.
+// Access/refresh tokens are NOT returned — the refresher uses this
+// to find rows that need refresh; the per-row Get loads the secret
+// material when it actually refreshes. Avoiding the decrypt path on
+// the listing query keeps the refresher cheap (no per-row encryption
+// round-trip just to enumerate).
+func (s *PostgresStore) List(ctx context.Context) ([]PersistedToken, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT connection_kind, connection_name,
+		       expires_at, refresh_expires_at, scope,
+		       authenticated_by, authenticated_at, updated_at,
+		       (refresh_token IS NOT NULL) AS has_refresh
+		  FROM connection_oauth_tokens`)
+	if err != nil {
+		return nil, fmt.Errorf("connoauth: list rows: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]PersistedToken, 0)
+	for rows.Next() {
+		var (
+			t          PersistedToken
+			expAt      sql.NullTime
+			refExpAt   sql.NullTime
+			authedAt   sql.NullTime
+			hasRefresh bool
+		)
+		if err := rows.Scan(&t.Key.Kind, &t.Key.Name,
+			&expAt, &refExpAt, &t.Scope,
+			&t.AuthenticatedBy, &authedAt, &t.UpdatedAt,
+			&hasRefresh); err != nil {
+			return nil, fmt.Errorf("connoauth: list scan: %w", err)
+		}
+		applyNullTimes(&t, expAt, refExpAt, authedAt)
+		// Mark RefreshToken non-empty when the row has one so the
+		// refresher's skip-no-refresh check works without a second
+		// query per row. The actual value is loaded by the refresh
+		// path's Get call, not from this listing. Sentinel string
+		// is shared with MemoryStore.List so both backends present
+		// the same surface.
+		if hasRefresh {
+			t.RefreshToken = refreshTokenSentinel
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("connoauth: list iterate: %w", err)
+	}
+	return out, nil
+}
+
 // Delete removes the row for key. Idempotent — missing rows do not
 // produce an error. Used by Source on revoked-refresh cleanup and by
 // the admin reacquire path.

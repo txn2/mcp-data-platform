@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -58,6 +59,7 @@ type Toolkit struct {
 	connections map[string]*conn
 	routePolicy RoutePolicy
 	tokenStore  TokenStore
+	authEvents  *authevents.Writer
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -94,6 +96,22 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 	for _, c := range t.connections {
 		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
 			ac.SetTokenStore(s)
+		}
+	}
+}
+
+// SetAuthEvents wires the audit-event writer to the toolkit and into
+// every already-materialized authorization_code authenticator. Called
+// by the platform alongside SetTokenStore so every outbound refresh
+// emits its lifecycle event. The writer itself is nil-safe — passing
+// nil silences events at the toolkit level (e.g., dev with no DB).
+func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.authEvents = w
+	for _, c := range t.connections {
+		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
+			ac.SetAuthEvents(w)
 		}
 	}
 }
@@ -446,8 +464,13 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	// inline so a connection added BEFORE SetTokenStore still
 	// becomes functional once SetTokenStore runs (which re-threads
 	// the store across all connections). Either ordering works.
-	if ac, ok := auth.(*oauth2AuthorizationCodeAuth); ok && t.tokenStore != nil {
-		ac.SetTokenStore(t.tokenStore)
+	if ac, ok := auth.(*oauth2AuthorizationCodeAuth); ok {
+		if t.tokenStore != nil {
+			ac.SetTokenStore(t.tokenStore)
+		}
+		if t.authEvents != nil {
+			ac.SetAuthEvents(t.authEvents)
+		}
 	}
 	t.connections[name] = c
 	return nil

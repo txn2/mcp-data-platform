@@ -106,4 +106,33 @@ type OAuthStatus struct {
 	// operator interaction. The admin UI surfaces a Connect button
 	// when this is true.
 	NeedsReauth bool `json:"needs_reauth,omitempty"`
+	// LastRevocation, when present, describes the most recent IdP-
+	// driven revocation (refresh_failed_revoked /
+	// token_deleted_revoked) for the connection. Populated by the
+	// admin status handler from the authevents history; never set by
+	// the Source's own Status() because the Source doesn't know
+	// about the events table. The UI uses it to render the "revoked"
+	// state of the OAuth status card (distinct from "never
+	// connected") so an operator immediately sees that a Connect is
+	// needed because the IdP killed the chain, not because the
+	// connection was never set up.
+	LastRevocation *RevocationEvent `json:"last_revocation,omitempty"`
+}
+
+// RevocationEvent is the trimmed-down audit-event view the OAuth
+// status card needs. Reads cleanly through JSON encoding to the
+// portal SPA without exposing internal authevents.Type strings or
+// raw detail payloads.
+type RevocationEvent struct {
+	// OccurredAt is when the IdP rejected the refresh (or the local
+	// pre-check found no refresh token / expired refresh).
+	OccurredAt time.Time `json:"occurred_at"`
+	// Reason is the machine-readable revocation reason from the
+	// event detail (`invalid_grant`, `no_refresh_token`,
+	// `refresh_expired`, or the generic `revoked` fallback).
+	Reason string `json:"reason,omitempty"`
+	// IDPHost is the host portion of the IdP token URL the
+	// revocation came from. Lets the portal show "rejected by
+	// idp.example.com at 10:42" at a glance.
+	IDPHost string `json:"idp_host,omitempty"`
 }

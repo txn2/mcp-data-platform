@@ -42,6 +42,10 @@ func (f *fakeConnOAuthStore) Delete(_ context.Context, key connoauth.Key) error 
 	return f.delErr
 }
 
+func (*fakeConnOAuthStore) List(_ context.Context) ([]connoauth.PersistedToken, error) {
+	return nil, nil
+}
+
 func TestConnOAuthBridge_Get_MapsKindAndFields(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)

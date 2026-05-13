@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/apps"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
@@ -125,6 +126,9 @@ type Platform struct {
 	gatewayTokenStore    gatewaykit.TokenStore
 	apigatewayTokenStore apigatewaykit.TokenStore
 	connOAuthStore       connoauth.Store
+	authEventStore       *authevents.PostgresStore
+	authEventWriter      *authevents.Writer
+	connOAuthRefresher   *connoauth.Refresher
 	restEncryptor        *RestFieldEncryptor
 	personaStore         PersonaStore
 	apiKeyStore          APIKeyStore
@@ -447,6 +451,15 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
 	p.connOAuthStore = connoauth.NewPostgresStore(p.db, p.restEncryptor)
+	// AuthEvents store + writer are wired alongside the connoauth
+	// store so every refresh / revocation / admin-deletion path can
+	// emit lifecycle events to the same database the tokens live in.
+	// The 90-day prune routine is started here too — daily cadence
+	// is plenty for a table that grows at most a few events per
+	// connection per day.
+	p.authEventStore = authevents.NewPostgresStore(p.db)
+	p.authEventWriter = authevents.NewWriter(p.authEventStore, nil)
+	p.authEventStore.StartPruneRoutine(24*time.Hour, authEventsRetention)
 	// Both toolkit token stores are now backed by the unified
 	// connection_oauth_tokens table via a per-kind adapter. The admin
 	// layer's unified OAuth handler writes to the same connoauth.Store,
@@ -458,6 +471,12 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	p.apigatewayTokenStore = apigatewaykit.NewConnOAuthTokenStore(p.connOAuthStore)
 	return nil
 }
+
+// authEventsRetention is the retention window for connection_auth_events.
+// 90 days matches the documented contract in issue #395: operators can
+// always answer "what happened to this connection's tokens in the last
+// quarter" by reading the History panel.
+const authEventsRetention = 90 * 24 * time.Hour
 
 // RestFieldEncryptor adapts the platform's FieldEncryptor to the
 // generic Encrypt/Decrypt interface used by sub-package stores
@@ -513,6 +532,61 @@ func (p *Platform) ConnOAuthStore() connoauth.Store {
 	return p.connOAuthStore
 }
 
+// AuthEventStore returns the read-side handle for connection
+// lifecycle events. Used by the admin layer to render the OAuth
+// History panel. Nil when no database is configured.
+func (p *Platform) AuthEventStore() authevents.Store {
+	if p.authEventStore == nil {
+		return nil
+	}
+	return p.authEventStore
+}
+
+// AuthEventWriter returns the writer wrapping AuthEventStore. nil-safe
+// — every call site can pass this directly to a component without
+// nil-checks; the Writer methods short-circuit when the receiver is
+// nil. Wired into the admin handler and the toolkit auth paths.
+func (p *Platform) AuthEventWriter() *authevents.Writer {
+	return p.authEventWriter
+}
+
+// StartConnOAuthRefresher launches the background refresh loop with
+// the supplied ConfigResolver. The platform exposes the start as a
+// post-init step so the resolver — which depends on the per-kind
+// OAuthKindHandlers wired by main.go — can be passed in at the
+// correct point in the startup sequence (after ConnectionStore +
+// OAuthKindHandlers exist, before the HTTP server starts taking
+// traffic). Idempotent across replicas: the locker (NoopLocker for
+// single-replica, PostgresLocker for multi-replica) keeps races out
+// of the IdP side.
+func (p *Platform) StartConnOAuthRefresher(resolver connoauth.ConfigResolver, multiReplica bool) {
+	if p.connOAuthStore == nil || resolver == nil {
+		return
+	}
+	var locker connoauth.AdvisoryLocker = connoauth.NoopLocker{}
+	if multiReplica && p.db != nil {
+		locker = connoauth.NewPostgresLocker(p.db)
+	}
+	p.connOAuthRefresher = connoauth.NewRefresher(
+		p.connOAuthStore, resolver, p.authEventWriter, locker,
+		connoauth.RefresherConfig{},
+	)
+	p.connOAuthRefresher.Start()
+}
+
+// StopConnOAuthRefresher cancels the refresher loop. Called by the
+// lifecycle shutdown path so an in-flight refresh has up to ctx's
+// deadline to settle before the process exits.
+func (p *Platform) StopConnOAuthRefresher(ctx context.Context) error {
+	if p.connOAuthRefresher == nil {
+		return nil
+	}
+	if err := p.connOAuthRefresher.Stop(ctx); err != nil {
+		return fmt.Errorf("stop connoauth refresher: %w", err)
+	}
+	return nil
+}
+
 // RestEncryptor returns the platform's at-rest field encryption
 // adapter, or nil when no database is configured. Sub-package stores
 // can pass this to their constructors so secrets they persist use the
@@ -556,6 +630,12 @@ func (p *Platform) WireGatewayTokenStore() {
 	for _, tk := range p.toolkitRegistry.All() {
 		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
 			gw.SetTokenStore(store)
+			// Wire the audit-event writer at the same call site so
+			// refresh / rotation / revocation events from the
+			// tool-call hot path land in connection_auth_events. The
+			// writer is nil-safe; gw.SetAuthEvents short-circuits when
+			// authEventWriter is nil (dev with no DB).
+			gw.SetAuthEvents(p.authEventWriter)
 		}
 	}
 }
@@ -676,6 +756,11 @@ func (p *Platform) WireAPIGatewayTokenStore() {
 	for _, tk := range p.toolkitRegistry.All() {
 		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
 			api.SetTokenStore(p.apigatewayTokenStore)
+			// Mirror WireGatewayTokenStore: thread the audit-event
+			// writer so tool-call-triggered refreshes through the
+			// API gateway's own Apply path also emit lifecycle
+			// events.
+			api.SetAuthEvents(p.authEventWriter)
 		}
 	}
 }
@@ -3426,8 +3511,10 @@ func closeResource(errs *[]error, closer Closer) {
 func (p *Platform) Close() error {
 	var errs []error
 	p.stopBackgroundTrackers()
+	p.stopConnOAuthRefresherDuringShutdown(&errs)
 	p.flushEnrichmentState()
 	p.closeSessionLayer(&errs)
+	p.closeAuthEventStore(&errs)
 	p.closeAuditLayer(&errs)
 	p.closeProvidersAndRegistry(&errs)
 	p.closeDatabase(&errs)
@@ -3436,6 +3523,33 @@ func (p *Platform) Close() error {
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// stopConnOAuthRefresherDuringShutdown waits up to 10s for any
+// in-flight refresh to settle before exiting. The Stop call is a
+// no-op when the refresher was never started. Named distinctly from
+// the exported StopConnOAuthRefresher so revive's confusing-naming
+// rule doesn't flag the differ-only-by-casing pair.
+func (p *Platform) stopConnOAuthRefresherDuringShutdown(errs *[]error) {
+	if p.connOAuthRefresher == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	slog.Debug("shutdown: stopping connoauth refresher")
+	if err := p.connOAuthRefresher.Stop(ctx); err != nil {
+		*errs = append(*errs, fmt.Errorf("stop connoauth refresher: %w", err))
+	}
+}
+
+// closeAuthEventStore stops the daily prune goroutine. Safe to call
+// when no AuthEventStore was wired (e.g., dev with no DB).
+func (p *Platform) closeAuthEventStore(errs *[]error) {
+	if p.authEventStore == nil {
+		return
+	}
+	slog.Debug("shutdown: closing auth event store")
+	closeResource(errs, p.authEventStore)
 }
 
 // closeSessionLayer tears down the session cache, session store,

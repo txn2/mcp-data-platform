@@ -6,17 +6,22 @@
 // gateway view.
 import { useState } from "react";
 import {
+  useConnectionAuthEvents,
   useConnectionOAuthStatus,
   useReacquireConnectionOAuth,
   useStartConnectionOAuth,
 } from "@/api/admin/hooks";
-import type { ConnectionOAuthStatus } from "@/api/admin/types";
+import type { ConnectionAuthEvent, ConnectionOAuthStatus } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   ExternalLink,
+  History,
   Key,
   KeyRound,
   RefreshCw,
@@ -151,23 +156,7 @@ function Inner({ kind, name }: { kind: string; name: string }) {
       )}
 
       {status?.needs_reauth && (
-        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-          {status.token_acquired ? (
-            <>
-              <span className="font-medium">Reauth needed soon.</span> The current
-              access token still works, but the refresh-token deadline has passed.
-              Click <strong>Connect</strong> to issue a fresh credential.
-            </>
-          ) : (
-            <>
-              <span className="font-medium">Not connected.</span> Click{" "}
-              <strong>Connect</strong> to authorize this connection in your
-              browser. The platform will then keep the access token refreshed
-              automatically — including for cron jobs and scheduled prompts —
-              until the upstream invalidates the refresh token.
-            </>
-          )}
-        </div>
+        <ConnectionStatePrompt status={status} />
       )}
 
       {status && <StatusGrid status={status} />}
@@ -197,8 +186,168 @@ function Inner({ kind, name }: { kind: string; name: string }) {
           {actionMsg.text}
         </div>
       )}
+
+      <AuthEventHistory kind={kind} name={name} />
     </div>
   );
+}
+
+// ConnectionStatePrompt renders the appropriate explainer band for the
+// three distinct needs-reauth states. Distinguishing them is the
+// difference between an operator panicking ("the token vanished!")
+// and an operator nodding ("ah, the IdP rejected the refresh, I need
+// to reconnect"). See issue #395 Part 3.
+function ConnectionStatePrompt({ status }: { status: ConnectionOAuthStatus }) {
+  if (status.last_revocation) {
+    const reason = status.last_revocation.reason || "rejected";
+    const host = status.last_revocation.idp_host;
+    return (
+      <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+        <div className="flex items-start gap-1.5">
+          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="font-medium">Previous session rejected by the upstream IdP.</span>{" "}
+            {host && <>The token endpoint at <span className="font-mono">{host}</span> </>}
+            returned <span className="font-mono">{reason}</span>
+            {" "}({formatRelative(status.last_revocation.occurred_at)}).
+            Most common causes: the IdP's SSO session idled out, the operator
+            revoked consent, or the refresh token's wall-clock lifetime
+            expired. Click <strong>Connect</strong> to re-authorize.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (status.token_acquired) {
+    return (
+      <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+        <span className="font-medium">Reauth needed soon.</span> The current
+        access token still works, but the refresh-token deadline has passed.
+        Click <strong>Connect</strong> to issue a fresh credential.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+      <span className="font-medium">Not connected.</span> Click{" "}
+      <strong>Connect</strong> to authorize this connection in your
+      browser. The platform will then keep the access token refreshed
+      automatically — including for cron jobs and scheduled prompts —
+      until the upstream invalidates the refresh token.
+    </div>
+  );
+}
+
+// AuthEventHistory is the collapsible History section under the OAuth
+// status card. Renders the most recent 30 lifecycle events so operators
+// can answer "when did this connection's token last refresh, and what
+// triggered the previous deletion?" without opening pod logs. Hidden
+// by default — most operators don't need the detail except when
+// debugging.
+function AuthEventHistory({ kind, name }: { kind: string; name: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: events, isLoading } = useConnectionAuthEvents(kind, name, open);
+  const list = events ?? [];
+  return (
+    <div className="rounded-md border bg-muted/10 px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        <History className="h-3 w-3" />
+        <span>History</span>
+        {open && !isLoading && (
+          <span className="ml-1 text-muted-foreground/70">({list.length})</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {isLoading && (
+            <div className="text-xs text-muted-foreground">Loading…</div>
+          )}
+          {!isLoading && list.length === 0 && (
+            <div className="text-xs text-muted-foreground">
+              No events recorded yet for this connection.
+            </div>
+          )}
+          {!isLoading && list.map((ev) => (
+            <AuthEventRow key={ev.id} event={ev} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const EVENT_LABELS: Record<ConnectionAuthEvent["event_type"], string> = {
+  connect_started: "Connect started",
+  connect_completed: "Connect completed",
+  refresh_succeeded: "Refresh succeeded",
+  refresh_failed_transient: "Refresh failed (transient)",
+  refresh_failed_revoked: "Refresh failed (revoked)",
+  refresh_skipped_no_token: "Refresh skipped — no refresh token",
+  refresh_skipped_expired: "Refresh skipped — refresh expired",
+  refresh_rotation_persistence_failed: "Rotated token persistence failed",
+  token_deleted_revoked: "Token deleted — revoked",
+  token_deleted_admin: "Token deleted — admin",
+};
+
+const EVENT_TONE: Record<ConnectionAuthEvent["event_type"], string> = {
+  connect_started: "text-muted-foreground",
+  connect_completed: "text-emerald-600 dark:text-emerald-400",
+  refresh_succeeded: "text-emerald-600 dark:text-emerald-400",
+  refresh_failed_transient: "text-amber-600 dark:text-amber-400",
+  refresh_failed_revoked: "text-destructive",
+  refresh_skipped_no_token: "text-muted-foreground",
+  refresh_skipped_expired: "text-amber-600 dark:text-amber-400",
+  refresh_rotation_persistence_failed: "text-destructive font-medium",
+  token_deleted_revoked: "text-destructive",
+  token_deleted_admin: "text-muted-foreground",
+};
+
+function AuthEventRow({ event }: { event: ConnectionAuthEvent }) {
+  const label = EVENT_LABELS[event.event_type] || event.event_type;
+  const tone = EVENT_TONE[event.event_type] || "text-muted-foreground";
+  const detail = renderDetailHint(event);
+  return (
+    <div className="flex items-baseline gap-2 text-xs">
+      <span className="text-muted-foreground font-mono w-20 flex-shrink-0">
+        {formatRelative(event.occurred_at)}
+      </span>
+      <span className={cn("font-medium", tone)}>{label}</span>
+      <span className="text-muted-foreground/70 font-mono text-[11px] truncate">
+        {event.actor}
+      </span>
+      {detail && (
+        <span className="text-muted-foreground/70 truncate">{detail}</span>
+      )}
+    </div>
+  );
+}
+
+// renderDetailHint produces a one-line detail string for an event,
+// pulling the most relevant detail fields per Type. Returns empty
+// string when the row has nothing extra worth showing (a clean
+// connect_started, for example).
+function renderDetailHint(ev: ConnectionAuthEvent): string {
+  if (!ev.detail) return "";
+  const d = ev.detail as Record<string, unknown>;
+  if (typeof d.idp_error_code === "string" && d.idp_error_code) {
+    return `(${d.idp_error_code})`;
+  }
+  if (typeof d.reason === "string" && d.reason) {
+    return `(${d.reason})`;
+  }
+  if (d.rotated_refresh === true) {
+    const ms = typeof d.duration_ms === "number" ? `, ${d.duration_ms}ms` : "";
+    return `(rotated refresh${ms})`;
+  }
+  if (typeof d.duration_ms === "number" && d.duration_ms > 0) {
+    return `(${d.duration_ms}ms)`;
+  }
+  return "";
 }
 
 function StatusGrid({ status }: { status: ConnectionOAuthStatus }) {

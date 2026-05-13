@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -126,6 +127,7 @@ type Toolkit struct {
 	connections      map[string]*upstream
 	enrichmentEngine *enrichment.Engine
 	tokenStore       TokenStore
+	authEvents       *authevents.Writer
 
 	// listChangedNotifier (when non-nil) is fired (debounced) every
 	// time the toolkit's aggregate tool inventory changes — i.e. after
@@ -144,6 +146,22 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+}
+
+// SetAuthEvents wires the audit-event writer into the toolkit and any
+// already-materialized OAuth token sources. Called by the platform
+// alongside SetTokenStore so every outbound refresh / revocation /
+// rotation event from the tool-call hot path lands in the
+// connection_auth_events history.
+func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.authEvents = w
+	for _, u := range t.connections {
+		if u.client != nil && u.client.oauth != nil {
+			u.client.oauth.SetAuthEvents(w)
+		}
+	}
 }
 
 // SetTokenStore wires a persistent OAuth token store into the gateway.
@@ -268,6 +286,14 @@ func (t *Toolkit) installLiveConnection(name string, cfg Config, client *upstrea
 		tools:     tools,
 		toolNames: makeLocalNames(cfg.ConnectionName, tools),
 		desc:      "Gateway to " + cfg.Endpoint,
+	}
+	// Thread the audit-event writer into the freshly-dialed oauth
+	// source so refresh/revocation events from the tool-call hot path
+	// reach the connection_auth_events table. Toolkit-level
+	// SetAuthEvents catches connections added BEFORE the wire step;
+	// this catches connections added AFTER it.
+	if t.authEvents != nil && client != nil && client.oauth != nil {
+		client.oauth.SetAuthEvents(t.authEvents)
 	}
 	t.connections[name] = u
 	if t.server != nil {
@@ -688,6 +714,14 @@ func (t *Toolkit) installDialResult(r dialResult) error {
 		tools:     tools,
 		toolNames: makeLocalNames(cfg.ConnectionName, tools),
 		desc:      "Gateway to " + cfg.Endpoint,
+	}
+	// Thread the audit-event writer into the freshly-dialed oauth
+	// source so refresh/revocation events from the tool-call hot path
+	// reach the connection_auth_events table. Toolkit-level
+	// SetAuthEvents catches connections added BEFORE the wire step;
+	// this catches connections added AFTER it.
+	if t.authEvents != nil && client != nil && client.oauth != nil {
+		client.oauth.SetAuthEvents(t.authEvents)
 	}
 	t.connections[name] = u
 	if t.server != nil {

@@ -383,6 +383,28 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # connoauth's refresher.go exposes the small public surface a
+      # multi-replica deployment needs: Refresher, RefresherConfig,
+      # NoopLocker, PostgresLocker, plus the ConfigResolver +
+      # AdvisoryLocker interfaces. Each is a genuine public-API type,
+      # not a candidate for collapse.
+      - path: pkg/connoauth/refresher\.go
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: pkg/authevents/
+        linters:
+          - revive
+        text: "max-public-structs"
+      # authevents.Writer's helper methods all take a small fixed
+      # context tuple (ctx, kind, name, actor, tokenURL) plus a
+      # per-type detail. Collapsing that into a struct argument
+      # would force every call site (dozens) to construct one — a
+      # readability loss for no real benefit.
+      - path: pkg/authevents/writer\.go
+        linters:
+          - revive
+        text: "argument-limit"
 
 
 issues:

@@ -787,6 +787,22 @@ export function useConnectionOAuthStatus(kind: string, name: string, enabled = t
   });
 }
 
+// useConnectionAuthEvents returns the most recent 30 OAuth-lifecycle
+// events for the given connection. Powers the History panel under the
+// OAuth status card so operators can see why a token vanished without
+// reading pod logs.
+export function useConnectionAuthEvents(kind: string, name: string, enabled = true) {
+  return useQuery({
+    queryKey: ["connection-auth-events", kind, name],
+    queryFn: () =>
+      apiFetch<import("./types").ConnectionAuthEvent[]>(
+        `/connections/${kind}/${name}/auth-events`,
+      ),
+    enabled: enabled && !!kind && !!name,
+    refetchInterval: 30000,
+  });
+}
+
 // useReacquireConnectionOAuth forces a refresh-token exchange for ANY
 // connection kind. Useful from the admin status card to verify the
 // persisted refresh token still works against the IdP.

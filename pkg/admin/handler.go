@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -140,6 +141,18 @@ type Deps struct {
 	// this registry. New connection kinds register here at startup —
 	// they do NOT add parallel handler files or token stores.
 	OAuthKinds OAuthKindHandlers
+	// AuthEvents writes the durable per-connection OAuth-lifecycle
+	// audit trail (connect, refresh, rotation, revocation, deletion).
+	// nil disables event writes — the admin endpoints still work; the
+	// History panel and "what killed my token at 17:54" diagnostics
+	// just won't have data. Set this when ConnOAuthStore is set; a
+	// platform with no DB has no place to write events anyway.
+	AuthEvents *authevents.Writer
+	// AuthEventStore is the read surface exposed via the History
+	// admin endpoint. Distinct from AuthEvents because writes are
+	// nil-safe (best-effort) while reads need a real implementation
+	// to return 200 instead of an empty list.
+	AuthEventStore authevents.Store
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.

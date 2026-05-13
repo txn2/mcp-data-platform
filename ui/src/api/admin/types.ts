@@ -551,6 +551,34 @@ export interface ConnectionOAuthStatus {
   authenticated_by?: string;
   authenticated_at?: string;
   needs_reauth?: boolean;
+  last_revocation?: {
+    occurred_at: string;
+    reason?: string;
+    idp_host?: string;
+  };
+}
+
+// ConnectionAuthEvent mirrors authevents.Event. The History panel
+// renders the most recent N of these for the active connection.
+export interface ConnectionAuthEvent {
+  id: string;
+  occurred_at: string;
+  connection_kind?: string;
+  connection_name?: string;
+  event_type:
+    | "connect_started"
+    | "connect_completed"
+    | "refresh_succeeded"
+    | "refresh_failed_transient"
+    | "refresh_failed_revoked"
+    | "refresh_skipped_no_token"
+    | "refresh_skipped_expired"
+    | "refresh_rotation_persistence_failed"
+    | "token_deleted_revoked"
+    | "token_deleted_admin";
+  actor: string;
+  idp_host?: string;
+  detail?: Record<string, unknown>;
 }
 
 export interface GatewayConnectionStatus {
