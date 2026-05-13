@@ -201,7 +201,11 @@ auth:
 
 When enabled, the platform registers three HTTP endpoints:
 
-- `GET /portal/auth/login` — Initiates OIDC authorization code flow with PKCE
+- `GET /portal/auth/login` — Initiates OIDC authorization code flow with PKCE.
+  Accepts an optional `return_to` query parameter (site-relative path only;
+  absolute URLs and scheme-relative inputs are rejected) which the callback
+  uses as the post-login redirect. The portal SPA sets this when redirecting
+  to login after a 401 so the operator lands back on the page they were on.
 - `GET /portal/auth/callback` — Processes the OIDC callback, creates session cookie
 - `GET /portal/auth/logout` — Clears session cookie and redirects to OIDC end_session
 

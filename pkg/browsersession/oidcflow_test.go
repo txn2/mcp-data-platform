@@ -1176,3 +1176,188 @@ func TestRedirectWithError(t *testing.T) {
 		t.Errorf("redirect = %q, want /portal/?error=test_error", loc)
 	}
 }
+
+// runLoginCallback walks the login → callback round-trip with the given
+// login query and returns the callback's Location header. Centralizes
+// the cookie-shuttling boilerplate so return_to tests stay focused on
+// the behavior under test.
+func runLoginCallback(t *testing.T, flow *Flow, loginQuery string) string {
+	t.Helper()
+
+	loginPath := "/portal/auth/login"
+	if loginQuery != "" {
+		loginPath += "?" + loginQuery
+	}
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, loginPath, http.NoBody)
+	loginW := httptest.NewRecorder()
+	flow.LoginHandler(loginW, loginReq)
+
+	loginResp := loginW.Result()
+	authURL, err := url.Parse(loginResp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse login redirect: %v", err)
+	}
+	state := authURL.Query().Get("state")
+
+	var stateCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == stateCookieName {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no state cookie from login")
+	}
+
+	callbackReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/portal/auth/callback?code=auth-code&state="+state, http.NoBody)
+	callbackReq.AddCookie(stateCookie)
+	callbackW := httptest.NewRecorder()
+	flow.CallbackHandler(callbackW, callbackReq)
+
+	return callbackW.Result().Header.Get("Location")
+}
+
+func TestCallbackHandlerHonorsReturnTo(t *testing.T) {
+	// Operator clicked Connect on a connection settings page after
+	// their cookie expired; the SPA bounced them through OIDC with
+	// return_to set. They must land back where they were — not at the
+	// portal root — or the action is lost.
+	claims := map[string]any{"sub": "user-42", "email": "user@example.com"}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	got := runLoginCallback(t, flow, "return_to=%2Fportal%2Fsettings%2Fconnections%2Fvendor")
+	if got != "/portal/settings/connections/vendor" {
+		t.Errorf("redirect = %q, want /portal/settings/connections/vendor", got)
+	}
+}
+
+func TestCallbackHandlerReturnToWithQuery(t *testing.T) {
+	// return_to includes its own query string (deep link to an OAuth
+	// status tab). Round-tripping must preserve it.
+	claims := map[string]any{"sub": "user-42", "email": "user@example.com"}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	got := runLoginCallback(t, flow, "return_to="+url.QueryEscape("/portal/settings/connections/vendor?tab=oauth"))
+	if got != "/portal/settings/connections/vendor?tab=oauth" {
+		t.Errorf("redirect = %q, want /portal/settings/connections/vendor?tab=oauth", got)
+	}
+}
+
+func TestCallbackHandlerNoReturnToFallsBackToPostLoginRedirect(t *testing.T) {
+	// No return_to on the login request → behavior is unchanged from
+	// before this feature: callback redirects to PostLoginRedirect.
+	claims := map[string]any{"sub": "user-42", "email": "user@example.com"}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	got := runLoginCallback(t, flow, "")
+	if got != "/portal/" {
+		t.Errorf("redirect = %q, want /portal/", got)
+	}
+}
+
+func TestCallbackHandlerRejectsHostileReturnTo(t *testing.T) {
+	// Each hostile return_to must be dropped at login time, so the
+	// callback falls back to PostLoginRedirect. This guarantees the
+	// login endpoint cannot be weaponized as an open redirect even if
+	// a phishing email puts the value in front of an operator.
+	cases := []struct {
+		name      string
+		returnTo  string
+		wantBlock bool // true ⇒ must redirect to "/portal/"
+	}{
+		{"absolute_http", "http://evil.com/path", true},
+		{"absolute_https", "https://evil.com/path", true},
+		{"scheme_relative", "//evil.com/path", true},
+		{"backslash_variant", "/\\evil.com/path", true},
+		{"javascript_scheme", "javascript:alert(1)", true},
+		{"data_scheme", "data:text/html,<script>", true},
+		{"empty", "", true},
+		{"plain_relative_no_leading_slash", "portal/foo", true},
+		{"site_relative_root", "/portal/settings", false},
+		{"site_relative_with_query", "/portal/settings?tab=oauth", false},
+	}
+
+	claims := map[string]any{"sub": "user-42", "email": "user@example.com"}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			query := ""
+			if tc.returnTo != "" {
+				query = "return_to=" + url.QueryEscape(tc.returnTo)
+			}
+			got := runLoginCallback(t, flow, query)
+			if tc.wantBlock {
+				if got != "/portal/" {
+					t.Errorf("hostile return_to %q leaked through: redirect = %q", tc.returnTo, got)
+				}
+			} else {
+				if got != tc.returnTo {
+					t.Errorf("benign return_to %q dropped: redirect = %q", tc.returnTo, got)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizeReturnTo(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"/", "/"},
+		{"/portal/foo", "/portal/foo"},
+		{"/portal/foo?bar=baz#frag", "/portal/foo?bar=baz#frag"},
+		{"//evil.com", ""},
+		{"/\\evil.com", ""},
+		{"http://evil.com", ""},
+		{"https://evil.com/path", ""},
+		{"javascript:alert(1)", ""},
+		{"portal/foo", ""},
+		{"./portal", ""},
+	}
+	for _, tc := range cases {
+		got := sanitizeReturnTo(tc.in)
+		if got != tc.want {
+			t.Errorf("sanitizeReturnTo(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

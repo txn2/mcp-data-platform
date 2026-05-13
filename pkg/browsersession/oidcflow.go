@@ -129,6 +129,14 @@ func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 // LoginHandler initiates the OIDC authorization code flow.
 // It generates state + PKCE verifier, stores them in a temporary cookie,
 // and redirects the user to the OIDC provider's authorization endpoint.
+//
+// An optional `return_to` query parameter is captured into the state
+// cookie and used as the post-login redirect on callback. This lets the
+// admin SPA send a 401-recovery flow back to the page the operator was
+// on (e.g., a connection settings page where they clicked Connect)
+// rather than dropping them at the portal root. The value must be a
+// site-relative path; anything else is silently dropped so an attacker
+// can't dangle an open redirect off the login endpoint.
 func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	state, err := randomString()
 	if err != nil {
@@ -146,6 +154,9 @@ func (f *Flow) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	stateData := url.Values{
 		logKeyState: {state},
 		"verifier":  {verifier},
+	}
+	if returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to")); returnTo != "" {
+		stateData.Set("return_to", returnTo)
 	}
 	stateToken, err := signStateData(stateData.Encode(), &f.cfg.Cookie)
 	if err != nil {
@@ -203,8 +214,8 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate state and extract PKCE verifier.
-	verifier, err := f.validateCallbackState(r, state)
+	// Validate state and extract PKCE verifier + return_to.
+	verifier, returnTo, err := f.validateCallbackState(r, state)
 	if err != nil {
 		f.redirectWithError(w, r, "invalid_state")
 		return
@@ -219,7 +230,17 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, f.cfg.PostLoginRedirect, http.StatusFound)
+	// dest is either the trusted config value or returnTo, which was
+	// passed through sanitizeReturnTo at both write (login) and read
+	// (validateCallbackState) — any value with a scheme, host, or
+	// scheme-relative prefix has already been dropped, so dest is
+	// guaranteed to be a site-relative path on this origin.
+	dest := f.cfg.PostLoginRedirect
+	if returnTo != "" {
+		dest = returnTo
+	}
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 // redirectWithError redirects the user to the portal with an error query parameter
@@ -230,24 +251,62 @@ func (f *Flow) redirectWithError(w http.ResponseWriter, r *http.Request, errCode
 }
 
 // validateCallbackState verifies the state cookie matches the callback state
-// parameter and returns the PKCE code verifier.
-func (f *Flow) validateCallbackState(r *http.Request, state string) (string, error) {
+// parameter and returns the PKCE code verifier and the (already-sanitized)
+// return_to path that was captured at login. return_to is empty when the
+// login request didn't carry one or it failed validation at that time.
+func (f *Flow) validateCallbackState(r *http.Request, state string) (verifier, returnTo string, err error) {
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil {
-		return "", fmt.Errorf("missing state cookie")
+		return "", "", fmt.Errorf("missing state cookie")
 	}
 
 	stateData, err := verifyStateData(stateCookie.Value, f.cfg.Cookie.Key)
 	if err != nil {
-		return "", fmt.Errorf("invalid state cookie")
+		return "", "", fmt.Errorf("invalid state cookie")
 	}
 
 	parsed, err := url.ParseQuery(stateData)
 	if err != nil || parsed.Get(logKeyState) != state {
-		return "", fmt.Errorf("state mismatch")
+		return "", "", fmt.Errorf("state mismatch")
 	}
 
-	return parsed.Get("verifier"), nil
+	// Re-sanitize on read: signed cookies prove integrity but the
+	// sanitizer is the security boundary, so running it on both ends
+	// guarantees an upgrade that tightens validation can't be bypassed
+	// by a state cookie that was minted before the upgrade.
+	return parsed.Get("verifier"), sanitizeReturnTo(parsed.Get("return_to")), nil
+}
+
+// sanitizeReturnTo accepts a candidate post-login redirect path and
+// returns it only when it's a site-relative, single-slash path. Anything
+// else — absolute URLs, scheme-relative URLs (`//evil.com/...`),
+// backslash variants, or non-path inputs — is dropped. The portal
+// itself only ever needs to land back on a path on its own origin, so
+// rejecting everything else closes the open-redirect class entirely.
+func sanitizeReturnTo(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Reject scheme-relative URLs (`//host`, `/\host`) which most
+	// browsers resolve against the current origin's scheme. Anchor on
+	// a single `/` first, then explicitly reject the second character
+	// being `/` or `\`.
+	if !strings.HasPrefix(s, "/") {
+		return ""
+	}
+	if len(s) > 1 && (s[1] == '/' || s[1] == '\\') {
+		return ""
+	}
+	// Parse to guarantee no host/scheme survived (a URL like
+	// `/foo` parses with empty Host/Scheme; anything else is suspect).
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	if u.Scheme != "" || u.Host != "" {
+		return ""
+	}
+	return s
 }
 
 // clearStateCookie removes the temporary OIDC state cookie.
