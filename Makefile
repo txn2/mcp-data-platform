@@ -93,25 +93,34 @@ coverage: test
 ## not part of `make verify`).
 lint:
 	@echo "Running patch-scoped lint (matches CI only-new-issues, includes uncommitted changes)..."
+	@# Auto-fetch so a fresh clone or a stale local mirror doesn't bypass
+	@# the gate. The fetch is shallow + quiet and tolerates network
+	@# absence; if BOTH origin/main and main remain unreachable, we
+	@# HARD FAIL rather than silently skip — silent skipping is exactly
+	@# how a clean local make verify let lint issues reach CI in #393.
+	@git fetch --quiet origin main 2>/dev/null || true
 	@if git rev-parse origin/main >/dev/null 2>&1; then \
 		BASE=origin/main; \
 	elif git rev-parse main >/dev/null 2>&1; then \
 		BASE=main; \
 	else \
-		echo "WARN: neither origin/main nor main is reachable; skipping patch lint."; \
-		echo "      Run \`git fetch origin main\` to enable CI-equivalent linting."; \
-		exit 0; \
+		echo "ERROR: neither origin/main nor main is reachable."; \
+		echo "       Run \`git fetch origin main\` and retry."; \
+		echo "       (lint MUST run against a base; silent-skip is a CI-parity hole.)"; \
+		exit 1; \
 	fi; \
 	MERGE_BASE=$$(git merge-base $$BASE HEAD 2>/dev/null); \
 	if [ -z "$$MERGE_BASE" ]; then \
-		echo "WARN: could not compute merge-base against $$BASE; skipping patch lint."; \
-		exit 0; \
+		echo "ERROR: could not compute merge-base against $$BASE."; \
+		echo "       Ensure the current branch shares history with $$BASE."; \
+		exit 1; \
 	fi; \
 	PATCH=$$(mktemp -t mcpdp-lint-patch.XXXXXX); \
 	trap "rm -f $$PATCH" EXIT; \
 	git diff $$MERGE_BASE > $$PATCH; \
 	if [ ! -s $$PATCH ]; then \
 		echo "No changes vs merge-base ($$BASE); nothing to lint."; \
+		echo "       (If you expected changes, confirm \`git log $$BASE..HEAD\` is non-empty.)"; \
 		exit 0; \
 	fi; \
 	echo "Linting against merge-base $$MERGE_BASE (from $$BASE) — includes uncommitted changes"; \

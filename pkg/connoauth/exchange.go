@@ -24,8 +24,7 @@ const maxTokenResponseBytes = 1 << 20
 // IdP token endpoint host across exchange / refresh / status log
 // lines. Consolidated as a constant so SIEM dashboards and grep
 // queries align across the unified flow.
-//
-//nolint:gosec // G101 false positive: this is a log field NAME, not a credential.
+// #nosec G101 -- field NAME for structured logging, not a credential value
 const logKeyTokenURLHost = "token_url_host"
 
 // ExchangeInput collects the parameters of an authorization_code
@@ -148,6 +147,10 @@ func buildExchangeRequest(ctx context.Context, in ExchangeInput) (*http.Request,
 func postExchange(client *http.Client, req *http.Request, tokenURL string) ([]byte, error) {
 	start := time.Now()
 	tokenHost := urlHost(tokenURL)
+	// #nosec G107 G704 -- request URL is the operator-authored OAuth token
+	// endpoint from a validated connection config; client is the locally
+	// constructed newTokenExchangeClient with CheckRedirect refusing 3xx
+	// and a hard timeout.
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Warn("connoauth: exchange: transport error",

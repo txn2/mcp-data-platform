@@ -2,12 +2,12 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
-	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 func TestNewOAuthKindHandler_NilToolkit(t *testing.T) {
@@ -175,7 +175,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// silence unused-import lint when the connoauth import isn't otherwise
-// referenced by a focused subset of these tests.
+// connoauth is referenced via ParseOAuthConfig's return type in the
+// tests above; no further stubs needed.
 var _ = connoauth.KindMCP
-var _ = errors.New

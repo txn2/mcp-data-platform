@@ -66,7 +66,17 @@ func newOAuthTestHandler(t *testing.T, connStore *mockConnectionStore, kinds OAu
 	return h, store
 }
 
-func setupOAuthFixture(t *testing.T, tokenSrv *httptest.Server) (*Handler, connoauth.Store, *fakeOAuthKindHandler, *mockConnectionStore) {
+// oauthFixture bundles the live handler + its mocks so test cases can
+// reach into specific components without exceeding revive's three-
+// return-value limit on the constructor.
+type oauthFixture struct {
+	handler   *Handler
+	store     connoauth.Store
+	kind      *fakeOAuthKindHandler
+	connStore *mockConnectionStore
+}
+
+func setupOAuthFixture(t *testing.T, tokenSrv *httptest.Server) *oauthFixture {
 	t.Helper()
 	fake := &fakeOAuthKindHandler{
 		parseCfg: connoauth.Config{
@@ -95,12 +105,12 @@ func setupOAuthFixture(t *testing.T, tokenSrv *httptest.Server) (*Handler, conno
 	}
 	kinds := OAuthKindHandlers{connoauth.KindMCP: fake}
 	h, store := newOAuthTestHandler(t, connStore, kinds)
-	return h, store, fake, connStore
+	return &oauthFixture{handler: h, store: store, kind: fake, connStore: connStore}
 }
 
-// fakeIdPServer is a minimal HTTP test double that issues tokens on
+// fakeIDPServer is a minimal HTTP test double that issues tokens on
 // /token. Each callback to the test can override the response.
-func fakeIdPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+func fakeIDPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", handler)
@@ -114,8 +124,9 @@ func fakeIdPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 // ────────────────────────────────────────────────────────────────────────
 
 func TestStartConnectionOAuth_Success(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
 		"/api/v1/admin/connections/mcp/alpha/oauth-start",
@@ -136,8 +147,9 @@ func TestStartConnectionOAuth_Success(t *testing.T) {
 }
 
 func TestStartConnectionOAuth_UnknownKind(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
 		"/api/v1/admin/connections/unsupported/alpha/oauth-start", http.NoBody)
@@ -148,8 +160,9 @@ func TestStartConnectionOAuth_UnknownKind(t *testing.T) {
 }
 
 func TestStartConnectionOAuth_ConnectionNotFound(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, connStore := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h, connStore := fx.handler, fx.connStore
 	connStore.getErr = platform.ErrConnectionNotFound
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -160,8 +173,9 @@ func TestStartConnectionOAuth_ConnectionNotFound(t *testing.T) {
 }
 
 func TestStartConnectionOAuth_NotConfiguredForAuthCode(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, fake, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h, fake := fx.handler, fx.kind
 	fake.parseErr = errors.New("connection is not configured for authorization_code OAuth")
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -176,8 +190,9 @@ func TestStartConnectionOAuth_NotConfiguredForAuthCode(t *testing.T) {
 // ────────────────────────────────────────────────────────────────────────
 
 func TestConnectionOAuthStatus_NoToken(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/mcp/alpha/oauth-status", http.NoBody)
@@ -192,8 +207,9 @@ func TestConnectionOAuthStatus_NoToken(t *testing.T) {
 }
 
 func TestConnectionOAuthStatus_WithToken(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, store, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h, store := fx.handler, fx.store
 	now := time.Now()
 	_ = store.Set(context.Background(), connoauth.PersistedToken{
 		Key:             connoauth.Key{Kind: connoauth.KindMCP, Name: "alpha"},
@@ -221,7 +237,7 @@ func TestConnectionOAuthStatus_WithToken(t *testing.T) {
 // ────────────────────────────────────────────────────────────────────────
 
 func TestReacquireConnectionOAuth_Success(t *testing.T) {
-	srv := fakeIdPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	srv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "at-fresh",
@@ -230,7 +246,8 @@ func TestReacquireConnectionOAuth_Success(t *testing.T) {
 			"token_type":    "Bearer",
 		})
 	})
-	h, store, _, _ := setupOAuthFixture(t, srv)
+	fx := setupOAuthFixture(t, srv)
+	h, store := fx.handler, fx.store
 	now := time.Now()
 	_ = store.Set(context.Background(), connoauth.PersistedToken{
 		Key:          connoauth.Key{Kind: connoauth.KindMCP, Name: "alpha"},
@@ -254,12 +271,13 @@ func TestReacquireConnectionOAuth_Success(t *testing.T) {
 }
 
 func TestReacquireConnectionOAuth_NeedsReauth(t *testing.T) {
-	srv := fakeIdPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	srv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	})
-	h, store, _, _ := setupOAuthFixture(t, srv)
+	fx := setupOAuthFixture(t, srv)
+	h, store := fx.handler, fx.store
 	_ = store.Set(context.Background(), connoauth.PersistedToken{
 		Key:          connoauth.Key{Kind: connoauth.KindMCP, Name: "alpha"},
 		AccessToken:  "at",
@@ -280,11 +298,12 @@ func TestReacquireConnectionOAuth_NeedsReauth(t *testing.T) {
 // ────────────────────────────────────────────────────────────────────────
 
 func TestConnectionOAuthCallback_RoundTrip(t *testing.T) {
-	tokenSrv := fakeIdPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	tokenSrv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"at","refresh_token":"rt","expires_in":3600,"token_type":"Bearer"}`))
 	})
-	h, store, fake, _ := setupOAuthFixture(t, tokenSrv)
+	fx := setupOAuthFixture(t, tokenSrv)
+	h, store, fake := fx.handler, fx.store, fx.kind
 
 	// Step 1: oauth-start
 	startReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -321,8 +340,9 @@ func TestConnectionOAuthCallback_RoundTrip(t *testing.T) {
 }
 
 func TestConnectionOAuthCallback_MissingState(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/oauth/callback?code=x", http.NoBody)
@@ -334,8 +354,9 @@ func TestConnectionOAuthCallback_MissingState(t *testing.T) {
 }
 
 func TestConnectionOAuthCallback_UpstreamError(t *testing.T) {
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	// Need a valid PKCE state row first
 	startReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -345,7 +366,7 @@ func TestConnectionOAuthCallback_UpstreamError(t *testing.T) {
 	var startResp startConnectionOAuthResponse
 	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
 
-	cbURL := "/api/v1/admin/oauth/callback?error=access_denied&error_description=user+cancelled&state=" + url.QueryEscape(startResp.State)
+	cbURL := "/api/v1/admin/oauth/callback?error=access_denied&error_description=user+canceled&state=" + url.QueryEscape(startResp.State)
 	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody)
 	cbW := httptest.NewRecorder()
 	h.ServeHTTP(cbW, cbReq)
@@ -356,8 +377,9 @@ func TestConnectionOAuthCallback_UpstreamError(t *testing.T) {
 func TestConnectionOAuthCallback_LegacyAPIGatewayURLAliased(t *testing.T) {
 	// The legacy /api/v1/admin/api-gateway/oauth/callback URL must
 	// still be handled (customer IdP configs registered it).
-	srv := fakeIdPServer(t, func(http.ResponseWriter, *http.Request) {})
-	h, _, _, _ := setupOAuthFixture(t, srv)
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	h := fx.handler
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/api-gateway/oauth/callback?state=", http.NoBody)
