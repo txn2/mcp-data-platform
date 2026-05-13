@@ -1,0 +1,148 @@
+{
+  "realm": "mcp-platform",
+  "enabled": true,
+  "displayName": "MCP Data Platform Dev",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 3600,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": false,
+  "roles": {
+    "realm": [
+      { "name": "dp_admin", "description": "Platform administrator (matches role_prefix dp_)" },
+      { "name": "dp_analyst", "description": "Data analyst persona" },
+      { "name": "dp_engineer", "description": "Data engineer persona" }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin@example.com",
+      "email": "admin@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Admin",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["dp_admin"]
+    },
+    {
+      "username": "analyst@example.com",
+      "email": "analyst@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Analyst",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "analyst-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["dp_analyst"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "mcp-data-platform-portal",
+      "name": "Portal Login (operator browser session)",
+      "description": "Used by the platform's auth.oidc / browser_session flow for operator portal sign-in.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "portal-dev-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/portal/auth/callback",
+        "http://localhost:5173/portal/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/portal/##http://localhost:5173/portal/"
+      },
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "optionalClientScopes": ["offline_access"],
+      "protocolMappers": [
+        {
+          "name": "realm roles in id_token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "oauth-mcp-dev",
+      "name": "MCP gateway fixture connection",
+      "description": "OAuth client used by the oauth-mcp-dev connection (MCP gateway → upstream MCP server).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "oauth-mcp-dev-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/api/v1/admin/oauth/callback",
+        "http://localhost:5173/api/v1/admin/oauth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:5173"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email"],
+      "optionalClientScopes": ["offline_access"]
+    },
+    {
+      "clientId": "oauth-api-dev",
+      "name": "HTTP API gateway fixture connection",
+      "description": "OAuth client used by the oauth-api-dev connection (API gateway → api-test fixture).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "oauth-api-dev-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/api/v1/admin/oauth/callback",
+        "http://localhost:5173/api/v1/admin/oauth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:5173"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email"],
+      "optionalClientScopes": ["offline_access"]
+    }
+  ]
+}

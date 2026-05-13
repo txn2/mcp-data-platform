@@ -69,12 +69,21 @@ func (s *PostgresPKCEStore) Put(ctx context.Context, state string, val *PKCEStat
 	if err != nil {
 		return &putError{op: "encrypt code_verifier", err: err}
 	}
+	kind := val.kind
+	if kind == "" {
+		// Legacy callers that don't set Kind are MCP-gateway flows by
+		// construction (only kind that used this table at the time).
+		// Migration 000039's column default is identical; we set the
+		// field explicitly here so the take side never sees an empty
+		// kind even if a future migration drops the default.
+		kind = connectionKindMCP
+	}
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO oauth_pkce_states
-            (state, connection, code_verifier, started_by, return_url, redirect_uri, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + ($8 || ' seconds')::interval)
+            (state, connection, connection_kind, code_verifier, started_by, return_url, redirect_uri, created_at, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW() + ($9 || ' seconds')::interval)
          ON CONFLICT (state) DO NOTHING`,
-		state, val.connection, verifierEnc, val.startedBy,
+		state, val.connection, kind, verifierEnc, val.startedBy,
 		val.returnURL, val.redirectURI, val.createdAt,
 		fmt.Sprintf("%d", int64(pkceTTL.Seconds())))
 	if err != nil {
@@ -121,13 +130,13 @@ func (s *PostgresPKCEStore) Take(ctx context.Context, state string) (*PKCEState,
 	row := s.db.QueryRowContext(ctx,
 		`DELETE FROM oauth_pkce_states
          WHERE state = $1 AND expires_at > NOW()
-         RETURNING connection, code_verifier, started_by, return_url, redirect_uri, created_at`,
+         RETURNING connection, connection_kind, code_verifier, started_by, return_url, redirect_uri, created_at`,
 		state)
 	var (
 		v           PKCEState
 		verifierEnc string
 	)
-	if err := row.Scan(&v.connection, &verifierEnc, &v.startedBy,
+	if err := row.Scan(&v.connection, &v.kind, &verifierEnc, &v.startedBy,
 		&v.returnURL, &v.redirectURI, &v.createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPKCEStateNotFound

@@ -509,7 +509,13 @@ func TestLogoutHandler(t *testing.T) {
 	}
 }
 
-func TestLogoutHandlerUsesPostLogoutRedirect(t *testing.T) {
+func TestLogoutHandlerPostLogoutRedirectFromRequestOrigin(t *testing.T) {
+	// LogoutHandler derives post_logout_redirect_uri from the
+	// request's scheme + host (X-Forwarded-* takes precedence over
+	// r.Host) so a session that arrived at a non-default origin
+	// returns to that same origin after Keycloak completes logout.
+	// Each candidate origin must be registered on the OIDC client's
+	// post.logout.redirect.uris allow-list.
 	srv := mockOIDCProvider(t, nil)
 	defer srv.Close()
 
@@ -523,6 +529,8 @@ func TestLogoutHandlerUsesPostLogoutRedirect(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
+	req.Header.Set("X-Forwarded-Host", "vite.local:5173")
+	req.Header.Set("X-Forwarded-Proto", "http")
 	w := httptest.NewRecorder()
 
 	flow.LogoutHandler(w, req)
@@ -541,8 +549,9 @@ func TestLogoutHandlerUsesPostLogoutRedirect(t *testing.T) {
 		t.Fatalf("invalid redirect URL: %v", parseErr)
 	}
 	redirectURI := parsed.Query().Get("post_logout_redirect_uri")
-	if redirectURI != "https://app.example.com/portal/" {
-		t.Errorf("post_logout_redirect_uri = %q, want https://app.example.com/portal/", redirectURI)
+	wantRedirect := "http://vite.local:5173" + DefaultPortalPath
+	if redirectURI != wantRedirect {
+		t.Errorf("post_logout_redirect_uri = %q, want %q", redirectURI, wantRedirect)
 	}
 }
 
@@ -566,8 +575,13 @@ func TestLogoutHandlerDefaultsPostLogoutToPostLogin(t *testing.T) {
 	}
 }
 
-func TestLogoutHandlerNoEndSessionUsesPostLogoutRedirect(t *testing.T) {
-	// When there's no end_session_endpoint, the fallback should use PostLogoutRedirect
+func TestLogoutHandlerNoEndSessionUsesRequestOrigin(t *testing.T) {
+	// When there's no end_session_endpoint, LogoutHandler derives the
+	// post-logout redirect from the request's scheme + host so a
+	// session started on a non-default origin (e.g., a Vite dev
+	// server, an alternate ingress host) returns to that same origin.
+	// The statically configured PostLogoutRedirect is only the
+	// fallback for header-less requests.
 	mux := http.NewServeMux()
 	var serverURL string
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -590,7 +604,11 @@ func TestLogoutHandlerNoEndSessionUsesPostLogoutRedirect(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
+	// X-Forwarded-Host overrides r.Host when set, mirroring the Vite
+	// dev server / ingress reverse-proxy pattern.
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
+	req.Header.Set("X-Forwarded-Host", "vite.local:5173")
+	req.Header.Set("X-Forwarded-Proto", "http")
 	w := httptest.NewRecorder()
 
 	flow.LogoutHandler(w, req)
@@ -601,8 +619,9 @@ func TestLogoutHandlerNoEndSessionUsesPostLogoutRedirect(t *testing.T) {
 	}
 
 	loc := resp.Header.Get("Location")
-	if loc != "https://app.example.com/portal/" {
-		t.Errorf("redirect = %q, want https://app.example.com/portal/", loc)
+	wantLoc := "http://vite.local:5173" + DefaultPortalPath
+	if loc != wantLoc {
+		t.Errorf("redirect = %q, want %q", loc, wantLoc)
 	}
 }
 
@@ -639,8 +658,13 @@ func TestLogoutHandlerNoEndSession(t *testing.T) {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)
 	}
 
-	if resp.Header.Get("Location") != "/portal/" {
-		t.Errorf("redirect = %q, want /portal/", resp.Header.Get("Location"))
+	// LogoutHandler now derives the post-logout target from the request
+	// scheme + host so a session started on a non-default origin
+	// returns to that same origin. httptest's default Host is
+	// "example.com", and no TLS → scheme="http".
+	wantLoc := "http://example.com" + DefaultPortalPath
+	if resp.Header.Get("Location") != wantLoc {
+		t.Errorf("redirect = %q, want %q", resp.Header.Get("Location"), wantLoc)
 	}
 }
 

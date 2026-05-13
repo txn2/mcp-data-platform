@@ -60,11 +60,32 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
           secure: false,
+          // xfwd populates X-Forwarded-Host / X-Forwarded-Proto with
+          // the ORIGINAL request's host (e.g. localhost:5173), so the
+          // Go server's OAuth callback URL builder points the IdP
+          // back at the Vite dev server. Without this, OAuth flows
+          // started from :5173 redirect back to :8080 — and the user
+          // ends up viewing the embedded (compiled-in, stale) UI
+          // bundle instead of the live Vite source.
+          xfwd: true,
         },
         "/portal/view": {
           target: apiTarget,
           changeOrigin: true,
           secure: false,
+          xfwd: true,
+        },
+        // /portal/auth/* is the platform's browser_session OIDC flow
+        // (login → IdP → callback → logout). Without this proxy, the
+        // SPA dev server tries to resolve /portal/auth/login as a
+        // client-side route, returns index.html, and the operator
+        // sees the login page reload itself ("just jumps") instead of
+        // being redirected to Keycloak.
+        "/portal/auth": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+          xfwd: true,
         },
       },
     },

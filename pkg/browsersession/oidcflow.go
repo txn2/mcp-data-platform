@@ -303,10 +303,19 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	ClearCookie(w, &f.cfg.Cookie)
 
+	// Build the post-logout redirect dynamically from the request so a
+	// session that started on a non-default origin (e.g., Vite dev
+	// server on :5173, an alternate ingress host) returns the operator
+	// to that same origin. The configured PostLogoutRedirect is the
+	// fallback for cases where headers are absent. Each candidate
+	// origin must be registered on the OIDC client's
+	// post.logout.redirect.uris.
+	postLogout := requestPostLogoutRedirect(r, f.cfg.PostLogoutRedirect)
+
 	if f.endpoints.EndSessionEndpoint != "" {
 		params := url.Values{
 			paramClientID:              {f.cfg.ClientID},
-			"post_logout_redirect_uri": {f.cfg.PostLogoutRedirect},
+			"post_logout_redirect_uri": {postLogout},
 		}
 		if idTokenHint != "" {
 			params.Set("id_token_hint", idTokenHint)
@@ -315,7 +324,33 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, f.cfg.PostLogoutRedirect, http.StatusFound)
+	http.Redirect(w, r, postLogout, http.StatusFound)
+}
+
+// requestPostLogoutRedirect derives the absolute post-logout redirect
+// URL from the incoming request's scheme + host, falling back to the
+// statically configured value when headers are absent. Honors
+// X-Forwarded-Proto / X-Forwarded-Host so reverse-proxied deployments
+// (Vite dev server, ingress controllers) point operators back at the
+// host their browser is actually using — not the host the Go server
+// sees on its loopback bind.
+func requestPostLogoutRedirect(r *http.Request, fallback string) string {
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	if host == "" {
+		return fallback
+	}
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return scheme + "://" + host + DefaultPortalPath
 }
 
 // tokenResponse holds the token endpoint response.

@@ -533,6 +533,26 @@ export interface GatewayOAuthStartResponse {
   expires_at: string;
 }
 
+// ConnectionOAuthStatus mirrors connoauth.OAuthStatus from the backend.
+// Returned by the unified /connections/{kind}/{name}/oauth-status
+// endpoint for any connection kind. Distinct from GatewayOAuthStatus
+// only because the backend type lives in a different package; the
+// fields are intentionally a superset for portal compatibility.
+export interface ConnectionOAuthStatus {
+  configured: boolean;
+  token_acquired: boolean;
+  expires_at?: string;
+  last_refreshed_at?: string;
+  has_refresh_token: boolean;
+  refresh_expires_at?: string;
+  last_error?: string;
+  token_url?: string;
+  scope?: string;
+  authenticated_by?: string;
+  authenticated_at?: string;
+  needs_reauth?: boolean;
+}
+
 export interface GatewayConnectionStatus {
   name: string;
   healthy: boolean;

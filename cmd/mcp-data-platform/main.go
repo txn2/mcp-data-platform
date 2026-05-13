@@ -25,6 +25,7 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -33,6 +34,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
@@ -788,6 +790,14 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.PKCEStore = admin.NewMemoryPKCEStore()
 	}
 
+	// Wire the unified OAuth flow: shared connoauth.Store plus one
+	// OAuthKindHandler per connection kind. When both are present the
+	// admin handler activates the unified /connections/{kind}/{name}
+	// routes; otherwise it falls back to the legacy per-kind routes
+	// for backward compatibility during rollout.
+	deps.ConnOAuthStore = p.ConnOAuthStore()
+	deps.OAuthKinds = buildOAuthKindHandlers(p)
+
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(
 			p.KnowledgeInsightStore(),
@@ -805,6 +815,29 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	}
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+}
+
+// buildOAuthKindHandlers assembles the per-kind OAuth adapter registry
+// the admin handler dispatches on. Each registered toolkit kind
+// contributes one handler; missing toolkits produce no entry, and the
+// unified handler returns 400 "unsupported connection kind" for
+// requests targeting an unregistered kind.
+func buildOAuthKindHandlers(p *platform.Platform) admin.OAuthKindHandlers {
+	out := admin.OAuthKindHandlers{}
+	if p.ToolkitRegistry() == nil {
+		return out
+	}
+	for _, tk := range p.ToolkitRegistry().All() {
+		switch v := tk.(type) {
+		case *gatewaykit.Toolkit:
+			if h := gatewaykit.NewOAuthKindHandler(v); h != nil {
+				out[connoauth.KindMCP] = h
+			}
+		case *apigatewaykit.Toolkit:
+			out[connoauth.KindAPI] = apigatewaykit.NewOAuthKindHandler(v)
+		}
+	}
+	return out
 }
 
 // wireEnrichmentEngine builds the gateway enrichment engine when a rule

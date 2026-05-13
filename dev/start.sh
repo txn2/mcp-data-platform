@@ -68,35 +68,64 @@ fi
 ok "UI dependencies ready"
 
 # Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
-# 9000 = seaweedfs, 9180 = dev-mcp-mock OAuth, 9181 = dev-mcp-mock MCP,
-# 9281 = mcp-test fixture, 9282 = api-test fixture)
-for port in 5432 8080 5173 9000 9180 9181 9281 9282; do
+# 9000 = seaweedfs, 9090 = keycloak, 9180 = dev-mcp-mock OAuth,
+# 9181 = dev-mcp-mock MCP, 9281 = mcp-test fixture, 9282 = api-test fixture)
+for port in 5432 8080 5173 9000 9090 9180 9181 9281 9282; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000, 9180, 9181, 9281, 9282 are free"
+ok "Ports 5432, 8080, 5173, 9000, 9090, 9180, 9181, 9281, 9282 are free"
 
 echo ""
 
 # ─── Start Docker services ──────────────────────────────────────────
 
 echo -e "${BOLD}Starting Docker services${NC}"
-docker compose -f dev/docker-compose.yml up -d 2>&1 | grep -v "^$" | sed 's/^/  /'
+# Bring up Postgres first so we can ensure auxiliary databases (keycloak)
+# exist before dependent services boot. The fixture init script handles
+# this on a fresh volume, but reused volumes from prior `make dev` runs
+# pre-date the keycloak database — create it idempotently here.
+docker compose -f dev/docker-compose.yml up -d postgres 2>&1 | grep -v "^$" | sed 's/^/  /'
 
-# Wait for PostgreSQL using docker exec (no psql dependency required)
+# Wait for PostgreSQL. We require a REAL connection via the final
+# unix socket (/var/run/postgresql/.s.PGSQL.5432) with the `platform`
+# role — not just `pg_isready`, which returns ready during the
+# Postgres image's temporary-postmaster init phase before the final
+# socket and roles are in place.
 PG_CONTAINER="acme-dev-postgres"
 info "Waiting for PostgreSQL..."
-for i in $(seq 1 30); do
-  if docker exec "$PG_CONTAINER" pg_isready -U platform -d mcp_platform > /dev/null 2>&1; then
+for i in $(seq 1 60); do
+  if docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc 'SELECT 1' > /dev/null 2>&1; then
     break
   fi
-  if [ "$i" -eq 30 ]; then
-    fail "PostgreSQL did not become ready within 30s"
+  if [ "$i" -eq 60 ]; then
+    fail "PostgreSQL did not become ready within 60s"
   fi
   sleep 1
 done
 ok "PostgreSQL ready on :5432"
+
+# Idempotently ensure the auxiliary databases exist. The fixture init
+# script creates these on first volume bring-up; this block handles
+# upgrades where a pre-existing volume pre-dates a new database.
+# psql runs as the in-container `postgres` superuser so it uses the
+# image's local unix socket without needing to wait for TCP binding.
+for db in mcp_test apitest keycloak; do
+  exists=$(docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc \
+    "SELECT 1 FROM pg_database WHERE datname='$db'" 2>/dev/null || true)
+  if [ "$exists" != "1" ]; then
+    info "Creating auxiliary database '$db'..."
+    docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform \
+      -c "CREATE DATABASE $db" > /dev/null
+  fi
+done
+ok "Auxiliary databases present (mcp_test, apitest, keycloak)"
+
+# Now bring up the remaining services. Keycloak depends_on postgres
+# (already healthy), so this is a no-op for postgres and pulls/starts
+# everything else in parallel.
+docker compose -f dev/docker-compose.yml up -d 2>&1 | grep -v "^$" | sed 's/^/  /'
 
 # Wait for SeaweedFS (S3 returns 403 on GET /, so check for any HTTP response)
 info "Waiting for SeaweedFS..."
@@ -111,6 +140,23 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "SeaweedFS ready on :9000"
+
+# Wait for Keycloak. First boot performs realm import + DB schema
+# creation, which is slow (90s on a fresh volume); steady-state
+# restarts come up in <10s. Realm endpoint is checked rather than
+# / because Keycloak's root returns a redirect even before the
+# realm is ready.
+info "Waiting for Keycloak (first boot imports realm — up to 120s)..."
+for i in $(seq 1 120); do
+  if curl -sf http://localhost:9090/realms/mcp-platform/.well-known/openid-configuration > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 120 ]; then
+    fail "Keycloak did not become ready within 120s (check 'docker logs acme-dev-keycloak')"
+  fi
+  sleep 1
+done
+ok "Keycloak ready on :9090 (realm mcp-platform)"
 
 # Wait for the mcp-test fixture. First run pulls the image, which can
 # take longer than the other waits — give it up to 60s before failing.
@@ -332,6 +378,64 @@ else
   echo -e "  ${YELLOW}⚠${NC} api-test connection register returned HTTP $APITEST_HTTP — admin API may not be ready"
 fi
 
+# Pre-seed two OAuth-authorization_code fixture connections so the
+# unified OAuth flow is testable without manual config-form filling.
+# Both point at dev-mcp-mock :9180 as the IdP (issues PKCE tokens, no
+# client_id/secret validation, rotates refresh tokens). All the
+# operator does is click Connect and complete the browser hop —
+# everything else (auth URL, token URL, client credentials, callback)
+# is already wired. dev-mcp-mock auto-grants on /authorize, so the
+# "browser flow" is a single redirect through a new tab.
+info "Registering oauth-mcp-dev connection (MCP gateway via authorization_code, Keycloak IdP)..."
+OAUTH_MCP_BODY='{"config":{"endpoint":"http://localhost:9181/mcp","auth_mode":"oauth","oauth_grant":"authorization_code","oauth_authorization_url":"http://localhost:9090/realms/mcp-platform/protocol/openid-connect/auth","oauth_token_url":"http://localhost:9090/realms/mcp-platform/protocol/openid-connect/token","oauth_client_id":"oauth-mcp-dev","oauth_client_secret":"oauth-mcp-dev-secret","oauth_scope":"openid profile email","connection_name":"oauth-mcp-dev","connect_timeout":"5s","call_timeout":"10s"},"description":"Dev fixture: dev-mcp-mock (9181) via authorization_code OAuth against Keycloak (realm mcp-platform). Click Connect to authorize."}'
+OAUTH_MCP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$OAUTH_MCP_BODY" \
+  http://localhost:8080/api/v1/admin/connection-instances/mcp/oauth-mcp-dev || echo "000")
+if [ "$OAUTH_MCP_HTTP" = "200" ] || [ "$OAUTH_MCP_HTTP" = "201" ]; then
+  ok "oauth-mcp-dev connection registered (kind=mcp, authorization_code, IdP :9180)"
+else
+  echo -e "  ${YELLOW}⚠${NC} oauth-mcp-dev connection register returned HTTP $OAUTH_MCP_HTTP"
+fi
+
+info "Registering oauth-api-dev connection (HTTP API gateway via authorization_code, Keycloak IdP)..."
+OAUTH_API_BODY=$(APITEST_OPENAPI="$APITEST_OPENAPI" python3 -c '
+import json, os
+spec = os.environ.get("APITEST_OPENAPI", "")
+config = {
+    "base_url": "http://localhost:9282",
+    "auth_mode": "oauth2_authorization_code",
+    "oauth2_authorization_url": "http://localhost:9090/realms/mcp-platform/protocol/openid-connect/auth",
+    "oauth2_token_url": "http://localhost:9090/realms/mcp-platform/protocol/openid-connect/token",
+    "oauth2_client_id": "oauth-api-dev",
+    "oauth2_client_secret": "oauth-api-dev-secret",
+    "oauth2_scopes": ["openid", "profile", "email"],
+    "oauth2_endpoint_auth_style": "header",
+    "connection_name": "oauth-api-dev",
+    "connect_timeout": "5s",
+    "call_timeout": "10s",
+    "trust_level": "untrusted",
+}
+if spec:
+    config["openapi_spec"] = spec
+body = {
+    "config": config,
+    "description": "Dev fixture: api-test (9282) via authorization_code OAuth against Keycloak (realm mcp-platform). Click Connect to authorize.",
+}
+print(json.dumps(body))
+')
+OAUTH_API_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$OAUTH_API_BODY" \
+  http://localhost:8080/api/v1/admin/connection-instances/api/oauth-api-dev || echo "000")
+if [ "$OAUTH_API_HTTP" = "200" ] || [ "$OAUTH_API_HTTP" = "201" ]; then
+  ok "oauth-api-dev connection registered (kind=api, authorization_code, IdP :9180)"
+else
+  echo -e "  ${YELLOW}⚠${NC} oauth-api-dev connection register returned HTTP $OAUTH_API_HTTP"
+fi
+
 echo ""
 
 # ─── Start Vite dev server ──────────────────────────────────────────
@@ -364,6 +468,12 @@ echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
 echo -e "  Go API:           ${CYAN}http://localhost:8080${NC}"
 echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
 echo ""
+echo -e "  ${BOLD}OIDC operator login (Keycloak)${NC}"
+echo -e "  Issuer:           ${CYAN}http://localhost:9090/realms/mcp-platform${NC}"
+echo -e "  Admin console:    ${CYAN}http://localhost:9090/admin${NC} (admin / admin)"
+echo -e "  Test users:       ${CYAN}admin@example.com / admin-password${NC} (dp_admin)"
+echo -e "                    ${CYAN}analyst@example.com / analyst-password${NC} (dp_analyst)"
+echo ""
 echo -e "  ${BOLD}Pre-wired upstream fixtures${NC}"
 echo -e "  dev-mock (MCP):   ${CYAN}http://localhost:9181/mcp${NC} (echo, add, now)"
 echo -e "                    ${CYAN}OAuth at http://localhost:9180${NC}"
@@ -371,6 +481,11 @@ echo -e "  mcp-test (MCP):   ${CYAN}http://localhost:9281/${NC}  portal: ${CYAN}
 echo -e "                    ${CYAN}API key: $MCPTEST_DEV_KEY_VAL${NC}"
 echo -e "  api-test (HTTP):  ${CYAN}http://localhost:9282/v1${NC}  portal: ${CYAN}http://localhost:9282/portal/${NC}"
 echo -e "                    ${CYAN}API key: $APITEST_DEV_KEY_VAL${NC}"
+echo ""
+echo -e "  ${BOLD}Pre-wired OAuth authorization_code fixtures${NC}"
+echo -e "  ${CYAN}Portal → Settings → Connections${NC} — click ${BOLD}Connect${NC} on either to test the browser flow:"
+echo -e "    • ${BOLD}oauth-mcp-dev${NC}  (kind=mcp, MCP fixture, IdP=Keycloak)"
+echo -e "    • ${BOLD}oauth-api-dev${NC}  (kind=api, api-test fixture, IdP=Keycloak)"
 echo ""
 echo -e "  Go files  → air rebuilds automatically"
 echo -e "  UI files  → Vite hot-reloads automatically"

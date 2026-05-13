@@ -7,17 +7,12 @@ import {
   useUpdateEnrichmentRule,
   useDeleteEnrichmentRule,
   useDryRunEnrichmentRule,
-  useGatewayConnectionStatus,
-  useReacquireGatewayOAuth,
-  useStartGatewayOAuth,
 } from "@/api/admin/hooks";
-import { ApiError } from "@/api/admin/client";
 import type {
   EnrichmentRule,
   EnrichmentRuleBody,
   GatewayProbeTool,
   DryRunResponse,
-  GatewayOAuthStatus,
 } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
@@ -31,10 +26,6 @@ import {
   Check,
   AlertCircle,
   Play,
-  Key,
-  Clock,
-  KeyRound,
-  ExternalLink,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -150,274 +141,13 @@ export function GatewayActionBar({
           )}
         </div>
       )}
-      <OAuthStatusCard connectionName={connectionName} />
+      {/* OAuth status block is rendered by the parent
+          ConnectionsPanel via ConnectionOAuthStatusCard so the SAME
+          card appears for every connection kind, not just MCP. */}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// OAuthStatusCard — token state + Reacquire button (rendered only when the
-// connection's auth_mode is "oauth")
-// ---------------------------------------------------------------------------
-
-function OAuthStatusCard({ connectionName }: { connectionName: string }) {
-  const { data: status, error } = useGatewayConnectionStatus(connectionName);
-  const reacquire = useReacquireGatewayOAuth();
-  const startOAuth = useStartGatewayOAuth();
-  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  // Surface the "gateway toolkit is not registered" failure mode (HTTP 409
-  // from /gateway/connections/{name}/status). Without this, the card
-  // silently disappears and the operator has no signal that their saved
-  // connection is inert because the gateway toolkit has been explicitly
-  // disabled in platform.yaml. Auto-enable handles the no-config case;
-  // this branch handles the explicit-disable case.
-  if (error instanceof ApiError && error.status === 409) {
-    return (
-      <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-3 text-xs dark:bg-amber-900/20 dark:text-amber-200">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-3.5 w-3.5" />
-          <span className="font-semibold">Gateway toolkit disabled</span>
-        </div>
-        <p className="mt-1.5">
-          This connection is saved in the database but not active: the gateway
-          toolkit has been explicitly disabled in <code>platform.yaml</code>.
-          Remove <code>toolkits.mcp.enabled: false</code> (or set it to{" "}
-          <code>true</code>) and restart the platform to activate this
-          connection. Tools from this upstream will not be available until
-          then.
-        </p>
-      </div>
-    );
-  }
-
-  if (!status || status.auth_mode !== "oauth" || !status.oauth) {
-    return null;
-  }
-  const oauth = status.oauth;
-  const isAuthCode = oauth.grant === "authorization_code";
-
-  const handleReacquire = async () => {
-    setActionMsg(null);
-    try {
-      await reacquire.mutateAsync(connectionName);
-      setActionMsg({ ok: true, text: "Token refreshed" });
-    } catch (err) {
-      setActionMsg({ ok: false, text: err instanceof Error ? err.message : "Reacquire failed" });
-    }
-  };
-
-  const handleConnect = async () => {
-    setActionMsg(null);
-    // Idiomatic OIDC redirect flow: navigate the current tab to the
-    // IdP. The IdP's login form becomes the user's page, they submit
-    // it, the IdP redirects to the platform's callback URL, the
-    // callback exchanges the code for tokens and redirects back here
-    // via the returnURL we send below.
-    //
-    // Earlier versions used window.open in a popup tab to "preserve
-    // admin context" — that pattern produced popup-blocker stalls,
-    // stale-form bugs (lingering popup tabs whose Keycloak session
-    // had been consumed), and the "I clicked Sign In and nothing
-    // happened" UX failures. Top-level redirect is the standard
-    // pattern (Salesforce, Okta, Auth0 admin consoles all use it)
-    // and avoids every one of those failure modes.
-    try {
-      const res = await startOAuth.mutateAsync({
-        name: connectionName,
-        returnURL: window.location.pathname + window.location.search,
-      });
-      // Validate the URL before navigating. An empty or malformed
-      // authorization_url (server bug, race condition, misconfigured
-      // connection) would silently no-op `window.location.href = ""`
-      // and reproduce the "click does nothing" failure mode this PR
-      // was meant to fix. Surface it as an explicit error instead.
-      if (!/^https?:\/\//i.test(res.authorization_url)) {
-        setActionMsg({
-          ok: false,
-          text:
-            "Server returned an invalid authorization URL. " +
-            "Check the connection's oauth_authorization_url field is a complete https:// URL.",
-        });
-        return;
-      }
-      window.location.href = res.authorization_url;
-      // No setActionMsg on success — the page is navigating away.
-      // Any status update would race the navigation.
-    } catch (err) {
-      setActionMsg({
-        ok: false,
-        text: err instanceof Error ? err.message : "Connect failed",
-      });
-    }
-  };
-
-  return (
-    <div className="rounded-md border bg-muted/10 px-3 py-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            OAuth status
-          </span>
-          <span className="rounded bg-muted text-muted-foreground px-1 py-0 text-[11px] font-medium font-mono">
-            {oauth.grant}
-          </span>
-        </div>
-        <div className="flex gap-1">
-          {isAuthCode && (
-            <button
-              type="button"
-              onClick={handleConnect}
-              disabled={startOAuth.isPending}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50",
-                oauth.needs_reauth
-                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <ExternalLink className="h-3 w-3" />
-              {oauth.needs_reauth ? "Connect" : "Reconnect"}
-            </button>
-          )}
-          {oauth.token_acquired && (
-            <button
-              type="button"
-              onClick={handleReacquire}
-              disabled={reacquire.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-            >
-              <RefreshCw className={cn("h-3 w-3", reacquire.isPending && "animate-spin")} />
-              {reacquire.isPending ? "Refreshing..." : "Refresh now"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {oauth.needs_reauth && (
-        <div className="rounded border border-amber-500/30 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-          {oauth.refresh_token_revoked ? (
-            <>
-              <span className="font-medium">Refresh token revoked.</span> The upstream's last refresh attempt was rejected as <code>invalid_grant</code> — the stored credential is no longer valid (idle session timeout, password change, or admin revocation). Click <strong>Connect</strong> to reauthorize. <em>Refresh now</em> will fail until you do.
-            </>
-          ) : oauth.token_acquired ? (
-            // Pre-emptive flip: refresh-token deadline has passed (the IdP
-            // disclosed a refresh_expires_in and now() is past it) but the
-            // cached access token is still valid. Tool calls work right now;
-            // the next attempt to mint a fresh access token will fail.
-            // Distinguish this from the "fully unauthorized" case so the
-            // operator doesn't panic-Connect during a healthy moment.
-            <>
-              <span className="font-medium">Reauth needed soon.</span> The current access token still works, but the refresh-token deadline has passed — the next refresh will fail. Click <strong>Connect</strong> at your convenience to issue a fresh credential before the cached token expires.
-            </>
-          ) : (
-            <>
-              <span className="font-medium">Not connected.</span> Click <strong>Connect</strong> to authorize this connection in your browser. The platform will then keep the access token refreshed automatically — including for cron jobs and scheduled prompts — until the upstream invalidates the refresh token.
-            </>
-          )}
-        </div>
-      )}
-
-      <OAuthStatusGrid status={oauth} />
-
-      {oauth.authenticated_by && (
-        <div className="text-xs text-muted-foreground">
-          Authorized by{" "}
-          <span className="font-mono">{oauth.authenticated_by}</span>
-          {oauth.authenticated_at && <> {formatRelative(oauth.authenticated_at)}</>}
-        </div>
-      )}
-
-      {oauth.last_error && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
-          <span className="font-medium">Last error:</span> {oauth.last_error}
-        </div>
-      )}
-
-      {actionMsg && (
-        <div
-          className={cn(
-            "rounded border px-2 py-1 text-xs",
-            actionMsg.ok
-              ? "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
-              : "border-destructive/30 bg-destructive/10 text-destructive",
-          )}
-        >
-          {actionMsg.text}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OAuthStatusGrid({ status }: { status: GatewayOAuthStatus }) {
-  const items: Array<{ label: string; value: string; icon: React.ReactNode; tone?: "ok" | "warn" }> = [
-    {
-      label: "Token",
-      value: status.token_acquired ? "acquired" : "not yet acquired",
-      icon: status.token_acquired ? (
-        <Check className="h-3 w-3 text-emerald-500" />
-      ) : (
-        <AlertCircle className="h-3 w-3 text-amber-500" />
-      ),
-      tone: status.token_acquired ? "ok" : "warn",
-    },
-    {
-      label: "Expires",
-      value: status.expires_at ? formatRelative(status.expires_at) : "—",
-      icon: <Clock className="h-3 w-3 text-muted-foreground" />,
-    },
-    {
-      label: "Last refreshed",
-      value: status.last_refreshed_at ? formatRelative(status.last_refreshed_at) : "—",
-      icon: <RefreshCw className="h-3 w-3 text-muted-foreground" />,
-    },
-    {
-      label: "Refresh token",
-      value: status.has_refresh_token ? "present" : "none",
-      icon: <Key className="h-3 w-3 text-muted-foreground" />,
-    },
-  ];
-  // Some IdPs (Keycloak) disclose refresh_expires_in. Render only when
-  // the platform captured a real value — an em-dash row would be noise
-  // for IdPs that never provide it (Auth0, Okta default config, etc.).
-  if (status.has_refresh_token && status.refresh_expires_at) {
-    items.push({
-      label: "Refresh expires",
-      value: formatRelative(status.refresh_expires_at),
-      icon: <Clock className="h-3 w-3 text-muted-foreground" />,
-    });
-  }
-  return (
-    <div className="grid grid-cols-2 gap-2 text-xs">
-      {items.map((it) => (
-        <div key={it.label} className="flex items-center gap-1.5">
-          {it.icon}
-          <span className="text-muted-foreground">{it.label}:</span>
-          <span className="font-mono">{it.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function formatRelative(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return iso;
-  const diff = t - Date.now();
-  const abs = Math.abs(diff);
-  const sec = Math.round(abs / 1000);
-  const min = Math.round(sec / 60);
-  const hr = Math.round(min / 60);
-  const day = Math.round(hr / 24);
-  let rel: string;
-  if (sec < 60) rel = `${sec}s`;
-  else if (min < 60) rel = `${min}m`;
-  else if (hr < 24) rel = `${hr}h`;
-  else rel = `${day}d`;
-  return diff >= 0 ? `in ${rel}` : `${rel} ago`;
-}
 
 // ---------------------------------------------------------------------------
 // GatewayRulesDrawer — slide-out panel listing rules with edit / dry-run

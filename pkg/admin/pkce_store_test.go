@@ -91,8 +91,8 @@ func TestPostgresPKCEStore_Take_Success(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	rows := sqlmock.NewRows([]string{"connection", "code_verifier", "started_by", "return_url", "redirect_uri", "created_at"}).
-		AddRow("vendor", "verifier-x", "alice@example.com", "/portal", "https://x/cb", time.Now())
+	rows := sqlmock.NewRows([]string{"connection", "connection_kind", "code_verifier", "started_by", "return_url", "redirect_uri", "created_at"}).
+		AddRow("vendor", "mcp", "verifier-x", "alice@example.com", "/portal", "https://x/cb", time.Now())
 	mock.ExpectQuery("DELETE FROM oauth_pkce_states").
 		WithArgs("state-1").
 		WillReturnRows(rows)
@@ -116,7 +116,7 @@ func TestPostgresPKCEStore_Take_NotFoundReturnsSentinel(t *testing.T) {
 	mock.ExpectQuery("DELETE FROM oauth_pkce_states").
 		WithArgs("missing").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"connection", "code_verifier", "started_by",
+			"connection", "connection_kind", "code_verifier", "started_by",
 			"return_url", "redirect_uri", "created_at",
 		}))
 
@@ -132,7 +132,7 @@ func TestPostgresPKCEStore_Put_Success(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	mock.ExpectExec("INSERT INTO oauth_pkce_states").
-		WithArgs("state-2", "vendor", "verifier-x", "alice@example.com",
+		WithArgs("state-2", "vendor", "mcp", "verifier-x", "alice@example.com",
 			"/portal", "https://x/cb", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -185,13 +185,13 @@ func TestPostgresPKCEStore_EncryptsCodeVerifierAtRest(t *testing.T) {
 
 	enc := reverseEncryptor{}
 	mock.ExpectExec("INSERT INTO oauth_pkce_states").
-		WithArgs("s1", "vendor", reverse("verifier-x"), "alice", "/p", "https://x", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("s1", "vendor", "mcp", reverse("verifier-x"), "alice", "/p", "https://x", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("DELETE FROM oauth_pkce_states").
 		WithArgs("s1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"connection", "code_verifier", "started_by", "return_url", "redirect_uri", "created_at",
-		}).AddRow("vendor", reverse("verifier-x"), "alice", "/p", "https://x", time.Now()))
+			"connection", "connection_kind", "code_verifier", "started_by", "return_url", "redirect_uri", "created_at",
+		}).AddRow("vendor", "mcp", reverse("verifier-x"), "alice", "/p", "https://x", time.Now()))
 
 	s := &PostgresPKCEStore{db: db, enc: enc, stopCh: make(chan struct{})}
 	require.NoError(t, s.Put(context.Background(), "s1", &PKCEState{

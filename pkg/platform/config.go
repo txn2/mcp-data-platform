@@ -188,6 +188,7 @@ const (
 type PortalConfig struct {
 	Enabled        *bool                 `yaml:"enabled"`
 	Title          string                `yaml:"title"`            // sidebar/branding title (default: "MCP Data Platform")
+	Tagline        string                `yaml:"tagline"`          // login-screen subtitle (default: "Sign in to access the platform.")
 	Logo           string                `yaml:"logo"`             // URL to logo (fallback for both themes)
 	LogoLight      string                `yaml:"logo_light"`       // URL to logo for light theme
 	LogoDark       string                `yaml:"logo_dark"`        // URL to logo for dark theme

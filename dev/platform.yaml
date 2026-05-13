@@ -58,8 +58,26 @@ server:
     - Use markdown tables for structured results
 
 auth:
+  # OIDC + browser_session enabled in dev so the login screen shows
+  # the "Sign in with OIDC" button and operators can exercise the
+  # full Keycloak flow. Realm + clients + test users are pre-seeded
+  # from dev/keycloak-realm.json at first Keycloak boot.
   oidc:
-    enabled: false
+    enabled: true
+    issuer: "http://localhost:9090/realms/mcp-platform"
+    client_id: "mcp-data-platform-portal"
+    client_secret: "portal-dev-secret"
+    audience: "mcp-data-platform-portal"
+    role_claim_path: "realm_access.roles"
+    role_prefix: "dp_"
+    scopes: ["openid", "profile", "email"]
+  browser_session:
+    enabled: true
+    # Dev-only HMAC signing key (base64-encoded 32 bytes). Production
+    # deployments override via env var and never commit a real key.
+    signing_key: "ZGV2LWJyb3dzZXItc2Vzc2lvbi1obWFjLWtleS0zMmJ5dGVzLnBs"
+    cookie_name: "mcp_session"
+    secure: false
   api_keys:
     enabled: true
     keys:
@@ -91,8 +109,13 @@ database:
 personas:
   admin:
     display_name: "Administrator"
+    # Both unprefixed (API-key auth, role = "admin") and dp_-prefixed
+    # (Keycloak OIDC, filtered by role_prefix "dp_") variants are listed
+    # so the same persona matches every login path. Same pattern repeats
+    # on each persona below.
     roles:
       - admin
+      - dp_admin
     tools:
       allow:
         - "*"
@@ -105,6 +128,7 @@ personas:
     display_name: "Data Engineer"
     roles:
       - data_engineer
+      - dp_engineer
     tools:
       allow:
         - "trino_*"
@@ -123,6 +147,7 @@ personas:
     display_name: "Inventory Analyst"
     roles:
       - inventory_analyst
+      - dp_analyst
     tools:
       allow:
         - "trino_query"
