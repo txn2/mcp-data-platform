@@ -52,6 +52,12 @@ const schemeHTTP = "http"
 // unexported. Fields stay package-private; consumers from outside
 // admin should not need to introspect a state in flight.
 type PKCEState struct {
+	// kind is the connection kind ("mcp" or "api") so the unified
+	// /oauth/callback handler can dispatch the per-kind config parser
+	// and post-auth side effects. Empty in legacy rows pre-dating
+	// migration 000039 — those rows are MCP gateway flows by
+	// construction (only kind that used this table at the time).
+	kind         string
 	connection   string
 	codeVerifier string
 	startedBy    string

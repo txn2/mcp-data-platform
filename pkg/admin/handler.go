@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -127,6 +128,18 @@ type Deps struct {
 	// deployments where oauth-start and the callback may land on
 	// different replicas.
 	PKCEStore PKCEStore
+	// ConnOAuthStore persists OAuth tokens for every connection kind
+	// in one shared table (migration 000039's connection_oauth_tokens).
+	// The unified connection OAuth handler reads and writes through
+	// this; toolkit Authenticators read through it on every outbound
+	// request. nil disables the unified OAuth routes.
+	ConnOAuthStore connoauth.Store
+	// OAuthKinds maps connection kind ("mcp", "api", future kinds) to
+	// the per-kind config extractor + post-auth side-effect hook. The
+	// unified handler dispatches on the {kind} path parameter through
+	// this registry. New connection kinds register here at startup —
+	// they do NOT add parallel handler files or token stores.
+	OAuthKinds OAuthKindHandlers
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.
@@ -237,8 +250,18 @@ func (h *Handler) registerRoutes() {
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
 	h.registerGatewayRoutes()
-	h.registerGatewayOAuthRoutes()
-	h.registerAPIGatewayOAuthRoutes()
+	// The unified connection OAuth handler replaces both prior per-kind
+	// handlers. It activates only when the platform has wired the shared
+	// connoauth store + per-kind handlers; otherwise we fall back to the
+	// legacy per-kind routes so older deployments continue to work
+	// during the rollout. Migration 000039 + platform startup wiring
+	// together flip this to the unified path.
+	if h.deps.ConnOAuthStore != nil && len(h.deps.OAuthKinds) > 0 {
+		h.registerConnectionOAuthRoutes()
+	} else {
+		h.registerGatewayOAuthRoutes()
+		h.registerAPIGatewayOAuthRoutes()
+	}
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 }

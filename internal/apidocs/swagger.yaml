@@ -553,6 +553,22 @@ definitions:
         example: Production data warehouse
         type: string
     type: object
+  admin.startConnectionOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  admin.startConnectionOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
+        type: string
+    type: object
   admin.startGatewayOAuthRequest:
     properties:
       return_url:
@@ -1048,6 +1064,78 @@ definitions:
       source:
         description: '"file", "database", or "both"'
         example: database
+        type: string
+    type: object
+  connoauth.OAuthStatus:
+    properties:
+      authenticated_at:
+        description: |-
+          AuthenticatedAt is when the most recent successful Connect
+          completed. Initial-Connect time, not last-refresh time.
+        type: string
+      authenticated_by:
+        description: |-
+          AuthenticatedBy is the email/id of the operator who completed
+          the browser flow. Empty for never-authorized connections.
+        type: string
+      configured:
+        description: |-
+          Configured indicates the connection is set up for the
+          authorization_code grant. False means the status endpoint was
+          hit for a non-OAuth connection (or one with a different grant)
+          and the UI should hide the OAuth block entirely.
+        type: boolean
+      expires_at:
+        description: |-
+          ExpiresAt is the access-token deadline. Zero when no token has
+          been acquired.
+        type: string
+      has_refresh_token:
+        description: |-
+          HasRefreshToken is true when a refresh token sits in the row.
+          False for IdPs that don't issue refresh tokens, OR after a
+          revoked-refresh cleanup.
+        type: boolean
+      last_error:
+        description: |-
+          LastError is the most recent surfaced failure (transport,
+          IdP-rejected, persistence). Cleared by a subsequent success.
+        type: string
+      last_refreshed_at:
+        description: |-
+          LastRefreshedAt is the persisted row's UpdatedAt — the time of
+          the most recent successful write (initial Connect or silent
+          refresh).
+        type: string
+      needs_reauth:
+        description: |-
+          NeedsReauth is true when no access token can be minted without
+          operator interaction. The admin UI surfaces a Connect button
+          when this is true.
+        type: boolean
+      refresh_expires_at:
+        description: |-
+          RefreshExpiresAt is the IdP-disclosed refresh-token deadline.
+          Zero when the IdP did not disclose one. The admin UI renders an
+          em dash for zero, not "never".
+        type: string
+      scope:
+        description: |-
+          Scope is the space-delimited scope string negotiated with the
+          IdP. Surfaced so operators can verify offline_access is present
+          on Keycloak/Auth0/Okta IdPs.
+        type: string
+      token_acquired:
+        description: |-
+          TokenAcquired is true when a non-empty access_token sits in the
+          persisted row. False after a revoked-refresh cleanup or before
+          the first Connect.
+        type: boolean
+      token_url:
+        description: |-
+          TokenURL is the IdP's token endpoint, surfaced so the admin
+          status panel can show "auth against https://iam.example.com/..."
+          at a glance. Operator-authored config; safe to expose.
         type: string
     type: object
   enrichment.Action:
@@ -2977,6 +3065,125 @@ paths:
       summary: List connections
       tags:
       - System
+  /admin/connections/{kind}/{name}/oauth-start:
+    post:
+      consumes:
+      - application/json
+      description: Validates the connection is configured for authorization_code OAuth,
+        generates a PKCE verifier, registers a state token (with kind), and returns
+        the authorization URL the operator should open in their browser. Works for
+        any connection kind registered in OAuthKinds.
+      parameters:
+      - description: Connection kind (mcp, api)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Optional return URL
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.startConnectionOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.startConnectionOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Begin OAuth authorization-code flow for any connection
+      tags:
+      - Connections
+  /admin/connections/{kind}/{name}/oauth-status:
+    get:
+      parameters:
+      - description: Connection kind
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connoauth.OAuthStatus'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: OAuth status for a connection
+      tags:
+      - Connections
+  /admin/connections/{kind}/{name}/reacquire-oauth:
+    post:
+      parameters:
+      - description: Connection kind
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Force a refresh-token exchange for a connection
+      tags:
+      - Connections
   /admin/gateway/connections/{name}/enrichment-rules:
     get:
       parameters:

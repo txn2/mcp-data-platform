@@ -79,6 +79,40 @@ services:
       postgres:
         condition: service_healthy
 
+  # Keycloak: real OIDC + OAuth 2.1 IdP backing both:
+  #   - operator portal login (auth.oidc + browser_session in platform.yaml)
+  #   - the pre-seeded oauth-mcp-dev / oauth-api-dev connection fixtures
+  # Realm + clients + dev users come from ./keycloak-realm.json, imported
+  # on first boot. Re-runs of `make dev` re-use the existing realm; only
+  # `make dev-down` (which removes the postgres volume) resets it.
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6@sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2
+    container_name: acme-dev-keycloak
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: platform
+      KC_DB_PASSWORD: platform_secret
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: localhost
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "127.0.0.1:9090:8080"
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/mcp-platform.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /realms/mcp-platform/.well-known/openid-configuration HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 200 <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   seaweedfs:
     image: chrislusf/seaweedfs:3.88@sha256:98e034880fed76fdf508b20cae9de57b0e1f93f5910c89a94fe936af91c59abe
     container_name: acme-dev-seaweedfs

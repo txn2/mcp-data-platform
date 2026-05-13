@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
@@ -123,6 +124,7 @@ type Platform struct {
 	enrichmentStore      enrichment.Store
 	gatewayTokenStore    gatewaykit.TokenStore
 	apigatewayTokenStore apigatewaykit.TokenStore
+	connOAuthStore       connoauth.Store
 	restEncryptor        *RestFieldEncryptor
 	personaStore         PersonaStore
 	apiKeyStore          APIKeyStore
@@ -444,8 +446,16 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	p.restEncryptor = &RestFieldEncryptor{enc: encryptor}
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
-	p.gatewayTokenStore = gatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
-	p.apigatewayTokenStore = apigatewaykit.NewPostgresTokenStore(p.db, p.restEncryptor)
+	p.connOAuthStore = connoauth.NewPostgresStore(p.db, p.restEncryptor)
+	// Both toolkit token stores are now backed by the unified
+	// connection_oauth_tokens table via a per-kind adapter. The admin
+	// layer's unified OAuth handler writes to the same connoauth.Store,
+	// so Connect → tool call → refresh all read/write the same row.
+	// Migration 000039 backfills tokens from the prior per-kind tables
+	// on upgrade; the prior tables are kept for one release and
+	// dropped in a follow-up migration.
+	p.gatewayTokenStore = gatewaykit.NewConnOAuthTokenStore(p.connOAuthStore)
+	p.apigatewayTokenStore = apigatewaykit.NewConnOAuthTokenStore(p.connOAuthStore)
 	return nil
 }
 
@@ -492,6 +502,15 @@ func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
 		return "", fmt.Errorf("rest field decrypt: %w", err)
 	}
 	return out, nil
+}
+
+// ConnOAuthStore returns the unified OAuth-token store backing the
+// connection_oauth_tokens table. Used by the admin layer's unified
+// OAuth handler and (via toolkit OAuthKindHandlers) by per-kind
+// Authenticators. Nil when no database is configured — the platform
+// falls back to the legacy per-kind in-memory stores in that case.
+func (p *Platform) ConnOAuthStore() connoauth.Store {
+	return p.connOAuthStore
 }
 
 // RestEncryptor returns the platform's at-rest field encryption

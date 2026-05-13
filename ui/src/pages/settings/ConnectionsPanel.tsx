@@ -15,30 +15,11 @@ import {
   Cable,
   AlertCircle,
   Check,
-  Eye,
-  EyeOff,
   Database,
   X,
 } from "lucide-react";
 import { GatewayActionBar, GatewayRulesDrawer } from "./GatewayActions";
-
-// Fields that should be redacted in view mode.
-const SENSITIVE_KEYS = new Set([
-  "password",
-  "secret_access_key",
-  "secret_key",
-  "token",
-  "access_token",
-  "refresh_token",
-  "api_key",
-  "api_secret",
-  "private_key",
-  "credential",
-]);
-
-function isSensitive(key: string): boolean {
-  return SENSITIVE_KEYS.has(key.toLowerCase());
-}
+import { ConnectionOAuthStatusCard } from "./ConnectionOAuthStatusCard";
 
 // ---------------------------------------------------------------------------
 // Kind badge colors
@@ -66,11 +47,24 @@ export function ConnectionsPanel() {
   const { data: instances, isLoading } = useEffectiveConnections();
   const connections = instances ?? [];
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Read initial selection from URL (?kind=...&name=...) so the OAuth
+  // callback's returnURL can restore the connection the operator was
+  // editing. Falls through to the auto-select-first-listed effect when
+  // the URL is absent or stale.
+  const initialSelection = (() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const k = params.get("kind");
+    const n = params.get("name");
+    if (k && n) return `${k}/${n}`;
+    return null;
+  })();
+  const [selectedKey, setSelectedKey] = useState<string | null>(initialSelection);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
   const [dirty, setDirty] = useState(false);
 
-  // Group by kind
+  // Group by kind. Sidebar order is alphabetical on kind; within a
+  // kind, connections are listed in the order the backend returned.
   const grouped = useMemo(() => {
     const groups: Record<string, EffectiveConnection[]> = {};
     for (const c of connections) {
@@ -81,17 +75,50 @@ export function ConnectionsPanel() {
     return groups;
   }, [connections]);
 
+  // firstListed is the connection that appears at the top of the
+  // sidebar — first item of the first (alphabetically) kind group.
+  // Auto-select uses this so the default view matches what the
+  // operator sees in the left nav, instead of whatever sort order
+  // the backend happens to return.
+  const firstListed = useMemo(() => {
+    const kinds = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+    const first = kinds[0];
+    if (!first) return null;
+    return grouped[first]?.[0] ?? null;
+  }, [grouped]);
+
   const selected = useMemo(
     () => connections.find((c) => `${c.kind}/${c.name}` === selectedKey) ?? null,
     [connections, selectedKey],
   );
 
-  // Auto-select first item
+  // Auto-select the first listed connection when none is selected
+  // (or the URL-restored one is stale).
   useEffect(() => {
-    if (!selectedKey && connections.length > 0 && connections[0]) {
-      setSelectedKey(`${connections[0].kind}/${connections[0].name}`);
+    if (selectedKey) {
+      // If the URL pointed at a connection that no longer exists,
+      // fall through to first-listed.
+      const exists = connections.some((c) => `${c.kind}/${c.name}` === selectedKey);
+      if (exists) return;
     }
-  }, [connections, selectedKey]);
+    if (firstListed) {
+      setSelectedKey(`${firstListed.kind}/${firstListed.name}`);
+    }
+  }, [connections, selectedKey, firstListed]);
+
+  // Mirror the selection back into the URL (without reloading) so a
+  // round-trip through an OAuth callback's returnURL restores the
+  // same connection. Use replaceState to avoid polluting browser
+  // history with a new entry per selection click.
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedKey) return;
+    const [k, n] = selectedKey.split("/");
+    const params = new URLSearchParams(window.location.search);
+    params.set("kind", k ?? "");
+    params.set("name", n ?? "");
+    const url = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", url);
+  }, [selectedKey]);
 
   const handleSelect = useCallback(
     (c: EffectiveConnection) => {
@@ -281,7 +308,6 @@ function ConnectionViewer({
 }) {
   const deleteMutation = useDeleteConnectionInstance();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [showSensitive, setShowSensitive] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
   const datahubSourceName = typeof connection.config?.datahub_source_name === "string"
@@ -348,6 +374,19 @@ function ConnectionViewer({
         />
       )}
 
+      {/* OAuth status — shown for every connection kind that supports
+          authorization_code. The card hides itself when the
+          connection's auth_mode is not OAuth, so it's safe to render
+          unconditionally. Consistent surface across mcp / api / future
+          kinds. */}
+      {!isReadOnly && (
+        <ConnectionOAuthStatusCard
+          kind={connection.kind}
+          name={connection.name}
+          authMode={String(connection.config?.auth_mode ?? "")}
+        />
+      )}
+
       {/* Metadata */}
       <div className="grid grid-cols-3 gap-4">
         <InfoCard label="Kind" value={connection.kind} />
@@ -366,34 +405,18 @@ function ConnectionViewer({
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Configuration
             </h3>
-            <button
-              type="button"
-              onClick={() => setShowSensitive((v) => !v)}
-              className="ml-auto text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-            >
-              {showSensitive ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              {showSensitive ? "Hide sensitive" : "Show sensitive"}
-            </button>
           </div>
           <div className="rounded-md border divide-y">
             {configEntries.map(([key, value]) => {
-              const sensitive = isSensitive(key);
-              const displayValue = sensitive && !showSensitive
-                ? "********"
-                : typeof value === "object" && value !== null
-                  ? JSON.stringify(value)
-                  : String(value);
+              const displayValue = typeof value === "object" && value !== null
+                ? JSON.stringify(value)
+                : String(value);
               return (
                 <div key={key} className="flex items-center gap-4 px-4 py-2">
                   <span className="text-xs font-mono text-muted-foreground w-48 shrink-0 truncate">
                     {key}
                   </span>
-                  <span
-                    className={cn(
-                      "text-xs font-mono flex-1 truncate",
-                      sensitive && !showSensitive && "text-muted-foreground italic",
-                    )}
-                  >
+                  <span className="text-xs font-mono flex-1 truncate">
                     {displayValue}
                   </span>
                 </div>

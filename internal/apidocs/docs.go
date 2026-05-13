@@ -1166,6 +1166,192 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connections/{kind}/{name}/oauth-start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validates the connection is configured for authorization_code OAuth, generates a PKCE verifier, registers a state token (with kind), and returns the authorization URL the operator should open in their browser. Works for any connection kind registered in OAuthKinds.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Begin OAuth authorization-code flow for any connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection kind (mcp, api)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional return URL",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startConnectionOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.startConnectionOAuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/{kind}/{name}/oauth-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "OAuth status for a connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection kind",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connoauth.OAuthStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/{kind}/{name}/reacquire-oauth": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Force a refresh-token exchange for a connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection kind",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/enrichment-rules": {
             "get": {
                 "security": [
@@ -7230,6 +7416,31 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.startConnectionOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.startConnectionOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.startGatewayOAuthRequest": {
             "type": "object",
             "properties": {
@@ -7917,6 +8128,59 @@ const docTemplate = `{
                     "description": "\"file\", \"database\", or \"both\"",
                     "type": "string",
                     "example": "database"
+                }
+            }
+        },
+        "connoauth.OAuthStatus": {
+            "type": "object",
+            "properties": {
+                "authenticated_at": {
+                    "description": "AuthenticatedAt is when the most recent successful Connect\ncompleted. Initial-Connect time, not last-refresh time.",
+                    "type": "string"
+                },
+                "authenticated_by": {
+                    "description": "AuthenticatedBy is the email/id of the operator who completed\nthe browser flow. Empty for never-authorized connections.",
+                    "type": "string"
+                },
+                "configured": {
+                    "description": "Configured indicates the connection is set up for the\nauthorization_code grant. False means the status endpoint was\nhit for a non-OAuth connection (or one with a different grant)\nand the UI should hide the OAuth block entirely.",
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "description": "ExpiresAt is the access-token deadline. Zero when no token has\nbeen acquired.",
+                    "type": "string"
+                },
+                "has_refresh_token": {
+                    "description": "HasRefreshToken is true when a refresh token sits in the row.\nFalse for IdPs that don't issue refresh tokens, OR after a\nrevoked-refresh cleanup.",
+                    "type": "boolean"
+                },
+                "last_error": {
+                    "description": "LastError is the most recent surfaced failure (transport,\nIdP-rejected, persistence). Cleared by a subsequent success.",
+                    "type": "string"
+                },
+                "last_refreshed_at": {
+                    "description": "LastRefreshedAt is the persisted row's UpdatedAt — the time of\nthe most recent successful write (initial Connect or silent\nrefresh).",
+                    "type": "string"
+                },
+                "needs_reauth": {
+                    "description": "NeedsReauth is true when no access token can be minted without\noperator interaction. The admin UI surfaces a Connect button\nwhen this is true.",
+                    "type": "boolean"
+                },
+                "refresh_expires_at": {
+                    "description": "RefreshExpiresAt is the IdP-disclosed refresh-token deadline.\nZero when the IdP did not disclose one. The admin UI renders an\nem dash for zero, not \"never\".",
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "Scope is the space-delimited scope string negotiated with the\nIdP. Surfaced so operators can verify offline_access is present\non Keycloak/Auth0/Okta IdPs.",
+                    "type": "string"
+                },
+                "token_acquired": {
+                    "description": "TokenAcquired is true when a non-empty access_token sits in the\npersisted row. False after a revoked-refresh cleanup or before\nthe first Connect.",
+                    "type": "boolean"
+                },
+                "token_url": {
+                    "description": "TokenURL is the IdP's token endpoint, surfaced so the admin\nstatus panel can show \"auth against https://iam.example.com/...\"\nat a glance. Operator-authored config; safe to expose.",
+                    "type": "string"
                 }
             }
         },

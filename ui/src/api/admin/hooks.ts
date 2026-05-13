@@ -737,11 +737,19 @@ export function useReacquireGatewayOAuth() {
   });
 }
 
-export function useStartGatewayOAuth() {
+// useStartConnectionOAuth kicks off the authorization_code flow for
+// the given kind ("mcp", "api", future kinds). The backend dispatches
+// on the kind path parameter to the corresponding OAuthKindHandler.
+// Replaces the prior per-kind useStartGatewayOAuth /
+// useStartAPIGatewayOAuth hooks that targeted divergent routes against
+// divergent token stores — every kind now shares one
+// /connections/{kind}/{name}/oauth-start route backed by the unified
+// connoauth.Store.
+export function useStartConnectionOAuth(kind: string) {
   return useMutation({
     mutationFn: ({ name, returnURL }: { name: string; returnURL?: string }) =>
       apiFetch<import("./types").GatewayOAuthStartResponse>(
-        `/gateway/connections/${name}/oauth-start`,
+        `/connections/${kind}/${name}/oauth-start`,
         {
           method: "POST",
           body: JSON.stringify({ return_url: returnURL ?? "" }),
@@ -750,22 +758,50 @@ export function useStartGatewayOAuth() {
   });
 }
 
-// useStartAPIGatewayOAuth kicks off the authorization_code flow for
-// an HTTP API gateway connection (kind=api). Mirrors useStartGatewayOAuth
-// but targets the api-gateway-specific admin route. Returns the
-// authorization URL the operator's browser should be redirected to;
-// the upstream IdP will redirect back to /api/v1/admin/api-gateway/oauth/callback
-// after authentication.
+// useStartGatewayOAuth is the MCP-kind specialization of
+// useStartConnectionOAuth. Kept as a named export so the existing MCP
+// gateway form callsite is unchanged through this refactor.
+export function useStartGatewayOAuth() {
+  return useStartConnectionOAuth("mcp");
+}
+
+// useStartAPIGatewayOAuth is the API-kind specialization of
+// useStartConnectionOAuth. Kept as a named export so the existing
+// HTTP API gateway form callsite is unchanged through this refactor.
 export function useStartAPIGatewayOAuth() {
-  return useMutation({
-    mutationFn: ({ name, returnURL }: { name: string; returnURL?: string }) =>
-      apiFetch<import("./types").GatewayOAuthStartResponse>(
-        `/api-gateway/connections/${name}/oauth-start`,
-        {
-          method: "POST",
-          body: JSON.stringify({ return_url: returnURL ?? "" }),
-        },
+  return useStartConnectionOAuth("api");
+}
+
+// useConnectionOAuthStatus returns the unified OAuth status snapshot
+// for ANY connection kind. Renders the status card in both the MCP
+// gateway and HTTP API gateway connection views.
+export function useConnectionOAuthStatus(kind: string, name: string, enabled = true) {
+  return useQuery({
+    queryKey: ["connection-oauth-status", kind, name],
+    queryFn: () =>
+      apiFetch<import("./types").ConnectionOAuthStatus>(
+        `/connections/${kind}/${name}/oauth-status`,
       ),
+    enabled: enabled && !!kind && !!name,
+    refetchInterval: 10000,
+  });
+}
+
+// useReacquireConnectionOAuth forces a refresh-token exchange for ANY
+// connection kind. Useful from the admin status card to verify the
+// persisted refresh token still works against the IdP.
+export function useReacquireConnectionOAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, name }: { kind: string; name: string }) =>
+      apiFetch<void>(`/connections/${kind}/${name}/reacquire-oauth`, {
+        method: "POST",
+      }),
+    onSuccess: (_, { kind, name }) => {
+      void qc.invalidateQueries({
+        queryKey: ["connection-oauth-status", kind, name],
+      });
+    },
   });
 }
 

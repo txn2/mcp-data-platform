@@ -28,6 +28,7 @@ export interface Branding {
   name: string;
   version: string;
   portal_title: string;
+  portal_tagline?: string;
   portal_logo: string;
   portal_logo_light: string;
   portal_logo_dark: string;
