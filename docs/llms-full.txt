@@ -745,7 +745,7 @@ auth:
     secure: true
 ```
 
-Endpoints: `/portal/auth/login` (initiate), `/portal/auth/callback` (process), `/portal/auth/logout` (clear). API key fallback always available. MCP clients unaffected.
+Endpoints: `/portal/auth/login` (initiate; accepts optional `return_to` site-relative path), `/portal/auth/callback` (process; redirects to `return_to` when set, otherwise `PostLoginRedirect`), `/portal/auth/logout` (clear). API key fallback always available. MCP clients unaffected.
 
 Limitations: no individual session revocation, no key rotation support (rotating invalidates all sessions), no session refresh (re-auth required after TTL).
 
