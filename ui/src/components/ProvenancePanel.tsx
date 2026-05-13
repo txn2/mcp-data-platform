@@ -5,6 +5,8 @@ import {
   FileText,
   Info,
   Terminal,
+  Copy,
+  Check,
   type LucideIcon,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -142,10 +144,37 @@ function DetailModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
   if (!call) return null;
   const Icon = getToolIcon(call.tool_name);
   const sql = extractSQL(call);
   const detail = sql ?? formatDetail(call.parameters);
+
+  const handleCopy = () => {
+    const writeFallback = () => {
+      const el = document.createElement("textarea");
+      el.value = detail;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(detail).then(
+        () => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        },
+        writeFallback,
+      );
+    } else {
+      writeFallback();
+    }
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -161,9 +190,30 @@ function DetailModal({
           </Dialog.Description>
 
           <div className="mt-4">
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {sql ? "SQL Query" : "Parameters"}
-            </p>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                {sql ? "SQL Query" : "Parameters"}
+              </p>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={sql ? "Copy SQL query" : "Copy parameters"}
+                aria-label={sql ? "Copy SQL query" : "Copy parameters"}
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
             <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
               {detail}
             </pre>
