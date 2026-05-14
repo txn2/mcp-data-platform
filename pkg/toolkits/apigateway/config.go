@@ -13,6 +13,8 @@ package apigateway
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 	"time"
 )
 
@@ -104,6 +106,15 @@ const (
 	cfgKeyCallTimeout      = "call_timeout"
 	cfgKeyTrustLevel       = "trust_level"
 	cfgKeyMaxResponseBytes = "max_response_bytes"
+	// cfgKeyStaticHeaders holds operator-configured headers that the
+	// toolkit appends to every outbound request. Required for upstreams
+	// that demand BOTH an Authorization bearer AND a separate
+	// subscription/key header (Blackbaud SKY's Bb-Api-Subscription-Key,
+	// Google Cloud's x-goog-user-project quota-billing header, etc.).
+	// Stored as a map[string]any whose values are encrypted at rest by
+	// platform.FieldEncryptor (see CfgKeyStaticHeaders in
+	// pkg/platform/fieldcrypt.go).
+	cfgKeyStaticHeaders = "static_headers"
 	// cfgKeyOpenAPISpec carries the raw OpenAPI 3.x document (YAML
 	// or JSON) for this connection. Parsed at AddConnection time,
 	// stored on the live connection, and consumed by
@@ -170,6 +181,13 @@ type Config struct {
 	// OAuth2 carries the OAuth 2.1 parameters used when AuthMode
 	// is oauth2_client_credentials. Empty for non-OAuth modes.
 	OAuth2 OAuth2Config
+	// StaticHeaders are operator-configured headers attached to every
+	// outbound request, in addition to whatever AuthMode contributes.
+	// Required for upstreams that demand a non-Authorization header on
+	// top of the OAuth bearer (Blackbaud SKY's Bb-Api-Subscription-Key,
+	// Google's x-goog-user-project, etc.). Operator-supplied — the
+	// model never sets or overrides these. Values are encrypted at rest.
+	StaticHeaders map[string]string
 }
 
 // OAuth2Config describes the OAuth 2.1 client_credentials grant
@@ -276,6 +294,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
 	c.OpenAPISpec = getString(cfg, cfgKeyOpenAPISpec)
 	c.OAuth2 = parseOAuth2Config(cfg)
+	c.StaticHeaders = getStringMap(cfg, cfgKeyStaticHeaders)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -306,7 +325,74 @@ func (c Config) Validate() error {
 	if c.MaxResponseBytes <= 0 {
 		return errors.New("apigateway: max_response_bytes must be positive")
 	}
+	return c.validateStaticHeaders()
+}
+
+// validateStaticHeaders refuses operator config that would collide with
+// the toolkit's auth path or with hop-by-hop headers Go forbids on a
+// request. A static header attempting to set Authorization (or the
+// auth-mode-reserved header for api_key+header) would silently lose to
+// the auth layer at request time — fail loudly here instead.
+func (c Config) validateStaticHeaders() error {
+	if len(c.StaticHeaders) == 0 {
+		return nil
+	}
+	authHeader := authHeaderForConfig(c)
+	for name, value := range c.StaticHeaders {
+		if name == "" {
+			return errors.New("apigateway: static_headers contains an empty header name")
+		}
+		if !isValidHeaderName(name) {
+			return fmt.Errorf("apigateway: static_headers name %q contains characters not permitted in an HTTP header name", name)
+		}
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return fmt.Errorf("apigateway: static_headers[%q] contains CR/LF/NUL — header smuggling vector", name)
+		}
+		if strings.EqualFold(name, authorizationHeader) {
+			return errors.New("apigateway: static_headers must not set Authorization; configure auth via auth_mode")
+		}
+		if authHeader != "" && strings.EqualFold(name, authHeader) {
+			return fmt.Errorf("apigateway: static_headers must not set %q — already managed by auth_mode", name)
+		}
+		if isReservedHopHeader(name) {
+			return fmt.Errorf("apigateway: static_headers must not set hop-by-hop or net/http-managed header %q", name)
+		}
+	}
 	return nil
+}
+
+// isValidHeaderName matches RFC 7230 token chars. Permissive enough for
+// real-world headers (Bb-Api-Subscription-Key, x-goog-user-project) and
+// strict enough to refuse spaces / control chars that would let an
+// operator inject CRLF via a header name.
+func isValidHeaderName(name string) bool {
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		case c >= '0' && c <= '9':
+		case strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c)):
+		default:
+			return false
+		}
+	}
+	return name != ""
+}
+
+// isReservedHopHeader names headers Go's net/http manages on the
+// request itself (Host, Content-Length) or that are meaningless on a
+// per-call basis (Connection, Transfer-Encoding, Upgrade). Setting
+// these from operator config would either be silently overridden or
+// break the transport.
+func isReservedHopHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "content-length", "connection", "transfer-encoding",
+		"upgrade", "keep-alive", "proxy-authenticate",
+		"proxy-authorization", "te", "trailer":
+		return true
+	}
+	return false
 }
 
 func (c Config) validateAuth() error {
@@ -396,6 +482,40 @@ func parseOAuth2Config(cfg map[string]any) OAuth2Config {
 		AuthorizationURL:  getString(cfg, cfgKeyOAuth2AuthURL),
 		Prompt:            getString(cfg, cfgKeyOAuth2Prompt),
 	}
+}
+
+// getStringMap reads a map[string]string from the config map. Accepts
+// map[string]string (programmatic construction) or map[string]any (YAML/JSON
+// unmarshaling). Non-string values are skipped. Empty/missing returns nil.
+func getStringMap(cfg map[string]any, key string) map[string]string {
+	raw, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case map[string]string:
+		if len(v) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(v))
+		maps.Copy(out, v)
+		return out
+	case map[string]any:
+		if len(v) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(v))
+		for k, val := range v {
+			if s, isStr := val.(string); isStr {
+				out[k] = s
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
 }
 
 // getStringSlice reads a []string from the config map. Accepts

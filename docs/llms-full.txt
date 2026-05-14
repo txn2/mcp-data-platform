@@ -2406,6 +2406,95 @@ In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (use
 
 ---
 
+# API Gateway Toolkit
+
+The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline — the HTTP/JSON sibling of the MCP gateway. A single tool, `api_invoke_endpoint`, handles every operation on every configured upstream; the model supplies method + path + query + body + optional headers at call time. No tool catalog explosion: ten upstreams = one tool surface, regardless of endpoint count.
+
+## When to use
+
+Use the API gateway for REST/HTTP upstreams (Blackbaud SKY, Google APIs, Salesforce, internal HTTP services). For upstream MCP servers, use the MCP gateway (`kind: mcp`) instead.
+
+## Connection config
+
+Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `oauth2_client_credentials`, `oauth2_authorization_code`. The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
+
+## Static headers
+
+`static_headers` is the second auth slot for APIs that require BOTH an OAuth bearer AND a separate per-call header. `auth_mode` only contributes ONE thing; `static_headers` adds the rest. Operator-supplied, encrypted at rest (AES-256-GCM via the platform's FieldEncryptor), redacted by the admin API.
+
+Motivating cases:
+
+- **Blackbaud SKY** demands `Bb-Api-Subscription-Key` on every call in addition to the user OAuth bearer.
+- **Google APIs** quota-billing requires `x-goog-user-project` alongside the access token for some endpoints.
+- **Internal API gateways** in front of upstream services often inject a subscription/tenant header that the underlying service authenticates against.
+
+### Validation
+
+- Header names must use the RFC 7230 token character set; no spaces, no colons.
+- Values cannot contain CR/LF/NUL (header-smuggling defense).
+- Cannot set `Authorization` (use `auth_mode`).
+- Cannot set the API-key header chosen by `auth_mode: api_key`.
+- Cannot set hop-by-hop / net/http-managed headers: `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`, `Upgrade`, `Keep-Alive`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`.
+
+### Header precedence on the wire
+
+1. Per-call headers from the tool input (`api_invoke_endpoint.headers`).
+2. `static_headers` (operator-configured) — overrides per-call headers with the same name.
+3. `auth_mode` contribution — runs last, always wins.
+
+The model is additionally blocked at request time from supplying any header name that collides with `static_headers`, so the operator's value is authoritative even before auth runs.
+
+## Blackbaud SKY example
+
+```json
+{
+  "base_url": "https://api.sky.blackbaud.com",
+  "auth_mode": "oauth2_authorization_code",
+  "oauth2_authorization_url": "https://oauth2.sky.blackbaud.com/authorization",
+  "oauth2_token_url":         "https://oauth2.sky.blackbaud.com/token",
+  "oauth2_client_id":         "your-blackbaud-app-id",
+  "oauth2_client_secret":     "your-blackbaud-app-secret",
+  "static_headers": {
+    "Bb-Api-Subscription-Key": "your-subscription-key"
+  }
+}
+```
+
+## Google API example
+
+```json
+{
+  "base_url": "https://www.googleapis.com",
+  "auth_mode": "oauth2_authorization_code",
+  "oauth2_authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+  "oauth2_token_url":         "https://oauth2.googleapis.com/token",
+  "oauth2_client_id":         "your-google-client-id",
+  "oauth2_client_secret":     "your-google-client-secret",
+  "oauth2_scopes":            ["https://www.googleapis.com/auth/drive.readonly"],
+  "static_headers": {
+    "x-goog-user-project": "your-quota-project-id"
+  }
+}
+```
+
+## Salesforce example
+
+```json
+{
+  "base_url": "https://your-instance.my.salesforce.com",
+  "auth_mode": "oauth2_authorization_code",
+  "oauth2_authorization_url": "https://login.salesforce.com/services/oauth2/authorize",
+  "oauth2_token_url":         "https://login.salesforce.com/services/oauth2/token",
+  "oauth2_client_id":         "your-connected-app-consumer-key",
+  "oauth2_client_secret":     "your-connected-app-consumer-secret",
+  "oauth2_scopes":            ["api", "refresh_token"]
+}
+```
+
+Salesforce needs `refresh_token` in `oauth2_scopes` to issue a refresh token; without it the connection cannot survive access-token expiry.
+
+---
+
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform

@@ -411,7 +411,7 @@ func buildExportRequest(ctx context.Context, cfg Config, auth Authenticator, in 
 		return nil, err
 	}
 	authHeader := authHeaderForConfig(cfg)
-	if err := validateCustomHeaders(in.Headers, authHeader); err != nil {
+	if err := validateCustomHeaders(in.Headers, authHeader, cfg.StaticHeaders); err != nil {
 		return nil, err
 	}
 	bodyBytes, contentTypeFromBody, err := encodeBody(method, in.Body)
@@ -423,11 +423,12 @@ func buildExportRequest(ctx context.Context, cfg Config, auth Authenticator, in 
 		return nil, err
 	}
 	req, err := buildRequest(ctx, requestSpec{
-		method:      method,
-		url:         urlStr,
-		body:        bodyBytes,
-		contentType: contentTypeFromBody,
-		headers:     in.Headers,
+		method:        method,
+		url:           urlStr,
+		body:          bodyBytes,
+		contentType:   contentTypeFromBody,
+		headers:       in.Headers,
+		staticHeaders: cfg.StaticHeaders,
 	})
 	if err != nil {
 		return nil, err

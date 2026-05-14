@@ -27,6 +27,8 @@ mcp-data-platform is the orchestration layer for a broader suite of open-source 
 
 The platform also includes a **[gateway toolkit](https://mcp-data-platform.txn2.com/server/gateway/)** that re-exposes any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Operators add connections through the admin portal (DB-backed, encrypted credentials); tools surface as `<connection>__<remote_tool>`. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups, so a vendor MCP can return its own data plus warehouse context in a single call.
 
+For REST/HTTP APIs that aren't MCP servers, the **[API gateway toolkit](https://mcp-data-platform.txn2.com/server/api-gateway/)** (`kind: api`) proxies upstreams like Blackbaud SKY, Google APIs, and Salesforce through the same pipeline. A single `api_invoke_endpoint` tool handles every operation. Auth modes cover bearer, API key, OAuth 2.1 client_credentials, and OAuth 2.1 authorization_code with browser sign-in. `static_headers` adds operator-supplied per-call headers alongside the auth header, so APIs that require both an OAuth bearer AND a subscription header (Blackbaud's `Bb-Api-Subscription-Key`, Google's `x-goog-user-project`) work without code changes.
+
 ---
 
 ## Why mcp-data-platform?

@@ -151,23 +151,31 @@ func TestAuthHeaderForConfig(t *testing.T) {
 }
 
 func TestValidateCustomHeaders_RejectsAuthorization(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"AUTHORIZATION": "anything"}, "")
+	err := validateCustomHeaders(map[string]string{"AUTHORIZATION": "anything"}, "", nil)
 	if err == nil {
 		t.Error("Authorization header allowed")
 	}
 }
 
 func TestValidateCustomHeaders_RejectsConfiguredAPIKeyHeader(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"x-custom-key": "spoof"}, "X-Custom-Key")
+	err := validateCustomHeaders(map[string]string{"x-custom-key": "spoof"}, "X-Custom-Key", nil)
 	if err == nil {
 		t.Error("configured api_key header allowed (case-insensitive check failed)")
 	}
 }
 
 func TestValidateCustomHeaders_AllowsOtherHeaders(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"Accept-Language": "en"}, "X-API-Key")
+	err := validateCustomHeaders(map[string]string{"Accept-Language": "en"}, "X-API-Key", nil)
 	if err != nil {
 		t.Errorf("unrelated header rejected: %v", err)
+	}
+}
+
+func TestValidateCustomHeaders_RejectsStaticHeaderOverride(t *testing.T) {
+	staticHeaders := map[string]string{"Bb-Api-Subscription-Key": "secret"}
+	err := validateCustomHeaders(map[string]string{"bb-api-subscription-key": "spoof"}, "", staticHeaders)
+	if err == nil {
+		t.Error("model attempt to override static header allowed (case-insensitive check failed)")
 	}
 }
 
@@ -462,6 +470,85 @@ func TestInvoke_EndToEnd_BearerAuth(t *testing.T) {
 	}
 	if out.DurationMs < 0 {
 		t.Errorf("duration_ms = %d", out.DurationMs)
+	}
+}
+
+// TestInvoke_EndToEnd_StaticHeadersAlongsideBearer proves the
+// Blackbaud-shaped requirement: the operator's static header lands on
+// the wire alongside the OAuth/Bearer Authorization header, without
+// the model being able to inject or override either. The model
+// supplies an unrelated Accept-Language header to confirm static
+// headers don't displace per-call ones that aren't reserved.
+func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer tok-xyz" {
+			t.Errorf("Authorization = %q; want %q", got, "Bearer tok-xyz")
+		}
+		if got := r.Header.Get("Bb-Api-Subscription-Key"); got != "sub-secret" {
+			t.Errorf("Bb-Api-Subscription-Key = %q; want %q", got, "sub-secret")
+		}
+		if got := r.Header.Get("Accept-Language"); got != "en-US" {
+			t.Errorf("Accept-Language = %q; want %q", got, "en-US")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		BaseURL:          srv.URL,
+		AuthMode:         AuthModeBearer,
+		Credential:       "tok-xyz",
+		ConnectTimeout:   2 * time.Second,
+		CallTimeout:      5 * time.Second,
+		MaxResponseBytes: DefaultMaxResponseBytes,
+		StaticHeaders: map[string]string{
+			"Bb-Api-Subscription-Key": "sub-secret",
+		},
+	}
+	auth, err := NewAuthenticator(cfg)
+	if err != nil {
+		t.Fatalf("NewAuthenticator: %v", err)
+	}
+	out, err := invoke(context.Background(), invocation{
+		cfg:    cfg,
+		auth:   auth,
+		client: newHTTPClient(cfg),
+	}, InvokeInput{
+		Connection: "blackbaud",
+		Method:     "GET",
+		Path:       "/v1/constituents",
+		Headers:    map[string]string{"Accept-Language": "en-US"},
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if out.Status != http.StatusOK {
+		t.Errorf("status = %d", out.Status)
+	}
+}
+
+// TestInvoke_ModelCannotOverrideStaticHeader proves the operator's
+// static_headers entry beats a per-call attempt to spoof the same
+// header — validateCustomHeaders should refuse the call.
+func TestInvoke_ModelCannotOverrideStaticHeader(t *testing.T) {
+	cfg := Config{
+		BaseURL:          "https://api.example.com",
+		AuthMode:         AuthModeNone,
+		ConnectTimeout:   time.Second,
+		CallTimeout:      time.Second,
+		MaxResponseBytes: DefaultMaxResponseBytes,
+		StaticHeaders:    map[string]string{"Bb-Api-Subscription-Key": "operator-key"},
+	}
+	auth, _ := NewAuthenticator(cfg)
+	_, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
+		Connection: "blackbaud",
+		Method:     "GET",
+		Path:       "/v1/anything",
+		Headers:    map[string]string{"bb-api-subscription-key": "spoofed"},
+	})
+	if err == nil {
+		t.Fatal("expected error refusing model override of static_header")
 	}
 }
 

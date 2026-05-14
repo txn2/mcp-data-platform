@@ -114,7 +114,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		return InvokeOutput{}, err
 	}
 	authHeader := authHeaderForConfig(inv.cfg)
-	if err := validateCustomHeaders(in.Headers, authHeader); err != nil {
+	if err := validateCustomHeaders(in.Headers, authHeader, inv.cfg.StaticHeaders); err != nil {
 		return InvokeOutput{}, err
 	}
 
@@ -133,11 +133,12 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 	defer cancel()
 
 	req, err := buildRequest(callCtx, requestSpec{
-		method:      method,
-		url:         reqURL,
-		body:        body,
-		contentType: contentType,
-		headers:     in.Headers,
+		method:        method,
+		url:           reqURL,
+		body:          body,
+		contentType:   contentType,
+		headers:       in.Headers,
+		staticHeaders: inv.cfg.StaticHeaders,
 	})
 	if err != nil {
 		return InvokeOutput{}, err
@@ -248,13 +249,18 @@ func authHeaderForConfig(c Config) string {
 	return ""
 }
 
-func validateCustomHeaders(headers map[string]string, authHeader string) error {
+func validateCustomHeaders(headers map[string]string, authHeader string, staticHeaders map[string]string) error {
 	for name := range headers {
 		if strings.EqualFold(name, authorizationHeader) {
 			return errors.New("apigateway: Authorization header is reserved; configure auth via connection")
 		}
 		if authHeader != "" && strings.EqualFold(name, authHeader) {
 			return fmt.Errorf("apigateway: %s header is reserved by this connection's auth_mode", authHeader)
+		}
+		for staticName := range staticHeaders {
+			if strings.EqualFold(name, staticName) {
+				return fmt.Errorf("apigateway: %s header is reserved by this connection's static_headers", staticName)
+			}
 		}
 	}
 	return nil
@@ -344,11 +350,12 @@ func resolveTimeout(requested int, defaultTimeout time.Duration) time.Duration {
 // signature stays under revive's argument-limit ceiling without
 // losing any of the data the request-building step needs.
 type requestSpec struct {
-	method      string
-	url         string
-	body        []byte
-	contentType string
-	headers     map[string]string
+	method        string
+	url           string
+	body          []byte
+	contentType   string
+	headers       map[string]string
+	staticHeaders map[string]string
 }
 
 func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) {
@@ -361,6 +368,14 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 		return nil, fmt.Errorf("apigateway: building request: %w", err)
 	}
 	for name, value := range spec.headers {
+		req.Header.Set(name, value)
+	}
+	// Static (operator-configured) headers override per-call (model)
+	// headers so a connection's mandatory subscription/quota header
+	// (e.g. Blackbaud's Bb-Api-Subscription-Key) is authoritative.
+	// validateCustomHeaders also rejects model attempts at the same
+	// header names, so this is belt-and-suspenders.
+	for name, value := range spec.staticHeaders {
 		req.Header.Set(name, value)
 	}
 	if spec.contentType != "" && req.Header.Get("Content-Type") == "" {

@@ -2,6 +2,7 @@ package platform
 
 import (
 	"crypto/rand"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -205,6 +206,159 @@ func TestFieldEncryptor_EmptyAndNonStringValues(t *testing.T) {
 	assert.Equal(t, float64(42), encrypted["token"])
 }
 
+func TestFieldEncryptor_NestedMap_RoundTrip(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	config := map[string]any{
+		"base_url": "https://api.example.com",
+		"static_headers": map[string]any{
+			"Bb-Api-Subscription-Key": "subscription-secret",
+			"X-Routing-Tag":           "ops",
+		},
+	}
+
+	encrypted, err := e.EncryptSensitiveFields(config)
+	require.NoError(t, err)
+
+	encHeaders, ok := encrypted["static_headers"].(map[string]any)
+	require.True(t, ok, "static_headers must remain a map after encryption")
+	for name, val := range encHeaders {
+		s, isStr := val.(string)
+		require.True(t, isStr, "header %q value must remain string", name)
+		assert.True(t, strings.HasPrefix(s, encryptedPrefix), "header %q not encrypted: %q", name, s)
+	}
+	assert.Equal(t, "https://api.example.com", encrypted["base_url"])
+
+	decrypted, err := e.DecryptSensitiveFields(encrypted)
+	require.NoError(t, err)
+	decHeaders, ok := decrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "subscription-secret", decHeaders["Bb-Api-Subscription-Key"])
+	assert.Equal(t, "ops", decHeaders["X-Routing-Tag"])
+}
+
+func TestFieldEncryptor_NestedMap_AcceptsMapStringString(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	config := map[string]any{
+		"static_headers": map[string]string{
+			"X-Subscription": "value",
+		},
+	}
+
+	encrypted, err := e.EncryptSensitiveFields(config)
+	require.NoError(t, err)
+	inner, ok := encrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	s, _ := inner["X-Subscription"].(string)
+	assert.True(t, strings.HasPrefix(s, encryptedPrefix))
+}
+
+func TestFieldEncryptor_NestedMap_SkipsAlreadyEncrypted(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	first, err := e.EncryptSensitiveFields(map[string]any{
+		"static_headers": map[string]any{"X-Sub": "secret"},
+	})
+	require.NoError(t, err)
+
+	second, err := e.EncryptSensitiveFields(first)
+	require.NoError(t, err)
+	firstInner, ok := first["static_headers"].(map[string]any)
+	require.True(t, ok)
+	secondInner, ok := second["static_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, firstInner["X-Sub"], secondInner["X-Sub"])
+}
+
+func TestFieldEncryptor_NestedMap_DecryptLeavesPlaintextAlone(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	decrypted, err := e.DecryptSensitiveFields(map[string]any{
+		"static_headers": map[string]any{"X-Sub": "plaintext"},
+	})
+	require.NoError(t, err)
+	inner, ok := decrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "plaintext", inner["X-Sub"])
+}
+
+func TestFieldEncryptor_NestedMap_NonStringInnerValues(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	encrypted, err := e.EncryptSensitiveFields(map[string]any{
+		"static_headers": map[string]any{
+			"X-Numeric": float64(42),
+			"X-Empty":   "",
+		},
+	})
+	require.NoError(t, err)
+	inner, ok := encrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(42), inner["X-Numeric"])
+	assert.Equal(t, "", inner["X-Empty"])
+}
+
+func TestFieldEncryptor_NestedMap_NonMapValuePassthrough(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	encrypted, err := e.EncryptSensitiveFields(map[string]any{
+		"static_headers": "not-a-map",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "not-a-map", encrypted["static_headers"])
+}
+
+func TestFieldEncryptor_NestedMap_DecryptAcceptsMapStringString(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	// Encrypt once via the standard map[string]any path so we have a
+	// real ciphertext, then re-shape to map[string]string for the
+	// decrypt entry point — proves the decrypt side handles either
+	// surface shape symmetric to encrypt.
+	encrypted, err := e.EncryptSensitiveFields(map[string]any{
+		"static_headers": map[string]any{"X-Sub": "secret-value"},
+	})
+	require.NoError(t, err)
+	inner, ok := encrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	encryptedSub, ok := inner["X-Sub"].(string)
+	require.True(t, ok)
+	asStringMap := map[string]string{"X-Sub": encryptedSub}
+
+	decrypted, err := e.DecryptSensitiveFields(map[string]any{
+		"static_headers": asStringMap,
+	})
+	require.NoError(t, err)
+	decInner, ok := decrypted["static_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "secret-value", decInner["X-Sub"])
+}
+
+func TestFieldEncryptor_NestedMap_DecryptNonMapPassthrough(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+
+	decrypted, err := e.DecryptSensitiveFields(map[string]any{
+		"static_headers": "not-a-map",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "not-a-map", decrypted["static_headers"])
+}
+
+func TestSensitiveNestedMapKeyList(t *testing.T) {
+	keys := SensitiveNestedMapKeyList()
+	require.NotEmpty(t, keys)
+	assert.Contains(t, keys, CfgKeyStaticHeaders)
+}
+
 func TestFieldEncryptor_WrongKeyFailsDecrypt(t *testing.T) {
 	e1, err := NewFieldEncryptor(testKey(t))
 	require.NoError(t, err)
@@ -216,7 +370,6 @@ func TestFieldEncryptor_WrongKeyFailsDecrypt(t *testing.T) {
 	encrypted, err := e1.EncryptSensitiveFields(config)
 	require.NoError(t, err)
 
-	// Decrypt with wrong key should fail
 	_, err = e2.DecryptSensitiveFields(encrypted)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "decrypting")
