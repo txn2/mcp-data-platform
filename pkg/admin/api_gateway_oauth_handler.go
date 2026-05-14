@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
@@ -213,13 +214,12 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		writeOAuthError(w, "token exchange failed")
 		return false
 	}
-	tk := h.findAPIGatewayToolkit()
-	if tk == nil || tk.TokenStore() == nil {
+	if h.deps.ConnOAuthStore == nil {
 		writeOAuthError(w, "api gateway toolkit not configured for OAuth")
 		return false
 	}
-	persisted := apigatewaykit.PersistedToken{
-		ConnectionName:   pending.connection,
+	persisted := connoauth.PersistedToken{
+		Key:              connoauth.Key{Kind: connoauth.KindAPI, Name: pending.connection},
 		AccessToken:      tok.AccessToken,
 		RefreshToken:     tok.RefreshToken,
 		ExpiresAt:        tok.Expiry,
@@ -228,7 +228,7 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		AuthenticatedBy:  pending.startedBy,
 		AuthenticatedAt:  time.Now(),
 	}
-	if err := tk.TokenStore().Set(r.Context(), persisted); err != nil {
+	if err := h.deps.ConnOAuthStore.Set(r.Context(), persisted); err != nil {
 		slog.Error("api-gateway oauth-callback: persist token failed",
 			logKeyName, pending.connection, logKeyError, err)
 		writeOAuthError(w, "failed to persist token")
@@ -262,21 +262,6 @@ func (h *Handler) loadAPIGatewayAuthCodeConfig(w http.ResponseWriter, r *http.Re
 		return apigatewaykit.Config{}, false
 	}
 	return cfg, true
-}
-
-// findAPIGatewayToolkit returns the live api gateway toolkit from
-// the registry, or nil when none is registered. Mirrors
-// findGatewayToolkit but for kind=api.
-func (h *Handler) findAPIGatewayToolkit() *apigatewaykit.Toolkit {
-	if h.deps.ToolkitRegistry == nil {
-		return nil
-	}
-	for _, tk := range h.deps.ToolkitRegistry.All() {
-		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			return api
-		}
-	}
-	return nil
 }
 
 // buildAPIGatewayCallbackURL composes the callback URL the IdP

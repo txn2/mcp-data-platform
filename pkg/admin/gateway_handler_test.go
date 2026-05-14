@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -195,21 +196,20 @@ func TestTestGatewayConnection_UsesLiveClientWhenRegistered(t *testing.T) {
 
 	h, tk := gatewayHandlerDeps(t, &mockConnectionStore{})
 
-	store := gatewaykit.NewMemoryTokenStore()
+	store := connoauth.NewMemoryStore()
 	// Seed the access token as already-expired so the live path is
 	// forced to refresh through the fake token server. A 1-hour-valid
-	// cached token would short-circuit oauth.Token() and the test would
-	// pass even if the refresh round-tripper were broken — see round-4
-	// finding #1.
-	if err := store.Set(context.Background(), gatewaykit.PersistedToken{
-		ConnectionName: "crm",
-		AccessToken:    "stale-acc",
-		RefreshToken:   "live-ref",
-		ExpiresAt:      time.Now().Add(-time.Minute),
+	// cached token would short-circuit Source.Token() and the test
+	// would pass even if the refresh round-tripper were broken.
+	if err := store.Set(context.Background(), connoauth.PersistedToken{
+		Key:          connoauth.Key{Kind: connoauth.KindMCP, Name: "crm"},
+		AccessToken:  "stale-acc",
+		RefreshToken: "live-ref",
+		ExpiresAt:    time.Now().Add(-time.Minute),
 	}); err != nil {
 		t.Fatalf("seed token: %v", err)
 	}
-	tk.SetTokenStore(store)
+	tk.SetConnOAuthStore(store)
 
 	if err := tk.AddConnection("crm", map[string]any{
 		"endpoint":                liveURL,
@@ -481,7 +481,7 @@ func TestConnectionHasOAuthToken_NoToolkitReturnsFalse(t *testing.T) {
 		ToolkitRegistry: reg,
 		ConfigStore:     &mockConfigStore{mode: "database"},
 	}, nil)
-	assert.False(t, h.connectionHasOAuthToken("anything"))
+	assert.False(t, h.connectionHasOAuthToken(context.Background(), "anything"))
 }
 
 // TestConnectionHasOAuthToken_UnknownConnectionReturnsFalse covers the case
@@ -489,7 +489,7 @@ func TestConnectionHasOAuthToken_NoToolkitReturnsFalse(t *testing.T) {
 // Status() returns nil and we must report "no token".
 func TestConnectionHasOAuthToken_UnknownConnectionReturnsFalse(t *testing.T) {
 	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
-	assert.False(t, h.connectionHasOAuthToken("does-not-exist"))
+	assert.False(t, h.connectionHasOAuthToken(context.Background(), "does-not-exist"))
 }
 
 // TestConnectionHasOAuthToken_NonOAuthConnectionReturnsFalse covers a
@@ -504,7 +504,7 @@ func TestConnectionHasOAuthToken_NonOAuthConnectionReturnsFalse(t *testing.T) {
 		"connect_timeout": "3s",
 		"call_timeout":    "3s",
 	}))
-	assert.False(t, h.connectionHasOAuthToken("plain"))
+	assert.False(t, h.connectionHasOAuthToken(context.Background(), "plain"))
 }
 
 // TestTestGatewayConnection_AuthCodeUnauthorizedReturnsFriendlyMessage

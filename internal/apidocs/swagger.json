@@ -8264,6 +8264,10 @@
                     "description": "ExpiresAt is the access-token deadline. Zero when no token has\nbeen acquired.",
                     "type": "string"
                 },
+                "grant": {
+                    "description": "Grant is the OAuth flow this connection uses\n(`authorization_code` or `client_credentials`). Surfaced so the\nadmin UI can adapt prompts (the Connect button only applies to\nauthorization_code; client_credentials has no human-in-the-loop\nstep). Empty for non-OAuth connections.",
+                    "type": "string"
+                },
                 "has_refresh_token": {
                     "description": "HasRefreshToken is true when a refresh token sits in the row.\nFalse for IdPs that don't issue refresh tokens, OR after a\nrevoked-refresh cleanup.",
                     "type": "boolean"
@@ -8437,65 +8441,13 @@
                     "type": "string"
                 },
                 "oauth": {
-                    "$ref": "#/definitions/gateway.OAuthStatus"
+                    "$ref": "#/definitions/connoauth.OAuthStatus"
                 },
                 "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
-                }
-            }
-        },
-        "gateway.OAuthStatus": {
-            "type": "object",
-            "properties": {
-                "authenticated_at": {
-                    "description": "AuthenticatedAt records when the most recent successful exchange\n(initial OAuth dance or refresh) completed.",
-                    "type": "string"
-                },
-                "authenticated_by": {
-                    "description": "AuthenticatedBy is the email/id of the operator who completed the\nbrowser flow. Empty for client_credentials and for connections that\nhave not yet been authorized.",
-                    "type": "string"
-                },
-                "configured": {
-                    "type": "boolean"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "grant": {
-                    "type": "string"
-                },
-                "has_refresh_token": {
-                    "type": "boolean"
-                },
-                "last_error": {
-                    "type": "string"
-                },
-                "last_refreshed_at": {
-                    "type": "string"
-                },
-                "needs_reauth": {
-                    "description": "NeedsReauth is true when the platform cannot mint a new access\ntoken without operator interaction. For authorization_code grants\nthis means: no stored token, the refresh token has been revoked,\nOR the IdP-disclosed RefreshExpiresAt deadline has passed (the\nnext refresh would fail). The admin UI surfaces a \"Connect\"\nbutton when this is true. Setting it pre-emptively from\nRefreshExpiresAt lets the UI nudge the operator before the next\ntool call surfaces the failure.",
-                    "type": "boolean"
-                },
-                "refresh_expires_at": {
-                    "description": "RefreshExpiresAt is the absolute deadline after which the refresh\ntoken itself stops working. Set only when the IdP includes\nrefresh_expires_in in its token response (Keycloak does; the OAuth\n2.1 spec leaves it optional). Zero means unknown \u2014 the UI should\nrender an em dash, not \"never\".",
-                    "type": "string"
-                },
-                "refresh_token_revoked": {
-                    "description": "RefreshTokenRevoked is true when the most recent refresh attempt\ngot a definitive RFC 6749 \u00a75.2 invalid_grant response \u2014 meaning\nthe IdP has invalidated the stored refresh token (idle session\ntimeout, admin revocation, password change, etc.) and the\noperator must complete a fresh browser-side authorization. The\nadmin UI uses this to distinguish \"click Connect to reauthorize\"\nfrom a transient \"click Reacquire to retry\" state.",
-                    "type": "boolean"
-                },
-                "scope": {
-                    "type": "string"
-                },
-                "token_acquired": {
-                    "type": "boolean"
-                },
-                "token_url": {
-                    "type": "string"
                 }
             }
         },

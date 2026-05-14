@@ -20,22 +20,28 @@ const (
 type upstreamClient struct {
 	session *mcp.ClientSession
 	cfg     Config
-	// oauth is non-nil when AuthMode == AuthModeOAuth. It backs the
-	// authRoundTripper's bearer token and feeds the OAuth status endpoint.
-	oauth *oauthTokenSource
 }
 
-// dial opens a client connection to the configured endpoint and returns a
-// usable upstreamClient. The caller is responsible for calling Close.
-// The optional store is used by authorization_code OAuth grants to load
-// and persist refresh tokens; pass nil for client_credentials and for
-// non-OAuth modes.
-func dial(ctx context.Context, cfg Config, connection string, store TokenStore) (*upstreamClient, error) {
-	var oauth *oauthTokenSource
-	if cfg.AuthMode == AuthModeOAuth {
-		oauth = newOAuthTokenSource(cfg.OAuth, connection, store)
+// dialDeps bundles the wire-time dependencies dial needs to build an
+// upstreamClient. Grouped as a struct so dial's signature stays under
+// revive's argument-limit ceiling and adding a new dependency
+// (logger, transport, etc.) is a struct-field edit rather than a
+// cascade through every caller.
+type dialDeps struct {
+	// TokenProvider is non-nil for OAuth connections (either grant
+	// type). When nil and AuthMode is OAuth, dial returns an explicit
+	// error so the caller can surface a clear misconfiguration message
+	// rather than a vague upstream connection failure.
+	TokenProvider tokenProvider
+}
+
+// dial opens a client connection to the configured endpoint and returns
+// a usable upstreamClient. The caller is responsible for calling Close.
+func dial(ctx context.Context, cfg Config, deps dialDeps) (*upstreamClient, error) {
+	if cfg.AuthMode == AuthModeOAuth && deps.TokenProvider == nil {
+		return nil, errors.New("gateway: oauth connection requires a token provider; none wired")
 	}
-	httpClient := buildHTTPClient(cfg, oauth)
+	httpClient := buildHTTPClient(cfg, deps.TokenProvider)
 
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    clientName,
@@ -78,7 +84,7 @@ func dial(ctx context.Context, cfg Config, connection string, store TokenStore) 
 		return nil, fmt.Errorf("connect to %s: %w", cfg.Endpoint, err)
 	}
 
-	return &upstreamClient{session: session, cfg: cfg, oauth: oauth}, nil
+	return &upstreamClient{session: session, cfg: cfg}, nil
 }
 
 // listTools fetches the current tool catalog from the upstream.
@@ -115,28 +121,33 @@ func (u *upstreamClient) close() error {
 
 // buildHTTPClient constructs an HTTP client with the configured auth scheme.
 // For AuthModeNone it returns nil, letting the SDK use its default client.
-// The oauth source is required when AuthMode is "oauth" and ignored
+// The tp tokenProvider is required when AuthMode is "oauth" and ignored
 // otherwise; pass nil for the non-OAuth modes.
-func buildHTTPClient(cfg Config, oauth *oauthTokenSource) *http.Client {
+func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
 	if cfg.AuthMode == AuthModeNone {
 		return nil
 	}
 	return &http.Client{
 		Transport: &authRoundTripper{
-			mode:        cfg.AuthMode,
-			credential:  cfg.Credential,
-			tokenSource: oauth,
-			base:        http.DefaultTransport,
+			mode:          cfg.AuthMode,
+			credential:    cfg.Credential,
+			tokenProvider: tp,
+			base:          http.DefaultTransport,
 		},
 	}
 }
 
 // authRoundTripper injects an outbound auth header on every request.
 type authRoundTripper struct {
-	mode        string
-	credential  string
-	tokenSource *oauthTokenSource
-	base        http.RoundTripper
+	mode       string
+	credential string
+	// tokenProvider supplies the OAuth access token per request — for
+	// authorization_code that's a connoauth.Source read against the
+	// unified token store; for client_credentials it's an in-memory
+	// oauth2.ReuseTokenSource. Either way, the round-tripper itself
+	// holds no token state of its own.
+	tokenProvider tokenProvider
+	base          http.RoundTripper
 }
 
 // RoundTrip adds the configured auth header to req and delegates to the base.
@@ -163,10 +174,10 @@ func (a *authRoundTripper) applyAuth(req *http.Request) error {
 	case AuthModeAPIKey:
 		req.Header.Set("X-API-Key", a.credential)
 	case AuthModeOAuth:
-		if a.tokenSource == nil {
-			return errors.New("oauth: token source not configured")
+		if a.tokenProvider == nil {
+			return errors.New("oauth: token provider not configured")
 		}
-		token, err := a.tokenSource.Token(req.Context())
+		token, err := a.tokenProvider.Token(req.Context())
 		if err != nil {
 			return fmt.Errorf("oauth: %w", err)
 		}

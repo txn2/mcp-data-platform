@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 80
+	migrateTestFileCount    = 82
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -96,6 +96,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000031_memory_records.down.sql",
 		"000032_resources.up.sql",
 		"000032_resources.down.sql",
+		"000041_drop_legacy_per_kind_oauth_token_tables.up.sql",
+		"000041_drop_legacy_per_kind_oauth_token_tables.down.sql",
 	}
 
 	fileNames := make(map[string]bool)
@@ -603,26 +605,42 @@ func TestMigrationTablesHaveConsumers(t *testing.T) {
 	require.NoError(t, err)
 
 	createTableRe := regexp.MustCompile(`(?i)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(\w+)`)
+	dropTableRe := regexp.MustCompile(`(?i)DROP TABLE\s+(?:IF EXISTS\s+)?(\w+)`)
 
-	var tables []string
+	// Track create / drop events in migration-file order so a table
+	// that's created in an early migration and later dropped (because
+	// the feature it backed has been retired) is correctly omitted
+	// from the consumer check — its only references in the codebase
+	// are by definition the migrations themselves.
+	tableLive := make(map[string]bool)
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".up.sql") {
 			continue
 		}
 		content, readErr := migrations.ReadFile("migrations/" + entry.Name())
 		require.NoError(t, readErr)
+		migrationSQL := string(content)
 
-		matches := createTableRe.FindAllStringSubmatch(string(content), -1)
-		for _, m := range matches {
+		for _, m := range createTableRe.FindAllStringSubmatch(migrationSQL, -1) {
 			table := m[1]
-			// Skip partition definitions (e.g. "audit_logs_default PARTITION OF audit_logs")
 			if strings.HasSuffix(table, "_default") {
+				// Partition declaration, not a real table.
 				continue
 			}
-			tables = append(tables, table)
+			tableLive[table] = true
+		}
+		for _, m := range dropTableRe.FindAllStringSubmatch(migrationSQL, -1) {
+			tableLive[m[1]] = false
 		}
 	}
-	require.NotEmpty(t, tables, "migrations should contain CREATE TABLE statements")
+
+	var tables []string
+	for name, live := range tableLive {
+		if live {
+			tables = append(tables, name)
+		}
+	}
+	require.NotEmpty(t, tables, "migrations should leave at least one live table after all CREATE/DROP events")
 
 	// 2. Collect all non-test, non-migration Go source files under pkg/.
 	pkgRoot := "../../.."

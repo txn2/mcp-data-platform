@@ -118,20 +118,18 @@ type Platform struct {
 	auditStore *auditpostgres.Store
 
 	// Config store
-	configStore          configstore.Store
-	fileDefaults         map[string]string
-	connectionStore      ConnectionStore
-	connectionSources    *ConnectionSourceMap
-	enrichmentStore      enrichment.Store
-	gatewayTokenStore    gatewaykit.TokenStore
-	apigatewayTokenStore apigatewaykit.TokenStore
-	connOAuthStore       connoauth.Store
-	authEventStore       *authevents.PostgresStore
-	authEventWriter      *authevents.Writer
-	connOAuthRefresher   *connoauth.Refresher
-	restEncryptor        *RestFieldEncryptor
-	personaStore         PersonaStore
-	apiKeyStore          APIKeyStore
+	configStore        configstore.Store
+	fileDefaults       map[string]string
+	connectionStore    ConnectionStore
+	connectionSources  *ConnectionSourceMap
+	enrichmentStore    enrichment.Store
+	connOAuthStore     connoauth.Store
+	authEventStore     *authevents.PostgresStore
+	authEventWriter    *authevents.Writer
+	connOAuthRefresher *connoauth.Refresher
+	restEncryptor      *RestFieldEncryptor
+	personaStore       PersonaStore
+	apiKeyStore        APIKeyStore
 
 	// Providers
 	semanticProvider semantic.Provider
@@ -460,15 +458,6 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	p.authEventStore = authevents.NewPostgresStore(p.db)
 	p.authEventWriter = authevents.NewWriter(p.authEventStore, nil)
 	p.authEventStore.StartPruneRoutine(24*time.Hour, authEventsRetention)
-	// Both toolkit token stores are now backed by the unified
-	// connection_oauth_tokens table via a per-kind adapter. The admin
-	// layer's unified OAuth handler writes to the same connoauth.Store,
-	// so Connect → tool call → refresh all read/write the same row.
-	// Migration 000039 backfills tokens from the prior per-kind tables
-	// on upgrade; the prior tables are kept for one release and
-	// dropped in a follow-up migration.
-	p.gatewayTokenStore = gatewaykit.NewConnOAuthTokenStore(p.connOAuthStore)
-	p.apigatewayTokenStore = apigatewaykit.NewConnOAuthTokenStore(p.connOAuthStore)
 	return nil
 }
 
@@ -602,40 +591,32 @@ func (p *Platform) EnrichmentStore() enrichment.Store {
 	return p.enrichmentStore
 }
 
-// GatewayTokenStore returns the persistent OAuth token store used by the
-// authorization_code grant. Nil when no database is configured —
-// authorization_code connections won't survive restart in that case.
-func (p *Platform) GatewayTokenStore() gatewaykit.TokenStore {
-	return p.gatewayTokenStore
-}
-
-// WireGatewayTokenStore attaches the persistent OAuth token store to
-// every live gateway toolkit in the registry so authorization_code
-// grants survive process restarts. No-op when no database is configured.
+// WireGatewayTokenStore attaches the unified connoauth.Store to every
+// live gateway toolkit in the registry so authorization_code grants
+// survive process restarts. No-op when no database is configured.
 //
-// Lives on Platform (not in cmd/main.go) so the post-construction wiring
-// step is part of the platform contract — testable without spinning up
-// a full main, and discoverable for any future entry-point that builds
-// a Platform.
+// Lives on Platform (not in cmd/main.go) so the post-construction
+// wiring step is part of the platform contract — testable without
+// spinning up a full main, and discoverable for any future entry-point
+// that builds a Platform.
 //
-// Calling SetTokenStore on a gateway toolkit that already has placeholder
-// authorization_code connections will retry their dial path so persisted
-// tokens come live without requiring an additional admin action. This is
-// what makes auto-enabled gateway toolkits work on a fresh boot.
+// Calling SetConnOAuthStore on a gateway toolkit that already has
+// placeholder authorization_code connections will retry their dial
+// path so persisted tokens come live without requiring an additional
+// admin action. This is what makes auto-enabled gateway toolkits work
+// on a fresh boot.
 func (p *Platform) WireGatewayTokenStore() {
-	store := p.gatewayTokenStore
-	if store == nil {
+	if p.connOAuthStore == nil {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {
 		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
-			gw.SetTokenStore(store)
-			// Wire the audit-event writer at the same call site so
-			// refresh / rotation / revocation events from the
-			// tool-call hot path land in connection_auth_events. The
-			// writer is nil-safe; gw.SetAuthEvents short-circuits when
-			// authEventWriter is nil (dev with no DB).
+			// Wire the audit-event writer FIRST so the SetConnOAuthStore
+			// retry path's discoverFor builds Sources with the events
+			// writer already in place. The writer is nil-safe; events
+			// short-circuit when the writer is nil (dev with no DB).
 			gw.SetAuthEvents(p.authEventWriter)
+			gw.SetConnOAuthStore(p.connOAuthStore)
 		}
 	}
 }
@@ -736,31 +717,21 @@ func (a apiGatewayRoutePolicy) resolveRoles(ctx context.Context) []string {
 	return nil
 }
 
-// APIGatewayTokenStore returns the persistent OAuth token store used
-// by the api gateway's authorization_code grant. nil when the
-// platform was constructed without a database — auth_mode
-// oauth2_authorization_code requires a database to function.
-func (p *Platform) APIGatewayTokenStore() apigatewaykit.TokenStore {
-	return p.apigatewayTokenStore
-}
-
-// WireAPIGatewayTokenStore attaches the persistent OAuth token
-// store to every live api gateway toolkit. Mirrors
-// WireGatewayTokenStore in placement and lifecycle. Safe to call
-// multiple times — the toolkit's SetTokenStore re-threads any
-// already-materialized authorization_code Authenticators.
+// WireAPIGatewayTokenStore attaches the unified connoauth.Store to
+// every live api gateway toolkit. Mirrors WireGatewayTokenStore in
+// placement and lifecycle. Safe to call multiple times — the
+// toolkit's SetConnOAuthStore re-threads any already-materialized
+// authorization_code Authenticators.
 func (p *Platform) WireAPIGatewayTokenStore() {
-	if p.apigatewayTokenStore == nil {
+	if p.connOAuthStore == nil {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {
 		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			api.SetTokenStore(p.apigatewayTokenStore)
-			// Mirror WireGatewayTokenStore: thread the audit-event
-			// writer so tool-call-triggered refreshes through the
-			// API gateway's own Apply path also emit lifecycle
-			// events.
+			// Audit writer FIRST so any subsequent refresh through the
+			// Authenticator emits lifecycle events.
 			api.SetAuthEvents(p.authEventWriter)
+			api.SetConnOAuthStore(p.connOAuthStore)
 		}
 	}
 }

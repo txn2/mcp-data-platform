@@ -11,6 +11,14 @@ import "golang.org/x/oauth2"
 // it. The Source's error returns are sanitized to keep secret
 // material out of model/log output (see source.go:tokenFetchError).
 type Config struct {
+	// Grant is the OAuth flow the connection uses. One of
+	// `authorization_code` (browser-driven, refresh-token-persisting)
+	// or `client_credentials` (machine-to-machine). Surfaced through
+	// Status so the admin UI can adapt its prompts. The Source itself
+	// uses the value only for status reporting — refresh-token
+	// exchanges are identical for both grants once the initial token
+	// has been persisted.
+	Grant string
 	// AuthorizationURL is the IdP's authorization endpoint (where the
 	// operator's browser is sent to sign in). Used only by the admin
 	// handler's authorization-URL builder, not by this package's

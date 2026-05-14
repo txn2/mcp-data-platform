@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
@@ -849,35 +850,34 @@ func TestProbe_UnreachableReturnsError(t *testing.T) {
 // TokenStore access the request can't satisfy the auth_code contract,
 // which is the exact bug TestLiveConnection works around.
 func TestTestLiveConnection_UsesLiveClient(t *testing.T) {
-	tokenURL := fakeTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	tokenURL := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(tokenResponse{ //nolint:gosec // G117 false positive: OAuth response shape, not a credential
-			AccessToken: "live-acc", RefreshToken: "live-ref", ExpiresIn: 3600,
-		})
-	})
+		_, _ = w.Write([]byte(`{"access_token":"live-acc","refresh_token":"live-ref","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenURL.Close)
 	upstreamURL := upstreamServer(t)
 
-	store := NewMemoryTokenStore()
-	if err := store.Set(context.Background(), PersistedToken{
-		ConnectionName: connCRM,
-		AccessToken:    "live-acc",
-		RefreshToken:   "live-ref",
-		ExpiresAt:      time.Now().Add(time.Hour),
+	store := connoauth.NewMemoryStore()
+	if err := store.Set(context.Background(), connoauth.PersistedToken{
+		Key:          connoauth.Key{Kind: connoauth.KindMCP, Name: connCRM},
+		AccessToken:  "live-acc",
+		RefreshToken: "live-ref",
+		ExpiresAt:    time.Now().Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("seed token: %v", err)
 	}
 
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
-	tk.SetTokenStore(store)
+	tk.SetConnOAuthStore(store)
 
 	cfg := map[string]any{
 		"endpoint":                upstreamURL,
 		"connection_name":         connCRM,
 		"auth_mode":               AuthModeOAuth,
 		"oauth_grant":             OAuthGrantAuthorizationCode,
-		"oauth_token_url":         tokenURL,
-		"oauth_authorization_url": tokenURL + "/authorize",
+		"oauth_token_url":         tokenURL.URL,
+		"oauth_authorization_url": tokenURL.URL + "/authorize",
 		"oauth_client_id":         "id",
 		"oauth_client_secret":     "sec",
 		"connect_timeout":         "3s",
@@ -1375,7 +1375,7 @@ func TestStatus_DoesNotBlockDuringSlowAddConnection(t *testing.T) {
 	// until the hung dial returned.
 	statusDone := make(chan struct{})
 	go func() {
-		_ = tk.Status("healthy")
+		_ = tk.Status(context.Background(), "healthy")
 		close(statusDone)
 	}()
 	select {
@@ -1599,7 +1599,7 @@ func TestRemoveConnection_DuringSlowAdd_DiscardsResult(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("AddConnection goroutine didn't terminate")
 	}
-	assert.Nil(t, tk.Status("vendor"),
+	assert.Nil(t, tk.Status(context.Background(), "vendor"),
 		"after RemoveConnection-during-claim, the slot must remain empty — "+
 			"the dial result was discarded, not silently re-installed")
 }
@@ -1693,7 +1693,7 @@ func TestAddConnection_RemoveAndReAdd_DuringSlowDial_DoesNotCorruptSlot(t *testi
 	// (claiming=true, client=nil → Healthy=false, no toolNames). If
 	// T1 had clobbered the slot with its install path, Status would
 	// reflect a (transient) installed entry from T1's dial.
-	mid := tk.Status("vendor")
+	mid := tk.Status(context.Background(), "vendor")
 	require.NotNil(t, mid, "T2's claim must still occupy the slot")
 	assert.False(t, mid.Healthy,
 		"slot must still be a claim sentinel — Healthy=true here means T1's stale dial corrupted T2's claim")

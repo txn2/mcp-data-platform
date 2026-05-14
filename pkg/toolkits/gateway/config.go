@@ -123,7 +123,26 @@ type OAuthConfig struct {
 	// set this to "login" for connections an admin holds. Operators
 	// running pure-OAuth providers should leave it empty.
 	Prompt string
+	// EndpointAuthStyle controls how the client credentials are
+	// transmitted to the token endpoint. One of:
+	//
+	//   "header" (default) — HTTP Basic on the token request; the
+	//                        OAuth 2.1 recommended style.
+	//   "params"           — form-body parameters; required by some
+	//                        legacy / strict-spec IdPs (older
+	//                        Keycloak, some self-hosted authorization
+	//                        servers).
+	//
+	// Empty defaults to "header". Mirrors the apigateway toolkit's
+	// `oauth2_endpoint_auth_style`.
+	EndpointAuthStyle string
 }
+
+// OAuthAuthStyle values for OAuthConfig.EndpointAuthStyle.
+const (
+	OAuthAuthStyleHeader = "header"
+	OAuthAuthStyleParams = "params"
+)
 
 // MultiConfig holds one or more parsed per-connection gateway configs along
 // with the aggregate toolkit's default connection name.
@@ -245,23 +264,25 @@ func parseOAuthConfig(cfg map[string]any) OAuthConfig {
 	var o OAuthConfig
 	if nested, ok := cfg["oauth"].(map[string]any); ok {
 		o = OAuthConfig{
-			Grant:            getStringDefault(nested, "grant", OAuthGrantClientCredentials),
-			TokenURL:         getString(nested, "token_url"),
-			AuthorizationURL: getString(nested, "authorization_url"),
-			ClientID:         getString(nested, "client_id"),
-			ClientSecret:     getString(nested, "client_secret"),
-			Scope:            getString(nested, "scope"),
-			Prompt:           getString(nested, "prompt"),
+			Grant:             getStringDefault(nested, "grant", OAuthGrantClientCredentials),
+			TokenURL:          getString(nested, "token_url"),
+			AuthorizationURL:  getString(nested, "authorization_url"),
+			ClientID:          getString(nested, "client_id"),
+			ClientSecret:      getString(nested, "client_secret"),
+			Scope:             getString(nested, "scope"),
+			Prompt:            getString(nested, "prompt"),
+			EndpointAuthStyle: getStringDefault(nested, "endpoint_auth_style", OAuthAuthStyleHeader),
 		}
 	} else {
 		o = OAuthConfig{
-			Grant:            getStringDefault(cfg, "oauth_grant", OAuthGrantClientCredentials),
-			TokenURL:         getString(cfg, "oauth_token_url"),
-			AuthorizationURL: getString(cfg, "oauth_authorization_url"),
-			ClientID:         getString(cfg, "oauth_client_id"),
-			ClientSecret:     getString(cfg, "oauth_client_secret"),
-			Scope:            getString(cfg, "oauth_scope"),
-			Prompt:           getString(cfg, "oauth_prompt"),
+			Grant:             getStringDefault(cfg, "oauth_grant", OAuthGrantClientCredentials),
+			TokenURL:          getString(cfg, "oauth_token_url"),
+			AuthorizationURL:  getString(cfg, "oauth_authorization_url"),
+			ClientID:          getString(cfg, "oauth_client_id"),
+			ClientSecret:      getString(cfg, "oauth_client_secret"),
+			Scope:             getString(cfg, "oauth_scope"),
+			Prompt:            getString(cfg, "oauth_prompt"),
+			EndpointAuthStyle: getStringDefault(cfg, "oauth_endpoint_auth_style", OAuthAuthStyleHeader),
 		}
 	}
 	return o

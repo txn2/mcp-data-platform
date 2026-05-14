@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -38,15 +39,15 @@ func apiAuthCodeConfig(authURL, tokenURL string) map[string]any {
 	}
 }
 
-// apiGatewayOAuthHandlerWithToolkit builds a Handler whose live api
-// gateway toolkit shares its TokenStore with the test, so callback
-// ingestion can be observed by reading the store. Each call gets its
-// OWN PKCE store — there is no process global to share.
-func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, apigatewaykit.TokenStore) {
+// apiGatewayOAuthHandlerWithToolkit builds a Handler wired to a
+// shared connoauth.Store so callback ingestion can be observed by
+// reading the store. Each call gets its OWN PKCE store — there is no
+// process global to share.
+func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, connoauth.Store) {
 	t.Helper()
 	tk := apigatewaykit.New("primary")
-	tokenStore := apigatewaykit.NewMemoryTokenStore()
-	tk.SetTokenStore(tokenStore)
+	tokenStore := connoauth.NewMemoryStore()
+	tk.SetConnOAuthStore(tokenStore)
 	t.Cleanup(func() { _ = tk.Close() })
 
 	pkceStore := NewMemoryPKCEStore()
@@ -59,6 +60,7 @@ func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Ha
 		ToolkitRegistry: reg,
 		ConfigStore:     &mockConfigStore{mode: "database"},
 		PKCEStore:       pkceStore,
+		ConnOAuthStore:  tokenStore,
 	}, nil)
 	return h, tokenStore
 }
@@ -110,7 +112,7 @@ func TestStartAPIGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
 		},
 	}
 	tk := apigatewaykit.New("primary")
-	tk.SetTokenStore(apigatewaykit.NewMemoryTokenStore())
+	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
 	t.Cleanup(func() { _ = tk.Close() })
 
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
@@ -200,7 +202,7 @@ func TestAPIGatewayOAuthCallback_Success(t *testing.T) {
 	require.Equalf(t, http.StatusFound, cbW.Code, "expected redirect after exchange; body: %s", cbW.Body.String())
 	assert.Contains(t, cbW.Header().Get("Location"), "/portal/admin/connections")
 
-	stored, err := tokenStore.Get(context.Background(), "vendor")
+	stored, err := tokenStore.Get(context.Background(), connoauth.Key{Kind: connoauth.KindAPI, Name: "vendor"})
 	require.NoError(t, err)
 	assert.Equal(t, "acc", stored.AccessToken)
 	assert.Equal(t, "ref", stored.RefreshToken)

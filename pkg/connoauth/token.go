@@ -106,6 +106,12 @@ type OAuthStatus struct {
 	// operator interaction. The admin UI surfaces a Connect button
 	// when this is true.
 	NeedsReauth bool `json:"needs_reauth,omitempty"`
+	// Grant is the OAuth flow this connection uses
+	// (`authorization_code` or `client_credentials`). Surfaced so the
+	// admin UI can adapt prompts (the Connect button only applies to
+	// authorization_code; client_credentials has no human-in-the-loop
+	// step). Empty for non-OAuth connections.
+	Grant string `json:"grant,omitempty"`
 	// LastRevocation, when present, describes the most recent IdP-
 	// driven revocation (refresh_failed_revoked /
 	// token_deleted_revoked) for the connection. Populated by the

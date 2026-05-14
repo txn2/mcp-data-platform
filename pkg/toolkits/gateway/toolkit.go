@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -126,7 +127,7 @@ type Toolkit struct {
 	server           *mcp.Server
 	connections      map[string]*upstream
 	enrichmentEngine *enrichment.Engine
-	tokenStore       TokenStore
+	connOAuthStore   connoauth.Store
 	authEvents       *authevents.Writer
 
 	// listChangedNotifier (when non-nil) is fired (debounced) every
@@ -148,24 +149,30 @@ type Toolkit struct {
 	queryProvider    query.Provider
 }
 
-// SetAuthEvents wires the audit-event writer into the toolkit and any
-// already-materialized OAuth token sources. Called by the platform
-// alongside SetTokenStore so every outbound refresh / revocation /
-// rotation event from the tool-call hot path lands in the
-// connection_auth_events history.
+// SetAuthEvents wires the audit-event writer into the toolkit so every
+// outbound refresh / revocation / rotation event from the tool-call hot
+// path lands in the connection_auth_events history. Connections that
+// were dialed before this call pick up the writer on their next
+// outbound request (the round-tripper builds a fresh connoauth.Source
+// per call from the toolkit's current store + events pair).
 func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.authEvents = w
-	for _, u := range t.connections {
-		if u.client != nil && u.client.oauth != nil {
-			u.client.oauth.SetAuthEvents(w)
-		}
-	}
 }
 
-// SetTokenStore wires a persistent OAuth token store into the gateway.
-// Required for authorization_code grants to survive process restarts.
+// ConnOAuthStore returns the unified OAuth token store wired into
+// this toolkit, or nil when none has been wired yet. Mirrors
+// apigateway.Toolkit.ConnOAuthStore for cross-toolkit parity.
+func (t *Toolkit) ConnOAuthStore() connoauth.Store {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.connOAuthStore
+}
+
+// SetConnOAuthStore wires the unified OAuth token store into the
+// gateway. Required for authorization_code grants to survive process
+// restarts and to refresh tokens silently between operator interactions.
 //
 // When called after AddConnection, any authorization_code placeholder
 // connections (those that were registered as "awaiting reauth" because
@@ -180,14 +187,13 @@ func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
 // callers don't block on potentially-slow upstream dials. The
 // placeholder remains in the connections map throughout, so the
 // admin UI keeps showing "Connect" while a retry is in flight.
-func (t *Toolkit) SetTokenStore(s TokenStore) {
+func (t *Toolkit) SetConnOAuthStore(s connoauth.Store) {
 	type pending struct {
 		name string
 		cfg  Config
 	}
 	t.mu.Lock()
-	t.tokenStore = s
-	store := s
+	t.connOAuthStore = s
 	var retry []pending
 	for name, u := range t.connections {
 		if u.client != nil ||
@@ -210,7 +216,7 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 			defer wg.Done()
 			ctx, cancel := dialContext(p.cfg)
 			defer cancel()
-			client, tools, err := discover(ctx, p.cfg, p.name, store)
+			res, err := t.discoverFor(ctx, p.name, p.cfg)
 			if err != nil {
 				slog.Warn("gateway: retry placeholder after token store wired",
 					logKeyConnection, p.cfg.ConnectionName,
@@ -223,10 +229,74 @@ func (t *Toolkit) SetTokenStore(s TokenStore) {
 				t.recordPlaceholderError(p.name, err.Error())
 				return
 			}
-			t.installLiveConnection(p.name, p.cfg, client, tools)
+			t.installLiveConnection(p.name, p.cfg, res)
 		}(p)
 	}
 	wg.Wait()
+}
+
+// discoverResult bundles the products of a discover run that the
+// installer needs to thread into the connection's live state — the
+// upstream client, its tool catalog, and (for cc grants) the
+// in-memory token provider that Status/Reacquire later read.
+type discoverResult struct {
+	client     *upstreamClient
+	tools      []*mcp.Tool
+	ccProvider *clientCredentialsTokenProvider
+}
+
+// discoverFor builds the tokenProvider for the connection and runs
+// the dial + listTools pair. Centralized so every call site that
+// materializes an upstream client (initial registration, post-Connect
+// rebuild, SetConnOAuthStore retry) picks the same provider strategy.
+//
+// authorization_code → connoauthTokenProvider, which re-reads the
+// toolkit's fields and the persisted token row on every outbound
+// request. client_credentials → clientCredentialsTokenProvider, a
+// mutex-guarded in-memory cache (cc has no rotation contract, so
+// caching is correct and the provider is the source of truth for
+// Status / Reacquire).
+func (t *Toolkit) discoverFor(ctx context.Context, name string, cfg Config) (*discoverResult, error) {
+	provider, ccProvider := t.tokenProviderFor(name, cfg.OAuth)
+	dialCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
+	defer cancel()
+	client, err := dial(dialCtx, cfg, dialDeps{TokenProvider: provider})
+	if err != nil {
+		return nil, err
+	}
+	remoteTools, err := client.listTools(dialCtx)
+	if err != nil {
+		_ = client.close()
+		return nil, fmt.Errorf("list tools: %w", err)
+	}
+	return &discoverResult{client: client, tools: remoteTools, ccProvider: ccProvider}, nil
+}
+
+// tokenProviderFor returns the correct tokenProvider for the
+// connection's OAuth grant, or nil for non-OAuth connections.
+// Returns nil for authorization_code when no connoauth.Store has been
+// wired yet so dial() can surface a clear "OAuth store not wired"
+// error to the operator rather than constructing a placeholder
+// provider whose first Token call would fail vaguely.
+//
+// The second return is the cc-specific provider when grant is
+// client_credentials, so the toolkit can stash it on the upstream
+// and route Status / Reacquire through it. Returns nil otherwise.
+func (t *Toolkit) tokenProviderFor(name string, cfg OAuthConfig) (tokenProvider, *clientCredentialsTokenProvider) {
+	switch cfg.Grant {
+	case OAuthGrantClientCredentials:
+		cc := newClientCredentialsTokenProvider(cfg)
+		return cc, cc
+	case OAuthGrantAuthorizationCode:
+		t.mu.RLock()
+		hasStore := t.connOAuthStore != nil
+		t.mu.RUnlock()
+		if !hasStore {
+			return nil, nil
+		}
+		return connoauthTokenProvider{tk: t, connection: name, cfg: cfg}, nil
+	}
+	return nil, nil
 }
 
 // dialContext returns a context bounded by cfg.ConnectTimeout (or the
@@ -266,13 +336,13 @@ func (t *Toolkit) recordPlaceholderError(name, msg string) {
 // the connection was removed concurrently (or already replaced by
 // another retry), the freshly-dialed client is closed and the result
 // discarded — last-writer-wins for the rare race.
-func (t *Toolkit) installLiveConnection(name string, cfg Config, client *upstreamClient, tools []*mcp.Tool) {
+func (t *Toolkit) installLiveConnection(name string, cfg Config, res *discoverResult) {
 	t.mu.Lock()
 	existing, ok := t.connections[name]
 	if !ok || existing.client != nil {
 		t.mu.Unlock()
 		// Connection was removed or already promoted; drop our work.
-		if cerr := client.close(); cerr != nil {
+		if cerr := res.client.close(); cerr != nil {
 			slog.Warn("gateway: discarded retry client close error",
 				logKeyConnection, cfg.ConnectionName,
 				logKeyError, cerr)
@@ -280,20 +350,13 @@ func (t *Toolkit) installLiveConnection(name string, cfg Config, client *upstrea
 		return
 	}
 	u := &upstream{
-		name:      name,
-		config:    cfg,
-		client:    client,
-		tools:     tools,
-		toolNames: makeLocalNames(cfg.ConnectionName, tools),
-		desc:      "Gateway to " + cfg.Endpoint,
-	}
-	// Thread the audit-event writer into the freshly-dialed oauth
-	// source so refresh/revocation events from the tool-call hot path
-	// reach the connection_auth_events table. Toolkit-level
-	// SetAuthEvents catches connections added BEFORE the wire step;
-	// this catches connections added AFTER it.
-	if t.authEvents != nil && client != nil && client.oauth != nil {
-		client.oauth.SetAuthEvents(t.authEvents)
+		name:       name,
+		config:     cfg,
+		client:     res.client,
+		tools:      res.tools,
+		toolNames:  makeLocalNames(cfg.ConnectionName, res.tools),
+		desc:       "Gateway to " + cfg.Endpoint,
+		ccProvider: res.ccProvider,
 	}
 	t.connections[name] = u
 	if t.server != nil {
@@ -443,6 +506,16 @@ type upstream struct {
 	tools     []*mcp.Tool // cached definitions from discovery
 	toolNames []string
 	desc      string
+	// ccProvider is the live in-memory client_credentials token
+	// provider for this connection. Non-nil ONLY for live oauth
+	// client_credentials upstreams; nil for authorization_code (which
+	// reads from the unified connoauth.Store on every call), bearer,
+	// api_key, and none modes. Held here so Status() can synthesize a
+	// truthful token-acquired snapshot and ReacquireOAuthToken can
+	// force a fresh fetch — neither operation can go through the
+	// connoauth.Store path for cc, since cc tokens are intentionally
+	// in-memory only.
+	ccProvider *clientCredentialsTokenProvider
 	// lastError captures the most recent dial / discover error when the
 	// connection is in placeholder state (client == nil). Surfaced via
 	// Status().OAuth.LastError so the admin UI can show the operator the
@@ -610,15 +683,19 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	// connections) proceed without contention.
 	ctx, cancel := dialContext(cfg)
 	defer cancel()
-	client, tools, dialErr := discover(ctx, cfg, name, t.tokenStore)
-	return t.installDialResult(dialResult{
+	res, dialErr := t.discoverFor(ctx, name, cfg)
+	dr := dialResult{
 		claim:   claim,
 		name:    name,
 		cfg:     cfg,
-		client:  client,
-		tools:   tools,
 		dialErr: dialErr,
-	})
+	}
+	if res != nil {
+		dr.client = res.client
+		dr.tools = res.tools
+		dr.ccProvider = res.ccProvider
+	}
+	return t.installDialResult(dr)
 }
 
 // claimConnectionSlot inserts a sentinel "claiming" entry under the
@@ -658,12 +735,13 @@ func (t *Toolkit) claimConnectionSlot(name string, cfg Config) (*upstream, error
 // signature stays under revive's argument-limit ceiling without losing
 // any of the data the install step needs.
 type dialResult struct {
-	claim   *upstream
-	name    string
-	cfg     Config
-	client  *upstreamClient
-	tools   []*mcp.Tool
-	dialErr error
+	claim      *upstream
+	name       string
+	cfg        Config
+	client     *upstreamClient
+	tools      []*mcp.Tool
+	ccProvider *clientCredentialsTokenProvider
+	dialErr    error
 }
 
 func (t *Toolkit) installDialResult(r dialResult) error {
@@ -708,20 +786,13 @@ func (t *Toolkit) installDialResult(r dialResult) error {
 	}
 
 	u := &upstream{
-		name:      name,
-		config:    cfg,
-		client:    client,
-		tools:     tools,
-		toolNames: makeLocalNames(cfg.ConnectionName, tools),
-		desc:      "Gateway to " + cfg.Endpoint,
-	}
-	// Thread the audit-event writer into the freshly-dialed oauth
-	// source so refresh/revocation events from the tool-call hot path
-	// reach the connection_auth_events table. Toolkit-level
-	// SetAuthEvents catches connections added BEFORE the wire step;
-	// this catches connections added AFTER it.
-	if t.authEvents != nil && client != nil && client.oauth != nil {
-		client.oauth.SetAuthEvents(t.authEvents)
+		name:       name,
+		config:     cfg,
+		client:     client,
+		tools:      tools,
+		toolNames:  makeLocalNames(cfg.ConnectionName, tools),
+		desc:       "Gateway to " + cfg.Endpoint,
+		ccProvider: r.ccProvider,
 	}
 	t.connections[name] = u
 	if t.server != nil {
@@ -784,74 +855,142 @@ func (t *Toolkit) HasConnection(name string) bool {
 // ConnectionStatus is a per-connection health snapshot exposed by the
 // admin status endpoint.
 type ConnectionStatus struct {
-	Name     string       `json:"name"`
-	Healthy  bool         `json:"healthy"`
-	AuthMode string       `json:"auth_mode"`
-	Tools    []string     `json:"tools,omitempty"`
-	OAuth    *OAuthStatus `json:"oauth,omitempty"`
+	Name     string                 `json:"name"`
+	Healthy  bool                   `json:"healthy"`
+	AuthMode string                 `json:"auth_mode"`
+	Tools    []string               `json:"tools,omitempty"`
+	OAuth    *connoauth.OAuthStatus `json:"oauth,omitempty"`
 }
 
-// Status returns a status snapshot for the named connection. Returns nil
-// when the connection is not registered.
+// Status returns a status snapshot for the named connection. Returns
+// nil when the connection is not registered.
 //
-// For oauth connections the OAuth field is always populated when present:
-// for live clients it reflects the live token source's state; for awaiting-
-// reauth placeholders (client == nil) it is synthesized from the persisted
-// token store so the admin UI can render the Connect button or show the
-// "authorized but upstream unreachable" state without needing a successful
-// upstream dial.
-func (t *Toolkit) Status(name string) *ConnectionStatus {
+// For OAuth connections the OAuth field is populated by reading the
+// persisted token row via connoauth.Source.Status — identical to
+// what the general
+// /api/v1/admin/connections/{kind}/{name}/oauth-status endpoint
+// returns, so the gateway-specific status panel and the generic
+// OAuthStatusCard never disagree about token state.
+//
+// ctx is propagated to the persistence read so a client disconnect
+// during admin polling cancels the DB query. The toolkit's read lock
+// is released BEFORE the DB roundtrip so the storage call cannot
+// stall concurrent writers (AddConnection, RemoveConnection, etc.).
+func (t *Toolkit) Status(ctx context.Context, name string) *ConnectionStatus {
+	// Snapshot under the lock — fields used below must be a coherent
+	// view, but the slow part (the DB call) runs after the unlock.
 	t.mu.RLock()
-	defer t.mu.RUnlock()
 	u, ok := t.connections[name]
 	if !ok {
+		t.mu.RUnlock()
 		return nil
 	}
+	healthy := u.client != nil
+	cfg := u.config
+	tools := append([]string(nil), u.toolNames...)
+	lastError := u.lastError
+	ccProvider := u.ccProvider
+	store := t.connOAuthStore
+	events := t.authEvents
+	t.mu.RUnlock()
+
 	cs := &ConnectionStatus{
 		Name:     name,
-		Healthy:  u.client != nil,
-		AuthMode: u.config.AuthMode,
-		Tools:    append([]string(nil), u.toolNames...),
+		Healthy:  healthy,
+		AuthMode: cfg.AuthMode,
+		Tools:    tools,
 	}
-	switch {
-	case u.client != nil && u.client.oauth != nil:
-		s := u.client.oauth.Status()
-		cs.OAuth = &s
-	case u.config.AuthMode == AuthModeOAuth:
-		// Placeholder for an oauth connection with no live client (e.g.
-		// authorization_code awaiting first Connect, or a dial failure
-		// post-restart). Build a status view from the persisted store so
-		// the admin UI can drive the next step.
-		src := newOAuthTokenSource(u.config.OAuth, name, t.tokenStore)
-		s := src.Status()
-		// Surface the placeholder's last dial error so the admin UI can
-		// show the operator WHY the upstream rejected — instead of just
-		// "needs reauth" with no clue what's broken. The token-source
-		// Status() never sets LastError for a fresh placeholder (it has
-		// no access/refresh attempts of its own to record), so the
-		// placeholder's stored error wins here.
-		if u.lastError != "" {
-			s.LastError = u.lastError
+	if cfg.AuthMode == AuthModeOAuth {
+		var s connoauth.OAuthStatus
+		switch {
+		case cfg.OAuth.Grant == OAuthGrantClientCredentials && ccProvider != nil:
+			// cc tokens live only in memory by design — the
+			// connoauth.Store has no row to read. Synthesize the
+			// status from the live provider's cache.
+			s = ccProvider.Status()
+		case cfg.OAuth.Grant == OAuthGrantClientCredentials:
+			// cc connection with no live provider (dial failed
+			// earlier). Report Configured but no token yet.
+			s = connoauth.OAuthStatus{
+				Configured: true,
+				Grant:      OAuthGrantClientCredentials,
+				TokenURL:   cfg.OAuth.TokenURL,
+			}
+		default:
+			s = authzCodeStatusSnapshot(ctx, store, events, name, cfg.OAuth)
+		}
+		// Surface the connection's last dial error so operators see
+		// WHY the upstream rejected — distinct from a pure
+		// "needs reauth" caused by an absent token row.
+		if lastError != "" {
+			s.LastError = lastError
 		}
 		cs.OAuth = &s
 	}
 	return cs
 }
 
-// ReacquireOAuthToken forces a fresh client_credentials exchange for the
-// named connection. Returns an error if the connection is missing or not
-// configured for OAuth.
+// authzCodeStatusSnapshot returns the persisted authorization_code
+// token snapshot for a connection. When no OAuth store is wired the
+// snapshot reports the configured-but-unwired state; otherwise it
+// reads through the unified connoauth.Source.Status path (same shape
+// as the generic admin oauth-status endpoint). Only valid for
+// authorization_code connections — cc never persists a row and so
+// must take the in-memory provider's Status instead.
+func authzCodeStatusSnapshot(ctx context.Context, store connoauth.Store, events *authevents.Writer,
+	name string, cfg OAuthConfig,
+) connoauth.OAuthStatus {
+	if store == nil {
+		return connoauth.OAuthStatus{
+			Configured:  true,
+			NeedsReauth: true,
+			TokenURL:    cfg.TokenURL,
+			Grant:       cfg.Grant,
+		}
+	}
+	return connoauthSourceFor(store, events, name, cfg).Status(ctx)
+}
+
+// ReacquireOAuthToken forces a fresh token mint for the named
+// connection. For authorization_code, that's a refresh-token exchange
+// against the IdP via connoauth.Source.Reacquire (the cached row in
+// connection_oauth_tokens is rolled forward). For client_credentials,
+// the in-memory token is dropped and the grant is re-run against the
+// IdP. Returns an error if the connection is missing or not configured
+// for OAuth.
 func (t *Toolkit) ReacquireOAuthToken(ctx context.Context, name string) error {
 	t.mu.RLock()
 	u, ok := t.connections[name]
+	store := t.connOAuthStore
+	events := t.authEvents
 	t.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf(errFmtConnection, name, ErrConnectionNotFound)
 	}
-	if u.client == nil || u.client.oauth == nil {
+	if u.config.AuthMode != AuthModeOAuth {
 		return fmt.Errorf("gateway: %s: not configured for OAuth", name)
 	}
-	return u.client.oauth.Reacquire(ctx)
+	switch u.config.OAuth.Grant {
+	case OAuthGrantClientCredentials:
+		if u.ccProvider == nil {
+			return fmt.Errorf("gateway: %s: client_credentials provider not initialized (connection not yet dialed)", name)
+		}
+		if err := u.ccProvider.Reacquire(ctx); err != nil {
+			return fmt.Errorf("gateway: %s: reacquire client_credentials: %w", name, err)
+		}
+		return nil
+	case OAuthGrantAuthorizationCode:
+		if store == nil {
+			return fmt.Errorf("gateway: %s: oauth token store not wired", name)
+		}
+		src := connoauthSourceFor(store, events, name, u.config.OAuth)
+		if err := src.Reacquire(ctx); err != nil {
+			return fmt.Errorf("gateway: %s: reacquire oauth token: %w", name, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("gateway: %s: unknown OAuth grant %q", name, u.config.OAuth.Grant)
+	}
 }
 
 // IngestOAuthTokenInput is the parameter set for IngestOAuthToken.
@@ -872,10 +1011,14 @@ type IngestOAuthTokenInput struct {
 }
 
 // IngestOAuthToken stores tokens obtained from an authorization_code
-// callback into the named connection's token source AND persists them
-// via the toolkit's TokenStore. Triggers re-discovery of the upstream
-// (re-dial + listTools) so the previously "needs reauth" connection
-// becomes live with its discovered tools registered on the MCP server.
+// callback into the unified connection_oauth_tokens row AND rebuilds
+// the upstream so the previously "needs reauth" connection becomes
+// live with its discovered tools registered on the MCP server.
+//
+// In production this is reached via the legacy admin
+// gateway_oauth_handler — the unified connection OAuth handler in
+// pkg/admin writes the same row directly through connoauth.Store.Set
+// and then calls OAuthKindHandler.AfterConnect for the rebuild.
 func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput) error {
 	slog.Info("gateway: IngestOAuthToken — start",
 		logKeyConnection, in.Name,
@@ -884,41 +1027,46 @@ func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput
 		"refresh_token_present", in.RefreshToken != "",
 		"expires_in", in.ExpiresIn,
 		"scope", in.Scope)
-	t.mu.Lock()
+	if in.AccessToken == "" {
+		return fmt.Errorf("gateway: %s: ingest token: access_token is required", in.Name)
+	}
+	t.mu.RLock()
 	u, ok := t.connections[in.Name]
+	store := t.connOAuthStore
+	t.mu.RUnlock()
 	if !ok {
-		t.mu.Unlock()
 		slog.Warn("gateway: IngestOAuthToken — connection not found",
 			logKeyConnection, in.Name)
 		return fmt.Errorf(errFmtConnection, in.Name, ErrConnectionNotFound)
 	}
 	cfg := u.config
-	store := t.tokenStore
-	t.mu.Unlock()
-
-	// Even if the connection has no live client (the typical case for an
-	// authorization_code connection awaiting Connect), build a temporary
-	// token source bound to the same store, ingest the tokens, and let
-	// the rebuild path below materialize the upstream client with the
-	// fresh credentials.
-	tmp := newOAuthTokenSource(cfg.OAuth, in.Name, store)
-	if err := tmp.IngestTokenResponse(ctx, IngestTokenResponseInput{
+	if store == nil {
+		return fmt.Errorf("gateway: %s: ingest token: oauth token store not wired", in.Name)
+	}
+	now := time.Now()
+	persisted := connoauth.PersistedToken{
+		Key:              connoauth.Key{Kind: connoauth.KindMCP, Name: in.Name},
 		AccessToken:      in.AccessToken,
 		RefreshToken:     in.RefreshToken,
-		ExpiresIn:        in.ExpiresIn,
-		RefreshExpiresIn: in.RefreshExpiresIn,
+		ExpiresAt:        expiresAtFromSeconds(now, in.ExpiresIn),
+		RefreshExpiresAt: expiresAtFromSeconds(now, in.RefreshExpiresIn),
 		Scope:            in.Scope,
 		AuthenticatedBy:  in.AuthenticatedBy,
-	}); err != nil {
-		slog.Error("gateway: IngestOAuthToken — IngestTokenResponse failed",
+		AuthenticatedAt:  now,
+	}
+	if err := store.Set(ctx, persisted); err != nil {
+		slog.Error("gateway: IngestOAuthToken — persist failed",
 			logKeyConnection, in.Name, logKeyError, err)
 		return fmt.Errorf("gateway: %s: ingest token: %w", in.Name, err)
 	}
 	slog.Debug("gateway: IngestOAuthToken — tokens persisted, rebuilding connection",
 		logKeyConnection, in.Name)
 
-	// Replace the connection with a fresh one so it gets re-dialed using
-	// the now-valid tokens and its tools registered on the live server.
+	// Replace the connection with a fresh one so it gets re-dialed
+	// using the now-valid tokens and its tools registered on the live
+	// server. RemoveConnection is a no-op when the connection is
+	// already gone (a concurrent admin operation, etc.) — that's why
+	// the not-found error is intentionally swallowed.
 	if err := t.RemoveConnection(in.Name); err != nil && !errors.Is(err, ErrConnectionNotFound) {
 		slog.Error("gateway: IngestOAuthToken — RemoveConnection failed",
 			logKeyConnection, in.Name, logKeyError, err)
@@ -934,6 +1082,16 @@ func (t *Toolkit) IngestOAuthToken(ctx context.Context, in IngestOAuthTokenInput
 		logKeyConnection, in.Name,
 		"authenticated_by", in.AuthenticatedBy)
 	return nil
+}
+
+// expiresAtFromSeconds converts an IdP-disclosed expires_in (seconds
+// from "now") to an absolute deadline. Returns the zero time when the
+// IdP omitted the field — admin UI renders zero as "unknown".
+func expiresAtFromSeconds(now time.Time, seconds int) time.Time {
+	if seconds <= 0 {
+		return time.Time{}
+	}
+	return now.Add(time.Duration(seconds) * time.Second)
 }
 
 // errFmtConnection is the standard "gateway: <name>: <wrapped err>"
@@ -1159,13 +1317,17 @@ func makeLocalNames(connection string, remote []*mcp.Tool) []string {
 	return out
 }
 
-// discover dials the upstream and fetches its tool catalog in one step,
-// bounded by the config's ConnectTimeout.
-func discover(ctx context.Context, cfg Config, connection string, store TokenStore) (*upstreamClient, []*mcp.Tool, error) {
+// dialWithoutAuth dials a non-OAuth upstream (bearer, api_key, none)
+// for one-shot Probe-style operations that don't need persistent
+// token state. OAuth connections must go through Toolkit.discoverFor
+// so the SourceFactory carries the toolkit's connoauth.Store.
+func dialWithoutAuth(ctx context.Context, cfg Config) (*upstreamClient, []*mcp.Tool, error) {
+	if cfg.AuthMode == AuthModeOAuth {
+		return nil, nil, errors.New("gateway: dialWithoutAuth cannot serve oauth connections")
+	}
 	dialCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()
-
-	client, err := dial(dialCtx, cfg, connection, store)
+	client, err := dial(dialCtx, cfg, dialDeps{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1270,10 +1432,12 @@ func Probe(ctx context.Context, cfg Config) ([]ProbeTool, error) {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = "probe"
 	}
-	// Probe is a one-shot dial — never persists tokens, so pass nil for
-	// the store. authorization_code grants can't be probed without a
-	// valid stored refresh token (which would require Connect first).
-	client, tools, err := discover(ctx, cfg, cfg.ConnectionName, nil)
+	// Probe is a one-shot dial — never persists tokens. OAuth grants
+	// can't be probed without a stored refresh token (which would
+	// require Connect first), so the caller is expected to filter to
+	// non-OAuth modes before reaching here; dialWithoutAuth refuses
+	// AuthModeOAuth defensively.
+	client, tools, err := dialWithoutAuth(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

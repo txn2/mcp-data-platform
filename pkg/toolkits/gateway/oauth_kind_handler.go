@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"golang.org/x/oauth2"
-
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -51,14 +49,13 @@ func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.
 		return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
 	}
 	out := connoauth.Config{
-		AuthorizationURL: cfg.OAuth.AuthorizationURL,
-		TokenURL:         cfg.OAuth.TokenURL,
-		ClientID:         cfg.OAuth.ClientID,
-		ClientSecret:     cfg.OAuth.ClientSecret,
-		Prompt:           cfg.OAuth.Prompt,
-		// Default to header-style auth; the MCP gateway has not
-		// historically exposed a per-connection toggle.
-		EndpointAuthStyle: oauth2.AuthStyleInHeader,
+		Grant:             cfg.OAuth.Grant,
+		AuthorizationURL:  cfg.OAuth.AuthorizationURL,
+		TokenURL:          cfg.OAuth.TokenURL,
+		ClientID:          cfg.OAuth.ClientID,
+		ClientSecret:      cfg.OAuth.ClientSecret,
+		Prompt:            cfg.OAuth.Prompt,
+		EndpointAuthStyle: oauth2AuthStyle(cfg.OAuth.EndpointAuthStyle),
 	}
 	if cfg.OAuth.Scope != "" {
 		out.Scopes = splitScopeString(cfg.OAuth.Scope)

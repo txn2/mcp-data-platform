@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -40,14 +41,15 @@ func authCodeConnectionConfig(authURL, tokenURL string) map[string]any {
 }
 
 // gatewayOAuthHandlerWithToolkit builds a Handler whose live gateway
-// toolkit shares a TokenStore with the test, so callback ingestion can
-// be observed via the store. Each call gets its OWN in-memory PKCE
-// store so test functions don't share state through a process global.
-func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, gatewaykit.TokenStore) {
+// toolkit shares a connoauth.Store with the test, so callback
+// ingestion can be observed via the store. Each call gets its OWN
+// in-memory PKCE store so test functions don't share state through a
+// process global.
+func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, connoauth.Store) {
 	t.Helper()
 	tk := gatewaykit.New("primary")
-	tokenStore := gatewaykit.NewMemoryTokenStore()
-	tk.SetTokenStore(tokenStore)
+	tokenStore := connoauth.NewMemoryStore()
+	tk.SetConnOAuthStore(tokenStore)
 	t.Cleanup(func() { _ = tk.Close() })
 
 	pkceStore := NewMemoryPKCEStore()
@@ -60,6 +62,7 @@ func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handl
 		ToolkitRegistry: reg,
 		ConfigStore:     &mockConfigStore{mode: "database"},
 		PKCEStore:       pkceStore,
+		ConnOAuthStore:  tokenStore,
 	}, nil)
 	return h, tokenStore
 }
@@ -110,7 +113,7 @@ func TestStartGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
 		},
 	}
 	tk := gatewaykit.New("primary")
-	tk.SetTokenStore(gatewaykit.NewMemoryTokenStore())
+	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
 	t.Cleanup(func() { _ = tk.Close() })
 
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
@@ -223,7 +226,7 @@ func TestGatewayOAuthCallback_Success(t *testing.T) {
 	assert.Contains(t, cbW.Header().Get("Location"), "/portal/admin/connections")
 
 	// Verify the token store has the freshly-ingested tokens.
-	stored, err := tokenStore.Get(context.Background(), "vendor")
+	stored, err := tokenStore.Get(context.Background(), connoauth.Key{Kind: connoauth.KindMCP, Name: "vendor"})
 	require.NoError(t, err)
 	assert.Equal(t, "acc", stored.AccessToken)
 	assert.Equal(t, "ref", stored.RefreshToken)
