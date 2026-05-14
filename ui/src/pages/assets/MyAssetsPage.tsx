@@ -193,7 +193,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     >
                       {asset.content_type}
                     </span>
-                    {asset.tags.slice(0, 3).map((t) => (
+                    {(asset.tags ?? []).slice(0, 3).map((t) => (
                       <span
                         key={t}
                         className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
@@ -264,7 +264,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     </td>
                     <td className="px-4 py-2.5 max-w-0">
                       <div className="flex flex-wrap gap-1">
-                        {asset.tags.slice(0, 3).map((t) => (
+                        {(asset.tags ?? []).slice(0, 3).map((t) => (
                           <span
                             key={t}
                             className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
@@ -272,8 +272,8 @@ export function MyAssetsPage({ onNavigate }: Props) {
                             {t}
                           </span>
                         ))}
-                        {asset.tags.length > 3 && (
-                          <span className="text-xs text-muted-foreground">+{asset.tags.length - 3}</span>
+                        {(asset.tags ?? []).length > 3 && (
+                          <span className="text-xs text-muted-foreground">+{(asset.tags ?? []).length - 3}</span>
                         )}
                       </div>
                     </td>
