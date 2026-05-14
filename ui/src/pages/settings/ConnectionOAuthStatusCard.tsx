@@ -199,24 +199,7 @@ function Inner({ kind, name }: { kind: string; name: string }) {
 // to reconnect"). See issue #395 Part 3.
 function ConnectionStatePrompt({ status }: { status: ConnectionOAuthStatus }) {
   if (status.last_revocation) {
-    const reason = status.last_revocation.reason || "rejected";
-    const host = status.last_revocation.idp_host;
-    return (
-      <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
-        <div className="flex items-start gap-1.5">
-          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-          <div>
-            <span className="font-medium">Previous session rejected by the upstream IdP.</span>{" "}
-            {host && <>The token endpoint at <span className="font-mono">{host}</span> </>}
-            returned <span className="font-mono">{reason}</span>
-            {" "}({formatRelative(status.last_revocation.occurred_at)}).
-            Most common causes: the IdP's SSO session idled out, the operator
-            revoked consent, or the refresh token's wall-clock lifetime
-            expired. Click <strong>Connect</strong> to re-authorize.
-          </div>
-        </div>
-      </div>
-    );
+    return <RevocationPrompt revocation={status.last_revocation} />;
   }
   if (status.token_acquired) {
     return (
@@ -236,6 +219,112 @@ function ConnectionStatePrompt({ status }: { status: ConnectionOAuthStatus }) {
       until the upstream invalidates the refresh token.
     </div>
   );
+}
+
+// RevocationPrompt renders the explainer for a connection whose last
+// known state is "token deleted by the platform." The reason field
+// tells us how the verdict was reached, and the wording differs
+// substantially:
+//
+//   - refresh_expired: NO IdP call happened. The previous successful
+//     refresh response disclosed a hard deadline via refresh_expires_in
+//     (e.g., Keycloak SsoSessionMaxLifespan), the deadline arrived,
+//     and the platform stopped before contacting the IdP. Saying the
+//     IdP "returned refresh_expired" is wrong — the IdP wasn't asked.
+//
+//   - invalid_grant: the IdP was called and returned RFC 6749 §5.2
+//     invalid_grant. The session is genuinely terminated upstream
+//     (operator revoked consent, replay protection fired, etc.).
+//
+//   - no_refresh_token: there was no refresh token to exchange. Always
+//     a local determination — never reached the IdP.
+//
+// Each case gets its own headline and explanation so operators can
+// tell whether the IdP rejected something or the platform respected a
+// deadline.
+function RevocationPrompt({
+  revocation,
+}: {
+  revocation: NonNullable<ConnectionOAuthStatus["last_revocation"]>;
+}) {
+  const reason = revocation.reason;
+  const host = revocation.idp_host;
+  const occurred = formatRelative(revocation.occurred_at);
+  return (
+    <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+      <div className="flex items-start gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+        <div>
+          <span className="font-medium">{revocationHeadline(reason)}</span>{" "}
+          <RevocationBody reason={reason} host={host} />
+          {" "}
+          <span className="text-muted-foreground">({occurred})</span>
+          {" "}Click <strong>Connect</strong> to re-authorize.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// revocationHeadline returns the short, bold lead text for each
+// revocation reason. Exported via module scope so the test file can
+// assert exact wording without rendering.
+export function revocationHeadline(reason: string | undefined): string {
+  switch (reason) {
+    case "refresh_expired":
+      return "Session reached the IdP-disclosed maximum lifetime.";
+    case "invalid_grant":
+      return "Upstream IdP rejected the refresh token.";
+    case "no_refresh_token":
+      return "No refresh token is stored for this connection.";
+    default:
+      return "Previous session ended.";
+  }
+}
+
+function RevocationBody({
+  reason,
+  host,
+}: {
+  reason: string | undefined;
+  host: string | undefined;
+}) {
+  const idp = host ? (
+    <span className="font-mono">{host}</span>
+  ) : (
+    <>the upstream IdP</>
+  );
+  switch (reason) {
+    case "refresh_expired":
+      return (
+        <>
+          The previous successful refresh from {idp} disclosed this
+          deadline (typically the IdP's session-lifetime ceiling), so
+          the platform did not attempt another refresh.
+        </>
+      );
+    case "invalid_grant":
+      return (
+        <>
+          {idp} returned <span className="font-mono">invalid_grant</span>.
+          Common causes: the operator revoked consent, the IdP detected
+          replay of a rotated single-use refresh token, or the session
+          was administratively terminated.
+        </>
+      );
+    case "no_refresh_token":
+      return (
+        <>
+          The platform had no refresh token to exchange with {idp}.
+        </>
+      );
+    default:
+      return (
+        <>
+          {idp} could not extend the session.
+        </>
+      );
+  }
 }
 
 // AuthEventHistory is the collapsible History section under the OAuth
@@ -281,17 +370,23 @@ function AuthEventHistory({ kind, name }: { kind: string; name: string }) {
   );
 }
 
+// EVENT_LABELS is the operator-facing label for each event type. The
+// distinction between "failed (revoked)" and the two "skipped" types
+// matters: failed_revoked means the IdP was called and rejected the
+// refresh; the skipped types mean the platform reached the verdict
+// without contacting the IdP (deadline disclosed by a previous
+// successful refresh, or no refresh token was stored).
 const EVENT_LABELS: Record<ConnectionAuthEvent["event_type"], string> = {
   connect_started: "Connect started",
   connect_completed: "Connect completed",
   refresh_succeeded: "Refresh succeeded",
   refresh_failed_transient: "Refresh failed (transient)",
-  refresh_failed_revoked: "Refresh failed (revoked)",
-  refresh_skipped_no_token: "Refresh skipped — no refresh token",
-  refresh_skipped_expired: "Refresh skipped — refresh expired",
+  refresh_failed_revoked: "Refresh rejected by IdP",
+  refresh_skipped_no_token: "Refresh skipped — no refresh token stored",
+  refresh_skipped_expired: "Refresh skipped — IdP-disclosed deadline reached",
   refresh_rotation_persistence_failed: "Rotated token persistence failed",
-  token_deleted_revoked: "Token deleted — revoked",
-  token_deleted_admin: "Token deleted — admin",
+  token_deleted_revoked: "Token row deleted",
+  token_deleted_admin: "Token row deleted — admin",
 };
 
 const EVENT_TONE: Record<ConnectionAuthEvent["event_type"], string> = {
@@ -300,7 +395,7 @@ const EVENT_TONE: Record<ConnectionAuthEvent["event_type"], string> = {
   refresh_succeeded: "text-emerald-600 dark:text-emerald-400",
   refresh_failed_transient: "text-amber-600 dark:text-amber-400",
   refresh_failed_revoked: "text-destructive",
-  refresh_skipped_no_token: "text-muted-foreground",
+  refresh_skipped_no_token: "text-amber-600 dark:text-amber-400",
   refresh_skipped_expired: "text-amber-600 dark:text-amber-400",
   refresh_rotation_persistence_failed: "text-destructive font-medium",
   token_deleted_revoked: "text-destructive",
@@ -331,14 +426,14 @@ function AuthEventRow({ event }: { event: ConnectionAuthEvent }) {
 // pulling the most relevant detail fields per Type. Returns empty
 // string when the row has nothing extra worth showing (a clean
 // connect_started, for example).
-function renderDetailHint(ev: ConnectionAuthEvent): string {
+export function renderDetailHint(ev: ConnectionAuthEvent): string {
   if (!ev.detail) return "";
   const d = ev.detail as Record<string, unknown>;
   if (typeof d.idp_error_code === "string" && d.idp_error_code) {
-    return `(${d.idp_error_code})`;
+    return `(${describeVerdictCode(d.idp_error_code)})`;
   }
   if (typeof d.reason === "string" && d.reason) {
-    return `(${d.reason})`;
+    return `(${describeVerdictCode(d.reason)})`;
   }
   if (d.rotated_refresh === true) {
     const ms = typeof d.duration_ms === "number" ? `, ${d.duration_ms}ms` : "";
@@ -348,6 +443,24 @@ function renderDetailHint(ev: ConnectionAuthEvent): string {
     return `(${d.duration_ms}ms)`;
   }
   return "";
+}
+
+// describeVerdictCode translates the short reason codes stored in
+// event detail into honest one-line labels. The backend currently
+// stores `refresh_expired` and `no_refresh_token` for verdicts the
+// platform reached without contacting the IdP — surfacing the raw
+// code reads as "the IdP returned this," which is incorrect. The
+// IdP-returned code `invalid_grant` passes through verbatim because
+// it IS what the IdP returned.
+export function describeVerdictCode(code: string): string {
+  switch (code) {
+    case "refresh_expired":
+      return "IdP-disclosed deadline reached";
+    case "no_refresh_token":
+      return "no refresh token stored";
+    default:
+      return code;
+  }
 }
 
 function StatusGrid({ status }: { status: ConnectionOAuthStatus }) {
