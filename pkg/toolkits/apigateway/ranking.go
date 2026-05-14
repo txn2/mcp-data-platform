@@ -2,8 +2,6 @@ package apigateway
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"math"
 	"sort"
@@ -63,16 +61,6 @@ const (
 // from an exact path/tag match. 0.6 keeps semantic dominant while
 // preserving that precision.
 const hybridSemanticWeight = 0.6
-
-// specHash returns the sha256 of the raw OpenAPI spec, hex-encoded.
-// Used as the cache key for pre-computed embeddings: when an
-// operator updates a connection's spec, the hash changes and the
-// next non-lexical call recomputes embeddings against the new
-// operation set.
-func specHash(spec string) string {
-	sum := sha256.Sum256([]byte(spec))
-	return hex.EncodeToString(sum[:])
-}
 
 // rankWithMode dispatches to the per-mode ranker. Falls back to
 // lexical (and surfaces a note via the bool return) when semantic

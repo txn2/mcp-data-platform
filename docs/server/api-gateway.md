@@ -2,7 +2,9 @@
 
 The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline. It is the HTTP/JSON sibling of the MCP [Gateway Toolkit](gateway.md), which proxies upstream MCP servers.
 
-A single tool — `api_invoke_endpoint` — handles every operation on every configured API. Operators register the upstream as a `connection` of kind `api`; the model supplies method, path, query, body, and optional headers at call time. No tools are generated per endpoint, so adding ten APIs does not inflate the tool catalog by a thousand entries.
+The toolkit exposes three MCP tools — `api_invoke_endpoint`, `api_list_endpoints`, `api_get_endpoint_schema` — that handle every operation on every configured API. Operators register the upstream as a `connection` of kind `api`; the model uses `api_list_endpoints` to discover what's available, `api_get_endpoint_schema` to learn the precise parameter shape of one operation, and `api_invoke_endpoint` to make the call. No tools are generated per endpoint, so adding ten APIs does not inflate the tool catalog by a thousand entries.
+
+OpenAPI specs that describe each upstream are stored separately in **API catalogs** — versioned, globally-owned bundles that many connections can reference. See [API Catalogs](api-catalogs.md) for the full surface.
 
 ## When to use
 

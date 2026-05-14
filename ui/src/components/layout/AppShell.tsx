@@ -24,6 +24,7 @@ import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
+import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
 import { PersonasPanel } from "@/pages/settings/PersonasPanel";
 import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
@@ -46,6 +47,7 @@ const pageTitles: Record<string, string> = {
   "/admin/knowledge": "Knowledge & Memory",
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
+  "/admin/api-catalogs": "API Catalogs",
   "/admin/connections": "Connections",
   "/admin/personas": "Personas",
   "/admin/prompts": "Prompts",
@@ -318,6 +320,7 @@ export function AppShell() {
               {route === "/admin/agent-instructions" && (
                 <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" />
               )}
+              {route === "/admin/api-catalogs" && <CatalogsPanel />}
               {route === "/admin/connections" && <ConnectionsPanel />}
               {route === "/admin/personas" && <PersonasPanel />}
               {route === "/admin/prompts" && (

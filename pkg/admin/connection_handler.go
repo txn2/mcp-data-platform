@@ -177,6 +177,11 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if msg, ok := h.validateConnectionCatalog(r.Context(), kind, req.Config); !ok {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+
 	inst := platform.ConnectionInstance{
 		Kind:        kind,
 		Name:        name,

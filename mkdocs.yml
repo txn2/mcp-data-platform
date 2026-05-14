@@ -81,6 +81,8 @@ nav:
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
       - Gateway Toolkit: server/gateway.md
+      - API Gateway Toolkit: server/api-gateway.md
+      - API Catalogs: server/api-catalogs.md
     - MCP Apps:
       - Overview: mcpapps/overview.md
       - Configuration: mcpapps/configuration.md

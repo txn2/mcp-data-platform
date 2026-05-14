@@ -194,7 +194,7 @@ func TestClose_TolerantOfClosedConnections(t *testing.T) {
 func TestTools_NamesInvokeAndListEndpoints(t *testing.T) {
 	tk := New("test")
 	tools := tk.Tools()
-	want := []string{ToolInvokeEndpoint, ToolListEndpoints}
+	want := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolGetEndpointSchema}
 	if len(tools) != len(want) {
 		t.Fatalf("Tools() = %v; want %v", tools, want)
 	}
@@ -510,9 +510,10 @@ func TestHandleListEndpoints_NoSpec_ReturnsEmptyWithNote(t *testing.T) {
 
 func TestHandleListEndpoints_ReturnsOperations(t *testing.T) {
 	tk := New("test")
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 	if err := tk.AddConnection("c1", map[string]any{
-		"base_url":     "https://x",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
@@ -533,9 +534,10 @@ func TestHandleListEndpoints_ReturnsOperations(t *testing.T) {
 
 func TestHandleListEndpoints_FiltersByQuery(t *testing.T) {
 	tk := New("test")
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 	if err := tk.AddConnection("c1", map[string]any{
-		"base_url":     "https://x",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
@@ -555,9 +557,10 @@ func TestHandleListEndpoints_FiltersByQuery(t *testing.T) {
 // information disclosure plus a wasted-turn UX.
 func TestHandleListEndpoints_FiltersByRoutePolicy(t *testing.T) {
 	tk := New("test")
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 	if err := tk.AddConnection("c1", map[string]any{
-		"base_url":     "https://x",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
@@ -597,9 +600,10 @@ func (f routePolicyFunc) Allow(ctx context.Context, conn, method, path string) (
 
 func TestHandleListEndpoints_HonorsLimit(t *testing.T) {
 	tk := New("test")
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 	if err := tk.AddConnection("c1", map[string]any{
-		"base_url":     "https://x",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}

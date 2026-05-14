@@ -31,6 +31,29 @@ var listEndpointsSchema = json.RawMessage(`{
   }
 }`)
 
+// getEndpointSchemaInputSchema is the JSON Schema for the
+// api_get_endpoint_schema tool input.
+//
+//nolint:gochecknoglobals // MCP tool schema must be a package-level var
+var getEndpointSchemaInputSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["connection", "operation_id"],
+  "properties": {
+    "connection": {
+      "type": "string",
+      "description": "Name of the registered API connection (kind=api). Required."
+    },
+    "operation_id": {
+      "type": "string",
+      "description": "The operation_id returned by api_list_endpoints. Required."
+    },
+    "spec": {
+      "type": "string",
+      "description": "Optional component spec name within the connection's catalog. Only needed when an operation_id is defined by more than one component spec. api_list_endpoints surfaces the spec field for each operation so the disambiguation is local — pass the same value back."
+    }
+  }
+}`)
+
 // apiExportInputSchema is the JSON Schema for the api_export tool
 // input. Mirrors invokeEndpointSchema for connection/method/path/
 // query/headers/body and adds the portal-asset metadata fields

@@ -683,6 +683,235 @@ export function useDeleteConnectionInstance() {
 }
 
 // ---------------------------------------------------------------------------
+// API Gateway Catalogs (global OpenAPI spec bundles)
+// ---------------------------------------------------------------------------
+
+export interface APICatalogSummary {
+  id: string;
+  name: string;
+  version?: string;
+  display_name: string;
+  description?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  spec_count: number;
+  ref_count: number;
+}
+
+export interface APICatalogSpec {
+  spec_name: string;
+  content?: string;
+  source_kind: "inline" | "upload" | "url";
+  source_url?: string;
+  etag?: string;
+  last_fetched_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export function useAPICatalogs() {
+  return useQuery({
+    queryKey: ["api-catalogs"],
+    queryFn: () => apiFetch<APICatalogSummary[]>("/api-catalogs"),
+  });
+}
+
+export function useAPICatalog(id: string) {
+  return useQuery({
+    queryKey: ["api-catalogs", id],
+    queryFn: () => apiFetch<APICatalogSummary>(`/api-catalogs/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useAPICatalogSpec(id: string, specName: string, enabled = true) {
+  return useQuery({
+    queryKey: ["api-catalogs", id, "specs", specName],
+    queryFn: () =>
+      apiFetch<APICatalogSpec>(`/api-catalogs/${id}/specs/${specName}`),
+    enabled: enabled && !!id && !!specName,
+  });
+}
+
+export function useCreateAPICatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      id: string;
+      name: string;
+      version?: string;
+      display_name: string;
+      description?: string;
+    }) =>
+      apiFetch<APICatalogSummary>("/api-catalogs", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+    },
+  });
+}
+
+export function useUpdateAPICatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      name?: string;
+      version?: string;
+      display_name?: string;
+      description?: string;
+    }) =>
+      apiFetch<APICatalogSummary>(`/api-catalogs/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+    },
+  });
+}
+
+export function useDeleteAPICatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchRaw(`/api-catalogs/${id}`, { method: "DELETE" }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `delete failed: ${res.status}`);
+        }
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+    },
+  });
+}
+
+export function useCloneAPICatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sourceID,
+      ...body
+    }: {
+      sourceID: string;
+      id: string;
+      name?: string;
+      version?: string;
+      display_name?: string;
+    }) =>
+      apiFetch<APICatalogSummary>(`/api-catalogs/${sourceID}/clone`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+    },
+  });
+}
+
+export function useUpsertAPICatalogSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      catalogID,
+      specName,
+      ...body
+    }: {
+      catalogID: string;
+      specName: string;
+      source_kind: "inline" | "url";
+      content?: string;
+      source_url?: string;
+    }) =>
+      apiFetch<APICatalogSpec>(
+        `/api-catalogs/${catalogID}/specs/${specName}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+      void qc.invalidateQueries({
+        queryKey: ["api-catalogs", vars.catalogID, "specs", vars.specName],
+      });
+    },
+  });
+}
+
+export function useUploadAPICatalogSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      catalogID,
+      specName,
+      file,
+    }: {
+      catalogID: string;
+      specName: string;
+      file: File;
+    }) => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await apiFetchRaw(
+        `/api-catalogs/${catalogID}/specs/${specName}/upload`,
+        { method: "PUT", body: form },
+      );
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `upload failed: ${res.status}`);
+      }
+      return (await res.json()) as APICatalogSpec;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+      void qc.invalidateQueries({
+        queryKey: ["api-catalogs", vars.catalogID, "specs", vars.specName],
+      });
+    },
+  });
+}
+
+export function useRefreshAPICatalogSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
+      apiFetch<APICatalogSpec>(
+        `/api-catalogs/${catalogID}/specs/${specName}/refresh`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+      void qc.invalidateQueries({
+        queryKey: ["api-catalogs", vars.catalogID, "specs", vars.specName],
+      });
+    },
+  });
+}
+
+export function useDeleteAPICatalogSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
+      apiFetchRaw(`/api-catalogs/${catalogID}/specs/${specName}`, {
+        method: "DELETE",
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `delete failed: ${res.status}`);
+        }
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Gateway-specific endpoints (test/refresh + enrichment rules)
 // ---------------------------------------------------------------------------
 

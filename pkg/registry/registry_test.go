@@ -402,8 +402,11 @@ func TestAPIGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T)
 	if tk.Kind() != "api" {
 		t.Errorf("Kind: got %q, want %q", tk.Kind(), "api")
 	}
-	if got := tk.Tools(); len(got) != 2 || got[0] != "api_invoke_endpoint" || got[1] != "api_list_endpoints" {
-		t.Errorf("expected [api_invoke_endpoint api_list_endpoints], got %v", got)
+	if got := tk.Tools(); len(got) != 3 ||
+		got[0] != "api_invoke_endpoint" ||
+		got[1] != "api_list_endpoints" ||
+		got[2] != "api_get_endpoint_schema" {
+		t.Errorf("expected [api_invoke_endpoint api_list_endpoints api_get_endpoint_schema], got %v", got)
 	}
 	_ = tk.Close()
 }

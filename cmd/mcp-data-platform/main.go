@@ -284,6 +284,7 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		p.WireAPIGatewayRoutePolicy()
 		p.WireAPIGatewayTokenStore()
 		p.WireAPIGatewayEmbeddingProvider()
+		p.WireAPIGatewayCatalogStoreFromDB()
 		// Start the background OAuth refresher once toolkits and
 		// connection store are wired. Single-call here (not in the
 		// platform constructor) so the resolver can read the live
@@ -806,6 +807,9 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	deps.OAuthKinds = buildOAuthKindHandlers(p)
 	deps.AuthEvents = p.AuthEventWriter()
 	deps.AuthEventStore = p.AuthEventStore()
+	if catStore := p.APIGatewayCatalogStore(); catStore != nil {
+		deps.APICatalogStore = catStore
+	}
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(

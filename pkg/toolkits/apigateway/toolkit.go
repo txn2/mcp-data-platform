@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
@@ -20,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // ErrConnectionExists is returned when AddConnection is called with a
@@ -44,6 +46,7 @@ const (
 
 	logKeyConnection = "connection"
 	logKeyError      = "error"
+	logKeyCatalogID  = "catalog_id"
 )
 
 // Toolkit is the api-gateway toolkit. A single Toolkit manages
@@ -66,6 +69,11 @@ type Toolkit struct {
 	queryProvider    query.Provider
 	embedder         embedding.Provider
 
+	// catalogStore loads spec bundles by catalog_id when a connection
+	// references one. nil = catalog-backed specs disabled (connections
+	// with catalog_id set still register, but with zero ops).
+	catalogStore catalog.Store
+
 	// exportDeps holds platform-side dependencies for api_export
 	// (nil = export disabled, tool not registered).
 	exportDeps *ExportDeps
@@ -77,6 +85,75 @@ func (t *Toolkit) ConnOAuthStore() connoauth.Store {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.connOAuthStore
+}
+
+// SetCatalogStore wires the catalog store the toolkit consults when
+// a connection's CatalogID is set. Passing nil disables catalog-
+// backed specs — connections with CatalogID configured still
+// register, but with zero ops on their list_endpoints surface.
+func (t *Toolkit) SetCatalogStore(s catalog.Store) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.catalogStore = s
+}
+
+// CatalogStore returns the wired catalog store, or nil. Used by the
+// admin layer to share the same store between toolkit reads and
+// admin CRUD writes.
+func (t *Toolkit) CatalogStore() catalog.Store {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.catalogStore
+}
+
+// ReloadConnection drops and rebuilds the named connection so a
+// catalog mutation (a portal save against api_catalog_specs) is
+// reflected immediately. The connection's auth state and HTTP
+// client are reconstructed from cfg; in-flight OAuth refresh
+// tokens persist via the unified connoauth store.
+//
+// Returns ErrConnectionNotFound when no connection has the given
+// name. Other errors propagate from the rebuild path (config parse,
+// authenticator construction).
+func (t *Toolkit) ReloadConnection(name string) error {
+	t.mu.Lock()
+	existing, ok := t.connections[name]
+	if !ok {
+		t.mu.Unlock()
+		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionNotFound)
+	}
+	cfg := existing.cfg
+	if existing.client != nil {
+		existing.client.CloseIdleConnections()
+	}
+	delete(t.connections, name)
+	t.mu.Unlock()
+	return t.addParsedConnection(name, cfg)
+}
+
+// ReloadConnectionsByCatalog rebuilds every registered connection
+// whose CatalogID matches catalogID. Errors from individual
+// rebuilds are logged but do not abort the sweep — one broken
+// connection should not prevent the rest of the catalog's
+// connections from picking up the new spec content.
+func (t *Toolkit) ReloadConnectionsByCatalog(catalogID string) {
+	if catalogID == "" {
+		return
+	}
+	t.mu.RLock()
+	names := make([]string, 0, len(t.connections))
+	for n, c := range t.connections {
+		if c.cfg.CatalogID == catalogID {
+			names = append(names, n)
+		}
+	}
+	t.mu.RUnlock()
+	for _, n := range names {
+		if err := t.ReloadConnection(n); err != nil {
+			slog.Warn("apigateway: catalog reload failed",
+				logKeyConnection, n, logKeyCatalogID, catalogID, logKeyError, err)
+		}
+	}
 }
 
 // SetConnOAuthStore wires the unified OAuth token store. Required for
@@ -128,28 +205,42 @@ type RoutePolicy interface {
 }
 
 // conn carries the materialized state for a single registered
-// connection: parsed config, the Authenticator implementing its auth
-// mode, a per-connection HTTP client, and (when the connection's
-// config supplied an OpenAPI spec) the parsed operation index that
-// api_list_endpoints serves.
+// connection: parsed config, the Authenticator implementing its
+// auth mode, a per-connection HTTP client, and (when the connection
+// references a catalog) the merged operation index plus retained
+// parsed OpenAPI documents that api_get_endpoint_schema reads.
 //
 // embedTexts is the parallel-indexed text fed to the embedding
 // provider for semantic ranking; embeddings are populated lazily on
 // the first non-lexical api_list_endpoints call (so an unreachable
-// embedding service does not block platform startup). embedHash is
-// sha256 of the OpenAPI spec — re-embed when the hash changes.
-// embedMu serializes the lazy populate so concurrent calls embed
-// once.
+// embedding service does not block platform startup). embedMu
+// serializes the lazy populate so concurrent calls embed once.
+// Invalidation is by full conn rebuild — ReloadConnection drops
+// the conn and re-creates it when a catalog mutates, so the
+// embedding cache is naturally fresh.
 type conn struct {
 	cfg         Config
 	auth        Authenticator
 	client      *http.Client
+	specs       map[string]*specState
 	operations  []OperationSummary
 	embedTexts  []string
 	embeddings  [][]float32
-	embedHash   string
 	embedMu     sync.Mutex
 	embedFailed bool
+}
+
+// specState retains the parsed OpenAPI document for a component
+// spec alongside the catalog metadata the portal needs (source
+// kind, URL, etag, fetch time). The parsed doc is what
+// api_get_endpoint_schema walks to assemble per-endpoint detail —
+// without it, the toolkit would have to re-parse on every call.
+type specState struct {
+	doc           *openapi3.T
+	sourceKind    string
+	sourceURL     string
+	etag          string
+	lastFetchedAt time.Time
 }
 
 // New builds an empty toolkit. Connections are added later via
@@ -201,9 +292,6 @@ func (t *Toolkit) Name() string { return t.name }
 func (t *Toolkit) Connection() string { return t.defaultName }
 
 // RegisterTools registers the api gateway's MCP tools.
-// api_get_endpoint_schema (the third tool from RFC #364) lands in a
-// follow-up PR; for v1 the model gets the operation summaries via
-// api_list_endpoints and constructs invoke calls from there.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  ToolInvokeEndpoint,
@@ -232,6 +320,18 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		InputSchema: listEndpointsSchema,
 	}, t.handleListEndpoints)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  ToolGetEndpointSchema,
+		Title: "Get API Endpoint Schema",
+		Description: "Return detailed schema for one operation on an API connection: " +
+			"parameters, request body, and per-status response shapes. Pass operation_id " +
+			"from api_list_endpoints. Security and server metadata are omitted — the " +
+			"connection is pre-authenticated. When an operation_id is defined by more " +
+			"than one component spec in the connection's catalog, pass `spec` to " +
+			"disambiguate; the ambiguity response lists the candidates.",
+		InputSchema: getEndpointSchemaInputSchema,
+	}, t.handleGetEndpointSchema)
+
 	// api_export is registered only when ExportDeps were wired by
 	// the platform (portal asset store available). Skipping the
 	// registration when deps are nil keeps the model from seeing
@@ -244,7 +344,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // with ExportDeps wired so callers (audit / introspection) see the
 // tool list that actually exists at runtime.
 func (t *Toolkit) Tools() []string {
-	tools := []string{ToolInvokeEndpoint, ToolListEndpoints}
+	tools := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolGetEndpointSchema}
 	t.mu.RLock()
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
@@ -291,7 +391,7 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	if len(c.operations) == 0 {
 		out := ListEndpointsOutput{
 			Operations: []OperationSummary{},
-			Note:       "no openapi_spec configured for this connection — call api_invoke_endpoint with method+path directly",
+			Note:       "no catalog_id configured for this connection — call api_invoke_endpoint with method+path directly",
 		}
 		return jsonResult(out), out, nil
 	}
@@ -424,32 +524,25 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 
 // addParsedConnection assumes the Config is already validated. It
 // builds the Authenticator and HTTP client and inserts the
-// connection under lock.
+// connection under lock. When cfg.CatalogID is set AND a catalog
+// store is wired, specs are loaded from the catalog and merged into
+// the operation index. Catalog-loading failures are non-fatal: the
+// connection still registers (with zero ops) so portal operators
+// can see it and fix the catalog reference, rather than the
+// connection vanishing from the UI.
 func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	auth, err := NewAuthenticator(cfg)
 	if err != nil {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
-	var (
-		operations []OperationSummary
-		embedTexts []string
-		embedHash  string
-	)
-	if cfg.OpenAPISpec != "" {
-		doc, perr := parseOpenAPISpec(cfg.OpenAPISpec)
-		if perr != nil {
-			return fmt.Errorf("apigateway: %s: %w", name, perr)
-		}
-		operations, embedTexts = buildOperationIndex(doc)
-		embedHash = specHash(cfg.OpenAPISpec)
-	}
+	specs, ops, texts := t.buildConnSpecs(name, cfg.CatalogID)
 	c := &conn{
 		cfg:        cfg,
 		auth:       auth,
 		client:     newHTTPClient(cfg),
-		operations: operations,
-		embedTexts: embedTexts,
-		embedHash:  embedHash,
+		specs:      specs,
+		operations: ops,
+		embedTexts: texts,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -471,6 +564,55 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	}
 	t.connections[name] = c
 	return nil
+}
+
+// buildConnSpecs loads the connection's catalog (when configured),
+// parses each component spec, and returns the merged operation
+// index alongside the per-spec retained state. A nil catalog
+// store, an empty catalog_id, or a load failure all return zero
+// values — the caller proceeds with no spec surface and logs the
+// reason.
+func (t *Toolkit) buildConnSpecs(connName, catalogID string) (
+	specs map[string]*specState, operations []OperationSummary, texts []string,
+) {
+	if catalogID == "" {
+		return nil, nil, nil
+	}
+	t.mu.RLock()
+	store := t.catalogStore
+	t.mu.RUnlock()
+	if store == nil {
+		slog.Warn("apigateway: connection references catalog but no catalog store wired",
+			logKeyConnection, connName, logKeyCatalogID, catalogID)
+		return nil, nil, nil
+	}
+	entries, err := store.ListSpecs(context.Background(), catalogID)
+	if err != nil {
+		slog.Warn("apigateway: failed to load catalog specs",
+			logKeyConnection, connName, logKeyCatalogID, catalogID, logKeyError, err)
+		return nil, nil, nil
+	}
+	specs = make(map[string]*specState, len(entries))
+	for _, e := range entries {
+		doc, perr := parseOpenAPISpec(e.Content)
+		if perr != nil {
+			slog.Warn("apigateway: skipping unparseable spec",
+				logKeyConnection, connName, logKeyCatalogID, catalogID,
+				"spec_name", e.SpecName, logKeyError, perr)
+			continue
+		}
+		specs[e.SpecName] = &specState{
+			doc:           doc,
+			sourceKind:    e.SourceKind,
+			sourceURL:     e.SourceURL,
+			etag:          e.ETag,
+			lastFetchedAt: e.LastFetchedAt,
+		}
+		specOps, specTexts := buildOperationIndex(doc, e.SpecName)
+		operations = append(operations, specOps...)
+		texts = append(texts, specTexts...)
+	}
+	return specs, operations, texts
 }
 
 // RemoveConnection drops a registered connection. Used by the admin

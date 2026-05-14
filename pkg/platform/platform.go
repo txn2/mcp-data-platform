@@ -56,6 +56,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -749,6 +750,61 @@ func (p *Platform) WireAPIGatewayEmbeddingProvider() {
 	for _, tk := range p.toolkitRegistry.All() {
 		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
 			api.SetEmbeddingProvider(p.embeddingProv)
+		}
+	}
+}
+
+// WireAPIGatewayCatalogStoreFromDB builds a Postgres-backed catalog
+// store from the platform's *sql.DB and wires it into every api
+// gateway toolkit. No-op when the platform was built without a
+// database (file-only deployments).
+func (p *Platform) WireAPIGatewayCatalogStoreFromDB() {
+	if p.db == nil {
+		return
+	}
+	p.WireAPIGatewayCatalogStore(apigatewaycatalog.NewPostgresStore(p.db))
+}
+
+// APIGatewayCatalogStore returns the catalog store currently wired
+// into the first api gateway toolkit, or nil when no toolkit has
+// one wired. Used by the admin layer to share the same store for
+// both reads (toolkit) and writes (admin CRUD).
+func (p *Platform) APIGatewayCatalogStore() apigatewaycatalog.Store {
+	for _, tk := range p.toolkitRegistry.All() {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			return api.CatalogStore()
+		}
+	}
+	return nil
+}
+
+// WireAPIGatewayCatalogStore attaches the catalog.Store the toolkit
+// uses to load OpenAPI specs referenced by connection.catalog_id.
+// Mirrors WireAPIGatewayTokenStore in placement and lifecycle: safe
+// to call multiple times, no-op when the catalog store is unwired
+// (file-only deployments without a database).
+//
+// After wiring the store, every already-registered connection is
+// reloaded so connections that registered before the store became
+// available pick up their catalog content immediately. Without this
+// reload, the initial NewMulti call (which runs before
+// platform-level wiring) would leave connections in the "catalog_id
+// set but zero ops" state until the next admin save.
+func (p *Platform) WireAPIGatewayCatalogStore(store apigatewaycatalog.Store) {
+	if store == nil {
+		return
+	}
+	for _, tk := range p.toolkitRegistry.All() {
+		api, ok := tk.(*apigatewaykit.Toolkit)
+		if !ok {
+			continue
+		}
+		api.SetCatalogStore(store)
+		for _, detail := range api.ListConnections() {
+			if err := api.ReloadConnection(detail.Name); err != nil {
+				slog.Warn("apigateway: catalog wire reload failed",
+					"connection", detail.Name, "error", err)
+			}
 		}
 	}
 }
