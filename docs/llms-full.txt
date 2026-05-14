@@ -2408,7 +2408,9 @@ In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (use
 
 # API Gateway Toolkit
 
-The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline — the HTTP/JSON sibling of the MCP gateway. A single tool, `api_invoke_endpoint`, handles every operation on every configured upstream; the model supplies method + path + query + body + optional headers at call time. No tool catalog explosion: ten upstreams = one tool surface, regardless of endpoint count.
+The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline — the HTTP/JSON sibling of the MCP gateway. Three tools — `api_invoke_endpoint`, `api_list_endpoints`, `api_get_endpoint_schema` — handle every operation on every configured upstream. The model uses `api_list_endpoints` for discovery, `api_get_endpoint_schema` for precise per-endpoint detail, and `api_invoke_endpoint` for the call itself. No tool catalog explosion: ten upstreams = three tools total, regardless of endpoint count.
+
+OpenAPI specs are stored separately in **API catalogs** (see the next section) — globally-owned, versioned bundles that many connections can reference.
 
 ## When to use
 
@@ -2492,6 +2494,77 @@ The model is additionally blocked at request time from supplying any header name
 ```
 
 Salesforce needs `refresh_token` in `oauth2_scopes` to issue a refresh token; without it the connection cannot survive access-token expiry.
+
+---
+
+# API Catalogs
+
+OpenAPI specs describe the API itself, not any one credential pointed at it. An organization with three Blackbaud RE NXT tenants has three connections (one per tenant's OAuth credentials) — but all three talk to the same constituent, gift, and action endpoints. Pasting the same documentation into three connection records is duplication that drifts. The catalog model fixes that.
+
+## Data model
+
+Two new tables (migration 000042):
+
+- `api_catalogs(id PK, name, version, display_name, description, created_by, timestamps)` with `UNIQUE(name, version)`. Each `(name, version)` is its own row; cloning to a new version creates a new row. IDs are operator-chosen slugs (lowercase alphanumeric + hyphens, ≤100 chars), immutable after creation.
+- `api_catalog_specs(catalog_id FK, spec_name, content TEXT, source_kind, source_url, etag, last_fetched_at)` with `(catalog_id, spec_name)` as primary key and `ON DELETE CASCADE` from `api_catalogs`. Content is plain TEXT — specs are public API documentation, no field-level encryption.
+
+A connection's catalog reference lives in its existing `connection_instances.config` JSONB at key `catalog_id`. Application-layer validation rejects unknown ids at save time; the catalog handler refuses to delete a catalog while any connection still references it.
+
+## Spec ingestion
+
+The admin handler exposes three ingestion paths, all on the same `/api-catalogs/{id}/specs/{spec_name}` family of routes:
+
+- **Inline** (`PUT` with `{source_kind: "inline", content}`) — paste YAML or JSON directly. Validated against OpenAPI 3.x at save.
+- **Upload** (`PUT .../upload` multipart) — same as inline but the content arrives as a multipart `file` field. 10 MB body cap. Allowed MIME types: `application/json`, `application/yaml`, `application/x-yaml`, `application/octet-stream`, `text/yaml`, `text/x-yaml`, `text/plain`.
+- **URL** (`PUT` with `{source_kind: "url", source_url}`) — operator-provided HTTPS URL. The server fetches once at save time, captures the ETag, validates the content. Operators can later `POST .../refresh` to re-fetch.
+
+URL-fetch SSRF guards (all required, none configurable in v1):
+
+- `https://` only — `http://` rejected.
+- DNS pre-resolution rejects any A/AAAA in private (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`), loopback (`127/8`, `::1`), link-local (`169.254/16`, `fe80::/10`), or unspecified ranges.
+- `Dialer.Control` re-checks the resolved IP at connect time so DNS rebinding (public IP at preflight, private IP at connect) trips the same guard.
+- 10 MB body cap via `http.MaxBytesReader`.
+- Redirects refused — an attacker-controlled upstream cannot 302 to a private URL.
+
+External `$ref` resolution in OpenAPI is disabled at the parser level (kin-openapi's `IsExternalRefsAllowed: false`), so a malicious spec containing `$ref: "http://169.254.169.254/..."` never triggers an outbound HTTP call from the parser either.
+
+## Live reload
+
+Any catalog or spec mutation calls `Toolkit.ReloadConnectionsByCatalog(catalogID)` on every live api-gateway toolkit. The toolkit iterates its registered connections, finds those whose `cfg.CatalogID == catalogID`, and atomically rebuilds each one — re-parses the catalog's specs, retains the new `*openapi3.T` per spec on the conn, and lets the embedding cache invalidate naturally (a new conn instance starts with empty embeddings). The model sees the new spec content on the next `api_list_endpoints` / `api_get_endpoint_schema` call without a process restart.
+
+## Operation index
+
+`OperationSummary` gains a `Spec` field set to the component spec name (`constituent`, `gift`, etc.). When the catalog has a single anonymous spec the field stays empty and is omitted from JSON. When two component specs in one catalog define the same `operation_id`, both summaries appear in `api_list_endpoints` with distinct `spec` values. `api_invoke_endpoint` and `api_get_endpoint_schema` accept an optional `spec` argument for disambiguation; ambiguous calls return a structured error listing the candidates.
+
+## api_get_endpoint_schema
+
+New MCP tool that returns full per-endpoint detail:
+
+- **Input**: `connection` (required), `operation_id` (required), `spec` (optional — required when ambiguous).
+- **Output**: `spec`, `operation_id`, `method`, `path`, `summary`, `description`, `parameters[]`, `request_body`, `responses[]`, `examples`.
+- **Stripped**: top-level `security`, `securitySchemes`, `servers`, and vendor extensions whose keys start with `x-amazon-`, `x-google-`, `x-azure-`, `x-apigateway-`. These describe how an external client should authenticate, which is irrelevant — the connection is pre-authenticated and the same catalog might back connections using different auth modes.
+- **Truncation**: response capped at ~50 KB after marshal. Deeper schemas elide parameters/request_body/responses with a `note` field; the model can still fall back to `api_invoke_endpoint` to probe shape directly. Schema walking caps at depth 8 to keep recursive types bounded.
+
+## Backward compatibility
+
+The legacy `connection_instances.config.openapi_spec` JSONB key is no longer read by the toolkit. The migration leaves existing values in place — operators see a banner in the portal connection editor prompting them to create a catalog and move the content over. Until they do, `api_list_endpoints` returns an empty list with a note.
+
+## Admin REST routes
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/admin/api-catalogs` | List catalogs with spec_count and ref_count |
+| `POST` | `/api/v1/admin/api-catalogs` | Create catalog header |
+| `GET` | `/api/v1/admin/api-catalogs/{id}` | Catalog detail |
+| `PUT` | `/api/v1/admin/api-catalogs/{id}` | Partial update |
+| `DELETE` | `/api/v1/admin/api-catalogs/{id}` | Delete (refused while any connection references) |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/clone` | Clone catalog + all specs to new id |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs` | List specs (metadata only) |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Spec content |
+| `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert (inline or URL source) |
+| `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch URL-sourced |
+| `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
 
 ---
 

@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -153,6 +154,31 @@ type Deps struct {
 	// nil-safe (best-effort) while reads need a real implementation
 	// to return 200 instead of an empty list.
 	AuthEventStore authevents.Store
+	// APICatalogStore manages OpenAPI spec bundles referenced by
+	// api-kind connections via config.catalog_id. nil disables the
+	// /api/v1/admin/api-catalogs routes; connection saves still
+	// succeed but catalog_id is unvalidated. Wire this in lockstep
+	// with the apigateway toolkit's SetCatalogStore so admin writes
+	// and toolkit reads share one store.
+	APICatalogStore APICatalogStore
+}
+
+// APICatalogStore is the subset of apigateway/catalog.Store that the
+// admin handler needs. Declared here to avoid pulling the
+// apigateway package into pkg/admin's import surface (the apigateway
+// toolkit's other dependencies — auth-events writer, embedding
+// provider — should not become admin's transitive concern).
+type APICatalogStore interface {
+	CreateCatalog(ctx context.Context, c apicatalog.Catalog) error
+	GetCatalog(ctx context.Context, id string) (*apicatalog.Catalog, error)
+	ListCatalogs(ctx context.Context) ([]apicatalog.Catalog, error)
+	UpdateCatalog(ctx context.Context, id string, u apicatalog.Update) error
+	DeleteCatalog(ctx context.Context, id string) error
+	UpsertSpec(ctx context.Context, catalogID string, spec apicatalog.SpecEntry) error
+	GetSpec(ctx context.Context, catalogID, specName string) (*apicatalog.SpecEntry, error)
+	ListSpecs(ctx context.Context, catalogID string) ([]apicatalog.SpecEntry, error)
+	DeleteSpec(ctx context.Context, catalogID, specName string) error
+	ReferencingConnections(ctx context.Context, catalogID string) ([]apicatalog.ConnectionRef, error)
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.
@@ -262,6 +288,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthKeyRoutes()
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
+	h.registerCatalogRoutes()
 	h.registerGatewayRoutes()
 	// The unified connection OAuth handler replaces both prior per-kind
 	// handlers. It activates only when the platform has wired the shared

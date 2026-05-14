@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // --- Mock ConnectionStore ---
@@ -63,6 +64,19 @@ func connTestHandler(connStore ConnectionStore, mutable bool) *Handler {
 		Config:          testConfig(),
 		ConnectionStore: connStore,
 		ConfigStore:     &mockConfigStore{mode: mode},
+	}, nil)
+}
+
+// connTestHandlerWithCatalogStore mirrors connTestHandler but also
+// wires an APICatalogStore so the api-kind catalog_id validator
+// runs. Tests that exercise the api-kind path use this to confirm
+// the validator rejects a missing catalog_id.
+func connTestHandlerWithCatalogStore(connStore ConnectionStore, catStore APICatalogStore) *Handler {
+	return NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: connStore,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		APICatalogStore: catStore,
 	}, nil)
 }
 
@@ -857,5 +871,39 @@ func TestLookupToolkitInstanceConfig(t *testing.T) {
 
 		// Original should be unchanged
 		assert.Equal(t, "trino.local", original["host"])
+	})
+}
+
+func TestSetConnectionInstance_APICatalogValidation(t *testing.T) {
+	t.Run("rejects unknown catalog_id", func(t *testing.T) {
+		store := &mockConnectionStore{}
+		catStore := apicatalog.NewMemoryStore()
+		h := connTestHandlerWithCatalogStore(store, catStore)
+
+		body := `{"config":{"base_url":"https://x","catalog_id":"ghost"},"description":""}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/connection-instances/api/c", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "ghost")
+	})
+
+	t.Run("accepts existing catalog_id", func(t *testing.T) {
+		store := &mockConnectionStore{}
+		catStore := apicatalog.NewMemoryStore()
+		_ = catStore.CreateCatalog(context.Background(), apicatalog.Catalog{
+			ID: "petstore", Name: "petstore", DisplayName: "Petstore",
+		})
+		h := connTestHandlerWithCatalogStore(store, catStore)
+
+		body := `{"config":{"base_url":"https://x","catalog_id":"petstore"},"description":""}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/connection-instances/api/c", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }

@@ -1,50 +1,43 @@
 package apigateway
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // OperationSummary is the slim per-operation view returned by
 // api_list_endpoints. Designed to be cheap on context: the model gets
 // enough to decide whether an operation is relevant (operation_id,
 // method, path, summary, tags) without paying for the full request /
-// response schema. Schemas are fetched on demand via a follow-up
-// api_get_endpoint_schema tool (deferred — see RFC #364).
+// response schema. Per-endpoint detail is fetched on demand via
+// api_get_endpoint_schema.
+//
+// Spec names the component spec inside the connection's catalog
+// (e.g. "constituent", "gift"). Omitted from JSON when empty so
+// connections with no catalog or a single anonymous spec stay slim
+// on context.
 type OperationSummary struct {
 	OperationID string   `json:"operation_id"`
 	Method      string   `json:"method"`
 	Path        string   `json:"path"`
 	Summary     string   `json:"summary,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	Spec        string   `json:"spec,omitempty"`
 }
 
-// parseOpenAPISpec validates and loads a raw OpenAPI 3.x document
-// (YAML or JSON). Returns an error with the underlying parser's
-// diagnostic so admin UIs can surface line/path. The loader is
-// configured to skip remote $ref resolution: a malicious or
-// careless spec containing $ref: "https://..." would otherwise let
-// connection registration trigger an outbound HTTP call to an
-// arbitrary host.
+// parseOpenAPISpec delegates to catalog.ParseSpec — the single
+// source of truth for OpenAPI parsing across the toolkit and the
+// admin handler. Kept as a package-local alias so the rest of this
+// file's call sites read naturally.
 func parseOpenAPISpec(raw string) (*openapi3.T, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, errors.New("apigateway: openapi_spec is empty")
-	}
-	loader := &openapi3.Loader{
-		Context:               context.Background(),
-		IsExternalRefsAllowed: false,
-	}
-	doc, err := loader.LoadFromData([]byte(raw))
+	doc, err := catalog.ParseSpec(raw)
 	if err != nil {
-		return nil, fmt.Errorf("apigateway: parsing openapi_spec: %w", err)
-	}
-	if err := doc.Validate(loader.Context); err != nil {
-		return nil, fmt.Errorf("apigateway: invalid openapi_spec: %w", err)
+		return nil, fmt.Errorf("apigateway: %w", err)
 	}
 	return doc, nil
 }
@@ -55,6 +48,12 @@ func parseOpenAPISpec(raw string) (*openapi3.T, error) {
 // downstream tools can address them; this matches what most
 // codegen pipelines do.
 //
+// Each returned summary's Spec field is set to specName so callers
+// merging multiple specs in one catalog can distinguish which
+// component spec an op came from. Pass "" when the catalog has a
+// single anonymous spec — the field is omitted from JSON in that
+// case.
+//
 // The returned slice is sorted by (path, method) for stable output
 // across runs — the model's training distribution prefers stable
 // ordering when comparing tool catalogs across turns.
@@ -64,12 +63,12 @@ func parseOpenAPISpec(raw string) (*openapi3.T, error) {
 // Kept off OperationSummary so the JSON response shape stays slim
 // and the description (often paragraphs long) doesn't bloat the
 // model's context. nil when doc has no operations.
-func buildOperationIndex(doc *openapi3.T) (ops []OperationSummary, embedTexts []string) {
+func buildOperationIndex(doc *openapi3.T, specName string) (ops []OperationSummary, embedTexts []string) {
 	if doc == nil || doc.Paths == nil {
 		return nil, nil
 	}
 	for path, item := range doc.Paths.Map() {
-		ops, embedTexts = appendItemOperations(ops, embedTexts, path, item)
+		ops, embedTexts = appendItemOperations(ops, embedTexts, path, item, specName)
 	}
 	indices := make([]int, len(ops))
 	for i := range indices {
@@ -114,7 +113,7 @@ var pathItemMethods = []struct {
 // parallel embedTexts slice carries the per-operation text used by
 // semantic ranking — kept off OperationSummary so descriptions
 // (often paragraphs) don't bloat the JSON response.
-func appendItemOperations(ops []OperationSummary, embedTexts []string, path string, item *openapi3.PathItem) (outOps []OperationSummary, outTexts []string) {
+func appendItemOperations(ops []OperationSummary, embedTexts []string, path string, item *openapi3.PathItem, specName string) (outOps []OperationSummary, outTexts []string) {
 	if item == nil {
 		return ops, embedTexts
 	}
@@ -133,6 +132,7 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, path stri
 			Path:        path,
 			Summary:     op.Summary,
 			Tags:        op.Tags,
+			Spec:        specName,
 		}
 		ops = append(ops, summary)
 		embedTexts = append(embedTexts, buildEmbedText(summary, op.Description))

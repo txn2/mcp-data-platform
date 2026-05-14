@@ -21,6 +21,7 @@ import {
   KeyRound,
   MessageSquare,
   FileUp,
+  BookOpen,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -57,6 +58,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
+  { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },

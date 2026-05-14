@@ -115,12 +115,14 @@ const (
 	// platform.FieldEncryptor (see CfgKeyStaticHeaders in
 	// pkg/platform/fieldcrypt.go).
 	cfgKeyStaticHeaders = "static_headers"
-	// cfgKeyOpenAPISpec carries the raw OpenAPI 3.x document (YAML
-	// or JSON) for this connection. Parsed at AddConnection time,
-	// stored on the live connection, and consumed by
-	// api_list_endpoints. Inline-only in v1; URL pin with scheduled
-	// revalidation is deferred.
-	cfgKeyOpenAPISpec = "openapi_spec"
+	// cfgKeyCatalogID names the api_catalogs row that supplies this
+	// connection's OpenAPI specs. Empty = connection has no spec
+	// surface (api_list_endpoints returns empty + note;
+	// api_get_endpoint_schema is unusable). Specs live in the
+	// globally-owned catalog, not in the connection — multiple
+	// connections to the same vendor API share one catalog instead
+	// of duplicating the documentation.
+	cfgKeyCatalogID = "catalog_id"
 
 	// OAuth2 config keys are top-level (not nested under "oauth2")
 	// because the platform's FieldEncryptor walks only the top
@@ -171,13 +173,11 @@ type Config struct {
 	// MaxResponseBytes caps how much of an upstream response body is
 	// returned to the model. Defaults to DefaultMaxResponseBytes.
 	MaxResponseBytes int64
-	// OpenAPISpec is the raw OpenAPI 3.x document (YAML or JSON)
-	// for this connection. Optional. When non-empty the toolkit
-	// parses it at AddConnection time and exposes its operations
-	// via api_list_endpoints; an unparseable spec fails the
-	// connection with a clear error rather than silently dropping.
-	// Inline-only in v1.
-	OpenAPISpec string
+	// CatalogID names the api_catalogs row whose component specs
+	// describe this connection's upstream API. Empty = no spec
+	// surface. The catalog is global and may back many connections;
+	// editing it propagates to all of them via Toolkit.ReloadConnection.
+	CatalogID string
 	// OAuth2 carries the OAuth 2.1 parameters used when AuthMode
 	// is oauth2_client_credentials. Empty for non-OAuth modes.
 	OAuth2 OAuth2Config
@@ -292,7 +292,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
-	c.OpenAPISpec = getString(cfg, cfgKeyOpenAPISpec)
+	c.CatalogID = getString(cfg, cfgKeyCatalogID)
 	c.OAuth2 = parseOAuth2Config(cfg)
 	c.StaticHeaders = getStringMap(cfg, cfgKeyStaticHeaders)
 

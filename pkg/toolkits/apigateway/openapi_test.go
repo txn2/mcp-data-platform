@@ -1,9 +1,11 @@
 package apigateway
 
 import (
+	"context"
 	"slices"
-	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 const validMinimalSpec = `
@@ -134,7 +136,7 @@ func TestBuildOperationIndex_AllMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops, _ := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc, "")
 	if len(ops) != 5 {
 		t.Fatalf("expected 5 operations, got %d: %+v", len(ops), ops)
 	}
@@ -162,7 +164,7 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops, _ := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc, "")
 	if len(ops) != 1 {
 		t.Fatalf("expected 1 operation, got %+v", ops)
 	}
@@ -172,14 +174,14 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 }
 
 func TestBuildOperationIndex_NilDoc(t *testing.T) {
-	if ops, texts := buildOperationIndex(nil); ops != nil || texts != nil {
+	if ops, texts := buildOperationIndex(nil, ""); ops != nil || texts != nil {
 		t.Errorf("buildOperationIndex(nil) = (%v, %v); want (nil, nil)", ops, texts)
 	}
 }
 
 func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops, _ := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc, "")
 
 	all := rankOperations(ops, "", 0)
 	if len(all) != len(ops) {
@@ -193,7 +195,7 @@ func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 
 func TestRankOperations_SubstringMatchesIDPathSummaryTags(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops, _ := buildOperationIndex(doc)
+	ops, _ := buildOperationIndex(doc, "")
 
 	cases := []struct {
 		name  string
@@ -217,41 +219,50 @@ func TestRankOperations_SubstringMatchesIDPathSummaryTags(t *testing.T) {
 	}
 }
 
-func TestParseConfig_AcceptsOpenAPISpec(t *testing.T) {
+func TestParseConfig_AcceptsCatalogID(t *testing.T) {
 	c, err := ParseConfig(map[string]any{
-		"base_url":     "https://api.example.com",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://api.example.com",
+		"catalog_id": "petstore-2024",
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if c.OpenAPISpec == "" {
-		t.Error("OpenAPISpec not stored on Config")
+	if c.CatalogID != "petstore-2024" {
+		t.Errorf("CatalogID = %q, want %q", c.CatalogID, "petstore-2024")
 	}
 }
 
-// AddConnection should reject a connection whose openapi_spec is
-// malformed — the operator gets an error at registration rather
-// than a silently broken api_list_endpoints later.
-func TestAddConnection_RejectsBadOpenAPISpec(t *testing.T) {
+// AddConnection logs a warning and proceeds with zero ops when the
+// referenced catalog contains an unparseable spec — see
+// addParsedConnection's buildConnSpecs path. The connection still
+// registers so the operator can fix the catalog content from the
+// portal.
+func TestAddConnection_UnparseableCatalogSpec_RegistersWithZeroOps(t *testing.T) {
 	tk := New("test")
-	err := tk.AddConnection("c", map[string]any{
-		"base_url":     "https://api.example.com",
-		"openapi_spec": "this is not openapi",
-	})
-	if err == nil {
-		t.Fatal("AddConnection accepted invalid openapi_spec")
+	setupCatalogWithSpec(t, tk, "badspecs", "default", "this is not openapi")
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "badspecs",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
 	}
-	if !strings.Contains(err.Error(), "openapi_spec") {
-		t.Errorf("error %q does not mention openapi_spec", err.Error())
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if c == nil {
+		t.Fatal("connection not registered")
+	}
+	if len(c.operations) != 0 {
+		t.Errorf("expected 0 ops from unparseable spec, got %d", len(c.operations))
 	}
 }
 
-func TestAddConnection_BuildsOperationIndex(t *testing.T) {
+func TestAddConnection_BuildsOperationIndexFromCatalog(t *testing.T) {
 	tk := New("test")
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 	if err := tk.AddConnection("c1", map[string]any{
-		"base_url":     "https://api.example.com",
-		"openapi_spec": validMinimalSpec,
+		"base_url":   "https://api.example.com",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
@@ -260,5 +271,74 @@ func TestAddConnection_BuildsOperationIndex(t *testing.T) {
 	tk.mu.RUnlock()
 	if c == nil || len(c.operations) != 5 {
 		t.Errorf("expected 5 operations on connection, got %v", c)
+	}
+	for _, op := range c.operations {
+		if op.Spec != "default" {
+			t.Errorf("op %s missing Spec tag (got %q)", op.OperationID, op.Spec)
+		}
+	}
+}
+
+func TestAddConnection_MultiSpecCatalog(t *testing.T) {
+	tk := New("test")
+	store := setupCatalogWithSpec(t, tk, "vendor", "users",
+		minimalSpecWith(`/v1/users:
+    `+pathOpYAML("get", "listUsers", "List users")))
+	if err := store.UpsertSpec(context.Background(), "vendor",
+		newSpecEntry("orders", minimalSpecWith(`/v1/orders:
+    `+pathOpYAML("get", "listOrders", "List orders")))); err != nil {
+		t.Fatalf("UpsertSpec orders: %v", err)
+	}
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "vendor",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if c == nil || len(c.operations) != 2 {
+		t.Fatalf("expected 2 ops across both specs, got %d", len(c.operations))
+	}
+	specs := map[string]struct{}{}
+	for _, op := range c.operations {
+		specs[op.Spec] = struct{}{}
+	}
+	if len(specs) != 2 {
+		t.Errorf("expected ops tagged with both spec names, got %v", specs)
+	}
+}
+
+func TestAddConnection_WithoutCatalogStore_ZeroOps(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "nope",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if len(c.operations) != 0 {
+		t.Errorf("expected 0 ops without a catalog store, got %d", len(c.operations))
+	}
+}
+
+func TestAddConnection_CatalogMissing_ZeroOps(t *testing.T) {
+	tk := New("test")
+	tk.SetCatalogStore(catalog.NewMemoryStore())
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "missing",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if len(c.operations) != 0 {
+		t.Errorf("expected 0 ops when catalog missing, got %d", len(c.operations))
 	}
 }

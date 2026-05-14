@@ -11,17 +11,37 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
-func TestSpecHash_Deterministic(t *testing.T) {
-	a := specHash("foo")
-	b := specHash("foo")
-	c := specHash("bar")
-	if a != b {
-		t.Errorf("same input → different hashes: %s vs %s", a, b)
+// setupCatalogWithSpec wires a fresh MemoryStore to tk, creates a
+// catalog with one inline spec, and returns the store so the test
+// can mutate specs later. The helper centralizes the boilerplate
+// that every catalog-backed test needs.
+func setupCatalogWithSpec(t *testing.T, tk *Toolkit, catalogID, specName, content string) catalog.Store {
+	t.Helper()
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	if err := store.CreateCatalog(context.Background(), catalog.Catalog{
+		ID: catalogID, Name: catalogID, DisplayName: catalogID,
+	}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
 	}
-	if a == c {
-		t.Error("different inputs → same hash (collision)")
+	if err := store.UpsertSpec(context.Background(), catalogID,
+		newSpecEntry(specName, content)); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	return store
+}
+
+// newSpecEntry constructs a SpecEntry with the inline-source defaults
+// for tests that don't need to assert on source metadata.
+func newSpecEntry(name, content string) catalog.SpecEntry {
+	return catalog.SpecEntry{
+		SpecName:   name,
+		Content:    content,
+		SourceKind: catalog.SourceInline,
 	}
 }
 
@@ -421,24 +441,20 @@ func (zeroEmbedder) Dimension() int { return 8 }
 func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 	tk := New("primary")
 	tk.SetEmbeddingProvider(newFakeEmbedder(32))
-
-	specV1 := minimalSpecWith(`/users:
-    ` + pathOpYAML("get", "list-users", "List users"))
-	specV2 := minimalSpecWith(`/orders:
-    ` + pathOpYAML("get", "list-orders", "List orders"))
+	store := setupCatalogWithSpec(t, tk, "petstore", "default",
+		minimalSpecWith(`/users:
+    `+pathOpYAML("get", "list-users", "List users")))
 
 	if err := tk.AddConnection("api", map[string]any{
-		"base_url":     "https://api.example.com",
-		"openapi_spec": specV1,
+		"base_url":   "https://api.example.com",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection v1: %v", err)
 	}
 	tk.mu.RLock()
 	connV1 := tk.connections["api"]
 	tk.mu.RUnlock()
-	hashV1 := connV1.embedHash
 
-	// First non-lexical call populates embeddings for v1.
 	got1, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV1, ops: connV1.operations, query: "users", limit: 5, mode: RankingSemantic})
 	if len(got1) != 1 || got1[0].OperationID != "list-users" {
 		t.Fatalf("v1 ranking returned %v; want list-users", topIDs(got1))
@@ -447,29 +463,27 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 		t.Errorf("v1 embeddings not populated: %d vs %d", len(connV1.embeddings), len(connV1.embedTexts))
 	}
 
-	// Swap spec via remove + readd (mirrors the admin update path).
-	if err := tk.RemoveConnection("api"); err != nil {
-		t.Fatalf("RemoveConnection: %v", err)
+	// Edit the catalog's spec and reload — mirrors the admin save
+	// path that ReloadConnection runs.
+	if err := store.UpsertSpec(context.Background(), "petstore",
+		newSpecEntry("default", minimalSpecWith(`/orders:
+    `+pathOpYAML("get", "list-orders", "List orders")))); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
 	}
-	if err := tk.AddConnection("api", map[string]any{
-		"base_url":     "https://api.example.com",
-		"openapi_spec": specV2,
-	}); err != nil {
-		t.Fatalf("AddConnection v2: %v", err)
+	if err := tk.ReloadConnection("api"); err != nil {
+		t.Fatalf("ReloadConnection: %v", err)
 	}
 	tk.mu.RLock()
 	connV2 := tk.connections["api"]
 	tk.mu.RUnlock()
 
-	if connV2.embedHash == hashV1 {
-		t.Error("spec hash unchanged after spec replacement")
+	if connV2 == connV1 {
+		t.Error("ReloadConnection should produce a new conn instance")
 	}
 	if len(connV2.embeddings) != 0 {
 		t.Errorf("expected zero cached embeddings on the new conn, got %d", len(connV2.embeddings))
 	}
 
-	// First non-lexical call against v2 must populate against the
-	// new operation set, not produce stale list-users results.
 	got2, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV2, ops: connV2.operations, query: "orders", limit: 5, mode: RankingSemantic})
 	if len(got2) != 1 || got2[0].OperationID != "list-orders" {
 		t.Errorf("v2 ranking returned %v; want list-orders", topIDs(got2))
@@ -482,10 +496,12 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 // surfaces a fallback note.
 func TestHandleListEndpoints_RankingValidation(t *testing.T) {
 	tk := New("primary")
+	setupCatalogWithSpec(t, tk, "petstore", "default",
+		minimalSpecWith(`/x:
+    `+pathOpYAML("get", "x", "x")))
 	if err := tk.AddConnection("api", map[string]any{
-		"base_url": "https://api.example.com",
-		"openapi_spec": minimalSpecWith(`/x:
-    ` + pathOpYAML("get", "x", "x")),
+		"base_url":   "https://api.example.com",
+		"catalog_id": "petstore",
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
