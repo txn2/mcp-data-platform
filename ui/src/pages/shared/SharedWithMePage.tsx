@@ -250,7 +250,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                     >
                       {item.asset.content_type}
                     </span>
-                    {item.asset.tags.slice(0, 3).map((t) => (
+                    {(item.asset.tags ?? []).slice(0, 3).map((t) => (
                       <span
                         key={t}
                         className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
@@ -317,7 +317,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
                     </td>
                     <td className="px-4 py-2.5 max-w-0">
                       <div className="flex flex-wrap gap-1">
-                        {item.asset.tags.slice(0, 3).map((t) => (
+                        {(item.asset.tags ?? []).slice(0, 3).map((t) => (
                           <span
                             key={t}
                             className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
@@ -325,8 +325,8 @@ export function SharedWithMePage({ onNavigate }: Props) {
                             {t}
                           </span>
                         ))}
-                        {item.asset.tags.length > 3 && (
-                          <span className="text-xs text-muted-foreground">+{item.asset.tags.length - 3}</span>
+                        {(item.asset.tags ?? []).length > 3 && (
+                          <span className="text-xs text-muted-foreground">+{(item.asset.tags ?? []).length - 3}</span>
                         )}
                       </div>
                     </td>

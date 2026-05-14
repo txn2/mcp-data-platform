@@ -204,9 +204,9 @@ function AssetBrowserModal({
                   </td>
                   <td className="py-2 max-w-0">
                     <span className="font-medium truncate block">{a.name}</span>
-                    {a.tags.length > 0 && (
+                    {(a.tags ?? []).length > 0 && (
                       <div className="flex gap-1 mt-0.5">
-                        {a.tags.slice(0, 3).map((t) => (
+                        {(a.tags ?? []).slice(0, 3).map((t) => (
                           <span key={t} className="text-xs px-1 py-0.5 rounded bg-muted text-muted-foreground">{t}</span>
                         ))}
                       </div>

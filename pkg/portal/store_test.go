@@ -49,6 +49,73 @@ func TestPostgresAssetStoreInsert(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestPostgresAssetStoreInsertNilTags pins the normalization that a nil
+// Tags slice is persisted as JSON `[]` rather than `null`. Persisting
+// `null` is what blanked the portal: the React asset list calls
+// `asset.tags.slice(0, 3)` and one null tags row brings down the entire
+// React tree with no error boundary.
+func TestPostgresAssetStoreInsertNilTags(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+
+	asset := Asset{
+		ID:          "abc123",
+		OwnerID:     "user1",
+		Name:        "Untagged Export",
+		ContentType: "application/json",
+		S3Bucket:    "portal",
+		S3Key:       "user1/abc123/content.json",
+		SizeBytes:   42,
+		Tags:        nil, // simulate api_export with no tags supplied
+	}
+
+	mock.ExpectExec("INSERT INTO portal_assets").
+		WithArgs(
+			asset.ID, asset.OwnerID, asset.OwnerEmail, asset.Name, asset.Description,
+			asset.ContentType, asset.S3Bucket, asset.S3Key, asset.SizeBytes,
+			[]byte("[]"), sqlmock.AnyArg(), asset.SessionID, 0, nil,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, store.Insert(context.Background(), asset))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresAssetStoreGetNullTags pins the read-side normalization:
+// rows that were persisted before the Insert fix may still hold the
+// literal JSON `null` for tags. The Get path must surface an empty
+// slice so the portal API response is always `"tags": []`.
+func TestPostgresAssetStoreGetNullTags(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+	now := time.Now()
+	prov, _ := json.Marshal(Provenance{})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
+	}).AddRow(
+		"abc123", "user1", "user1@example.com", "Untagged", "", "application/json", "portal", "key1",
+		"", int64(42), []byte("null"), prov, "", 1, now, now, nil, "",
+	)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
+		WithArgs("abc123").
+		WillReturnRows(rows)
+
+	asset, err := store.Get(context.Background(), "abc123")
+	require.NoError(t, err)
+	assert.NotNil(t, asset.Tags, "stored JSON null must surface as a non-nil slice")
+	assert.Equal(t, []string{}, asset.Tags)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPostgresAssetStoreGet(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

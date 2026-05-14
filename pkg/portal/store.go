@@ -101,6 +101,13 @@ func NewPostgresAssetStore(db *sql.DB) AssetStore {
 }
 
 func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //nolint:revive // interface impl
+	// Normalize nil to empty slice so the column never holds JSON
+	// `null`. A nil tags slice serialized as JSON null is what blanked
+	// the portal: the React asset list does `asset.tags.slice(...)`
+	// and one null row kills the entire render tree.
+	if asset.Tags == nil {
+		asset.Tags = []string{}
+	}
 	tags, err := json.Marshal(asset.Tags)
 	if err != nil {
 		return fmt.Errorf("marshaling tags: %w", err)
@@ -963,6 +970,12 @@ func (*noopShareStore) IncrementAccess(_ context.Context, _ string) error { retu
 func unmarshalAssetJSON(asset *Asset, tags, prov []byte) error {
 	if err := json.Unmarshal(tags, &asset.Tags); err != nil {
 		return fmt.Errorf("unmarshaling tags: %w", err)
+	}
+	// Existing rows persisted from before the Insert normalization may
+	// hold literal JSON `null`. Always hand a concrete slice to the
+	// portal API so the JSON response is `[]`, never `null`.
+	if asset.Tags == nil {
+		asset.Tags = []string{}
 	}
 	if err := json.Unmarshal(prov, &asset.Provenance); err != nil {
 		return fmt.Errorf("unmarshaling provenance: %w", err)
