@@ -47,7 +47,7 @@ func (h *Handler) getGatewayConnectionStatus(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusConflict, "gateway toolkit is not registered")
 		return
 	}
-	status := tk.Status(name)
+	status := tk.Status(r.Context(), name)
 	if status == nil {
 		writeError(w, http.StatusNotFound, "gateway connection not found")
 		return
@@ -84,7 +84,7 @@ func (h *Handler) reacquireGatewayOAuth(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	status := tk.Status(name)
+	status := tk.Status(r.Context(), name)
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -149,7 +149,7 @@ func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if h.shortCircuitUnauthorizedAuthCode(w, name, cfg) {
+	if h.shortCircuitUnauthorizedAuthCode(r.Context(), w, name, cfg) {
 		return
 	}
 
@@ -246,10 +246,10 @@ func (h *Handler) parseTestConnectionConfig(w http.ResponseWriter, r *http.Reque
 // Probe would fail with a cryptic upstream error; instead we return a
 // clear 200 message pointing the operator at the Connect button. Returns
 // true when it wrote a response (caller must stop).
-func (h *Handler) shortCircuitUnauthorizedAuthCode(w http.ResponseWriter, name string, cfg gatewaykit.Config) bool {
+func (h *Handler) shortCircuitUnauthorizedAuthCode(ctx context.Context, w http.ResponseWriter, name string, cfg gatewaykit.Config) bool {
 	if cfg.AuthMode != gatewaykit.AuthModeOAuth ||
 		cfg.OAuth.Grant != gatewaykit.OAuthGrantAuthorizationCode ||
-		h.connectionHasOAuthToken(name) {
+		h.connectionHasOAuthToken(ctx, name) {
 		return false
 	}
 	writeJSON(w, http.StatusOK, testGatewayConnectionResponse{
@@ -264,12 +264,12 @@ func (h *Handler) shortCircuitUnauthorizedAuthCode(w http.ResponseWriter, name s
 // endpoint to short-circuit authorization_code connections that cannot be
 // probed without a stored token. Returns false when no toolkit is wired,
 // the connection is not registered, or the toolkit reports needs_reauth.
-func (h *Handler) connectionHasOAuthToken(name string) bool {
+func (h *Handler) connectionHasOAuthToken(ctx context.Context, name string) bool {
 	tk := h.findGatewayToolkit()
 	if tk == nil {
 		return false
 	}
-	status := tk.Status(name)
+	status := tk.Status(ctx, name)
 	if status == nil || status.OAuth == nil {
 		return false
 	}

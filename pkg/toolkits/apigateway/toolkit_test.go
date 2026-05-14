@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 func TestNew_DefaultsToKindWhenNameEmpty(t *testing.T) {
@@ -741,12 +743,12 @@ func TestJSONResult_EmbedsPayload(t *testing.T) {
 // the platform's WireAPIGatewayTokenStore call would silently come
 // up with no persistence — the failure mode that v1.57.1 surfaced on
 // the MCP gateway side.
-func TestToolkit_SetTokenStore_RethreadsAuthorizationCodeAuth(t *testing.T) {
+func TestToolkit_SetConnOAuthStore_RethreadsAuthorizationCodeAuth(t *testing.T) {
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
 
-	if tk.TokenStore() != nil {
-		t.Fatal("freshly built toolkit unexpectedly has a TokenStore")
+	if tk.ConnOAuthStore() != nil {
+		t.Fatal("freshly built toolkit unexpectedly has a ConnOAuthStore")
 	}
 
 	err := tk.AddConnection("acme", map[string]any{
@@ -761,11 +763,11 @@ func TestToolkit_SetTokenStore_RethreadsAuthorizationCodeAuth(t *testing.T) {
 		t.Fatalf("AddConnection: %v", err)
 	}
 
-	want := NewMemoryTokenStore()
-	tk.SetTokenStore(want)
+	want := connoauth.NewMemoryStore()
+	tk.SetConnOAuthStore(want)
 
-	if got := tk.TokenStore(); got != want {
-		t.Errorf("TokenStore after SetTokenStore = %v; want %v", got, want)
+	if got := tk.ConnOAuthStore(); got != want {
+		t.Errorf("ConnOAuthStore after SetConnOAuthStore = %v; want %v", got, want)
 	}
 
 	tk.mu.RLock()

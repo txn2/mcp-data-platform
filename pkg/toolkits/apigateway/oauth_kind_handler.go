@@ -47,6 +47,7 @@ func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.
 		authStyle = oauth2.AuthStyleInParams
 	}
 	return connoauth.Config{
+		Grant:             "authorization_code",
 		AuthorizationURL:  cfg.OAuth2.AuthorizationURL,
 		TokenURL:          cfg.OAuth2.TokenURL,
 		ClientID:          cfg.OAuth2.ClientID,

@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -55,11 +56,11 @@ type Toolkit struct {
 	name        string
 	defaultName string
 
-	mu          sync.RWMutex
-	connections map[string]*conn
-	routePolicy RoutePolicy
-	tokenStore  TokenStore
-	authEvents  *authevents.Writer
+	mu             sync.RWMutex
+	connections    map[string]*conn
+	routePolicy    RoutePolicy
+	connOAuthStore connoauth.Store
+	authEvents     *authevents.Writer
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -70,32 +71,27 @@ type Toolkit struct {
 	exportDeps *ExportDeps
 }
 
-// TokenStore returns the OAuth token store wired into this toolkit,
-// or nil when the toolkit was constructed without one. The admin
-// OAuth-callback handler calls this to persist tokens after the
-// authorization-code exchange.
-func (t *Toolkit) TokenStore() TokenStore {
+// ConnOAuthStore returns the unified OAuth token store wired into
+// this toolkit, or nil when the toolkit was constructed without one.
+func (t *Toolkit) ConnOAuthStore() connoauth.Store {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.tokenStore
+	return t.connOAuthStore
 }
 
-// SetTokenStore wires the persistent OAuth token store. Required
-// for the authorization_code grant: the Authenticator reads
-// existing tokens at first call and writes back rotated tokens
-// after refresh. Connections registered before SetTokenStore is
-// called will pick up the store on first use; the toolkit re-runs
-// the wire step in addParsedConnection to keep startup-order
-// independent (mirrors how the MCP gateway threads its TokenStore).
-func (t *Toolkit) SetTokenStore(s TokenStore) {
+// SetConnOAuthStore wires the unified OAuth token store. Required for
+// the authorization_code grant: the Authenticator reads through the
+// store on every Apply and persists rotated refresh tokens back.
+// Connections registered before SetConnOAuthStore is called will pick
+// up the store immediately because the wire step re-threads every
+// already-materialized authorization_code Authenticator.
+func (t *Toolkit) SetConnOAuthStore(s connoauth.Store) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.tokenStore = s
-	// Re-thread into any already-materialized authorization_code
-	// connections so wiring order doesn't matter.
+	t.connOAuthStore = s
 	for _, c := range t.connections {
 		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
-			ac.SetTokenStore(s)
+			ac.SetConnOAuthStore(s)
 		}
 	}
 }
@@ -460,13 +456,14 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if _, exists := t.connections[name]; exists {
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
 	}
-	// Wire the token store into authorization_code authenticators
-	// inline so a connection added BEFORE SetTokenStore still
-	// becomes functional once SetTokenStore runs (which re-threads
-	// the store across all connections). Either ordering works.
+	// Wire the unified token store into authorization_code
+	// authenticators inline so a connection added BEFORE
+	// SetConnOAuthStore still becomes functional once that wire step
+	// runs (which re-threads the store across all connections).
+	// Either ordering works.
 	if ac, ok := auth.(*oauth2AuthorizationCodeAuth); ok {
-		if t.tokenStore != nil {
-			ac.SetTokenStore(t.tokenStore)
+		if t.connOAuthStore != nil {
+			ac.SetConnOAuthStore(t.connOAuthStore)
 		}
 		if t.authEvents != nil {
 			ac.SetAuthEvents(t.authEvents)

@@ -226,6 +226,7 @@ func (s *Source) Status(ctx context.Context) OAuthStatus {
 				NeedsReauth: true,
 				TokenURL:    s.cfg.TokenURL,
 				Scope:       strings.Join(s.cfg.Scopes, " "),
+				Grant:       s.cfg.Grant,
 			}
 		}
 		return OAuthStatus{
@@ -233,6 +234,7 @@ func (s *Source) Status(ctx context.Context) OAuthStatus {
 			LastError:  "load token: " + err.Error(),
 			TokenURL:   s.cfg.TokenURL,
 			Scope:      strings.Join(s.cfg.Scopes, " "),
+			Grant:      s.cfg.Grant,
 		}
 	}
 	return statusFromPersisted(persisted, s.cfg)
@@ -257,6 +259,7 @@ func statusFromPersisted(p *PersistedToken, cfg Config) OAuthStatus {
 		Scope:            scope,
 		AuthenticatedBy:  p.AuthenticatedBy,
 		AuthenticatedAt:  p.AuthenticatedAt,
+		Grant:            cfg.Grant,
 	}
 	// NeedsReauth when the refresh path has nothing to work with OR
 	// when the IdP-disclosed refresh deadline has passed. Surfaced

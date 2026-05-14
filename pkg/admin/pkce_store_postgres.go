@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 // ensure putError satisfies the standard error chain we expect.
@@ -32,7 +32,7 @@ var ErrPKCEStorePut = errors.New("admin: pkce store put failed")
 // oauth-start may run on a different pod than /oauth/callback.
 //
 // code_verifier is encrypted at rest via the platform's
-// gatewaykit.FieldEncryptor — verifiers are short-lived (≤pkceTTL) but
+// connoauth.FieldEncryptor — verifiers are short-lived (≤pkceTTL) but
 // they are paired secrets, so a DB read of them while still in flight
 // is roughly equivalent to leaking a short-window OAuth refresh token.
 //
@@ -41,7 +41,7 @@ var ErrPKCEStorePut = errors.New("admin: pkce store put failed")
 // encryption across sub-package stores.
 type PostgresPKCEStore struct {
 	db  *sql.DB
-	enc gatewaykit.FieldEncryptor
+	enc connoauth.FieldEncryptor
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -50,7 +50,7 @@ type PostgresPKCEStore struct {
 // NewPostgresPKCEStore returns a Postgres-backed PKCE store that runs
 // a background sweeper to delete expired rows. Pass nil for enc to
 // skip at-rest encryption (dev-only).
-func NewPostgresPKCEStore(db *sql.DB, enc gatewaykit.FieldEncryptor) *PostgresPKCEStore {
+func NewPostgresPKCEStore(db *sql.DB, enc connoauth.FieldEncryptor) *PostgresPKCEStore {
 	if enc == nil {
 		enc = passThroughPKCEEncryptor{}
 	}

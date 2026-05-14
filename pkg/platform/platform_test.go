@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -29,7 +30,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -2244,18 +2244,19 @@ func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
 	}
 
 	// (b) WireGatewayTokenStore must be safe to call when the platform
-	// has no DB-backed token store (stateless mode). Must not panic, must
-	// not error, must not crash on the nil store reference.
-	if p.gatewayTokenStore != nil {
-		t.Fatalf("expected nil gatewayTokenStore in test (no DB), got %T", p.gatewayTokenStore)
+	// has no DB-backed connoauth store (stateless mode). Must not
+	// panic, must not error, must not crash on the nil store reference.
+	if p.connOAuthStore != nil {
+		t.Fatalf("expected nil connOAuthStore in test (no DB), got %T", p.connOAuthStore)
 	}
 	p.WireGatewayTokenStore() // no-op path
 
 	// And calling it again with a non-nil store must reach every gateway
 	// toolkit in the registry without panicking. The gateway package's
-	// SetTokenStore implementation is what handles placeholder retry —
-	// here we only assert the platform-level wiring delivers the store.
-	p.gatewayTokenStore = gatewaykit.NewMemoryTokenStore()
+	// SetConnOAuthStore implementation is what handles placeholder
+	// retry — here we only assert the platform-level wiring delivers
+	// the store.
+	p.connOAuthStore = connoauth.NewMemoryStore()
 	p.WireGatewayTokenStore() // wired path
 }
 
@@ -5034,23 +5035,22 @@ func TestWireAPIGatewayTokenStore(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	// Pre-condition: no DB → apigatewayTokenStore is nil → wire must
-	// be a safe no-op and leave the toolkit's TokenStore unset.
-	if p.apigatewayTokenStore != nil {
-		t.Fatalf("expected nil apigatewayTokenStore in test (no DB), got %T", p.apigatewayTokenStore)
+	// Pre-condition: no DB → connOAuthStore is nil → wire must be a
+	// safe no-op and leave the toolkit's store unset.
+	if p.connOAuthStore != nil {
+		t.Fatalf("expected nil connOAuthStore in test (no DB), got %T", p.connOAuthStore)
 	}
 	p.WireAPIGatewayTokenStore()
-	if tk.TokenStore() != nil {
-		t.Error("WireAPIGatewayTokenStore set a TokenStore when platform store is nil")
+	if tk.ConnOAuthStore() != nil {
+		t.Error("WireAPIGatewayTokenStore set a store when platform store is nil")
 	}
 
-	// Now simulate the DB-backed mode: install a memory store as the
-	// platform-level token store and re-wire. Every api gateway
-	// toolkit must observe the store.
-	want := apigatewaykit.NewMemoryTokenStore()
-	p.apigatewayTokenStore = want
+	// Now simulate the DB-backed mode: install a memory connoauth
+	// store and re-wire. Every api gateway toolkit must observe it.
+	want := connoauth.NewMemoryStore()
+	p.connOAuthStore = want
 	p.WireAPIGatewayTokenStore()
-	if got := tk.TokenStore(); got == nil {
+	if got := tk.ConnOAuthStore(); got == nil {
 		t.Fatal("WireAPIGatewayTokenStore did not deliver the store to the toolkit")
 	}
 }
@@ -5138,7 +5138,7 @@ func TestWireAPIGatewayTokenStore_NoToolkit_NoOp(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	p.apigatewayTokenStore = apigatewaykit.NewMemoryTokenStore()
+	p.connOAuthStore = connoauth.NewMemoryStore()
 	p.WireAPIGatewayTokenStore() // no api toolkit registered → must not panic
 }
 
