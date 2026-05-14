@@ -65,9 +65,35 @@ const maxListLimit = 10000
 // MemoryStore is an in-process Store for tests and for dev
 // deployments without a database. Events DO NOT survive process
 // restarts. Concurrency-safe.
+//
+// List(...) returns newest-first by OccurredAt, with ties broken by a
+// monotonic insertion counter (seq) so back-to-back inserts that
+// produce identical OccurredAt values still yield a deterministic
+// order. Identical-timestamp ties happen on hardware where
+// time.Now()'s wall-clock granularity is coarser than the time
+// between two consecutive Insert calls — common on Apple Silicon when
+// tests run without -race.
+//
+// PostgresStore (store_postgres.go) does NOT have a comparable
+// tie-breaker — the table's primary key is a random UUID and List's
+// query is "ORDER BY occurred_at DESC" with no secondary sort. The
+// only production consumer of either backend that depends on this
+// ordering is admin.lastRevocationFor, which scans the most recent
+// few events for any revocation lead type and tolerates either order
+// (both the lead and the trail of a revocation pair carry the same
+// reason). Inside test code we still want determinism, hence the
+// counter here.
 type MemoryStore struct {
 	mu     sync.Mutex
-	events []Event
+	events []memEvent
+	seq    uint64
+}
+
+// memEvent wraps Event with the insertion sequence so List can break
+// ties on identical OccurredAt deterministically.
+type memEvent struct {
+	Event
+	seq uint64
 }
 
 // NewMemoryStore returns an in-process Store. The Postgres store is
@@ -91,7 +117,8 @@ func (s *MemoryStore) Insert(_ context.Context, ev Event) error {
 	if ev.ID == "" {
 		ev.ID = uuid.NewString()
 	}
-	s.events = append(s.events, ev)
+	s.seq++
+	s.events = append(s.events, memEvent{Event: ev, seq: s.seq})
 	return nil
 }
 
@@ -109,19 +136,28 @@ func (s *MemoryStore) List(_ context.Context, f Filter) ([]Event, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	matched := make([]Event, 0, f.Limit)
+	matched := make([]memEvent, 0, f.Limit)
 	for _, ev := range s.events {
-		if matchesFilter(ev, f) {
+		if matchesFilter(ev.Event, f) {
 			matched = append(matched, ev)
 		}
 	}
+	// Sort newest-first. OccurredAt is the primary key; seq breaks
+	// ties from identical wall-clock timestamps (see MemoryStore doc).
 	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].OccurredAt.Equal(matched[j].OccurredAt) {
+			return matched[i].seq > matched[j].seq
+		}
 		return matched[i].OccurredAt.After(matched[j].OccurredAt)
 	})
 	if len(matched) > f.Limit {
 		matched = matched[:f.Limit]
 	}
-	return matched, nil
+	out := make([]Event, len(matched))
+	for i, m := range matched {
+		out[i] = m.Event
+	}
+	return out, nil
 }
 
 // matchesFilter returns true when ev satisfies every non-zero

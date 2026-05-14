@@ -31,29 +31,27 @@ const (
 	// failure during refresh. The row is NOT deleted; the next attempt
 	// can succeed. Emitted at WARN level by both refresh paths.
 	TypeRefreshFailedTransient Type = "refresh_failed_transient"
-	// TypeRefreshFailedRevoked records a definitive refresh-token
-	// rejection (e.g. RFC 6749 §5.2 invalid_grant @ HTTP 400, local
-	// expiry of the IdP-disclosed refresh deadline, or absence of a
-	// refresh token in the persisted row). Paired with a subsequent
-	// TypeTokenDeletedRevoked event.
+	// TypeRefreshFailedRevoked records that the IdP was called and
+	// returned a definitive rejection (RFC 6749 §5.2 invalid_grant @
+	// HTTP 400). Paired with a subsequent TypeTokenDeletedRevoked
+	// event. Reserved strictly for IdP-returned rejections — the
+	// locally-decided cases use TypeRefreshSkippedExpired and
+	// TypeRefreshSkippedNoToken below so the History panel does not
+	// falsely attribute the verdict to the upstream IdP.
 	TypeRefreshFailedRevoked Type = "refresh_failed_revoked"
-	// TypeRefreshSkippedNoToken records a refresh attempt that found
-	// no refresh_token persisted. Reserved for future use by callers
-	// that want to record a "checked but skipped" signal WITHOUT also
-	// invoking the revoked-cleanup path. The current refresh paths
-	// in connoauth/source.go and apigateway/auth.go DO NOT emit this
-	// event — they fold the no-refresh-token case into the revoked
-	// cascade via IDPErrorCode="no_refresh_token" on
-	// TypeRefreshFailedRevoked so a single incident produces a
-	// single (RefreshFailedRevoked, TokenDeletedRevoked) event pair
-	// rather than three rows in the History panel.
+	// TypeRefreshSkippedNoToken records that the refresh attempt was
+	// aborted before any network call because no refresh_token was
+	// persisted. Paired with a subsequent TypeTokenDeletedRevoked
+	// event. Distinct from TypeRefreshFailedRevoked so the History
+	// panel can show that the IdP was NOT contacted on this tick.
 	TypeRefreshSkippedNoToken Type = "refresh_skipped_no_token"
-	// TypeRefreshSkippedExpired records a refresh attempt aborted
-	// before any network call because the IdP-disclosed refresh
-	// deadline had already passed. Same usage discipline as
-	// TypeRefreshSkippedNoToken: the cause is captured as
-	// IDPErrorCode="refresh_expired" on RefreshFailedRevoked rather
-	// than emitted as a separate row.
+	// TypeRefreshSkippedExpired records that the refresh attempt was
+	// aborted before any network call because the IdP-disclosed
+	// refresh deadline (refresh_expires_in from the most recent
+	// successful refresh response) had already passed. Paired with a
+	// subsequent TypeTokenDeletedRevoked event. Distinct from
+	// TypeRefreshFailedRevoked so the History panel does not falsely
+	// claim the IdP returned an error code on this tick.
 	TypeRefreshSkippedExpired Type = "refresh_skipped_expired"
 	// TypeRefreshRotationPersistenceFailed records the most serious
 	// failure class: the IdP issued a rotated token pair (the old

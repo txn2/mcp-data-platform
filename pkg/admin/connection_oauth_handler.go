@@ -205,18 +205,56 @@ func (h *Handler) lastRevocationFor(ctx context.Context, kind, name string) *con
 		return nil
 	}
 	for _, ev := range events {
-		if ev.Type != authevents.TypeTokenDeletedRevoked &&
-			ev.Type != authevents.TypeRefreshFailedRevoked {
+		if !isRevocationLeadEvent(ev.Type) {
 			continue
 		}
-		reason := extractRevocationReason(ev)
 		return &connoauth.RevocationEvent{
 			OccurredAt: ev.OccurredAt,
-			Reason:     reason,
+			Reason:     reasonForRevocationLead(ev),
 			IDPHost:    ev.IDPHost,
 		}
 	}
 	return nil
+}
+
+// isRevocationLeadEvent reports whether an event type ends a
+// connection's credential lifecycle in a way the operator should see
+// on the status card. The lead types are:
+//
+//   - TypeTokenDeletedRevoked: trailing event of every revocation pair.
+//   - TypeRefreshFailedRevoked: IdP returned invalid_grant.
+//   - TypeRefreshSkippedExpired: IdP-disclosed deadline reached
+//     locally (no IdP call).
+//   - TypeRefreshSkippedNoToken: no refresh token was stored (no IdP
+//     call).
+//
+// All four are paired with a subsequent TypeTokenDeletedRevoked, so a
+// list query that returns multiple events in order will most commonly
+// match TypeTokenDeletedRevoked first.
+func isRevocationLeadEvent(t authevents.Type) bool {
+	switch t {
+	case authevents.TypeTokenDeletedRevoked,
+		authevents.TypeRefreshFailedRevoked,
+		authevents.TypeRefreshSkippedExpired,
+		authevents.TypeRefreshSkippedNoToken:
+		return true
+	}
+	return false
+}
+
+// reasonForRevocationLead derives a short reason string for the
+// revocation event. The TypeRefreshSkipped* events carry no detail
+// payload — their type alone names the cause, so we synthesize the
+// short string. TypeTokenDeletedRevoked and TypeRefreshFailedRevoked
+// have a payload and we extract it.
+func reasonForRevocationLead(ev authevents.Event) string {
+	switch ev.Type {
+	case authevents.TypeRefreshSkippedExpired:
+		return "refresh_expired"
+	case authevents.TypeRefreshSkippedNoToken:
+		return "no_refresh_token"
+	}
+	return extractRevocationReason(ev)
 }
 
 // extractRevocationReason pulls the reason field from a revocation

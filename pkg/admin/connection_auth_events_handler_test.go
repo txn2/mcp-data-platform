@@ -98,6 +98,45 @@ func TestLastRevocationForLatestRevoked(t *testing.T) {
 	}
 }
 
+// TestLastRevocationForSkippedLeads — the locally-decided revocation
+// lead types (TypeRefreshSkippedExpired, TypeRefreshSkippedNoToken)
+// must also surface in the banner. The TypeRefreshSkipped* events
+// carry no Detail payload — the reason is synthesized from the type
+// itself so the UI gets a consistent string regardless of whether
+// the lookup matched the lead or the trail event first.
+func TestLastRevocationForSkippedLeads(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		leadType   authevents.Type
+		wantReason string
+	}{
+		{"deadline reached", authevents.TypeRefreshSkippedExpired, "refresh_expired"},
+		{"no refresh token", authevents.TypeRefreshSkippedNoToken, "no_refresh_token"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := authevents.NewMemoryStore()
+			must(t, store.Insert(context.Background(), authevents.Event{
+				Kind: "api", Name: "test", Type: tc.leadType,
+				Actor: authevents.SystemBackgroundRefresh, IDPHost: "iam.example.io",
+			}))
+			h := &Handler{deps: Deps{AuthEventStore: store}}
+			got := h.lastRevocationFor(context.Background(), "api", "test")
+			if got == nil {
+				t.Fatalf("lastRevocationFor returned nil for %v", tc.leadType)
+			}
+			if got.Reason != tc.wantReason {
+				t.Errorf("Reason = %q, want %q", got.Reason, tc.wantReason)
+			}
+			if got.IDPHost != "iam.example.io" {
+				t.Errorf("IDPHost = %q, want iam.example.io", got.IDPHost)
+			}
+		})
+	}
+}
+
 func TestConnectionAuthEventsEndpointEmpty(t *testing.T) {
 	t.Parallel()
 	h := &Handler{}

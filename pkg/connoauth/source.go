@@ -147,22 +147,32 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 	return fresh.AccessToken, nil
 }
 
-// handleRevoked is the shared revoked-refresh cleanup used by Token()
-// and Reacquire(). The row is deleted (a dead credential must not be
-// replayed across process restarts) AND the deletion is observable:
-// an INFO log line replaces the previously silent `_ = Delete(...)`,
-// and an authevents row pair (refresh_failed_revoked +
-// token_deleted_revoked) lands in the History panel so operators see
-// the why and when on the connection's status card.
+// handleRevoked is the shared cleanup used by Token() and Reacquire()
+// when the persisted credential cannot be used to obtain a fresh
+// access token. The row is deleted (a dead credential must not be
+// replayed across process restarts) AND the deletion is observable
+// via an INFO log line and an authevents row pair in the History
+// panel.
+//
+// The leading event differs by cause and that distinction matters in
+// the History panel:
+//
+//   - errRefreshTokenRevoked: the IdP was called and returned RFC 6749
+//     §5.2 invalid_grant. Emits TypeRefreshFailedRevoked.
+//   - errRefreshExpired: the IdP-disclosed refresh deadline arrived;
+//     the platform skipped the refresh call entirely. Emits
+//     TypeRefreshSkippedExpired so the row does not falsely claim an
+//     IdP rejection.
+//   - errNoRefreshToken: no refresh token was persisted; nothing to
+//     exchange. Emits TypeRefreshSkippedNoToken.
+//
+// The trailing TypeTokenDeletedRevoked event is emitted in all three
+// branches because the end state is the same: the row is gone and the
+// operator must re-authorize.
 func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, refreshErr error) {
 	reason := classifyRevokedReason(refreshErr)
 	idpHost := urlHost(s.cfg.TokenURL)
-	s.events.RefreshFailedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
-		authevents.RefreshDetail{
-			BeforeExpiresAt:        persisted.ExpiresAt,
-			BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
-			IDPErrorCode:           reason,
-		})
+	s.emitRevokedLeadEvent(ctx, persisted, refreshErr, reason)
 	if delErr := s.store.Delete(ctx, s.key); delErr != nil {
 		slog.Warn("connoauth: delete revoked token row failed",
 			logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, delErr)
@@ -172,10 +182,31 @@ func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, r
 	// is factually true. The prior ordering emitted the INFO line
 	// before attempting the delete, which produced a misleading
 	// audit trail when the delete itself failed.
-	slog.Info("connoauth: connection token row deleted: refresh rejected by IdP",
+	slog.Info("connoauth: connection token row deleted",
 		logKeyKind, s.key.Kind, logKeyName, s.key.Name,
 		"reason", reason, logKeyTokenURLHost, idpHost)
 	s.events.TokenDeletedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL, reason)
+}
+
+// emitRevokedLeadEvent emits the first event of the revocation pair,
+// choosing the type that accurately describes how the platform reached
+// the verdict. Extracted from handleRevoked so the dispatch is
+// testable in isolation and so handleRevoked stays under the gocognit
+// ceiling.
+func (s *Source) emitRevokedLeadEvent(ctx context.Context, persisted *PersistedToken, refreshErr error, reason string) {
+	switch {
+	case errors.Is(refreshErr, errRefreshExpired):
+		s.events.RefreshSkippedExpired(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL)
+	case errors.Is(refreshErr, errNoRefreshToken):
+		s.events.RefreshSkippedNoToken(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL)
+	default:
+		s.events.RefreshFailedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+			authevents.RefreshDetail{
+				BeforeExpiresAt:        persisted.ExpiresAt,
+				BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
+				IDPErrorCode:           reason,
+			})
+	}
 }
 
 // classifyRevokedReason maps the sentinel errors used internally to
@@ -311,19 +342,16 @@ func (s *Source) Reacquire(ctx context.Context) error {
 // refresh, the rotation is durable across process restarts.
 func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth2.Token, error) {
 	if persisted.RefreshToken == "" {
-		// No event emission here. Caller treats this sentinel as
-		// "revoked" via isRevokedRefresh and calls handleRevoked,
-		// which records the cause as IDPErrorCode="no_refresh_token"
-		// in the RefreshFailedRevoked + TokenDeletedRevoked pair.
-		// Emitting RefreshSkippedNoToken in addition would make the
-		// History panel show three events for a single incident,
-		// contradicting the "distinct from RefreshFailedRevoked"
-		// contract on the Skipped types.
+		// No event emission here — the caller's handleRevoked path
+		// emits the TypeRefreshSkippedNoToken lead and the
+		// TypeTokenDeletedRevoked trail for this sentinel. Emitting
+		// from refresh() too would produce three rows for a single
+		// incident.
 		return nil, errNoRefreshToken
 	}
 	if !persisted.RefreshExpiresAt.IsZero() && time.Now().After(persisted.RefreshExpiresAt) {
-		// Same rationale: handleRevoked emits the cause via
-		// IDPErrorCode="refresh_expired"; no additional event here.
+		// Same rationale — handleRevoked emits TypeRefreshSkippedExpired
+		// + TypeTokenDeletedRevoked. No additional event here.
 		return nil, errRefreshExpired
 	}
 	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, s.client)
