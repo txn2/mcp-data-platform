@@ -1,0 +1,20 @@
+# CodeQL baseline — alerts present on main that the gate ignores.
+#
+# Format: one entry per line, `<rule_id> <path>:<line>`. Blank lines
+# and lines starting with `#` are comments. An alert is "baselined"
+# only when ALL of (rule_id, path, line) match.
+#
+# Whenever the gate flags a NEW alert that isn't here, the local
+# make verify fails — same posture as CI's "new alerts in this
+# pull request" gate. To accept a finding (e.g. an unavoidable
+# false positive that's mitigated at runtime), document the
+# rationale and add the entry to this file.
+#
+# Pre-existing alerts on main as of PR #406. Both are taint findings
+# with mitigating runtime guards but CodeQL's static pass can't see
+# them. They are NOT introduced by this PR — they exist on main.
+# Triaging them out of scope; track separately if any becomes a real
+# concern.
+
+go/sql-injection pkg/audit/postgres/store.go:178
+go/log-injection cmd/dev-mcp-mock/main.go:178

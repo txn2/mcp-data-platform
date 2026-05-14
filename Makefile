@@ -196,15 +196,15 @@ codeql:
 	@codeql database analyze /tmp/mcp-dp-codeql-db \
 		--format=sarif-latest --output=codeql-results.sarif \
 		codeql/go-queries:codeql-suites/go-security-and-quality.qls
-	@ISSUES=$$(python3 -c "import json,sys; d=json.load(open('codeql-results.sarif')); \
-		print(sum(1 for run in d.get('runs',[]) for r in run.get('results',[]) \
-		if r.get('level','note')=='error'))" 2>/dev/null || echo 0); \
-	if [ "$$ISSUES" -gt 0 ]; then \
-		echo "FAIL: CodeQL found $$ISSUES error-level issues. See codeql-results.sarif for details."; \
-		exit 1; \
-	else \
-		echo "CodeQL: no error-level issues found."; \
-	fi
+	@# Gate logic lives in scripts/codeql-gate.py — it counts results
+	@# with sarif level=error OR security-severity >= 7.0. The
+	@# security-severity check matches what GitHub Code Scanning
+	@# treats as a blocking alert in CI: without it, low-confidence
+	@# taint findings (go/request-forgery, go/sql-injection,
+	@# go/log-injection) surface as `level=note` locally but block
+	@# the CodeQL step in CI. Local CI parity is the whole point of
+	@# `make verify`.
+	@python3 scripts/codeql-gate.py codeql-results.sarif
 
 ## sast: Run all SAST scanners (semgrep + codeql)
 sast: semgrep codeql
