@@ -448,6 +448,13 @@ var connectionSensitiveKeys = []string{
 	sensKeyClientSecret, sensKeyOAuthClientSecret, sensKeyOAuth2ClientSecret,
 }
 
+// nestedMapSensitiveKeys lists config keys whose value is itself a
+// map of strings; the inner values must be redacted while the inner
+// names remain visible. Mirrors platform.SensitiveNestedMapKeyList().
+var nestedMapSensitiveKeys = []string{
+	platform.CfgKeyStaticHeaders,
+}
+
 // platformInternalKeys lists config keys injected by the platform at runtime
 // (e.g., elicitation, progress) that should not be exposed in admin API responses.
 var platformInternalKeys = []string{
@@ -468,10 +475,41 @@ func redactConnectionConfig(config map[string]any) map[string]any {
 			result[key] = redactedValue
 		}
 	}
+	for _, key := range nestedMapSensitiveKeys {
+		if raw, ok := result[key]; ok {
+			result[key] = redactNestedMapValues(raw)
+		}
+	}
 	for _, key := range platformInternalKeys {
 		delete(result, key)
 	}
 	return result
+}
+
+// redactNestedMapValues returns a copy of a map[string]any whose inner
+// string values are replaced with redactedValue. Inner names are
+// preserved so the admin client can see WHICH headers are configured
+// without seeing the secret values. Non-map inputs round-trip unchanged.
+func redactNestedMapValues(raw any) any {
+	switch v := raw.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, val := range v {
+			if _, isStr := val.(string); isStr {
+				out[k] = redactedValue
+			} else {
+				out[k] = val
+			}
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(v))
+		for k := range v {
+			out[k] = redactedValue
+		}
+		return out
+	}
+	return raw
 }
 
 // hasRedactedValues returns true if any sensitive key has the "[REDACTED]" placeholder.
@@ -479,6 +517,33 @@ func hasRedactedValues(config map[string]any) bool {
 	for _, key := range connectionSensitiveKeys {
 		if v, ok := config[key]; ok {
 			if s, isStr := v.(string); isStr && s == redactedValue {
+				return true
+			}
+		}
+	}
+	for _, key := range nestedMapSensitiveKeys {
+		if nestedMapHasRedacted(config[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+// nestedMapHasRedacted reports whether any inner string value equals
+// redactedValue. Used so an update that only re-asserts the existing
+// (redacted) header values triggers mergeRedactedFields and preserves
+// the stored secret instead of overwriting it with "[REDACTED]".
+func nestedMapHasRedacted(raw any) bool {
+	switch v := raw.(type) {
+	case map[string]any:
+		for _, val := range v {
+			if s, ok := val.(string); ok && s == redactedValue {
+				return true
+			}
+		}
+	case map[string]string:
+		for _, s := range v {
+			if s == redactedValue {
 				return true
 			}
 		}
@@ -548,5 +613,53 @@ func mergeRedactedFields(submitted, existing map[string]any) map[string]any {
 			}
 		}
 	}
+	for _, key := range nestedMapSensitiveKeys {
+		if _, present := submitted[key]; !present {
+			continue
+		}
+		submitted[key] = mergeRedactedNestedMap(submitted[key], existing[key])
+	}
 	return submitted
+}
+
+// mergeRedactedNestedMap merges a submitted nested map with the stored
+// one: any inner string value equal to redactedValue is replaced with
+// the stored counterpart. Inner names absent from submitted are
+// dropped (operator deleted that header); names absent from existing
+// are kept (operator added a new header). Returns the submitted value
+// unchanged when it is not a map (defensive passthrough — a non-map
+// shape under a sensitive nested key is an upstream bug, not this
+// function's to silently rewrite).
+func mergeRedactedNestedMap(submitted, existing any) any {
+	subMap := nestedMapAsAny(submitted)
+	if subMap == nil {
+		return submitted
+	}
+	existMap := nestedMapAsAny(existing)
+	for k, v := range subMap {
+		s, isStr := v.(string)
+		if !isStr || s != redactedValue {
+			continue
+		}
+		if existVal, ok := existMap[k]; ok {
+			subMap[k] = existVal
+		}
+	}
+	return subMap
+}
+
+// nestedMapAsAny coerces a value into map[string]any if it's a map,
+// or returns nil. map[string]string is upcast for uniform handling.
+func nestedMapAsAny(raw any) map[string]any {
+	switch v := raw.(type) {
+	case map[string]any:
+		return v
+	case map[string]string:
+		out := make(map[string]any, len(v))
+		for k, s := range v {
+			out[k] = s
+		}
+		return out
+	}
+	return nil
 }

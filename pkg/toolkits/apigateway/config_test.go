@@ -422,3 +422,132 @@ func TestParseConfig_TrustLevelTrusted(t *testing.T) {
 		t.Errorf("TrustLevel = %q; want %q", c.TrustLevel, TrustLevelTrusted)
 	}
 }
+
+func TestParseConfig_StaticHeaders_MapStringAny(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url": "https://api.sky.blackbaud.com",
+		"static_headers": map[string]any{
+			"Bb-Api-Subscription-Key": "subscription-secret",
+			"X-Trace-Tag":             "ops",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := c.StaticHeaders["Bb-Api-Subscription-Key"]; got != "subscription-secret" {
+		t.Errorf("Bb-Api-Subscription-Key = %q; want %q", got, "subscription-secret")
+	}
+	if got := c.StaticHeaders["X-Trace-Tag"]; got != "ops" {
+		t.Errorf("X-Trace-Tag = %q; want %q", got, "ops")
+	}
+}
+
+func TestParseConfig_StaticHeaders_MapStringString(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url": "https://api.example.com",
+		"static_headers": map[string]string{
+			"X-Custom": "value",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := c.StaticHeaders["X-Custom"]; got != "value" {
+		t.Errorf("X-Custom = %q; want %q", got, "value")
+	}
+}
+
+func TestParseConfig_StaticHeaders_RejectsAuthorization(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"base_url":       "https://api.example.com",
+		"static_headers": map[string]any{"Authorization": "Bearer leaked"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Authorization") {
+		t.Errorf("expected Authorization rejection; got %v", err)
+	}
+}
+
+func TestParseConfig_StaticHeaders_RejectsAPIKeyHeaderCollision(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"base_url":          "https://api.example.com",
+		"auth_mode":         AuthModeAPIKey,
+		"credential":        "ak-123",
+		"api_key_header":    "X-API-Key",
+		"static_headers":    map[string]any{"x-api-key": "spoof"},
+		"api_key_placement": "header",
+	})
+	if err == nil || !strings.Contains(err.Error(), "static_headers") {
+		t.Errorf("expected api_key header collision rejection; got %v", err)
+	}
+}
+
+func TestParseConfig_StaticHeaders_RejectsHopByHop(t *testing.T) {
+	cases := []string{"Host", "Content-Length", "Connection", "Transfer-Encoding"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseConfig(map[string]any{
+				"base_url":       "https://api.example.com",
+				"static_headers": map[string]any{name: "x"},
+			})
+			if err == nil {
+				t.Errorf("hop-by-hop header %q allowed", name)
+			}
+		})
+	}
+}
+
+func TestParseConfig_StaticHeaders_RejectsInvalidName(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"base_url":       "https://api.example.com",
+		"static_headers": map[string]any{"Bad Header": "x"},
+	})
+	if err == nil {
+		t.Error("invalid header name with space allowed")
+	}
+}
+
+func TestParseConfig_StaticHeaders_RejectsCRLFInValue(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"base_url":       "https://api.example.com",
+		"static_headers": map[string]any{"X-Inject": "value\r\nX-Other: evil"},
+	})
+	if err == nil {
+		t.Error("CRLF in header value allowed (smuggling vector)")
+	}
+}
+
+func TestParseConfig_StaticHeaders_EmptyMapNotPersisted(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url":       "https://api.example.com",
+		"static_headers": map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if c.StaticHeaders != nil {
+		t.Errorf("empty static_headers stored as %#v; want nil", c.StaticHeaders)
+	}
+}
+
+func TestIsValidHeaderName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"X-API-Key", true},
+		{"Bb-Api-Subscription-Key", true},
+		{"x-goog-user-project", true},
+		{"Content-Type", true},
+		{"", false},
+		{"Bad Name", false},
+		{"With\rCR", false},
+		{"Colon:Inside", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := isValidHeaderName(tc.in); got != tc.want {
+				t.Errorf("isValidHeaderName(%q) = %v; want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}

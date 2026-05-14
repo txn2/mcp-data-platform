@@ -45,6 +45,49 @@ var sensitiveConfigKeys = map[string]bool{
 	"oauth2_client_secret": true, // api gateway client_credentials grant
 }
 
+// CfgKeyStaticHeaders is the connection-config key whose value is a
+// nested map[string]any of HTTP headers added to every outbound
+// apigateway request. Exported so the toolkit and admin redaction
+// share one canonical name. The inner values are encrypted at rest.
+const CfgKeyStaticHeaders = "static_headers"
+
+// sensitiveNestedMapKeys are top-level keys whose value is a
+// map[string]any whose inner string values are themselves secrets that
+// must be encrypted at rest. The shape is a separate set from
+// sensitiveConfigKeys because the encryption walk has to recurse one
+// level (not just encrypt the scalar at the top).
+var sensitiveNestedMapKeys = map[string]bool{
+	CfgKeyStaticHeaders: true,
+}
+
+// SensitiveNestedMapKeyList returns the nested-map sensitive key set
+// as a slice for cross-package tests (mirrors SensitiveConfigKeyList).
+func SensitiveNestedMapKeyList() []string {
+	keys := make([]string, 0, len(sensitiveNestedMapKeys))
+	for k := range sensitiveNestedMapKeys {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// coerceNestedMap upcasts a connection-config value into
+// map[string]any when it carries map-of-strings semantics. Returns nil
+// for any other shape so callers can distinguish "not a map" (return
+// the input unchanged) from "a map but empty" (encrypt nothing).
+func coerceNestedMap(raw any) map[string]any {
+	switch v := raw.(type) {
+	case map[string]any:
+		return v
+	case map[string]string:
+		inner := make(map[string]any, len(v))
+		for k, val := range v {
+			inner[k] = val
+		}
+		return inner
+	}
+	return nil
+}
+
 // SensitiveConfigKeyList returns a copy of the sensitive-key set as a
 // slice for tests in other packages (e.g. pkg/admin) that assert
 // their redaction list covers the encryption layer's set.
@@ -98,30 +141,61 @@ func (e *FieldEncryptor) EncryptSensitiveFields(config map[string]any) (map[stri
 
 	result := make(map[string]any, len(config))
 	for k, v := range config {
-		if !sensitiveConfigKeys[k] {
-			result[k] = v
-			continue
-		}
-
-		str, ok := v.(string)
-		if !ok || str == "" {
-			result[k] = v
-			continue
-		}
-
-		// Skip already-encrypted values.
-		if strings.HasPrefix(str, encryptedPrefix) {
-			result[k] = v
-			continue
-		}
-
-		encrypted, err := e.encrypt(str)
+		encrypted, err := e.encryptField(k, v)
 		if err != nil {
-			return nil, fmt.Errorf("encrypting field %q: %w", k, err)
+			return nil, err
 		}
-		result[k] = encryptedPrefix + encrypted
+		result[k] = encrypted
 	}
 	return result, nil
+}
+
+// encryptField dispatches to the right encryption path for a single
+// config-map entry. Three branches: nested-map sensitive keys recurse
+// one level; scalar sensitive keys encrypt the string value; everything
+// else is passthrough.
+func (e *FieldEncryptor) encryptField(key string, value any) (any, error) {
+	if sensitiveNestedMapKeys[key] {
+		return e.encryptNestedMap(key, value)
+	}
+	if !sensitiveConfigKeys[key] {
+		return value, nil
+	}
+	str, ok := value.(string)
+	if !ok || str == "" || strings.HasPrefix(str, encryptedPrefix) {
+		return value, nil
+	}
+	encrypted, err := e.encrypt(str)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting field %q: %w", key, err)
+	}
+	return encryptedPrefix + encrypted, nil
+}
+
+// encryptNestedMap encrypts every string value inside a nested
+// map[string]any. Used for config keys whose value is itself a map of
+// header-name → header-value pairs (e.g. static_headers). Non-string
+// inner values and already-encrypted strings are left alone. Returns
+// the original value unchanged when it is not a map.
+func (e *FieldEncryptor) encryptNestedMap(parentKey string, raw any) (any, error) {
+	inner := coerceNestedMap(raw)
+	if inner == nil {
+		return raw, nil
+	}
+	out := make(map[string]any, len(inner))
+	for k, v := range inner {
+		str, isStr := v.(string)
+		if !isStr || str == "" || strings.HasPrefix(str, encryptedPrefix) {
+			out[k] = v
+			continue
+		}
+		encrypted, err := e.encrypt(str)
+		if err != nil {
+			return nil, fmt.Errorf("encrypting field %q.%q: %w", parentKey, k, err)
+		}
+		out[k] = encryptedPrefix + encrypted
+	}
+	return out, nil
 }
 
 // DecryptSensitiveFields returns a copy of the config map with sensitive field values decrypted.
@@ -134,24 +208,56 @@ func (e *FieldEncryptor) DecryptSensitiveFields(config map[string]any) (map[stri
 
 	result := make(map[string]any, len(config))
 	for k, v := range config {
-		if !sensitiveConfigKeys[k] {
-			result[k] = v
-			continue
-		}
-
-		str, ok := v.(string)
-		if !ok || !strings.HasPrefix(str, encryptedPrefix) {
-			result[k] = v
-			continue
-		}
-
-		decrypted, err := e.decrypt(strings.TrimPrefix(str, encryptedPrefix))
+		decrypted, err := e.decryptField(k, v)
 		if err != nil {
-			return nil, fmt.Errorf("decrypting field %q: %w", k, err)
+			return nil, err
 		}
 		result[k] = decrypted
 	}
 	return result, nil
+}
+
+// decryptField is the inverse of encryptField.
+func (e *FieldEncryptor) decryptField(key string, value any) (any, error) {
+	if sensitiveNestedMapKeys[key] {
+		return e.decryptNestedMap(key, value)
+	}
+	if !sensitiveConfigKeys[key] {
+		return value, nil
+	}
+	str, ok := value.(string)
+	if !ok || !strings.HasPrefix(str, encryptedPrefix) {
+		return value, nil
+	}
+	decrypted, err := e.decrypt(strings.TrimPrefix(str, encryptedPrefix))
+	if err != nil {
+		return nil, fmt.Errorf("decrypting field %q: %w", key, err)
+	}
+	return decrypted, nil
+}
+
+// decryptNestedMap is the inverse of encryptNestedMap. Inner string
+// values that lack the encryptedPrefix are returned as-is (handles
+// configs written before encryption was enabled).
+func (e *FieldEncryptor) decryptNestedMap(parentKey string, raw any) (any, error) {
+	inner := coerceNestedMap(raw)
+	if inner == nil {
+		return raw, nil
+	}
+	out := make(map[string]any, len(inner))
+	for k, v := range inner {
+		str, isStr := v.(string)
+		if !isStr || !strings.HasPrefix(str, encryptedPrefix) {
+			out[k] = v
+			continue
+		}
+		decrypted, err := e.decrypt(strings.TrimPrefix(str, encryptedPrefix))
+		if err != nil {
+			return nil, fmt.Errorf("decrypting field %q.%q: %w", parentKey, k, err)
+		}
+		out[k] = decrypted
+	}
+	return out, nil
 }
 
 // encrypt encrypts plaintext with AES-256-GCM and returns base64(nonce + ciphertext).

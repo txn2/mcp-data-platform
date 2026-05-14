@@ -1054,6 +1054,115 @@ function KeyValueEditor({
   );
 }
 
+// asStringMap normalizes a possibly-undefined/array/scalar value into
+// Record<string, string>. The platform's redaction layer returns
+// `static_headers` with values of "[REDACTED]" (a string), so the
+// editor just sees strings here either way.
+function asStringMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string") {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+// SensitiveKeyValueEditor is KeyValueEditor's secret-aware sibling.
+// Existing entries display the name + a masked placeholder ("•••••"
+// or the literal "[REDACTED]" so operators recognize the round-trip);
+// values can only be replaced by deleting and re-adding. New entries
+// type the value once and are stored verbatim until the next save.
+function SensitiveKeyValueEditor({
+  entries,
+  onChange,
+  keyPlaceholder,
+  valuePlaceholder,
+}: {
+  entries: Record<string, string>;
+  onChange: (entries: Record<string, string>) => void;
+  keyPlaceholder?: string;
+  valuePlaceholder?: string;
+}) {
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const items = Object.entries(entries);
+
+  const add = () => {
+    const k = newKey.trim();
+    const v = newValue.trim();
+    if (k && v) {
+      onChange({ ...entries, [k]: v });
+      setNewKey("");
+      setNewValue("");
+    }
+  };
+
+  return (
+    <div>
+      {items.length > 0 && (
+        <div className="rounded-md border overflow-hidden mb-2">
+          <table className="w-full text-xs">
+            <tbody>
+              {items.map(([k, v]) => (
+                <tr key={k} className="border-b last:border-0">
+                  <td className="px-3 py-1.5 font-mono">{k}</td>
+                  <td className="px-2 text-muted-foreground">→</td>
+                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                    {v === "[REDACTED]" ? "[REDACTED]" : "•••••"}
+                  </td>
+                  <td className="px-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...entries };
+                        delete next[k];
+                        onChange(next);
+                      }}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove ${k}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newKey}
+          onChange={(e) => setNewKey(e.target.value)}
+          placeholder={keyPlaceholder ?? "header"}
+          className="w-56 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
+        />
+        <input
+          type="password"
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder={valuePlaceholder ?? "value"}
+          className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!newKey.trim() || !newValue.trim()}
+          className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
   return (
     <>
@@ -1471,6 +1580,34 @@ function ApiGatewayConfigForm({
           )}
         </div>
       )}
+
+      <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Static headers
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Headers added to every outbound request, in addition to whatever
+          Auth mode contributes. Required by APIs that demand both an
+          OAuth bearer AND a separate key — e.g. Blackbaud SKY's
+          <code className="mx-1">Bb-Api-Subscription-Key</code>, Google's
+          <code className="mx-1">x-goog-user-project</code>. Values are
+          encrypted at rest; existing values are masked.
+        </p>
+        <SensitiveKeyValueEditor
+          entries={asStringMap(config.static_headers)}
+          onChange={(next) =>
+            onChange(
+              update(
+                config,
+                "static_headers",
+                Object.keys(next).length === 0 ? undefined : next,
+              ),
+            )
+          }
+          keyPlaceholder="Bb-Api-Subscription-Key"
+          valuePlaceholder="header value"
+        />
+      </div>
 
       <div>
         <label className="mb-1 block text-xs font-medium">OpenAPI spec (optional)</label>

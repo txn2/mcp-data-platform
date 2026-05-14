@@ -661,6 +661,108 @@ func TestHasRedactedValues(t *testing.T) {
 	assert.False(t, hasRedactedValues(map[string]any{}))
 }
 
+func TestRedactConnectionConfig_StaticHeaders(t *testing.T) {
+	t.Run("redacts inner values, keeps names", func(t *testing.T) {
+		config := map[string]any{
+			"static_headers": map[string]any{
+				"Bb-Api-Subscription-Key": "real-secret",
+				"X-Tag":                   "ops",
+			},
+		}
+		redacted := redactConnectionConfig(config)
+		inner, ok := redacted["static_headers"].(map[string]any)
+		require.True(t, ok, "static_headers must remain a map post-redaction")
+		assert.Equal(t, "[REDACTED]", inner["Bb-Api-Subscription-Key"])
+		assert.Equal(t, "[REDACTED]", inner["X-Tag"])
+	})
+
+	t.Run("accepts map[string]string from in-memory configs", func(t *testing.T) {
+		config := map[string]any{
+			"static_headers": map[string]string{"X-Subscription": "sub-key"},
+		}
+		redacted := redactConnectionConfig(config)
+		inner, ok := redacted["static_headers"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "[REDACTED]", inner["X-Subscription"])
+	})
+}
+
+func TestHasRedactedValues_StaticHeaders(t *testing.T) {
+	assert.True(t, hasRedactedValues(map[string]any{
+		"static_headers": map[string]any{"X-Sub": "[REDACTED]"},
+	}))
+	assert.False(t, hasRedactedValues(map[string]any{
+		"static_headers": map[string]any{"X-Sub": "real-value"},
+	}))
+}
+
+func TestHasRedactedValues_StaticHeaders_MapStringString(t *testing.T) {
+	assert.True(t, hasRedactedValues(map[string]any{
+		"static_headers": map[string]string{"X-Sub": "[REDACTED]"},
+	}))
+	assert.False(t, hasRedactedValues(map[string]any{
+		"static_headers": map[string]string{"X-Sub": "real"},
+	}))
+}
+
+func TestNestedMapHasRedacted_NonMapPassthrough(t *testing.T) {
+	assert.False(t, nestedMapHasRedacted(nil))
+	assert.False(t, nestedMapHasRedacted("not-a-map"))
+	assert.False(t, nestedMapHasRedacted(42))
+}
+
+func TestNestedMapAsAny_AllShapes(t *testing.T) {
+	t.Run("map[string]any returned as-is", func(t *testing.T) {
+		in := map[string]any{"k": "v"}
+		got := nestedMapAsAny(in)
+		require.NotNil(t, got)
+		assert.Equal(t, "v", got["k"])
+	})
+	t.Run("map[string]string upcast", func(t *testing.T) {
+		got := nestedMapAsAny(map[string]string{"a": "b"})
+		require.NotNil(t, got)
+		assert.Equal(t, "b", got["a"])
+	})
+	t.Run("nil returns nil", func(t *testing.T) {
+		assert.Nil(t, nestedMapAsAny(nil))
+	})
+	t.Run("non-map returns nil", func(t *testing.T) {
+		assert.Nil(t, nestedMapAsAny("oops"))
+	})
+}
+
+func TestMergeRedactedFields_StaticHeaders(t *testing.T) {
+	t.Run("redacted inner values are restored from existing", func(t *testing.T) {
+		submitted := map[string]any{
+			"static_headers": map[string]any{
+				"Bb-Api-Subscription-Key": "[REDACTED]",
+				"X-New":                   "freshly-added",
+			},
+		}
+		existing := map[string]any{
+			"static_headers": map[string]any{
+				"Bb-Api-Subscription-Key": "real-secret",
+				"X-Removed":               "stale-value",
+			},
+		}
+		merged := mergeRedactedFields(submitted, existing)
+		inner, ok := merged["static_headers"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "real-secret", inner["Bb-Api-Subscription-Key"])
+		assert.Equal(t, "freshly-added", inner["X-New"])
+		_, hasRemoved := inner["X-Removed"]
+		assert.False(t, hasRemoved, "operator-deleted header must not be resurrected")
+	})
+
+	t.Run("absent submitted leaves field absent", func(t *testing.T) {
+		submitted := map[string]any{"base_url": "https://x"}
+		existing := map[string]any{"static_headers": map[string]any{"X": "y"}}
+		merged := mergeRedactedFields(submitted, existing)
+		_, has := merged["static_headers"]
+		assert.False(t, has, "absent static_headers must not be revived from existing")
+	})
+}
+
 func TestLookupToolkitInstanceConfig(t *testing.T) {
 	t.Run("returns config for existing instance", func(t *testing.T) {
 		h := NewHandler(Deps{
