@@ -604,6 +604,26 @@ func TestMergeConnections(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.Len(t, result, 0)
 	})
+
+	t.Run("nil Tools from live connection normalizes to empty slice", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "mcp", name: "gateway", connection: "", tools: nil},
+		}
+		result := mergeConnections(live, nil)
+		require.Len(t, result, 1)
+		assert.NotNil(t, result[0].Tools, "Tools must not be nil after merge")
+		assert.Equal(t, []string{}, result[0].Tools)
+	})
+
+	t.Run("DB-only entries get empty Tools slice not nil", func(t *testing.T) {
+		db := []platform.ConnectionInstance{
+			{Kind: "trino", Name: "prod", Description: "DB"},
+		}
+		result := mergeConnections(nil, db)
+		require.Len(t, result, 1)
+		assert.NotNil(t, result[0].Tools, "DB-only Tools must not be nil")
+		assert.Equal(t, []string{}, result[0].Tools)
+	})
 }
 
 // --- Redaction ---
