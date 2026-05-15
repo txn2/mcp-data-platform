@@ -31,6 +31,8 @@ import {
 } from "@/api/admin/hooks";
 import { apiFetch } from "@/api/admin/client";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PromptDialog } from "@/components/PromptDialog";
 
 // CatalogsPanel is the operator-facing surface for API catalogs:
 // globally-owned bundles of OpenAPI 3.x component specs that an
@@ -199,17 +201,32 @@ export function CatalogsPanel() {
 // Create form
 // ---------------------------------------------------------------------------
 
+// Slugify a free-text human label into the lowercase-hyphenated form
+// accepted by the catalog name field. Used to auto-derive the
+// machine-readable slug from whatever the operator types as the
+// display name.
+function slugifyName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function suggestSlug(name: string, version: string): string {
-  const baseName = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const baseName = slugifyName(name);
   if (!baseName) return "";
-  const baseVer = version
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const baseVer = slugifyName(version);
   return baseVer ? `${baseName}-${baseVer}` : baseName;
+}
+
+// currentYearMonth returns the current calendar month formatted as
+// YYYY-MM, used as a sensible default for new catalog version
+// labels. Operators can still edit it.
+function currentYearMonth(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
 }
 
 // normalizeSpecName mirrors the server's ValidateSpecName contract
@@ -237,17 +254,27 @@ function CatalogCreateForm({
   onCreated: (id: string) => void;
   existingIDs: string[];
 }) {
-  const [name, setName] = useState("");
-  const [version, setVersion] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [description, setDescription] = useState("");
+  const [version, setVersion] = useState(currentYearMonth());
+  const [name, setName] = useState("");
   const [id, setID] = useState("");
+  const [description, setDescription] = useState("");
+  const [touchedName, setTouchedName] = useState(false);
   const [touchedID, setTouchedID] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const create = useCreateAPICatalog();
 
-  // Auto-suggest the slug until the operator types one explicitly.
+  // Auto-derive the internal slug from the display name until the
+  // operator types one explicitly. Mirrors the title->slug pattern
+  // used in WordPress, GitHub repo creation, etc.
+  useEffect(() => {
+    if (touchedName) return;
+    setName(slugifyName(displayName));
+  }, [displayName, touchedName]);
+
+  // Auto-derive the catalog ID from name + version until the
+  // operator types one explicitly.
   useEffect(() => {
     if (touchedID) return;
     setID(suggestSlug(name, version));
@@ -258,7 +285,7 @@ function CatalogCreateForm({
   const submit = useCallback(async () => {
     setError(null);
     if (!name || !displayName || !id) {
-      setError("name, id, and display name are required");
+      setError("display name, internal slug, and catalog ID are required");
       return;
     }
     try {
@@ -282,24 +309,34 @@ function CatalogCreateForm({
       </h2>
 
       <LabeledInput
-        label="Name"
-        help='Vendor / product family slug, e.g. "salesforce-rest" or "google-workspace".'
+        label="Catalog name"
+        help="Human-readable name shown in the catalog list and the connection editor's dropdown. Example: 'Salesforce REST'."
+        value={displayName}
+        onChange={setDisplayName}
+        placeholder="Salesforce REST"
+      />
+      <LabeledInput
+        label="Version"
+        help="Free-text label that distinguishes versions of the same catalog over time. Defaults to the current month (YYYY-MM)."
+        value={version}
+        onChange={setVersion}
+        placeholder={currentYearMonth()}
+        mono
+      />
+      <LabeledInput
+        label="Internal slug"
+        help="Machine-readable family slug shared across versions of the same API (e.g. all Salesforce REST catalogs use 'salesforce-rest'). Auto-derived from the catalog name; edit if you need a different grouping."
         value={name}
-        onChange={setName}
+        onChange={(v) => {
+          setTouchedName(true);
+          setName(v);
+        }}
         placeholder="salesforce-rest"
         mono
       />
       <LabeledInput
-        label="Version"
-        help='Optional free-text label, e.g. "2024-10" or "v3".'
-        value={version}
-        onChange={setVersion}
-        placeholder="2024-10"
-        mono
-      />
-      <LabeledInput
         label="Catalog ID"
-        help="Slug used in URLs and connection.catalog_id. Lowercase, hyphens, no spaces. Cannot change after creation."
+        help="Immutable identifier used in URLs and the connection.catalog_id field. Auto-derived from slug + version; cannot change after creation."
         value={id}
         onChange={(v) => {
           setTouchedID(true);
@@ -309,13 +346,6 @@ function CatalogCreateForm({
         mono
         invalid={idConflict}
         error={idConflict ? "id already exists" : undefined}
-      />
-      <LabeledInput
-        label="Display name"
-        help="Shown in the catalog list and the connection editor's dropdown."
-        value={displayName}
-        onChange={setDisplayName}
-        placeholder="Salesforce REST (2024-10)"
       />
       <LabeledTextarea
         label="Description"
@@ -376,6 +406,10 @@ function CatalogEditor({
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
 
   useEffect(() => {
     if (catalog) {
@@ -402,31 +436,31 @@ function CatalogEditor({
     }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm("Delete this catalog? Specs inside will be deleted too.")) return;
-    setError(null);
+  const handleDeleteConfirmed = async () => {
+    setDeleteError(null);
     try {
       await del.mutateAsync(catalogID);
+      setConfirmDeleteOpen(false);
       onDeleted();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "delete failed");
+      setDeleteError(e instanceof Error ? e.message : "delete failed");
     }
   };
 
-  const handleClone = async () => {
-    const newID = window.prompt("New catalog ID:");
+  const handleCloneConfirmed = async (values: Record<string, string>) => {
+    const newID = values.id?.trim();
     if (!newID) return;
-    const newVersion = window.prompt("Version for the clone (optional):", "") ?? "";
-    setError(null);
+    setCloneError(null);
     try {
       await clone.mutateAsync({
         sourceID: catalogID,
         id: newID,
         name: catalog?.name,
-        version: newVersion || undefined,
+        version: values.version?.trim() || undefined,
       });
+      setCloneOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "clone failed");
+      setCloneError(e instanceof Error ? e.message : "clone failed");
     }
   };
 
@@ -468,14 +502,14 @@ function CatalogEditor({
                 </button>
                 <button
                   type="button"
-                  onClick={handleClone}
+                  onClick={() => setCloneOpen(true)}
                   className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
                 >
                   <Copy className="h-4 w-4" /> Clone
                 </button>
                 <button
                   type="button"
-                  onClick={handleDelete}
+                  onClick={() => setConfirmDeleteOpen(true)}
                   disabled={catalog.ref_count > 0}
                   title={catalog.ref_count > 0 ? "Cannot delete; still referenced by a connection" : ""}
                   className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
@@ -489,13 +523,34 @@ function CatalogEditor({
 
         {editing ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:max-w-2xl">
-            <LabeledInput label="Name" value={draftName} onChange={setDraftName} mono />
-            <LabeledInput label="Version" value={draftVersion} onChange={setDraftVersion} mono />
             <div className="md:col-span-2">
-              <LabeledInput label="Display name" value={draftDisplayName} onChange={setDraftDisplayName} />
+              <LabeledInput
+                label="Catalog name"
+                help="Human-readable name shown to operators."
+                value={draftDisplayName}
+                onChange={setDraftDisplayName}
+              />
             </div>
+            <LabeledInput
+              label="Internal slug"
+              help="Machine-readable family slug shared across versions."
+              value={draftName}
+              onChange={setDraftName}
+              mono
+            />
+            <LabeledInput
+              label="Version"
+              help="Free-text version label."
+              value={draftVersion}
+              onChange={setDraftVersion}
+              mono
+            />
             <div className="md:col-span-2">
-              <LabeledTextarea label="Description" value={draftDescription} onChange={setDraftDescription} />
+              <LabeledTextarea
+                label="Description"
+                value={draftDescription}
+                onChange={setDraftDescription}
+              />
             </div>
           </div>
         ) : (
@@ -525,6 +580,62 @@ function CatalogEditor({
       )}
 
       <SpecsManager catalogID={catalogID} isReadOnly={isReadOnly} />
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => {
+          setConfirmDeleteOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+        destructive
+        title="Delete catalog?"
+        description={
+          <>
+            The catalog <code className="font-mono">{catalog.id}</code> and all
+            of its component specs will be removed. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        loading={del.isPending}
+        error={deleteError}
+        onConfirm={handleDeleteConfirmed}
+      />
+
+      <PromptDialog
+        open={cloneOpen}
+        onOpenChange={(open) => {
+          setCloneOpen(open);
+          if (!open) setCloneError(null);
+        }}
+        title="Clone catalog"
+        description={
+          <>
+            Clones the catalog header and every component spec into a new
+            row. Pick a new ID (immutable) and an optional new version.
+          </>
+        }
+        fields={[
+          {
+            name: "id",
+            label: "New catalog ID",
+            placeholder: "salesforce-rest-2025-01",
+            required: true,
+            monospace: true,
+            help: "Lowercase, hyphens, no spaces. Immutable after creation.",
+          },
+          {
+            name: "version",
+            label: "Version (optional)",
+            placeholder: "2025-01",
+            monospace: true,
+            help: "Free-text label. Leave blank to clone without a version label.",
+          },
+        ]}
+        confirmLabel="Clone"
+        loading={clone.isPending}
+        error={cloneError}
+        onConfirm={handleCloneConfirmed}
+      />
     </div>
   );
 }
@@ -545,6 +656,8 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useRefreshAPICatalogSpec();
   const del = useDeleteAPICatalogSpec();
@@ -625,13 +738,7 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!window.confirm(`Delete spec "${s.spec_name}"?`)) return;
-                      del.mutate(
-                        { catalogID, specName: s.spec_name },
-                        { onSuccess: () => setRefreshCounter((n) => n + 1) },
-                      );
-                    }}
+                    onClick={() => setPendingDelete(s.spec_name)}
                     className="rounded p-1 text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -658,6 +765,42 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+        destructive
+        title="Delete component spec?"
+        description={
+          pendingDelete ? (
+            <>
+              The spec <code className="font-mono">{pendingDelete}</code> will
+              be removed from this catalog. Connections referencing the
+              catalog reload immediately and stop seeing operations from
+              this spec.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete"
+        loading={del.isPending}
+        error={deleteError}
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          setDeleteError(null);
+          try {
+            await del.mutateAsync({ catalogID, specName: pendingDelete });
+            setRefreshCounter((n) => n + 1);
+            setPendingDelete(null);
+          } catch (e) {
+            setDeleteError(e instanceof Error ? e.message : "delete failed");
+          }
+        }}
+      />
     </div>
   );
 }
