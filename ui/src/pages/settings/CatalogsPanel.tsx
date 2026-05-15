@@ -117,7 +117,7 @@ export function CatalogsPanel() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4">
         <aside className="overflow-y-auto rounded-md border bg-card">
           {isLoading ? (
             <div className="p-3 text-sm text-muted-foreground">Loading…</div>
@@ -221,14 +221,18 @@ function suggestSlug(name: string, version: string): string {
 
 // normalizeSpecName mirrors the server's ValidateSpecName contract
 // (pkg/toolkits/apigateway/catalog/catalog.go): lowercase letters,
-// digits, hyphens, and underscores. Typed input is lowercased and
-// stripped of out-of-range characters so the operator never has to
-// guess at the server's slug rule. Spaces collapse to hyphens.
+// digits, hyphens, and underscores; must start and end with a
+// letter or digit. Typed input is lowercased, spaces collapsed to
+// hyphens, out-of-range characters stripped, and leading/trailing
+// hyphens or underscores trimmed so the operator never has to
+// guess at the server's slug rule.
 function normalizeSpecName(raw: string): string {
   return raw
     .toLowerCase()
     .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9_-]/g, "");
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/^[-_]+/, "")
+    .replace(/[-_]+$/, "");
 }
 
 function CatalogCreateForm({
@@ -439,40 +443,9 @@ function CatalogEditor({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          {editing ? (
-            <div className="grid max-w-2xl grid-cols-2 gap-3">
-              <LabeledInput label="Name" value={draftName} onChange={setDraftName} mono />
-              <LabeledInput label="Version" value={draftVersion} onChange={setDraftVersion} mono />
-              <div className="col-span-2">
-                <LabeledInput label="Display name" value={draftDisplayName} onChange={setDraftDisplayName} />
-              </div>
-              <div className="col-span-2">
-                <LabeledTextarea label="Description" value={draftDescription} onChange={setDraftDescription} />
-              </div>
-            </div>
-          ) : (
-            <div>
-              <h2 className="text-lg font-semibold">{catalog.display_name}</h2>
-              <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                <code>{catalog.id}</code>
-                {catalog.version && (
-                  <span className="rounded bg-muted px-1.5 py-0.5">v{catalog.version}</span>
-                )}
-                {catalog.ref_count > 0 && (
-                  <span>· referenced by {catalog.ref_count} connection{catalog.ref_count === 1 ? "" : "s"}</span>
-                )}
-              </div>
-              {catalog.description && (
-                <p className="mt-2 text-sm text-muted-foreground">{catalog.description}</p>
-              )}
-            </div>
-          )}
-        </div>
-
+      <div className="space-y-3">
         {!isReadOnly && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {editing ? (
               <>
                 <button
@@ -511,12 +484,41 @@ function CatalogEditor({
                   type="button"
                   onClick={handleDelete}
                   disabled={catalog.ref_count > 0}
-                  title={catalog.ref_count > 0 ? "Cannot delete — still referenced by a connection" : ""}
+                  title={catalog.ref_count > 0 ? "Cannot delete; still referenced by a connection" : ""}
                   className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" /> Delete
                 </button>
               </>
+            )}
+          </div>
+        )}
+
+        {editing ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:max-w-2xl">
+            <LabeledInput label="Name" value={draftName} onChange={setDraftName} mono />
+            <LabeledInput label="Version" value={draftVersion} onChange={setDraftVersion} mono />
+            <div className="md:col-span-2">
+              <LabeledInput label="Display name" value={draftDisplayName} onChange={setDraftDisplayName} />
+            </div>
+            <div className="md:col-span-2">
+              <LabeledTextarea label="Description" value={draftDescription} onChange={setDraftDescription} />
+            </div>
+          </div>
+        ) : (
+          <div>
+            <h2 className="text-lg font-semibold break-words">{catalog.display_name}</h2>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <code className="break-all">{catalog.id}</code>
+              {catalog.version && (
+                <span className="rounded bg-muted px-1.5 py-0.5">v{catalog.version}</span>
+              )}
+              {catalog.ref_count > 0 && (
+                <span>· referenced by {catalog.ref_count} connection{catalog.ref_count === 1 ? "" : "s"}</span>
+              )}
+            </div>
+            {catalog.description && (
+              <p className="mt-2 text-sm text-muted-foreground">{catalog.description}</p>
             )}
           </div>
         )}
@@ -783,12 +785,14 @@ function SpecModal({
         <div className="space-y-4 px-4 py-4">
           <LabeledInput
             label="Spec name"
-            help="Slug used in URLs and the model's `spec` field. Lowercase letters, digits, hyphens, or underscores. Typed input is auto-lowercased."
+            help={
+              "A short label for this component within the catalog. Use 'default' if the catalog has one spec. Use multiple names (e.g. drive, gmail) only when the catalog bundles separate APIs; the model sees this label in the spec field of api_list_endpoints so it can pick the right operation. Lowercase letters, digits, hyphens, or underscores; typed input is auto-lowercased."
+            }
             value={specName}
             onChange={(v) => setSpecName(normalizeSpecName(v))}
             mono
             disabled={isEditing}
-            placeholder="constituent"
+            placeholder="default"
           />
 
           <div className="flex gap-2 border-b">
@@ -826,7 +830,13 @@ function SpecModal({
               <input
                 type="file"
                 accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setFile(f);
+                  if (f && !specName && !isEditing) {
+                    setSpecName(normalizeSpecName(f.name.replace(/\.(ya?ml|json)$/i, "")));
+                  }
+                }}
                 className="block text-sm"
               />
               <p className="mt-1 text-xs text-muted-foreground">

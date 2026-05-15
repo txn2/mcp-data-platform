@@ -36,12 +36,14 @@ interface Props {
   onClose?: () => void;
 }
 
+// Alphabetized by label (case-insensitive). Activity is pinned at the
+// top because it's the home / landing view; everything else sorts.
 const basePortalNavItems = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/collections", label: "Collections", icon: FolderOpen },
-  { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
+  { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
 
@@ -52,13 +54,15 @@ interface NavItem {
   children?: NavItem[];
 }
 
+// Alphabetized by label (case-insensitive). Dashboard is pinned at
+// the top because it's the admin landing view; everything else sorts.
 const adminNavItems: NavItem[] = [
   { path: "/admin", label: "Dashboard", icon: Home },
   { path: "/admin/agent-instructions", label: "Agent Instructions", icon: Bot },
+  { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
-  { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
