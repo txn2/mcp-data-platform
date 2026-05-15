@@ -1683,10 +1683,10 @@ function ApiGatewayConfigForm({
         <p className="text-xs text-muted-foreground">
           Headers added to every outbound request, in addition to whatever
           Auth mode contributes. Required by APIs that demand both an
-          OAuth bearer AND a separate key — e.g. Blackbaud SKY's
-          <code className="mx-1">Bb-Api-Subscription-Key</code>, Google's
-          <code className="mx-1">x-goog-user-project</code>. Values are
-          encrypted at rest; existing values are masked.
+          OAuth bearer AND a separate key, e.g. Google's
+          <code className="mx-1">x-goog-user-project</code> for quota
+          billing or a vendor subscription header. Values are encrypted
+          at rest; existing values are masked.
         </p>
         <SensitiveKeyValueEditor
           entries={asStringMap(config.static_headers)}
@@ -1699,7 +1699,7 @@ function ApiGatewayConfigForm({
               ),
             )
           }
-          keyPlaceholder="Bb-Api-Subscription-Key"
+          keyPlaceholder="X-Goog-User-Project"
           valuePlaceholder="header value"
         />
       </div>

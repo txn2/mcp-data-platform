@@ -389,11 +389,11 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 	if persistErr := s.persistRefreshed(ctx, persisted, fresh); persistErr != nil {
 		if rotated {
 			// Rotation-persistence-failure is permanent credential
-			// loss for one-time-use-rotation IdPs (Blackbaud,
-			// rotation-enabled Keycloak, etc.). Emit at ERROR so
-			// operators see the page; emit the authevent so the
-			// History panel shows the spot where the connection
-			// died.
+			// loss for one-time-use-rotation IdPs (Microsoft Entra
+			// with rotation enforced, rotation-enabled Keycloak,
+			// etc.). Emit at ERROR so operators see the page; emit
+			// the authevent so the History panel shows the spot
+			// where the connection died.
 			slog.Error("connoauth: rotated refresh token issued but persist failed — connection may be unrecoverable",
 				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
 			s.events.RotationPersistenceFailed(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,

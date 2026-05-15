@@ -172,8 +172,8 @@ func TestValidateCustomHeaders_AllowsOtherHeaders(t *testing.T) {
 }
 
 func TestValidateCustomHeaders_RejectsStaticHeaderOverride(t *testing.T) {
-	staticHeaders := map[string]string{"Bb-Api-Subscription-Key": "secret"}
-	err := validateCustomHeaders(map[string]string{"bb-api-subscription-key": "spoof"}, "", staticHeaders)
+	staticHeaders := map[string]string{"X-Goog-User-Project": "secret"}
+	err := validateCustomHeaders(map[string]string{"x-goog-user-project": "spoof"}, "", staticHeaders)
 	if err == nil {
 		t.Error("model attempt to override static header allowed (case-insensitive check failed)")
 	}
@@ -474,18 +474,19 @@ func TestInvoke_EndToEnd_BearerAuth(t *testing.T) {
 }
 
 // TestInvoke_EndToEnd_StaticHeadersAlongsideBearer proves the
-// Blackbaud-shaped requirement: the operator's static header lands on
-// the wire alongside the OAuth/Bearer Authorization header, without
-// the model being able to inject or override either. The model
-// supplies an unrelated Accept-Language header to confirm static
-// headers don't displace per-call ones that aren't reserved.
+// Google-shaped requirement (x-goog-user-project alongside an OAuth
+// bearer): the operator's static header lands on the wire alongside
+// the OAuth/Bearer Authorization header, without the model being
+// able to inject or override either. The model supplies an unrelated
+// Accept-Language header to confirm static headers don't displace
+// per-call ones that aren't reserved.
 func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer tok-xyz" {
 			t.Errorf("Authorization = %q; want %q", got, "Bearer tok-xyz")
 		}
-		if got := r.Header.Get("Bb-Api-Subscription-Key"); got != "sub-secret" {
-			t.Errorf("Bb-Api-Subscription-Key = %q; want %q", got, "sub-secret")
+		if got := r.Header.Get("X-Goog-User-Project"); got != "sub-secret" {
+			t.Errorf("X-Goog-User-Project = %q; want %q", got, "sub-secret")
 		}
 		if got := r.Header.Get("Accept-Language"); got != "en-US" {
 			t.Errorf("Accept-Language = %q; want %q", got, "en-US")
@@ -503,7 +504,7 @@ func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
 		CallTimeout:      5 * time.Second,
 		MaxResponseBytes: DefaultMaxResponseBytes,
 		StaticHeaders: map[string]string{
-			"Bb-Api-Subscription-Key": "sub-secret",
+			"X-Goog-User-Project": "sub-secret",
 		},
 	}
 	auth, err := NewAuthenticator(cfg)
@@ -515,9 +516,9 @@ func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
 		auth:   auth,
 		client: newHTTPClient(cfg),
 	}, InvokeInput{
-		Connection: "blackbaud",
+		Connection: "google",
 		Method:     "GET",
-		Path:       "/v1/constituents",
+		Path:       "/drive/v3/files",
 		Headers:    map[string]string{"Accept-Language": "en-US"},
 	})
 	if err != nil {
@@ -530,7 +531,7 @@ func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
 
 // TestInvoke_ModelCannotOverrideStaticHeader proves the operator's
 // static_headers entry beats a per-call attempt to spoof the same
-// header — validateCustomHeaders should refuse the call.
+// header; validateCustomHeaders should refuse the call.
 func TestInvoke_ModelCannotOverrideStaticHeader(t *testing.T) {
 	cfg := Config{
 		BaseURL:          "https://api.example.com",
@@ -538,14 +539,14 @@ func TestInvoke_ModelCannotOverrideStaticHeader(t *testing.T) {
 		ConnectTimeout:   time.Second,
 		CallTimeout:      time.Second,
 		MaxResponseBytes: DefaultMaxResponseBytes,
-		StaticHeaders:    map[string]string{"Bb-Api-Subscription-Key": "operator-key"},
+		StaticHeaders:    map[string]string{"X-Goog-User-Project": "operator-key"},
 	}
 	auth, _ := NewAuthenticator(cfg)
 	_, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
-		Connection: "blackbaud",
+		Connection: "google",
 		Method:     "GET",
 		Path:       "/v1/anything",
-		Headers:    map[string]string{"bb-api-subscription-key": "spoofed"},
+		Headers:    map[string]string{"x-goog-user-project": "spoofed"},
 	})
 	if err == nil {
 		t.Fatal("expected error refusing model override of static_header")

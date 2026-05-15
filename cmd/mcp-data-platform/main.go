@@ -866,9 +866,9 @@ func (r *connOAuthConfigResolver) ResolveConfig(ctx context.Context, key connoau
 // MaxLifetime reads the per-connection oauth2_refresh_max_lifetime
 // config field. Zero when unset; the refresher then relies on
 // IdP-disclosed deadlines only (which is correct for Keycloak / Auth0
-// / Okta but inadequate for Blackbaud / Microsoft / Salesforce that
-// don't disclose refresh-token deadlines but enforce wall-clock max
-// lifetimes anyway).
+// / Okta but inadequate for Microsoft / Salesforce / Google APIs
+// that don't disclose refresh-token deadlines but enforce wall-clock
+// max lifetimes anyway).
 func (r *connOAuthConfigResolver) MaxLifetime(ctx context.Context, key connoauth.Key) time.Duration {
 	if r.maxLifeFn == nil {
 		return 0
@@ -908,9 +908,9 @@ const configKeyOAuthRefreshMaxLifetime = "oauth2_refresh_max_lifetime"
 const hoursPerDay = 24
 
 // parseDurationWithDays is time.ParseDuration with a "d" suffix
-// shorthand added. The stdlib's time.ParseDuration tops out at "h" —
-// "60d" is unparseable. Refresh-token deadlines are routinely
-// expressed in days by operators (Blackbaud 60d, Microsoft 90d), so
+// shorthand added. The stdlib's time.ParseDuration tops out at "h",
+// so "60d" is unparseable. Refresh-token deadlines are routinely
+// expressed in days by operators (Microsoft 90d, Salesforce 30d), so
 // asking them to write "1440h" instead would be a thousand-cuts UX
 // failure.
 func parseDurationWithDays(s string) (time.Duration, error) {

@@ -318,16 +318,18 @@ fi
 # Register the api-test fixture as an apigateway connection.
 #
 # api-test v1.1.0+ publishes its OpenAPI 3.1 spec at /openapi.yaml. We
-# pull it and inline it into the connection's openapi_spec field so
-# api_list_endpoints returns the 14 operations the fixture serves
-# (whoami, headers, fixed/{key}, sized, lorem, status/{code}, slow,
-# flaky, echo). Operations in the spec are pathed under /v1/..., so
-# base_url omits the /v1 suffix — the gateway joins base_url + the
-# operation path verbatim.
+# pull it and store it as the default component of an api-catalog
+# named `api-test-fixture`, then point the connection at that catalog
+# via config.catalog_id. The toolkit reads the spec from the catalog
+# at request time so api_list_endpoints returns the 14 operations the
+# fixture serves (whoami, headers, fixed/{key}, sized, lorem,
+# status/{code}, slow, flaky, echo). Operations in the spec are
+# pathed under /v1/..., so base_url omits the /v1 suffix; the gateway
+# joins base_url + the operation path verbatim.
 #
 # The platform sends the api key as the X-API-Key header (default
 # placement). If the OpenAPI fetch fails (older image, transient
-# error), we still register the connection without a spec so
+# error), we still register the connection without a catalog so
 # api_invoke_endpoint works against direct paths.
 info "Fetching api-test OpenAPI spec..."
 APITEST_OPENAPI=$(curl -sf http://localhost:9282/openapi.yaml || true)
@@ -335,14 +337,72 @@ if [ -n "$APITEST_OPENAPI" ]; then
   APITEST_OPENAPI_BYTES=${#APITEST_OPENAPI}
   ok "api-test OpenAPI spec fetched (${APITEST_OPENAPI_BYTES} bytes)"
 else
-  echo -e "  ${YELLOW}⚠${NC} api-test /openapi.yaml unavailable — registering without spec (api_list_endpoints will be empty)"
+  echo -e "  ${YELLOW}⚠${NC} api-test /openapi.yaml unavailable — registering without catalog (api_list_endpoints will be empty)"
+fi
+
+# Seed the api-test-fixture catalog. Idempotent: catalog create
+# accepts a 409 conflict (already exists from a prior dev run), and
+# the spec upsert is PUT so it replaces existing content. We wire
+# the connection's config.catalog_id only when the upsert succeeds,
+# so a transient catalog API failure falls back to the spec-less
+# connection state (no api_list_endpoints, direct api_invoke_endpoint
+# still works).
+APITEST_CATALOG_ID="api-test-fixture"
+APITEST_CATALOG_READY=0
+if [ -n "$APITEST_OPENAPI" ]; then
+  info "Creating api-test-fixture catalog (idempotent)..."
+  APITEST_CATALOG_BODY=$(python3 -c '
+import json
+print(json.dumps({
+    "id": "api-test-fixture",
+    "name": "api-test-fixture",
+    "display_name": "API Test Fixture",
+    "description": "Dev fixture: deterministic /v1/* endpoints (whoami, headers, echo, fixed, sized, lorem, status, slow, flaky).",
+}))
+')
+  CATALOG_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+    -H "X-API-Key: acme-dev-key-2024" \
+    -H "Content-Type: application/json" \
+    -d "$APITEST_CATALOG_BODY" \
+    http://localhost:8080/api/v1/admin/api-catalogs || echo "000")
+  case "$CATALOG_HTTP" in
+    200|201) ok "api-test-fixture catalog created" ;;
+    409)     ok "api-test-fixture catalog already exists (reusing)" ;;
+    *)       echo -e "  ${YELLOW}⚠${NC} catalog create returned HTTP $CATALOG_HTTP — falling back to no-catalog registration" ;;
+  esac
+
+  if [ "$CATALOG_HTTP" = "200" ] || [ "$CATALOG_HTTP" = "201" ] || [ "$CATALOG_HTTP" = "409" ]; then
+    info "Upserting default spec into api-test-fixture catalog..."
+    APITEST_SPEC_BODY=$(APITEST_OPENAPI="$APITEST_OPENAPI" python3 -c '
+import json, os
+print(json.dumps({
+    "source_kind": "inline",
+    "content": os.environ.get("APITEST_OPENAPI", ""),
+}))
+')
+    SPEC_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+      -H "X-API-Key: acme-dev-key-2024" \
+      -H "Content-Type: application/json" \
+      -d "$APITEST_SPEC_BODY" \
+      "http://localhost:8080/api/v1/admin/api-catalogs/${APITEST_CATALOG_ID}/specs/default" || echo "000")
+    case "$SPEC_HTTP" in
+      200|201|204)
+        ok "default spec upserted into api-test-fixture catalog"
+        APITEST_CATALOG_READY=1
+        ;;
+      *)
+        echo -e "  ${YELLOW}⚠${NC} spec upsert returned HTTP $SPEC_HTTP — falling back to no-catalog registration"
+        ;;
+    esac
+  fi
 fi
 
 info "Registering api-test fixture connection..."
 APITEST_DEV_KEY_VAL="${APITEST_DEV_KEY:-apitest-dev-key-2024}"
-APITEST_BODY=$(APITEST_OPENAPI="$APITEST_OPENAPI" APITEST_DEV_KEY_VAL="$APITEST_DEV_KEY_VAL" python3 -c '
+APITEST_BODY=$(APITEST_CATALOG_READY="$APITEST_CATALOG_READY" APITEST_CATALOG_ID="$APITEST_CATALOG_ID" APITEST_DEV_KEY_VAL="$APITEST_DEV_KEY_VAL" python3 -c '
 import json, os
-spec = os.environ.get("APITEST_OPENAPI", "")
+ready = os.environ.get("APITEST_CATALOG_READY", "0") == "1"
+catalog_id = os.environ.get("APITEST_CATALOG_ID", "")
 key = os.environ.get("APITEST_DEV_KEY_VAL", "")
 config = {
     "base_url": "http://localhost:9282",
@@ -355,8 +415,8 @@ config = {
     "call_timeout": "10s",
     "trust_level": "untrusted",
 }
-if spec:
-    config["openapi_spec"] = spec
+if ready:
+    config["catalog_id"] = catalog_id
 body = {
     "config": config,
     "description": "Dev fixture: ghcr.io/plexara/api-test — identity, data, failure, echo endpoints",
@@ -369,10 +429,10 @@ APITEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -d "$APITEST_BODY" \
   http://localhost:8080/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
 if [ "$APITEST_HTTP" = "200" ] || [ "$APITEST_HTTP" = "201" ]; then
-  if [ -n "$APITEST_OPENAPI" ]; then
-    ok "api-test fixture connection registered with OpenAPI spec (api_list_endpoints will resolve)"
+  if [ "$APITEST_CATALOG_READY" = "1" ]; then
+    ok "api-test fixture connection registered with catalog ${APITEST_CATALOG_ID} (api_list_endpoints will resolve)"
   else
-    ok "api-test fixture connection registered (no OpenAPI spec)"
+    ok "api-test fixture connection registered (no catalog)"
   fi
 else
   echo -e "  ${YELLOW}⚠${NC} api-test connection register returned HTTP $APITEST_HTTP — admin API may not be ready"
@@ -400,9 +460,10 @@ else
 fi
 
 info "Registering oauth-api-dev connection (HTTP API gateway via authorization_code, Keycloak IdP)..."
-OAUTH_API_BODY=$(APITEST_OPENAPI="$APITEST_OPENAPI" python3 -c '
+OAUTH_API_BODY=$(APITEST_CATALOG_READY="$APITEST_CATALOG_READY" APITEST_CATALOG_ID="$APITEST_CATALOG_ID" python3 -c '
 import json, os
-spec = os.environ.get("APITEST_OPENAPI", "")
+ready = os.environ.get("APITEST_CATALOG_READY", "0") == "1"
+catalog_id = os.environ.get("APITEST_CATALOG_ID", "")
 config = {
     "base_url": "http://localhost:9282",
     "auth_mode": "oauth2_authorization_code",
@@ -417,8 +478,8 @@ config = {
     "call_timeout": "10s",
     "trust_level": "untrusted",
 }
-if spec:
-    config["openapi_spec"] = spec
+if ready:
+    config["catalog_id"] = catalog_id
 body = {
     "config": config,
     "description": "Dev fixture: api-test (9282) via authorization_code OAuth against Keycloak (realm mcp-platform). Click Connect to authorize.",

@@ -34,15 +34,15 @@ func TestCreateCatalog_Success(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalogs`)).
-		WithArgs("blackbaud-renxt-2024-10", "blackbaud-renxt", "2024-10",
-			"Blackbaud RE NXT", "Constituent and gift APIs", "operator@example.com").
+		WithArgs("salesforce-rest-2024-10", "salesforce-rest", "2024-10",
+			"Salesforce REST", "Sobject and query APIs", "operator@example.com").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.CreateCatalog(context.Background(), Catalog{
-		ID:          "blackbaud-renxt-2024-10",
-		Name:        "blackbaud-renxt",
+		ID:          "salesforce-rest-2024-10",
+		Name:        "salesforce-rest",
 		Version:     "2024-10",
-		DisplayName: "Blackbaud RE NXT",
-		Description: "Constituent and gift APIs",
+		DisplayName: "Salesforce REST",
+		Description: "Sobject and query APIs",
 		CreatedBy:   "operator@example.com",
 	})
 	if err != nil {

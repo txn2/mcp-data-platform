@@ -109,14 +109,15 @@ the connection for hours or days, and tools continue to work
 because the platform kept the chain alive in the background.
 
 For IdPs that don't disclose a `refresh_expires_in` field (Google,
-Salesforce default, Blackbaud), set the per-connection
+Salesforce default, many vendor IdPs), set the per-connection
 `oauth2_refresh_max_lifetime` field to give the refresher a synthetic
 deadline. Examples:
 
-- Blackbaud: `oauth2_refresh_max_lifetime: "60d"`
 - Microsoft Graph (sliding 90d): `oauth2_refresh_max_lifetime: "90d"`
 - Salesforce (when configured for inactivity-based refresh expiry): set
   to the connected app's `Refresh Token Policy` window
+- Vendor IdPs that enforce a wall-clock max without disclosing it: set
+  the value to whatever the vendor documents (e.g. `30d`, `60d`)
 
 Every connect, refresh, rotation, revocation, and admin deletion is
 recorded in the `connection_auth_events` table (90-day retention). The

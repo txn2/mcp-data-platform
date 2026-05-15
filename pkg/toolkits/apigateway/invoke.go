@@ -372,7 +372,7 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 	}
 	// Static (operator-configured) headers override per-call (model)
 	// headers so a connection's mandatory subscription/quota header
-	// (e.g. Blackbaud's Bb-Api-Subscription-Key) is authoritative.
+	// (e.g. Google's x-goog-user-project) is authoritative.
 	// validateCustomHeaders also rejects model attempts at the same
 	// header names, so this is belt-and-suspenders.
 	for name, value := range spec.staticHeaders {

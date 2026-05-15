@@ -2408,13 +2408,13 @@ In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (use
 
 # API Gateway Toolkit
 
-The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline — the HTTP/JSON sibling of the MCP gateway. Three tools — `api_invoke_endpoint`, `api_list_endpoints`, `api_get_endpoint_schema` — handle every operation on every configured upstream. The model uses `api_list_endpoints` for discovery, `api_get_endpoint_schema` for precise per-endpoint detail, and `api_invoke_endpoint` for the call itself. No tool catalog explosion: ten upstreams = three tools total, regardless of endpoint count.
+The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline, the HTTP/JSON sibling of the MCP gateway. Three tools (`api_invoke_endpoint`, `api_list_endpoints`, `api_get_endpoint_schema`) handle every operation on every configured upstream. The model uses `api_list_endpoints` for discovery, `api_get_endpoint_schema` for precise per-endpoint detail, and `api_invoke_endpoint` for the call itself. No tool catalog explosion: ten upstreams = three tools total, regardless of endpoint count.
 
-OpenAPI specs are stored separately in **API catalogs** (see the next section) — globally-owned, versioned bundles that many connections can reference.
+OpenAPI specs are stored separately in **API catalogs** (see the next section), globally-owned and versioned bundles that many connections can reference.
 
 ## When to use
 
-Use the API gateway for REST/HTTP upstreams (Blackbaud SKY, Google APIs, Salesforce, internal HTTP services). For upstream MCP servers, use the MCP gateway (`kind: mcp`) instead.
+Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, Stripe, internal HTTP services). For upstream MCP servers, use the MCP gateway (`kind: mcp`) instead.
 
 ## Connection config
 
@@ -2426,8 +2426,8 @@ Stored in the database, authored through the admin portal or the admin REST API.
 
 Motivating cases:
 
-- **Blackbaud SKY** demands `Bb-Api-Subscription-Key` on every call in addition to the user OAuth bearer.
 - **Google APIs** quota-billing requires `x-goog-user-project` alongside the access token for some endpoints.
+- **Vendor APIs with a subscription/tenant header** (common in healthcare, payments, and SaaS-platform APIs) demand that header on every call in addition to the user OAuth bearer.
 - **Internal API gateways** in front of upstream services often inject a subscription/tenant header that the underlying service authenticates against.
 
 ### Validation
@@ -2441,26 +2441,10 @@ Motivating cases:
 ### Header precedence on the wire
 
 1. Per-call headers from the tool input (`api_invoke_endpoint.headers`).
-2. `static_headers` (operator-configured) — overrides per-call headers with the same name.
-3. `auth_mode` contribution — runs last, always wins.
+2. `static_headers` (operator-configured): overrides per-call headers with the same name.
+3. `auth_mode` contribution: runs last, always wins.
 
 The model is additionally blocked at request time from supplying any header name that collides with `static_headers`, so the operator's value is authoritative even before auth runs.
-
-## Blackbaud SKY example
-
-```json
-{
-  "base_url": "https://api.sky.blackbaud.com",
-  "auth_mode": "oauth2_authorization_code",
-  "oauth2_authorization_url": "https://oauth2.sky.blackbaud.com/authorization",
-  "oauth2_token_url":         "https://oauth2.sky.blackbaud.com/token",
-  "oauth2_client_id":         "your-blackbaud-app-id",
-  "oauth2_client_secret":     "your-blackbaud-app-secret",
-  "static_headers": {
-    "Bb-Api-Subscription-Key": "your-subscription-key"
-  }
-}
-```
 
 ## Google API example
 
@@ -2499,14 +2483,14 @@ Salesforce needs `refresh_token` in `oauth2_scopes` to issue a refresh token; wi
 
 # API Catalogs
 
-OpenAPI specs describe the API itself, not any one credential pointed at it. An organization with three Blackbaud RE NXT tenants has three connections (one per tenant's OAuth credentials) — but all three talk to the same constituent, gift, and action endpoints. Pasting the same documentation into three connection records is duplication that drifts. The catalog model fixes that.
+OpenAPI specs describe the API itself, not any one credential pointed at it. An organization with a Salesforce sandbox and a Salesforce production org has two connections (one set of credentials each) but both talk to the same sObjects, query, and bulk-job endpoints. A multi-tenant SaaS deployment can have N customer connections all referencing one vendor catalog. Pasting the same documentation into every connection record is duplication that drifts. The catalog model fixes that.
 
 ## Data model
 
 Two new tables (migration 000042):
 
 - `api_catalogs(id PK, name, version, display_name, description, created_by, timestamps)` with `UNIQUE(name, version)`. Each `(name, version)` is its own row; cloning to a new version creates a new row. IDs are operator-chosen slugs (lowercase alphanumeric + hyphens, ≤100 chars), immutable after creation.
-- `api_catalog_specs(catalog_id FK, spec_name, content TEXT, source_kind, source_url, etag, last_fetched_at)` with `(catalog_id, spec_name)` as primary key and `ON DELETE CASCADE` from `api_catalogs`. Content is plain TEXT — specs are public API documentation, no field-level encryption.
+- `api_catalog_specs(catalog_id FK, spec_name, content TEXT, source_kind, source_url, etag, last_fetched_at)` with `(catalog_id, spec_name)` as primary key and `ON DELETE CASCADE` from `api_catalogs`. Content is plain TEXT; specs are public API documentation, no field-level encryption.
 
 A connection's catalog reference lives in its existing `connection_instances.config` JSONB at key `catalog_id`. Application-layer validation rejects unknown ids at save time; the catalog handler refuses to delete a catalog while any connection still references it.
 
@@ -2514,27 +2498,29 @@ A connection's catalog reference lives in its existing `connection_instances.con
 
 The admin handler exposes three ingestion paths, all on the same `/api-catalogs/{id}/specs/{spec_name}` family of routes:
 
-- **Inline** (`PUT` with `{source_kind: "inline", content}`) — paste YAML or JSON directly. Validated against OpenAPI 3.x at save.
-- **Upload** (`PUT .../upload` multipart) — same as inline but the content arrives as a multipart `file` field. 10 MB body cap. Allowed MIME types: `application/json`, `application/yaml`, `application/x-yaml`, `application/octet-stream`, `text/yaml`, `text/x-yaml`, `text/plain`.
-- **URL** (`PUT` with `{source_kind: "url", source_url}`) — operator-provided HTTPS URL. The server fetches once at save time, captures the ETag, validates the content. Operators can later `POST .../refresh` to re-fetch.
+- **Inline** (`PUT` with `{source_kind: "inline", content}`): paste YAML or JSON directly. Validated against OpenAPI 3.x at save.
+- **Upload** (`PUT .../upload` multipart): same as inline but the content arrives as a multipart `file` field. 10 MB body cap. Allowed MIME types: `application/json`, `application/yaml`, `application/x-yaml`, `application/octet-stream`, `text/yaml`, `text/x-yaml`, `text/plain`.
+- **URL** (`PUT` with `{source_kind: "url", source_url}`): operator-provided HTTPS URL. The server fetches once at save time, captures the ETag, validates the content. Operators can later `POST .../refresh` to re-fetch.
 
 URL-fetch SSRF guards (all required, none configurable in v1):
 
-- `https://` only — `http://` rejected.
+- `https://` only; `http://` rejected.
 - DNS pre-resolution rejects any A/AAAA in private (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`), loopback (`127/8`, `::1`), link-local (`169.254/16`, `fe80::/10`), or unspecified ranges.
 - `Dialer.Control` re-checks the resolved IP at connect time so DNS rebinding (public IP at preflight, private IP at connect) trips the same guard.
 - 10 MB body cap via `http.MaxBytesReader`.
-- Redirects refused — an attacker-controlled upstream cannot 302 to a private URL.
+- Redirects refused so an attacker-controlled upstream cannot 302 to a private URL.
 
 External `$ref` resolution in OpenAPI is disabled at the parser level (kin-openapi's `IsExternalRefsAllowed: false`), so a malicious spec containing `$ref: "http://169.254.169.254/..."` never triggers an outbound HTTP call from the parser either.
 
+OpenAPI validation runs structurally: the document must be valid 3.x JSON/YAML, operation IDs unique within a spec, `$ref` targets resolved internally, parameter and response shapes well-formed. Three categories of strict-validation checks are intentionally relaxed to match what Swagger UI / Postman / Insomnia accept and what real vendor specs commonly ship with: (1) example-vs-schema drift (e.g. a property typed `object` with a string example), (2) schema patterns using ECMA regex constructs Go's `regexp` doesn't support (lookahead, named backrefs), and (3) default-value drift. Examples and defaults are documentation hints, not part of the wire contract; structural integrity that matters for invocation still fails the upload.
+
 ## Live reload
 
-Any catalog or spec mutation calls `Toolkit.ReloadConnectionsByCatalog(catalogID)` on every live api-gateway toolkit. The toolkit iterates its registered connections, finds those whose `cfg.CatalogID == catalogID`, and atomically rebuilds each one — re-parses the catalog's specs, retains the new `*openapi3.T` per spec on the conn, and lets the embedding cache invalidate naturally (a new conn instance starts with empty embeddings). The model sees the new spec content on the next `api_list_endpoints` / `api_get_endpoint_schema` call without a process restart.
+Any catalog or spec mutation calls `Toolkit.ReloadConnectionsByCatalog(catalogID)` on every live api-gateway toolkit. The toolkit iterates its registered connections, finds those whose `cfg.CatalogID == catalogID`, and atomically rebuilds each one: re-parses the catalog's specs, retains the new `*openapi3.T` per spec on the conn, and lets the embedding cache invalidate naturally (a new conn instance starts with empty embeddings). The model sees the new spec content on the next `api_list_endpoints` / `api_get_endpoint_schema` call without a process restart.
 
 ## Operation index
 
-`OperationSummary` gains a `Spec` field set to the component spec name (`constituent`, `gift`, etc.). When the catalog has a single anonymous spec the field stays empty and is omitted from JSON. When two component specs in one catalog define the same `operation_id`, both summaries appear in `api_list_endpoints` with distinct `spec` values. `api_invoke_endpoint` and `api_get_endpoint_schema` accept an optional `spec` argument for disambiguation; ambiguous calls return a structured error listing the candidates.
+`OperationSummary` gains a `Spec` field set to the component spec name (`drive`, `calendar`, `gmail`, etc. for a Google Workspace catalog). When the catalog has a single anonymous spec the field stays empty and is omitted from JSON. When two component specs in one catalog define the same `operation_id`, both summaries appear in `api_list_endpoints` with distinct `spec` values. `api_invoke_endpoint` and `api_get_endpoint_schema` accept an optional `spec` argument for disambiguation; ambiguous calls return a structured error listing the candidates.
 
 ## api_get_endpoint_schema
 
