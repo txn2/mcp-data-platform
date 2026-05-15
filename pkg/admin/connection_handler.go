@@ -427,6 +427,16 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 	if result == nil {
 		result = []effectiveConnection{}
 	}
+	// Normalize Tools to a non-nil slice so the JSON wire shape is
+	// always [] for "no tools" instead of null. Some toolkits (notably
+	// the mcp gateway kind, which discovers tools per session) return
+	// a nil Tools() slice; without this, clients written against the
+	// documented []string shape break on the null.
+	for i := range result {
+		if result[i].Tools == nil {
+			result[i].Tools = []string{}
+		}
+	}
 	return result
 }
 

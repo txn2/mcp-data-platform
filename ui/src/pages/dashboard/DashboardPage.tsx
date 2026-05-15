@@ -302,7 +302,7 @@ export function DashboardPage({ onNavigate }: { onNavigate?: (path: string) => v
                   <span className="text-sm font-medium">{c.name}</span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {c.tools.length} tools / {c.connection}
+                  {c.tools?.length ?? 0} tools / {c.connection}
                 </p>
               </div>
             ))}
