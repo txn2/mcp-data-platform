@@ -117,7 +117,7 @@ export function CatalogsPanel() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] gap-4">
         <aside className="overflow-y-auto rounded-md border bg-card">
           {isLoading ? (
             <div className="p-3 text-sm text-muted-foreground">Loading…</div>
@@ -148,14 +148,7 @@ export function CatalogsPanel() {
                               selectedID === c.id && mode === "view" && "bg-muted",
                             )}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="truncate">{c.display_name}</span>
-                              {c.version && (
-                                <span className="rounded bg-muted-foreground/10 px-1.5 text-xs">
-                                  {c.version}
-                                </span>
-                              )}
-                            </div>
+                            <div className="truncate">{c.display_name}</div>
                             <div className="text-xs text-muted-foreground">
                               {c.spec_count} spec{c.spec_count === 1 ? "" : "s"}
                               {c.ref_count > 0 ? (
