@@ -109,9 +109,9 @@ const (
 	// cfgKeyStaticHeaders holds operator-configured headers that the
 	// toolkit appends to every outbound request. Required for upstreams
 	// that demand BOTH an Authorization bearer AND a separate
-	// subscription/key header (Blackbaud SKY's Bb-Api-Subscription-Key,
-	// Google Cloud's x-goog-user-project quota-billing header, etc.).
-	// Stored as a map[string]any whose values are encrypted at rest by
+	// subscription/key header (Google Cloud's x-goog-user-project
+	// quota-billing header, vendor subscription keys, etc.). Stored
+	// as a map[string]any whose values are encrypted at rest by
 	// platform.FieldEncryptor (see CfgKeyStaticHeaders in
 	// pkg/platform/fieldcrypt.go).
 	cfgKeyStaticHeaders = "static_headers"
@@ -184,9 +184,9 @@ type Config struct {
 	// StaticHeaders are operator-configured headers attached to every
 	// outbound request, in addition to whatever AuthMode contributes.
 	// Required for upstreams that demand a non-Authorization header on
-	// top of the OAuth bearer (Blackbaud SKY's Bb-Api-Subscription-Key,
-	// Google's x-goog-user-project, etc.). Operator-supplied — the
-	// model never sets or overrides these. Values are encrypted at rest.
+	// top of the OAuth bearer (Google's x-goog-user-project,
+	// vendor subscription keys, etc.). Operator-supplied; the model
+	// never sets or overrides these. Values are encrypted at rest.
 	StaticHeaders map[string]string
 }
 
@@ -362,7 +362,7 @@ func (c Config) validateStaticHeaders() error {
 }
 
 // isValidHeaderName matches RFC 7230 token chars. Permissive enough for
-// real-world headers (Bb-Api-Subscription-Key, x-goog-user-project) and
+// real-world headers (x-goog-user-project, X-Subscription-Key) and
 // strict enough to refuse spaces / control chars that would let an
 // operator inject CRLF via a header name.
 func isValidHeaderName(name string) bool {

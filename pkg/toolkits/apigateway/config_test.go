@@ -425,17 +425,17 @@ func TestParseConfig_TrustLevelTrusted(t *testing.T) {
 
 func TestParseConfig_StaticHeaders_MapStringAny(t *testing.T) {
 	c, err := ParseConfig(map[string]any{
-		"base_url": "https://api.sky.blackbaud.com",
+		"base_url": "https://www.googleapis.com",
 		"static_headers": map[string]any{
-			"Bb-Api-Subscription-Key": "subscription-secret",
-			"X-Trace-Tag":             "ops",
+			"X-Goog-User-Project": "quota-project-123",
+			"X-Trace-Tag":         "ops",
 		},
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if got := c.StaticHeaders["Bb-Api-Subscription-Key"]; got != "subscription-secret" {
-		t.Errorf("Bb-Api-Subscription-Key = %q; want %q", got, "subscription-secret")
+	if got := c.StaticHeaders["X-Goog-User-Project"]; got != "quota-project-123" {
+		t.Errorf("X-Goog-User-Project = %q; want %q", got, "quota-project-123")
 	}
 	if got := c.StaticHeaders["X-Trace-Tag"]; got != "ops" {
 		t.Errorf("X-Trace-Tag = %q; want %q", got, "ops")
@@ -535,7 +535,7 @@ func TestIsValidHeaderName(t *testing.T) {
 		want bool
 	}{
 		{"X-API-Key", true},
-		{"Bb-Api-Subscription-Key", true},
+		{"X-Subscription-Key", true},
 		{"x-goog-user-project", true},
 		{"Content-Type", true},
 		{"", false},

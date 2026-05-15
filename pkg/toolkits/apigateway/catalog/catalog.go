@@ -1,10 +1,11 @@
 // Package catalog models versioned, globally-owned OpenAPI spec
 // bundles that api-gateway connections reference.
 //
-// An API catalog represents the *API* (Blackbaud SKY, Salesforce REST,
-// Stripe), not the credential pointing at it. A single Blackbaud
-// catalog backs every Blackbaud connection in the deployment — operators
-// don't paste the same documentation N times to talk to N tenants.
+// An API catalog represents the *API* (Salesforce REST, Google Drive,
+// Stripe), not the credential pointing at it. A single Salesforce
+// catalog backs both the sandbox and production connections in a
+// deployment, so operators don't paste the same documentation N
+// times to talk to N environments.
 //
 // Each (name, version) pair is its own catalog row. Cloning to a new
 // version creates a new row; existing connections stay on the old
@@ -35,8 +36,10 @@ var ErrInvalidID = errors.New("catalog: invalid id")
 // ErrInvalidSpecName is returned when a spec name doesn't match the
 // component-slug shape. Spec names appear in MCP tool output (the
 // `spec` field on OperationSummary) so we constrain them to a
-// model-friendly subset.
-var ErrInvalidSpecName = errors.New("catalog: invalid spec_name")
+// model-friendly subset. The message is operator-facing (it surfaces
+// in the admin handler's 400 response) so it spells out the rule
+// rather than just saying "invalid".
+var ErrInvalidSpecName = errors.New("catalog: spec name must be lowercase letters, digits, hyphens, or underscores (1 to 64 chars, must start and end with a letter or digit)")
 
 // SourceKind enumerates how a spec entered the system.
 const (

@@ -22,9 +22,11 @@ import (
 //     the refresher fires well before the idle clock can run out
 //     unless the cluster is completely down for >30m.
 //
-//   - Blackbaud: 60-day wall-clock from issuance. Combined with the
-//     per-connection oauth2_refresh_max_lifetime hint, the refresher
-//     fires at most refreshLeadTime ahead of the deadline.
+//   - Salesforce / fixed wall-clock IdPs: refresh token has a fixed
+//     lifetime from issuance (commonly 30 or 90 days, varies by org
+//     policy). Combined with the per-connection
+//     oauth2_refresh_max_lifetime hint, the refresher fires at most
+//     refreshLeadTime ahead of the deadline.
 //
 //   - Microsoft Graph / Auth0 with sliding-window rotation: every
 //     refresh resets the clock; firing on access-token expiry alone
@@ -52,7 +54,7 @@ type ConfigResolver interface {
 	// stop the loop from processing the rest.
 	ResolveConfig(ctx context.Context, key Key) (Config, error)
 	// MaxLifetime returns the operator-configured wall-clock max
-	// lifetime for the refresh token (e.g., 60d for Blackbaud, 90d
+	// lifetime for the refresh token (e.g., 30d for Salesforce, 90d
 	// for Microsoft). Zero means rely on the IdP-disclosed
 	// refresh_expires_at and access-token expiry only.
 	MaxLifetime(ctx context.Context, key Key) time.Duration
@@ -372,7 +374,8 @@ func (r *Refresher) processRow(ctx context.Context, row PersistedToken) {
 //
 // The last condition is the only defense against IdPs that don't
 // disclose refresh deadlines (Google, default Salesforce) AND have
-// a wall-clock max (Blackbaud, Microsoft).
+// a wall-clock max enforced server-side regardless (Microsoft,
+// some Salesforce session policies).
 func (r *Refresher) shouldRefresh(row PersistedToken, maxLife time.Duration) bool {
 	now := r.now()
 	// `!leadPoint.Before(deadline)` means "deadline at or before

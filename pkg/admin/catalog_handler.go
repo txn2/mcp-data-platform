@@ -27,7 +27,7 @@ const (
 	// catalogSpecMaxUploadBytes caps multipart spec uploads. Smaller
 	// than pkg/resource's MaxUploadBytes (100MB) because OpenAPI
 	// specs realistically top out in single-digit MB even for
-	// Blackbaud-scale APIs — capping aggressively protects the
+	// large enterprise APIs; capping aggressively protects the
 	// process from a runaway upload.
 	catalogSpecMaxUploadBytes int64 = 10 << 20 // 10 MiB
 

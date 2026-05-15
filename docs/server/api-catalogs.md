@@ -1,31 +1,31 @@
 # API Catalogs
 
-OpenAPI specs describe **the API**, not the credential pointed at it. An organization with three Blackbaud Raiser's Edge NXT tenants has three connections — one per tenant's OAuth credentials — but they all talk to the same constituent, gift, and action endpoints. Pasting the same documentation into three connection records is duplication that drifts.
+OpenAPI specs describe **the API**, not the credential pointed at it. An organization with a Salesforce sandbox and a Salesforce production org has two connections, one set of credentials each, but both talk to the same sObjects, query, and bulk-job endpoints. Pasting the same documentation into both connection records is duplication that drifts.
 
-An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection → catalog → specs at runtime and exposes the merged operation index through `api_list_endpoints` and `api_get_endpoint_schema`.
+An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection, catalog, and specs at runtime and exposes the merged operation index through `api_list_endpoints` and `api_get_endpoint_schema`.
 
 ## What's in a catalog
 
 A catalog has:
 
-- **id** — operator-chosen slug (lowercase alphanumeric + hyphens, 1–100 chars). Immutable after creation. Referenced by `connection_instances.config.catalog_id`.
-- **name** — vendor/product slug, e.g. `blackbaud-renxt`. Free-text.
-- **version** — optional free-text label, e.g. `2024-10`. Two catalogs may share a name but their `(name, version)` pair must be unique.
-- **display_name** — operator-facing label in the portal.
-- **description** — optional operator notes.
+- **id**: operator-chosen slug (lowercase alphanumeric + hyphens, 1 to 100 chars). Immutable after creation. Referenced by `connection_instances.config.catalog_id`.
+- **name**: vendor/product slug, e.g. `salesforce-rest`. Free-text.
+- **version**: optional free-text label, e.g. `2024-10`. Two catalogs may share a name but their `(name, version)` pair must be unique.
+- **display_name**: operator-facing label in the portal.
+- **description**: optional operator notes.
 - A list of **component specs**, each with:
-  - **spec_name** — slug surfaced to the model in `OperationSummary.spec` to disambiguate operations across components.
-  - **content** — raw YAML or JSON OpenAPI 3.x document.
-  - **source_kind** — `inline`, `upload`, or `url`.
-  - **source_url / etag / last_fetched_at** — populated when `source_kind` is `url`.
+  - **spec_name**: slug surfaced to the model in `OperationSummary.spec` to disambiguate operations across components.
+  - **content**: raw YAML or JSON OpenAPI 3.x document.
+  - **source_kind**: `inline`, `upload`, or `url`.
+  - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
 
 Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_list_endpoints` and `api_get_endpoint_schema` reflect the new content without a process restart.
 
 ## Use cases
 
-- **Blackbaud SKY** publishes Raiser's Edge NXT as a collection of resource-family specs (Constituent, Gift, Action, Address, etc.). Create one catalog `blackbaud-renxt-2024-10`, add each resource family as a component spec, and point every Blackbaud connection at it.
-- **Salesforce REST** is a single large spec — one component, named `default`.
-- **A bumpy upstream**: when the vendor releases an incompatible schema change, clone the catalog to a new version (`blackbaud-renxt-2025-01`) and update the spec content. Move connections to the new catalog when ready; the old catalog remains for connections that haven't migrated.
+- **Google Workspace** publishes Drive, Calendar, Gmail, and Admin SDK as separate API specs. Create one catalog `google-workspace-2024-10`, add each as a component spec (`drive`, `calendar`, `gmail`, `admin`), and point every Google Workspace connection at it.
+- **Salesforce REST** is a single large spec, one component named `default`. The dev sandbox connection and the production connection both reference the same catalog.
+- **A bumpy upstream**: when the vendor releases an incompatible schema change, clone the catalog to a new version (`salesforce-rest-2025-01`) and update the spec content. Move connections to the new catalog when ready; the old catalog remains for connections that haven't migrated.
 
 ## Managing catalogs in the portal
 
@@ -38,6 +38,18 @@ Inside the editor, the **Component specs** section lists each spec in the catalo
 - **URL** — paste a public HTTPS URL. The server fetches once at save time, captures the ETag, and stores the content. Click **Refresh** on the spec row later to re-fetch.
 
 URL-fetch enforces strict SSRF guards: HTTPS only, private/loopback/link-local/CGNAT IP ranges blocked (with a dial-time recheck to defeat DNS rebinding), 10 MB body cap, redirects refused. A public URL like `https://petstore3.swagger.io/api/v3/openapi.json` works; private-network URLs are rejected.
+
+### What "validates as OpenAPI 3.x" means
+
+Structural validation runs in full: the document must be parseable JSON or YAML, `openapi` must be `3.x`, `info.title`/`version` must be present, operation IDs must be unique within a spec, `$ref` targets must resolve inside the document, and parameter / request body / response shapes must be well-formed. Vendor specs that fail any of these are rejected with an inline message pointing at the offending path.
+
+Three categories of strict-validation checks are intentionally relaxed, matching what production OpenAPI consumers (Swagger UI, Postman, Insomnia) accept:
+
+1. **Example vs schema drift.** A property declared `type: object` may carry string examples like `"Blue"` or an ISO timestamp. Examples are documentation hints, not part of the wire contract.
+2. **Regex patterns Go does not support.** Specs that use ECMA constructs like lookahead (`(?=...)`) parse instead of failing.
+3. **Default-value drift.** Same documentation-only role as examples.
+
+External `$ref` resolution stays disabled at the parser regardless of source (paste / upload / URL), so a malicious spec cannot trigger an SSRF at parse time by referencing a private-network URL.
 
 ## Wiring a connection to a catalog
 

@@ -3,10 +3,26 @@ package connoauth
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 )
+
+// failingSetStore wraps MemoryStore but returns a fixed error from
+// Set. Used to simulate a DB outage at the exact moment a rotated
+// refresh token must be persisted, which is the rotation-persistence
+// failure path that loses access permanently for rotation-required
+// IdPs.
+type failingSetStore struct {
+	*MemoryStore
+	setErr error
+}
+
+func (f *failingSetStore) Set(_ context.Context, _ PersistedToken) error {
+	return f.setErr
+}
 
 func TestClassifyRevokedReason(t *testing.T) {
 	t.Parallel()
@@ -124,6 +140,108 @@ func TestRefreshSkippedNoTokenSilent(t *testing.T) {
 	})
 	if len(got) != 0 {
 		t.Errorf("refresh() should not emit any event for empty RefreshToken; got %+v", got)
+	}
+}
+
+// TestRefreshRotationPersistFailure_EmitsRotationPersistenceFailed
+// covers the worst credential-loss scenario: the IdP issues a rotated
+// refresh token (the prior one is now dead per RFC 6749 §6), the
+// store write fails, and the new refresh token is therefore lost.
+// The Source must emit refresh_rotation_persistence_failed at ERROR
+// so operators see the page in History, and the call must propagate
+// the persist error to the caller.
+func TestRefreshRotationPersistFailure_EmitsRotationPersistenceFailed(t *testing.T) {
+	t.Parallel()
+	idp := newFakeIDP(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeTokenJSON(w, map[string]any{
+			"access_token":  "at-fresh",
+			"refresh_token": "rt-rotated",
+			"expires_in":    3600,
+			"token_type":    "Bearer",
+		})
+	})
+
+	memStore := NewMemoryStore()
+	key := Key{Kind: KindMCP, Name: "rotation-persist-fail"}
+	_ = memStore.Set(context.Background(), PersistedToken{
+		Key:          key,
+		AccessToken:  "at-old",
+		RefreshToken: "rt-original",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	})
+	tokenStore := &failingSetStore{MemoryStore: memStore, setErr: errors.New("db down")}
+	eventStore := authevents.NewMemoryStore()
+	writer := authevents.NewWriter(eventStore, nil)
+
+	src := NewSource(tokenStore, key, Config{TokenURL: idp.tokenURL(), ClientID: "c"}).
+		WithEvents(writer).
+		WithActor(authevents.SystemBackgroundRefresh)
+
+	persisted, _ := memStore.Get(context.Background(), key)
+	if _, err := src.refresh(context.Background(), persisted); err != nil {
+		t.Fatalf("refresh: unexpected error returned: %v", err)
+	}
+
+	got, _ := eventStore.List(context.Background(),
+		authevents.Filter{Kind: key.Kind, Name: key.Name, Limit: 5})
+	var found bool
+	for _, ev := range got {
+		if ev.Type == authevents.TypeRefreshRotationPersistenceFailed {
+			found = true
+			if ev.Actor != authevents.SystemBackgroundRefresh {
+				t.Errorf("actor = %q, want %q", ev.Actor, authevents.SystemBackgroundRefresh)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected RotationPersistenceFailed event; got %+v", got)
+	}
+}
+
+// TestRefreshNonRotationPersistFailure_NoEvent covers the milder
+// peer scenario in the same code block: the IdP omitted a new
+// refresh token (per RFC 6749 §6, the prior one is still valid),
+// but the store write failed. The Source must NOT emit the
+// rotation-persistence-failed event in this case because no
+// credential was lost; the in-memory token still works for this
+// turn and the next refresh will re-persist.
+func TestRefreshNonRotationPersistFailure_NoEvent(t *testing.T) {
+	t.Parallel()
+	idp := newFakeIDP(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeTokenJSON(w, map[string]any{
+			"access_token": "at-fresh",
+			"expires_in":   3600,
+			"token_type":   "Bearer",
+		})
+	})
+
+	memStore := NewMemoryStore()
+	key := Key{Kind: KindMCP, Name: "non-rotation-persist-fail"}
+	_ = memStore.Set(context.Background(), PersistedToken{
+		Key:          key,
+		AccessToken:  "at-old",
+		RefreshToken: "rt-keep",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	})
+	tokenStore := &failingSetStore{MemoryStore: memStore, setErr: errors.New("db down")}
+	eventStore := authevents.NewMemoryStore()
+	writer := authevents.NewWriter(eventStore, nil)
+
+	src := NewSource(tokenStore, key, Config{TokenURL: idp.tokenURL(), ClientID: "c"}).
+		WithEvents(writer)
+
+	persisted, _ := memStore.Get(context.Background(), key)
+	if _, err := src.refresh(context.Background(), persisted); err != nil {
+		t.Fatalf("refresh: unexpected error returned: %v", err)
+	}
+
+	got, _ := eventStore.List(context.Background(),
+		authevents.Filter{Kind: key.Kind, Name: key.Name, Limit: 5})
+	for _, ev := range got {
+		if ev.Type == authevents.TypeRefreshRotationPersistenceFailed {
+			t.Fatalf("RotationPersistenceFailed must not fire when no rotation occurred; got %+v", ev)
+		}
 	}
 }
 

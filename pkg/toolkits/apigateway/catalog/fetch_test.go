@@ -342,6 +342,285 @@ func TestBlockedIPReason_Public(t *testing.T) {
 	}
 }
 
+// TestParseSpec_AcceptsExampleSchemaMismatch reproduces a real-world
+// drift pattern: a vendor declares a property as `type: object` but
+// supplies string examples ("Blue", an ISO timestamp). Strict
+// kin-openapi validation rejects this; production OpenAPI consumers
+// (Swagger UI, Postman, Insomnia) accept it. ParseSpec must match
+// the lenient behavior because examples are documentation, not part
+// of the wire contract.
+func TestParseSpec_AcceptsExampleSchemaMismatch(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/x": {
+      "post": {
+        "operationId": "addCustomField",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CustomFieldAddArray"}
+            }
+          }
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CustomFieldAddArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "value": {"type": "object"}
+          },
+          "example": {"value": "Blue"}
+        },
+        "example": [
+          {"value": "1986-01-22T00:00:00.0000000+00:00"},
+          {"value": "Blue"}
+        ]
+      }
+    }
+  }
+}`
+	doc, err := ParseSpec(spec)
+	if err != nil {
+		t.Fatalf("ParseSpec rejected a spec with example/schema drift: %v", err)
+	}
+	if doc == nil {
+		t.Fatal("ParseSpec returned nil doc with nil error")
+	}
+}
+
+// TestParseSpec_AcceptsUnsupportedPattern covers the second lenient
+// category: schema patterns using regex constructs Go does not
+// support. Strict validation rejects them; lenient accepts.
+func TestParseSpec_AcceptsUnsupportedPattern(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/x": {
+      "get": {
+        "operationId": "lookahead",
+        "parameters": [{
+          "name": "q",
+          "in": "query",
+          "schema": {"type": "string", "pattern": "(?=.*foo).+"}
+        }],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}`
+	if _, err := ParseSpec(spec); err != nil {
+		t.Fatalf("ParseSpec rejected a spec with a Go-unsupported regex: %v", err)
+	}
+}
+
+// TestParseSpec_AcceptsArrayWithoutItems reproduces the third
+// real-world drift pattern: a parameter declared `type: array`
+// without an `items` clause. OpenAPI 3.0 requires items for arrays,
+// but vendor specs routinely omit them to mean "items of unknown
+// shape." Swagger UI / Postman / Insomnia tolerate this. ParseSpec
+// must match by injecting a permissive items schema before strict
+// validation runs.
+func TestParseSpec_AcceptsArrayWithoutItems(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/consents": {
+      "get": {
+        "operationId": "getConsents",
+        "parameters": [
+          {
+            "name": "channels",
+            "in": "query",
+            "schema": {"type": "array"}
+          }
+        ],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}`
+	doc, err := ParseSpec(spec)
+	if err != nil {
+		t.Fatalf("ParseSpec rejected a spec with type:array sans items: %v", err)
+	}
+	if doc == nil {
+		t.Fatal("ParseSpec returned nil doc with nil error")
+	}
+}
+
+// TestParseSpec_AcceptsArrayWithoutItems_InComponentSchema covers
+// the same drift inside a component schema rather than an inline
+// parameter, plus the nested case (an object property of array type
+// without items).
+func TestParseSpec_AcceptsArrayWithoutItems_InComponentSchema(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/x": {
+      "post": {
+        "operationId": "create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/Wrapper"}
+            }
+          }
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Wrapper": {
+        "type": "object",
+        "properties": {
+          "tags": {"type": "array"},
+          "nested": {
+            "type": "object",
+            "properties": {
+              "inner_tags": {"type": "array"}
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+	if _, err := ParseSpec(spec); err != nil {
+		t.Fatalf("ParseSpec rejected nested array-without-items: %v", err)
+	}
+}
+
+// TestParseSpec_AcceptsArrayWithoutItems_AllCallSites covers every
+// place the normalizer walks: component schemas, component
+// parameters, component headers, component request bodies,
+// component responses (including their headers), path-level
+// parameters, operation-level parameters (with both inline schema
+// and content), operation request bodies, and operation responses
+// (with headers). One spec, one assertion: it parses.
+func TestParseSpec_AcceptsArrayWithoutItems_AllCallSites(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/x": {
+      "parameters": [
+        {"name": "trace", "in": "query", "schema": {"type": "array"}}
+      ],
+      "get": {
+        "operationId": "op",
+        "parameters": [
+          {"name": "filter", "in": "query", "schema": {"type": "array"}},
+          {
+            "name": "body",
+            "in": "query",
+            "content": {
+              "application/json": {"schema": {"type": "array"}}
+            }
+          },
+          {"$ref": "#/components/parameters/Pager"}
+        ],
+        "requestBody": {"$ref": "#/components/requestBodies/Body"},
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {"schema": {"type": "array"}}
+            },
+            "headers": {
+              "X-Tags": {"schema": {"type": "array"}}
+            }
+          },
+          "default": {"$ref": "#/components/responses/Generic"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WithAllOf": {"allOf": [{"type": "array"}]},
+      "WithAnyOf": {"anyOf": [{"type": "array"}]},
+      "WithOneOf": {"oneOf": [{"type": "array"}]},
+      "WithNot":   {"not": {"type": "array"}},
+      "WithAddl":  {
+        "type": "object",
+        "additionalProperties": {"type": "array"}
+      }
+    },
+    "parameters": {
+      "Pager": {"name": "page", "in": "query", "schema": {"type": "array"}}
+    },
+    "headers": {
+      "HArr": {"schema": {"type": "array"}}
+    },
+    "requestBodies": {
+      "Body": {
+        "required": true,
+        "content": {"application/json": {"schema": {"type": "array"}}}
+      }
+    },
+    "responses": {
+      "Generic": {
+        "description": "g",
+        "content": {"application/json": {"schema": {"type": "array"}}},
+        "headers": {"X-Total": {"schema": {"type": "array"}}}
+      }
+    }
+  }
+}`
+	if _, err := ParseSpec(spec); err != nil {
+		t.Fatalf("normalizer left a structural array-items error in place: %v", err)
+	}
+}
+
+// TestParseSpec_RejectsStructuralErrors guards against over-leniency:
+// structural problems (missing required field, malformed JSON) must
+// still fail. The disabled options are scoped to documentation
+// drift, not contract integrity.
+func TestParseSpec_RejectsStructuralErrors(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"empty":           "",
+		"whitespace":      "   \n  ",
+		"not-json":        "not a spec",
+		"missing-openapi": `{"info": {"title": "T", "version": "1.0"}, "paths": {}}`,
+		"missing-info":    `{"openapi": "3.0.1", "paths": {}}`,
+		"truncated":       `{"openapi": "3.0.1", "info":`,
+		"invalid-ref":     `{"openapi":"3.0.1","info":{"title":"T","version":"1.0"},"paths":{"/x":{"get":{"responses":{"200":{"$ref":"#/components/responses/Missing"}}}}}}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseSpec(raw)
+			if err == nil {
+				t.Fatalf("ParseSpec accepted %s spec; structural validation regressed", name)
+			}
+			if !errors.Is(err, ErrInvalidContent) {
+				t.Fatalf("ParseSpec returned %v, want wrapping ErrInvalidContent", err)
+			}
+		})
+	}
+}
+
 func TestBlockedIPReason_Ranges(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{

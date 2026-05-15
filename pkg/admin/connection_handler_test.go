@@ -679,14 +679,14 @@ func TestRedactConnectionConfig_StaticHeaders(t *testing.T) {
 	t.Run("redacts inner values, keeps names", func(t *testing.T) {
 		config := map[string]any{
 			"static_headers": map[string]any{
-				"Bb-Api-Subscription-Key": "real-secret",
-				"X-Tag":                   "ops",
+				"X-Goog-User-Project": "real-secret",
+				"X-Tag":               "ops",
 			},
 		}
 		redacted := redactConnectionConfig(config)
 		inner, ok := redacted["static_headers"].(map[string]any)
 		require.True(t, ok, "static_headers must remain a map post-redaction")
-		assert.Equal(t, "[REDACTED]", inner["Bb-Api-Subscription-Key"])
+		assert.Equal(t, "[REDACTED]", inner["X-Goog-User-Project"])
 		assert.Equal(t, "[REDACTED]", inner["X-Tag"])
 	})
 
@@ -749,20 +749,20 @@ func TestMergeRedactedFields_StaticHeaders(t *testing.T) {
 	t.Run("redacted inner values are restored from existing", func(t *testing.T) {
 		submitted := map[string]any{
 			"static_headers": map[string]any{
-				"Bb-Api-Subscription-Key": "[REDACTED]",
-				"X-New":                   "freshly-added",
+				"X-Goog-User-Project": "[REDACTED]",
+				"X-New":               "freshly-added",
 			},
 		}
 		existing := map[string]any{
 			"static_headers": map[string]any{
-				"Bb-Api-Subscription-Key": "real-secret",
-				"X-Removed":               "stale-value",
+				"X-Goog-User-Project": "real-secret",
+				"X-Removed":           "stale-value",
 			},
 		}
 		merged := mergeRedactedFields(submitted, existing)
 		inner, ok := merged["static_headers"].(map[string]any)
 		require.True(t, ok)
-		assert.Equal(t, "real-secret", inner["Bb-Api-Subscription-Key"])
+		assert.Equal(t, "real-secret", inner["X-Goog-User-Project"])
 		assert.Equal(t, "freshly-added", inner["X-New"])
 		_, hasRemoved := inner["X-Removed"]
 		assert.False(t, hasRemoved, "operator-deleted header must not be resurrected")

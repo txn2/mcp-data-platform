@@ -13,7 +13,7 @@ func TestValidateID(t *testing.T) {
 		ok  bool
 		why string
 	}{
-		{"blackbaud-renxt-2024-10", true, "typical slug"},
+		{"salesforce-rest-2024-10", true, "typical slug"},
 		{"a", true, "minimum length"},
 		{"0", true, "starts with digit"},
 		{"a1b2-c3", true, "mixed alphanumeric with hyphen"},

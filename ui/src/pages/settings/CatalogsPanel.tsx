@@ -93,8 +93,8 @@ export function CatalogsPanel() {
           <h1 className="text-xl font-semibold">API Catalogs</h1>
           <p className="text-sm text-muted-foreground">
             Versioned bundles of OpenAPI 3.x specs that api-kind connections share.
-            One catalog can back many connections — a Blackbaud RE NXT catalog
-            serves every Blackbaud connection in the deployment.
+            One catalog can back many connections; one Salesforce catalog serves
+            both the sandbox and production connections in a deployment.
           </p>
         </div>
         {!isReadOnly && (
@@ -219,6 +219,18 @@ function suggestSlug(name: string, version: string): string {
   return baseVer ? `${baseName}-${baseVer}` : baseName;
 }
 
+// normalizeSpecName mirrors the server's ValidateSpecName contract
+// (pkg/toolkits/apigateway/catalog/catalog.go): lowercase letters,
+// digits, hyphens, and underscores. Typed input is lowercased and
+// stripped of out-of-range characters so the operator never has to
+// guess at the server's slug rule. Spaces collapse to hyphens.
+function normalizeSpecName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9_-]/g, "");
+}
+
 function CatalogCreateForm({
   onCancel,
   onCreated,
@@ -274,10 +286,10 @@ function CatalogCreateForm({
 
       <LabeledInput
         label="Name"
-        help='Vendor / product family slug, e.g. "blackbaud-renxt".'
+        help='Vendor / product family slug, e.g. "salesforce-rest" or "google-workspace".'
         value={name}
         onChange={setName}
-        placeholder="blackbaud-renxt"
+        placeholder="salesforce-rest"
         mono
       />
       <LabeledInput
@@ -296,7 +308,7 @@ function CatalogCreateForm({
           setTouchedID(true);
           setID(v);
         }}
-        placeholder="blackbaud-renxt-2024-10"
+        placeholder="salesforce-rest-2024-10"
         mono
         invalid={idConflict}
         error={idConflict ? "id already exists" : undefined}
@@ -306,7 +318,7 @@ function CatalogCreateForm({
         help="Shown in the catalog list and the connection editor's dropdown."
         value={displayName}
         onChange={setDisplayName}
-        placeholder="Blackbaud RE NXT (2024-10)"
+        placeholder="Salesforce REST (2024-10)"
       />
       <LabeledTextarea
         label="Description"
@@ -771,11 +783,12 @@ function SpecModal({
         <div className="space-y-4 px-4 py-4">
           <LabeledInput
             label="Spec name"
-            help="Slug used in URLs and the model's `spec` field. Lowercase, hyphens or underscores allowed."
+            help="Slug used in URLs and the model's `spec` field. Lowercase letters, digits, hyphens, or underscores. Typed input is auto-lowercased."
             value={specName}
-            onChange={setSpecName}
+            onChange={(v) => setSpecName(normalizeSpecName(v))}
             mono
             disabled={isEditing}
+            placeholder="constituent"
           />
 
           <div className="flex gap-2 border-b">

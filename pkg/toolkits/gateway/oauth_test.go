@@ -89,10 +89,10 @@ func newFakeOAuthIDP() *fakeOAuthIDP {
 	idp.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		seq := idp.refresh.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		// Issue a new access + refresh token on every refresh —
-		// simulates an IdP that rotates the refresh token (RFC 6749
-		// §6 allows this; Blackbaud / Keycloak with rotation enabled
-		// require it).
+		// Issue a new access + refresh token on every refresh,
+		// simulating an IdP that rotates the refresh token (RFC 6749
+		// §6 allows this; Microsoft Entra and Keycloak with rotation
+		// enabled require it).
 		body := `{
 			"access_token":  "access-` + intToString(seq) + `",
 			"refresh_token": "refresh-` + intToString(seq) + `",

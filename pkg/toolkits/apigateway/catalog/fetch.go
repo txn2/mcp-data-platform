@@ -100,6 +100,22 @@ const (
 // failure. Single source of truth for spec parsing across the
 // admin handler (validating an upload), the toolkit (materializing
 // a connection's catalog), and tests.
+//
+// Three categories of strict-validation checks are disabled to
+// match what production OpenAPI consumers (Swagger UI, Postman,
+// Insomnia) accept. The structural validation that matters for
+// invocation (operation IDs, path templating, parameter shapes,
+// security scheme references, request and response schemas) still
+// runs. The disabled checks are:
+//
+//  1. Example-vs-schema conformance. Vendor specs routinely declare
+//     a property as one type but include richer examples (e.g.
+//     `value: object` with `"Blue"` as an example). Examples are
+//     documentation hints, not part of the wire contract.
+//  2. Schema patterns that use ECMA regex constructs Go's regexp
+//     engine does not support (lookahead, named backrefs).
+//  3. Default-value-vs-schema conformance: same drift pattern as
+//     examples, same documentation-only role.
 func ParseSpec(raw string) (*openapi3.T, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, fmt.Errorf("empty content: %w", ErrInvalidContent)
@@ -112,10 +128,164 @@ func ParseSpec(raw string) (*openapi3.T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing: %w: %w", ErrInvalidContent, err)
 	}
-	if err := doc.Validate(loader.Context); err != nil {
+	normalizeArrayItems(doc)
+	err = doc.Validate(loader.Context,
+		openapi3.DisableExamplesValidation(),
+		openapi3.DisableSchemaPatternValidation(),
+		openapi3.DisableSchemaDefaultsValidation(),
+	)
+	if err != nil {
 		return nil, fmt.Errorf("validating: %w: %w", ErrInvalidContent, err)
 	}
 	return doc, nil
+}
+
+// normalizeArrayItems walks the loaded document and injects a
+// permissive `items: {}` for every schema declared `type: array`
+// that omits an items clause. OpenAPI 3.0 requires items for an
+// array, but real vendor specs routinely omit it to mean "array of
+// unknown shape." Swagger UI, Postman, and Insomnia silently accept
+// this; kin-openapi's strict validator rejects with "when schema
+// type is 'array', schema 'items' must be non-null." The injection
+// happens in place after LoadFromData and before Validate so the
+// validator sees a structurally complete document while the
+// catalog still stores the operator's original spec text verbatim.
+func normalizeArrayItems(doc *openapi3.T) {
+	seen := map[*openapi3.Schema]bool{}
+	normalizeComponents(doc.Components, seen)
+	if doc.Paths != nil {
+		for _, path := range doc.Paths.Map() {
+			normalizePathItem(path, seen)
+		}
+	}
+}
+
+func normalizeComponents(c *openapi3.Components, seen map[*openapi3.Schema]bool) {
+	if c == nil {
+		return
+	}
+	for _, ref := range c.Schemas {
+		normalizeSchemaRef(ref, seen)
+	}
+	for _, ref := range c.Parameters {
+		normalizeParameter(ref, seen)
+	}
+	for _, ref := range c.Headers {
+		normalizeHeaderRef(ref, seen)
+	}
+	for _, ref := range c.RequestBodies {
+		normalizeRequestBodyRef(ref, seen)
+	}
+	for _, ref := range c.Responses {
+		normalizeResponseRef(ref, seen)
+	}
+}
+
+func normalizeHeaderRef(ref *openapi3.HeaderRef, seen map[*openapi3.Schema]bool) {
+	if ref == nil || ref.Value == nil {
+		return
+	}
+	normalizeSchemaRef(ref.Value.Schema, seen)
+}
+
+func normalizeRequestBodyRef(ref *openapi3.RequestBodyRef, seen map[*openapi3.Schema]bool) {
+	if ref == nil || ref.Value == nil {
+		return
+	}
+	normalizeContent(ref.Value.Content, seen)
+}
+
+func normalizePathItem(path *openapi3.PathItem, seen map[*openapi3.Schema]bool) {
+	if path == nil {
+		return
+	}
+	for _, p := range path.Parameters {
+		normalizeParameter(p, seen)
+	}
+	for _, op := range path.Operations() {
+		normalizeOperation(op, seen)
+	}
+}
+
+func normalizeOperation(op *openapi3.Operation, seen map[*openapi3.Schema]bool) {
+	if op == nil {
+		return
+	}
+	for _, p := range op.Parameters {
+		normalizeParameter(p, seen)
+	}
+	if op.RequestBody != nil && op.RequestBody.Value != nil {
+		normalizeContent(op.RequestBody.Value.Content, seen)
+	}
+	if op.Responses == nil {
+		return
+	}
+	for _, r := range op.Responses.Map() {
+		normalizeResponseRef(r, seen)
+	}
+}
+
+func normalizeParameter(p *openapi3.ParameterRef, seen map[*openapi3.Schema]bool) {
+	if p == nil || p.Value == nil {
+		return
+	}
+	normalizeSchemaRef(p.Value.Schema, seen)
+	normalizeContent(p.Value.Content, seen)
+}
+
+func normalizeResponseRef(r *openapi3.ResponseRef, seen map[*openapi3.Schema]bool) {
+	if r == nil || r.Value == nil {
+		return
+	}
+	normalizeContent(r.Value.Content, seen)
+	for _, h := range r.Value.Headers {
+		normalizeHeaderRef(h, seen)
+	}
+}
+
+func normalizeContent(content openapi3.Content, seen map[*openapi3.Schema]bool) {
+	for _, mt := range content {
+		if mt == nil {
+			continue
+		}
+		normalizeSchemaRef(mt.Schema, seen)
+	}
+}
+
+func normalizeSchemaRef(ref *openapi3.SchemaRef, seen map[*openapi3.Schema]bool) {
+	if ref == nil || ref.Value == nil {
+		return
+	}
+	s := ref.Value
+	if seen[s] {
+		return
+	}
+	seen[s] = true
+	if s.Type != nil && s.Type.Is(openapi3.TypeArray) && s.Items == nil && len(s.PrefixItems) == 0 {
+		s.Items = &openapi3.SchemaRef{Value: &openapi3.Schema{}}
+	}
+	normalizeSchemaChildren(s, seen)
+}
+
+func normalizeSchemaChildren(s *openapi3.Schema, seen map[*openapi3.Schema]bool) {
+	for _, p := range s.Properties {
+		normalizeSchemaRef(p, seen)
+	}
+	normalizeSchemaRef(s.Items, seen)
+	if s.AdditionalProperties.Schema != nil {
+		normalizeSchemaRef(s.AdditionalProperties.Schema, seen)
+	}
+	normalizeSchemaList(s.AllOf, seen)
+	normalizeSchemaList(s.AnyOf, seen)
+	normalizeSchemaList(s.OneOf, seen)
+	normalizeSchemaRef(s.Not, seen)
+	normalizeSchemaList(s.PrefixItems, seen)
+}
+
+func normalizeSchemaList(refs openapi3.SchemaRefs, seen map[*openapi3.Schema]bool) {
+	for _, r := range refs {
+		normalizeSchemaRef(r, seen)
+	}
 }
 
 // ValidateContent is a wrapper around ParseSpec for callers that

@@ -213,8 +213,8 @@ func TestFieldEncryptor_NestedMap_RoundTrip(t *testing.T) {
 	config := map[string]any{
 		"base_url": "https://api.example.com",
 		"static_headers": map[string]any{
-			"Bb-Api-Subscription-Key": "subscription-secret",
-			"X-Routing-Tag":           "ops",
+			"X-Subscription-Key": "subscription-secret",
+			"X-Routing-Tag":      "ops",
 		},
 	}
 
@@ -234,7 +234,7 @@ func TestFieldEncryptor_NestedMap_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	decHeaders, ok := decrypted["static_headers"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "subscription-secret", decHeaders["Bb-Api-Subscription-Key"])
+	assert.Equal(t, "subscription-secret", decHeaders["X-Subscription-Key"])
 	assert.Equal(t, "ops", decHeaders["X-Routing-Tag"])
 }
 

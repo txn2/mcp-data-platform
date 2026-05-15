@@ -10,9 +10,10 @@ OpenAPI specs that describe each upstream are stored separately in **API catalog
 
 Use the API gateway for upstreams that expose a REST API and authenticate with a bearer token, an API key, or OAuth 2.1. Common targets:
 
-- Blackbaud SKY (constituent / fundraising APIs)
-- Google APIs (Drive, Calendar, BigQuery REST surface)
 - Salesforce REST API
+- Google APIs (Drive, Calendar, BigQuery REST surface)
+- GitHub REST API
+- Stripe API
 - Internal HTTP services that should ride the platform's audit pipeline
 
 For upstream **MCP** servers, use the MCP gateway (`kind: mcp`) instead.
@@ -83,32 +84,6 @@ For each outbound request, headers are layered in this order (later wins):
 1. Per-call headers from the tool input (`api_invoke_endpoint.headers`).
 2. `static_headers` (operator-configured).
 3. `auth_mode` contribution (`Authorization`, API-key header, etc.).
-
-## Example: Blackbaud SKY
-
-Blackbaud's SKY API requires **both** a user OAuth bearer **and** the application's `Bb-Api-Subscription-Key` header on every call.
-
-```bash
-curl -X PUT \
-  -H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "base_url": "https://api.sky.blackbaud.com",
-      "auth_mode": "oauth2_authorization_code",
-      "oauth2_authorization_url": "https://oauth2.sky.blackbaud.com/authorization",
-      "oauth2_token_url":         "https://oauth2.sky.blackbaud.com/token",
-      "oauth2_client_id":         "your-blackbaud-app-id",
-      "oauth2_client_secret":     "your-blackbaud-app-secret",
-      "static_headers": {
-        "Bb-Api-Subscription-Key": "your-subscription-key"
-      }
-    },
-    "description": "Blackbaud SKY"
-  }' \
-  https://platform.example.com/api/v1/admin/connection-instances/api/blackbaud
-```
-
-Register `https://<platform-host>/api/v1/admin/oauth/callback` as a redirect URI on the Blackbaud application before clicking **Connect** in the portal.
 
 ## Example: Google APIs
 
