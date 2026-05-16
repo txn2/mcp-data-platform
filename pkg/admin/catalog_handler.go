@@ -14,6 +14,7 @@ import (
 
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
 )
 
 const (
@@ -57,6 +58,11 @@ const (
 	catalogPathID = "id"
 	// catalogPathSpec is the {spec} path placeholder for catalog-spec routes.
 	catalogPathSpec = "spec"
+	// embeddingJobListDefaultLimit caps the default page size for
+	// /api-catalogs/{id}/embedding-jobs. Generous enough to cover
+	// a normal-size catalog's recent history; small enough that
+	// a misbehaving query does not flood the admin response.
+	embeddingJobListDefaultLimit = 100
 )
 
 // allowedSpecMIMETypes is the allowlist for the upload route's
@@ -93,8 +99,20 @@ func (h *Handler) registerCatalogRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.upsertCatalogSpec)
 	h.mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}/upload", h.uploadCatalogSpec)
 	h.mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh", h.refreshCatalogSpec)
-	h.mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed", h.reembedCatalogSpec)
 	h.mux.HandleFunc("DELETE /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.deleteCatalogSpec)
+	// Embedding-job admin surface. The /reembed endpoint that
+	// earlier revisions of this handler shipped is gone: spec
+	// writes now enqueue a job automatically, the reconciler fills
+	// in any gap, and the operator never needs a button. The
+	// remaining endpoints are read-only visibility plus a manual
+	// retry escape hatch for operators who need to force a re-embed
+	// after an external model swap.
+	if h.deps.EmbedJobs != nil {
+		h.mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/embedding-status", h.listCatalogEmbeddingStatuses)
+		h.mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/embedding-health", h.getCatalogEmbeddingHealth)
+		h.mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/embedding-jobs", h.listCatalogEmbeddingJobs)
+		h.mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed", h.manualRetryEmbedding)
+	}
 }
 
 // catalogResponse is the JSON wire shape for a catalog listing or
@@ -333,13 +351,14 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 	}
 	for _, s := range specs {
 		clone := apicatalog.SpecEntry{
-			SpecName:      s.SpecName,
-			Content:       s.Content,
-			SourceKind:    s.SourceKind,
-			SourceURL:     s.SourceURL,
-			ETag:          s.ETag,
-			BasePath:      s.BasePath,
-			LastFetchedAt: s.LastFetchedAt,
+			SpecName:       s.SpecName,
+			Content:        s.Content,
+			SourceKind:     s.SourceKind,
+			SourceURL:      s.SourceURL,
+			ETag:           s.ETag,
+			BasePath:       s.BasePath,
+			LastFetchedAt:  s.LastFetchedAt,
+			OperationCount: s.OperationCount,
 		}
 		if upErr := h.deps.APICatalogStore.UpsertSpec(r.Context(), dstID, clone); upErr != nil {
 			writeError(w, http.StatusInternalServerError,
@@ -349,14 +368,20 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 		// Clone the persisted vectors too so the new catalog
 		// answers semantic ranking on the first call without
 		// recomputing. Best-effort: a missing source-side vector
-		// set just means the destination spec starts un-indexed,
-		// matching the behavior of a spec written before an
-		// embedder was wired.
+		// set just means the destination spec starts un-indexed
+		// and the reconciler enqueues a job on the next sweep.
 		if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(r.Context(), srcID, s.SpecName); err == nil && len(rows) > 0 {
 			if upErr := h.deps.APICatalogStore.UpsertOperationEmbeddings(r.Context(), dstID, s.SpecName, rows); upErr != nil {
 				slog.Warn("apigateway: clone embeddings copy failed",
 					logKeyCatalogID, dstID, logKeySpecName, s.SpecName, logKeyError, upErr)
 			}
+		} else {
+			// Vectors were missing on the source side too;
+			// enqueue a job so the worker fills them in
+			// asynchronously. Without this the cloned spec
+			// would sit at "not indexed" until the periodic
+			// reconciler picked it up.
+			h.enqueueEmbedJob(r.Context(), dstID, s.SpecName)
 		}
 	}
 	return true
@@ -382,13 +407,34 @@ type specResponse struct {
 	LastFetchedAt string `json:"last_fetched_at,omitempty"`
 	CreatedAt     string `json:"created_at,omitempty"`
 	UpdatedAt     string `json:"updated_at,omitempty"`
-	// EmbeddingCount is the number of persisted operation embedding
-	// rows for this (catalog, spec). The portal renders this as
-	// "embeddings: N indexed" so operators can see at a glance
-	// whether semantic ranking will work for the spec or fall back
-	// to lexical. Always rendered (no omitempty) so 0 is distinct
-	// from "field missing".
+	// OperationCount is the number of operations the spec content
+	// parses to. Stored alongside the spec on every write so the
+	// portal can render "N/M indexed" without re-parsing the
+	// content on the client.
+	OperationCount int `json:"operation_count"`
+	// EmbeddingCount is the count of persisted operation embedding
+	// rows for this (catalog, spec). Equal to OperationCount when
+	// the queue has fully drained for the spec; less while a job
+	// is in flight or after a partial failure.
 	EmbeddingCount int `json:"embedding_count"`
+	// EmbeddingStatus reflects the most recent embedding job's
+	// terminal or in-flight state: "" when no job has ever run
+	// for the spec, "pending" while queued, "running" while a
+	// worker is processing it, "succeeded" when current, "failed"
+	// when retries are exhausted. The portal uses this for the
+	// per-spec badge text and color.
+	EmbeddingStatus string `json:"embedding_status,omitempty"`
+	// EmbeddingAttempts is the most recent job's attempt count.
+	// Rendered as "running (attempt N)" while in flight, useful
+	// for operators trying to gauge whether a slow provider is
+	// just slow or stuck retrying.
+	EmbeddingAttempts int `json:"embedding_attempts,omitempty"`
+	// EmbeddingLastError is the most recent job's last_error
+	// column. Non-empty only when the most recent job failed or
+	// is on a retry; rendered in a tooltip / detail row so the
+	// operator can see "provider returned 502" without grepping
+	// pod logs.
+	EmbeddingLastError string `json:"embedding_last_error,omitempty"`
 }
 
 // specListResponse wraps the spec list so we have a stable shape
@@ -468,11 +514,12 @@ func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	entry.OperationCount = apicatalog.CountOperations(entry.Content)
 	if err := h.deps.APICatalogStore.UpsertSpec(r.Context(), id, entry); err != nil {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
-	h.computeAndStoreEmbeddings(r.Context(), id, entry)
+	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
@@ -629,11 +676,12 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	entry.OperationCount = apicatalog.CountOperations(entry.Content)
 	if err := h.deps.APICatalogStore.UpsertSpec(r.Context(), id, entry); err != nil {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
-	h.computeAndStoreEmbeddings(r.Context(), id, entry)
+	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
@@ -665,19 +713,20 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := apicatalog.SpecEntry{
-		SpecName:      specName,
-		Content:       res.Content,
-		SourceKind:    apicatalog.SourceURL,
-		SourceURL:     existing.SourceURL,
-		ETag:          res.ETag,
-		BasePath:      existing.BasePath,
-		LastFetchedAt: res.FetchedAt,
+		SpecName:       specName,
+		Content:        res.Content,
+		SourceKind:     apicatalog.SourceURL,
+		SourceURL:      existing.SourceURL,
+		ETag:           res.ETag,
+		BasePath:       existing.BasePath,
+		LastFetchedAt:  res.FetchedAt,
+		OperationCount: apicatalog.CountOperations(res.Content),
 	}
 	if err := h.deps.APICatalogStore.UpsertSpec(r.Context(), id, entry); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save refreshed spec: "+err.Error())
 		return
 	}
-	h.computeAndStoreEmbeddings(r.Context(), id, entry)
+	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, entry, false))
 }
@@ -742,106 +791,56 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 }
 
 // specToResponseWithEmbedding behaves like specToResponse but also
-// populates EmbeddingCount by querying the store. Best-effort: a
-// store error leaves the count at 0, matching the "no vectors"
-// rendering the portal shows when an embedder isn't configured.
+// populates EmbeddingCount / OperationCount / EmbeddingStatus
+// from the catalog spec row and the embedding job queue. Single
+// callers exist on the list / detail / write paths; queue access
+// is best-effort (a missed read leaves the embedding fields at
+// zero rather than failing the response, which is the same
+// degradation mode the UI accepts).
 func (h *Handler) specToResponseWithEmbedding(ctx context.Context, catalogID string, s apicatalog.SpecEntry, includeContent bool) specResponse {
 	resp := specToResponse(s, includeContent)
-	if h.deps.APICatalogStore == nil {
-		return resp
+	resp.OperationCount = s.OperationCount
+	if h.deps.APICatalogStore != nil {
+		if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(ctx, catalogID, s.SpecName); err == nil {
+			resp.EmbeddingCount = len(rows)
+		}
 	}
-	if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(ctx, catalogID, s.SpecName); err == nil {
-		resp.EmbeddingCount = len(rows)
+	if h.deps.EmbedJobs != nil {
+		jobs, err := h.deps.EmbedJobs.List(ctx, embedjobs.ListFilter{
+			CatalogID: catalogID,
+			SpecName:  s.SpecName,
+			Limit:     1,
+		})
+		if err == nil && len(jobs) > 0 {
+			j := jobs[0]
+			resp.EmbeddingStatus = string(j.Status)
+			resp.EmbeddingAttempts = j.Attempts
+			resp.EmbeddingLastError = j.LastError
+		}
 	}
 	return resp
 }
 
-// reembedCatalogSpec wipes and recomputes the operation embeddings
-// for the named spec. Used when the operator wired an embedder
-// AFTER the spec was first saved (so it has no vectors), or when a
-// transient embedding-provider failure left the spec without
-// vectors. No-op response when no embedder is configured — the
-// admin tells the operator to wire one before retrying.
-func (h *Handler) reembedCatalogSpec(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue(catalogPathID)
-	specName := r.PathValue(catalogPathSpec)
-	spec, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
-	switch {
-	case errors.Is(err, apicatalog.ErrNotFound):
-		writeError(w, http.StatusNotFound, errSpecNotFound)
-		return
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "failed to get spec")
+// enqueueEmbedJob is the producer-side hook every spec write
+// path calls after the spec row commits. It records the job
+// row alongside (or just after) the spec write and lets the
+// worker / reconciler / reaper drive the actual embedding pass
+// off the request path. Failures are logged but do not block
+// the spec write: the reconciler will pick up any spec whose
+// embedding-row count is below operation_count on its next
+// sweep, so a missed enqueue still converges.
+func (h *Handler) enqueueEmbedJob(ctx context.Context, catalogID, specName string) {
+	if h.deps.EmbedJobs == nil {
+		// No queue (file mode / no DB). The data path falls
+		// back to lexical and the operator gets no embeddings;
+		// this is the documented degraded mode.
 		return
 	}
-	if h.deps.Embedder == nil {
-		writeError(w, http.StatusServiceUnavailable,
-			"no embedding provider configured on the platform; wire embedding.ollama.url to populate vectors")
-		return
-	}
-	if err := h.deps.APICatalogStore.DeleteOperationEmbeddings(r.Context(), id, specName); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to drop existing embeddings: "+err.Error())
-		return
-	}
-	rows, err := apigatewaykit.ComputeOperationEmbeddings(r.Context(), h.deps.Embedder, spec.Content, specName, nil)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "embedding compute failed: "+err.Error())
-		return
-	}
-	if len(rows) > 0 {
-		if err := h.deps.APICatalogStore.UpsertOperationEmbeddings(r.Context(), id, specName, rows); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to persist embeddings: "+err.Error())
-			return
-		}
-	}
-	h.reloadConnectionsForCatalog(id)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":         "ok",
-		"embedded_count": len(rows),
-	})
-}
-
-// computeAndStoreEmbeddings runs after every spec upsert/upload/
-// refresh/clone to keep persisted vectors in lock-step with spec
-// content. Best-effort: a failure here logs and returns without
-// surfacing an error to the operator — the spec write already
-// succeeded, and ranking falls back to lexical until the operator
-// runs the re-embed admin endpoint to retry. No-op when no
-// embedder is wired.
-func (h *Handler) computeAndStoreEmbeddings(ctx context.Context, catalogID string, entry apicatalog.SpecEntry) {
-	if h.deps.APICatalogStore == nil || h.deps.Embedder == nil {
-		return
-	}
-	existing, err := h.deps.APICatalogStore.ListOperationEmbeddings(ctx, catalogID, entry.SpecName)
-	if err != nil {
-		slog.Warn("apigateway: list existing embeddings failed; recomputing all",
-			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
-		existing = nil
-	}
-	existingMap := make(map[string]apicatalog.OperationEmbedding, len(existing))
-	for _, r := range existing {
-		existingMap[r.OperationID] = r
-	}
-	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, h.deps.Embedder, entry.Content, entry.SpecName, existingMap)
-	if err != nil {
-		slog.Warn("apigateway: embedding compute failed; vectors will be missing for this spec",
-			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
-		return
-	}
-	if len(rows) == 0 {
-		// No operations parsed (or no embedder); drop any stale rows
-		// so a spec that lost all its ops doesn't keep serving
-		// orphan vectors. Best-effort: a delete failure on an empty
-		// table is acceptable.
-		if err := h.deps.APICatalogStore.DeleteOperationEmbeddings(ctx, catalogID, entry.SpecName); err != nil {
-			slog.Warn("apigateway: cleanup of stale embeddings failed",
-				logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
-		}
-		return
-	}
-	if err := h.deps.APICatalogStore.UpsertOperationEmbeddings(ctx, catalogID, entry.SpecName, rows); err != nil {
-		slog.Warn("apigateway: embedding upsert failed",
-			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
+	if _, err := h.deps.EmbedJobs.Enqueue(ctx, embedjobs.SpecKey{
+		CatalogID: catalogID, SpecName: specName,
+	}, embedjobs.KindSpecWrite); err != nil {
+		slog.Warn("apigateway: enqueue embedding job failed",
+			logKeyCatalogID, catalogID, logKeySpecName, specName, logKeyError, err)
 	}
 }
 
@@ -849,6 +848,185 @@ func (h *Handler) computeAndStoreEmbeddings(ctx context.Context, catalogID strin
 // admin handler. Kept local to this file so other admin handlers
 // don't accidentally drift the spelling.
 const logKeyCatalogID = "catalog_id"
+
+// listCatalogEmbeddingStatuses returns one row per spec in the
+// catalog with operation_count, embedding_count, and last job
+// state. The portal renders this list as per-spec badges in the
+// CatalogsPanel so the operator can see, at a glance, which
+// specs are fully indexed and which are queued / failed.
+func (h *Handler) listCatalogEmbeddingStatuses(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(catalogPathID)
+	rows, err := h.deps.EmbedJobs.SpecStatuses(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list embedding statuses")
+		slog.Warn("apigateway: list embedding statuses",
+			logKeyCatalogID, id, logKeyError, err)
+		return
+	}
+	out := make([]embeddingStatusResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, embeddingStatusResponseFromRow(r))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"specs": out})
+}
+
+// getCatalogEmbeddingHealth returns the per-catalog roll-up the
+// portal renders at the top of the catalog editor.
+func (h *Handler) getCatalogEmbeddingHealth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(catalogPathID)
+	h2, err := h.deps.EmbedJobs.Health(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to compute embedding health")
+		slog.Warn("apigateway: embedding health",
+			logKeyCatalogID, id, logKeyError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, embeddingHealthResponse{
+		CatalogID:    h2.CatalogID,
+		SpecsTotal:   h2.SpecsTotal,
+		SpecsIndexed: h2.SpecsIndexed,
+		SpecsPending: h2.SpecsPending,
+		SpecsRunning: h2.SpecsRunning,
+		SpecsFailed:  h2.SpecsFailed,
+	})
+}
+
+// listCatalogEmbeddingJobs returns recent job rows for the
+// catalog. Used by the admin "Embedding history" view and for
+// debugging "why did this spec fail to index" questions.
+func (h *Handler) listCatalogEmbeddingJobs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(catalogPathID)
+	filter := embedjobs.ListFilter{CatalogID: id, Limit: embeddingJobListDefaultLimit}
+	if s := r.URL.Query().Get("status"); s != "" {
+		filter.Status = embedjobs.Status(s)
+	}
+	if s := r.URL.Query().Get("spec_name"); s != "" {
+		filter.SpecName = s
+	}
+	jobs, err := h.deps.EmbedJobs.List(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list embedding jobs")
+		slog.Warn("apigateway: list embedding jobs",
+			logKeyCatalogID, id, logKeyError, err)
+		return
+	}
+	out := make([]embeddingJobResponse, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, embeddingJobResponseFromJob(j))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
+}
+
+// manualRetryEmbedding is the operator escape hatch for forcing
+// a re-embed when the automatic path's dedup says "no work" but
+// the operator knows otherwise (model swapped externally,
+// upstream embedding model version drifted behind the same
+// name, debugging). It enqueues a manual_retry job, which the
+// worker treats identically to a spec_write job except for the
+// audit kind. The worker's compute path skips the text-hash
+// dedup for manual_retry kind, so vectors are recomputed fresh.
+func (h *Handler) manualRetryEmbedding(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(catalogPathID)
+	specName := r.PathValue(catalogPathSpec)
+	if _, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName); err != nil {
+		if errors.Is(err, apicatalog.ErrNotFound) {
+			writeError(w, http.StatusNotFound, errSpecNotFound)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get spec")
+		return
+	}
+	created, err := h.deps.EmbedJobs.Enqueue(r.Context(), embedjobs.SpecKey{
+		CatalogID: id, SpecName: specName,
+	}, embedjobs.KindManualRetry)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enqueue embedding job: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "queued",
+		"created": created,
+	})
+}
+
+// embeddingStatusResponse / embeddingHealthResponse /
+// embeddingJobResponse are the JSON shapes the admin endpoints
+// return. Mirroring the embedjobs types as a separate set keeps
+// the wire format insulated from internal refactors.
+type embeddingStatusResponse struct {
+	SpecName       string `json:"spec_name"`
+	OperationCount int    `json:"operation_count"`
+	EmbeddingCount int    `json:"embedding_count"`
+	JobStatus      string `json:"job_status,omitempty"`
+	JobAttempts    int    `json:"job_attempts,omitempty"`
+	JobLastError   string `json:"job_last_error,omitempty"`
+	JobUpdatedAt   string `json:"job_updated_at,omitempty"`
+}
+
+func embeddingStatusResponseFromRow(row embedjobs.SpecStatusRow) embeddingStatusResponse {
+	resp := embeddingStatusResponse{
+		SpecName:       row.SpecName,
+		OperationCount: row.OperationCount,
+		EmbeddingCount: row.EmbeddingCount,
+		JobStatus:      string(row.JobStatus),
+		JobAttempts:    row.JobAttempts,
+		JobLastError:   row.JobLastError,
+	}
+	if row.JobUpdatedAt != nil {
+		resp.JobUpdatedAt = formatTime(*row.JobUpdatedAt)
+	}
+	return resp
+}
+
+type embeddingHealthResponse struct {
+	CatalogID    string `json:"catalog_id"`
+	SpecsTotal   int    `json:"specs_total"`
+	SpecsIndexed int    `json:"specs_indexed"`
+	SpecsPending int    `json:"specs_pending"`
+	SpecsRunning int    `json:"specs_running"`
+	SpecsFailed  int    `json:"specs_failed"`
+}
+
+type embeddingJobResponse struct {
+	ID             int64  `json:"id"`
+	CatalogID      string `json:"catalog_id"`
+	SpecName       string `json:"spec_name"`
+	Kind           string `json:"kind"`
+	Status         string `json:"status"`
+	Attempts       int    `json:"attempts"`
+	LastError      string `json:"last_error,omitempty"`
+	WorkerID       string `json:"worker_id,omitempty"`
+	NextRunAt      string `json:"next_run_at,omitempty"`
+	LeaseExpiresAt string `json:"lease_expires_at,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	CompletedAt    string `json:"completed_at,omitempty"`
+}
+
+func embeddingJobResponseFromJob(j embedjobs.Job) embeddingJobResponse {
+	resp := embeddingJobResponse{
+		ID:        j.ID,
+		CatalogID: j.CatalogID,
+		SpecName:  j.SpecName,
+		Kind:      string(j.Kind),
+		Status:    string(j.Status),
+		Attempts:  j.Attempts,
+		LastError: j.LastError,
+		WorkerID:  j.WorkerID,
+		NextRunAt: formatTime(j.NextRunAt),
+		CreatedAt: formatTime(j.CreatedAt),
+	}
+	if j.LeaseExpiresAt != nil {
+		resp.LeaseExpiresAt = formatTime(*j.LeaseExpiresAt)
+	}
+	if j.StartedAt != nil {
+		resp.StartedAt = formatTime(*j.StartedAt)
+	}
+	if j.CompletedAt != nil {
+		resp.CompletedAt = formatTime(*j.CompletedAt)
+	}
+	return resp
+}
 
 // reloadConnectionsForCatalog iterates registered api-gateway
 // toolkits and asks each to rebuild every connection pointing at

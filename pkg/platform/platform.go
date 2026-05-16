@@ -57,6 +57,7 @@ import (
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	apigatewayembedjobs "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -183,6 +184,18 @@ type Platform struct {
 	embeddingProv    embedding.Provider
 	stalenessWatcher *memory.StalenessWatcher
 	memoryAdapter    middleware.MemoryProvider
+
+	// api-gateway embedding job queue. The store is exposed to
+	// the admin handler (read-side queries + enqueue on spec
+	// write); the worker / reaper / reconciler drive the actual
+	// embedding pass off the request path. All four are nil
+	// until WireAPIGatewayEmbedJobsFromDB runs, which requires
+	// both a database connection and an embedding provider.
+	apiGatewayEmbedJobsStore      *apigatewayembedjobs.PostgresStore
+	apiGatewayEmbedJobsWorker     *apigatewayembedjobs.Worker
+	apiGatewayEmbedJobsReaper     *apigatewayembedjobs.Reaper
+	apiGatewayEmbedJobsReconciler *apigatewayembedjobs.Reconciler
+	apiGatewayEmbedJobsListener   *apigatewayembedjobs.Listener
 
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore        portal.AssetStore

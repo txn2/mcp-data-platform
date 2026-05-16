@@ -748,3 +748,98 @@ func TestBlockedIPReason_Ranges(t *testing.T) {
 		}
 	}
 }
+
+// TestCountOperations covers the operation-count helper the
+// admin handler uses to stamp api_catalog_specs.operation_count
+// on every spec write. The reconciler compares this against the
+// embedding row count to detect gaps in pure SQL.
+func TestCountOperations(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		spec string
+		want int
+	}{
+		{
+			name: "empty paths",
+			spec: `openapi: 3.0.0
+info: {title: t, version: "1"}
+paths: {}`,
+			want: 0,
+		},
+		{
+			name: "one operation",
+			spec: `openapi: 3.0.0
+info: {title: t, version: "1"}
+paths:
+  /a:
+    get:
+      operationId: a
+      responses:
+        "200":
+          description: ok`,
+			want: 1,
+		},
+		{
+			name: "six methods on one path",
+			spec: `openapi: 3.0.0
+info: {title: t, version: "1"}
+paths:
+  /x:
+    get:    {operationId: g, responses: {"200": {description: ok}}}
+    post:   {operationId: p, responses: {"200": {description: ok}}}
+    put:    {operationId: u, responses: {"200": {description: ok}}}
+    delete: {operationId: d, responses: {"200": {description: ok}}}
+    patch:  {operationId: pa, responses: {"200": {description: ok}}}
+    head:   {operationId: h, responses: {"200": {description: ok}}}`,
+			want: 6,
+		},
+		{
+			name: "multiple paths",
+			spec: `openapi: 3.0.0
+info: {title: t, version: "1"}
+paths:
+  /a:
+    get:
+      operationId: a
+      responses: {"200": {description: ok}}
+  /b:
+    post:
+      operationId: b
+      responses: {"200": {description: ok}}
+  /c:
+    put:
+      operationId: c
+      responses: {"200": {description: ok}}`,
+			want: 3,
+		},
+		{
+			name: "unparseable returns zero",
+			spec: "::not yaml::",
+			want: 0,
+		},
+		{
+			name: "empty string returns zero",
+			spec: "",
+			want: 0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := CountOperations(c.spec)
+			if got != c.want {
+				t.Errorf("CountOperations(%s) = %d; want %d", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+// TestCountOperationsOnItem covers the per-PathItem helper
+// directly. Nil item returns 0; every method nil-check fires.
+func TestCountOperationsOnItem(t *testing.T) {
+	t.Parallel()
+	if got := countOperationsOnItem(nil); got != 0 {
+		t.Errorf("nil item: got %d, want 0", got)
+	}
+}

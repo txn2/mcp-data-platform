@@ -2550,12 +2550,24 @@ The legacy `connection_instances.config.openapi_spec` JSONB key is no longer rea
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch URL-sourced |
-| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed` | Recompute and persist per-operation embeddings |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed` | Manual retry: enqueue a manual_retry embedding job |
+| `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-health` | Catalog-level roll-up (total / indexed / pending / running / failed) |
+| `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-status` | Per-spec embedding state (operation_count, embedding_count, last job state) |
+| `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-jobs` | Recent embedding job history (filterable by status / spec_name) |
 | `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
 
-### Persisted operation embeddings
+### Persisted operation embeddings + job queue
 
-Semantic and hybrid ranking modes on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL: migration `000044_api_catalog_operation_embeddings` creates `api_catalog_operation_embeddings(catalog_id, spec_name, operation_id, text_hash, embedding vector(768), model, dim, created_at, updated_at)` with `ON DELETE CASCADE` from `api_catalog_specs`. Vectors are computed at spec-upsert time by the admin handler (one call to the embedding provider per fresh operation, with `text_hash` dedup skipping unchanged rows on refresh), persisted once, and loaded into the toolkit's in-memory map at connection registration. Two connections that mount the same catalog share one vector set; a process restart re-reads the same rows so semantic ranking returns results on the first call without a warm-up window. When no embedding provider is configured, the spec write still succeeds with zero rows; the toolkit's `checkEmbeddingsReady` returns `errEmbeddingsNotIndexed` and ranking falls back to lexical. The operator can wire an embedder and call the `reembed` admin endpoint above to populate vectors for existing specs without re-saving content.
+Semantic and hybrid ranking modes on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL: migration `000044_api_catalog_operation_embeddings` creates `api_catalog_operation_embeddings(catalog_id, spec_name, operation_id, text_hash, embedding vector(768), model, dim, created_at, updated_at)` with `ON DELETE CASCADE` from `api_catalog_specs`. Embedding work runs through a Postgres-backed job queue introduced in migration `000045_api_catalog_embedding_jobs`: `api_catalog_embedding_jobs(id, catalog_id, spec_name, kind, status, attempts, last_error, next_run_at, worker_id, lease_expires_at, ...)` with a partial unique index on `(catalog_id, spec_name) WHERE status IN ('pending','running')` that makes producer enqueues idempotent.
+
+Four components run alongside the admin server:
+
+- **Producer**: every spec write (`upsert`, `upload`, `refresh`, `clone`) inserts a job row alongside the spec row and issues `pg_notify(api_catalog_embedding_jobs)`. ON CONFLICT against the partial unique index collapses duplicate enqueues to a no-op.
+- **Worker**: pulls one job at a time via `SELECT id FROM api_catalog_embedding_jobs WHERE status='pending' AND next_run_at <= NOW() FOR UPDATE SKIP LOCKED`, takes a 10-minute lease, calls `apigateway.ComputeOperationEmbeddings`, writes vectors to `api_catalog_operation_embeddings`, marks the job succeeded. SKIP LOCKED makes multi-pod operation lock-free.
+- **Reaper**: sweeps every 30s; rows in status=running with elapsed `lease_expires_at` flip back to pending. Pod-crash recovery is automatic.
+- **Reconciler**: runs on every pod boot and every 5 min. One SQL statement enqueues jobs for any spec where `api_catalog_specs.operation_count <> COUNT(*) FROM api_catalog_operation_embeddings`. This is the convergence backstop.
+
+Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attempts; terminal failures move to status=failed with the last error on the row, visible in the portal as a red badge with a Retry button. The portal polls embedding-health and embedding-status every 5s while the catalog editor is open; operators see indexing progress live and never need to click anything to populate embeddings (the Retry button only appears on failed rows).
 
 ---
 

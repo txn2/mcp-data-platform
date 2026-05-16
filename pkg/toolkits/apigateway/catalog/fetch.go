@@ -336,6 +336,55 @@ func ValidateContent(raw string) error {
 	return err
 }
 
+// CountOperations parses raw and returns the total number of
+// HTTP operations declared across every PathItem. The admin
+// handler stores this on api_catalog_specs.operation_count so
+// the embedding reconciler can compare it against persisted
+// vector rows in pure SQL without re-parsing the spec content
+// on every tick.
+//
+// Returns 0 on parse failure (the admin write path validates
+// content separately via ValidateContent; a count of 0 here is
+// indistinguishable from an empty spec, which is the correct
+// behavior for the reconciler).
+func CountOperations(raw string) int {
+	doc, err := ParseSpec(raw)
+	if err != nil || doc == nil || doc.Paths == nil {
+		return 0
+	}
+	count := 0
+	for _, item := range doc.Paths.Map() {
+		count += countOperationsOnItem(item)
+	}
+	return count
+}
+
+// countOperationsOnItem returns how many HTTP operations a
+// PathItem declares. Extracted so CountOperations stays under
+// gocognit's complexity ceiling: the per-method nil checks
+// collapse into one loop here.
+func countOperationsOnItem(item *openapi3.PathItem) int {
+	if item == nil {
+		return 0
+	}
+	// Mirror pathItemMethods in pkg/toolkits/apigateway: every
+	// operation kind that buildOperationIndex emits a row for
+	// must be counted here, otherwise the reconciler will think
+	// the spec is forever "missing" embeddings for the
+	// unaccounted methods.
+	methods := []*openapi3.Operation{
+		item.Get, item.Post, item.Put,
+		item.Delete, item.Patch, item.Head,
+	}
+	count := 0
+	for _, op := range methods {
+		if op != nil {
+			count++
+		}
+	}
+	return count
+}
+
 // checkedURL is a URL that has cleared parseAndCheckURL and
 // preflightHostCheck. Wrapping the validated value in a private type
 // makes the dataflow from operator input → outbound HTTP opaque to

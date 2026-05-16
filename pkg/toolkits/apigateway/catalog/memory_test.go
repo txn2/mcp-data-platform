@@ -383,3 +383,34 @@ func mustCreateCatalogWithSpec(t *testing.T, s *MemoryStore, catalogID, specName
 		t.Fatalf("UpsertSpec: %v", err)
 	}
 }
+
+// TestMemoryStore_SetOperationCount round-trips the column
+// the embedding worker stamps after a successful embed pass.
+// MemoryStore mirrors the Postgres backend's behavior so the
+// embedjobs worker tests can drive either store interchangeably.
+func TestMemoryStore_SetOperationCount(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	mustCreateCatalogWithSpec(t, s, "p", "v1")
+	if err := s.SetOperationCount(context.Background(), "p", "v1", 7); err != nil {
+		t.Fatalf("SetOperationCount: %v", err)
+	}
+	got, err := s.GetSpec(context.Background(), "p", "v1")
+	if err != nil {
+		t.Fatalf("GetSpec: %v", err)
+	}
+	if got.OperationCount != 7 {
+		t.Errorf("OperationCount = %d; want 7", got.OperationCount)
+	}
+}
+
+// TestMemoryStore_SetOperationCount_NotFound proves missing
+// (catalog, spec) returns ErrNotFound so the worker can treat
+// the case as best-effort and log only.
+func TestMemoryStore_SetOperationCount_NotFound(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	if err := s.SetOperationCount(context.Background(), "ghost", "ghost", 1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}

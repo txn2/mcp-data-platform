@@ -56,6 +56,19 @@ type Store interface {
 	// spec-deletion cleanup so callers do not need to invoke this
 	// separately on spec delete.
 	DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error
+
+	// SetOperationCount updates api_catalog_specs.operation_count
+	// on a single row. The embedding worker calls this after a
+	// successful Upsert so the reconciler's gap predicate (which
+	// compares operation_count against the embedding row count)
+	// sees a fully-indexed spec on the next sweep. Without this
+	// hook, specs whose operation_count column was never stamped
+	// (legacy rows from before migration 000045) would re-enqueue
+	// on every reconciler tick forever.
+	//
+	// Returns ErrNotFound when (catalogID, specName) does not
+	// exist. The worker treats that as best-effort and logs only.
+	SetOperationCount(ctx context.Context, catalogID, specName string, count int) error
 }
 
 // ConnectionRef identifies a connection_instances row by its
