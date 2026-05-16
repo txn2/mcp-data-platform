@@ -714,6 +714,12 @@ export interface APICatalogSpec {
   last_fetched_at?: string;
   created_at?: string;
   updated_at?: string;
+  // Count of persisted operation embedding rows for this spec.
+  // 0 means the spec was written without an embedder configured
+  // (or the embedding compute step failed); semantic and hybrid
+  // ranking fall back to lexical until the operator runs the
+  // re-embed admin action.
+  embedding_count?: number;
 }
 
 export function useAPICatalogs() {
@@ -894,6 +900,27 @@ export function useRefreshAPICatalogSpec() {
     mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
       apiFetch<APICatalogSpec>(
         `/api-catalogs/${catalogID}/specs/${specName}/refresh`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["api-catalogs"] });
+      void qc.invalidateQueries({
+        queryKey: ["api-catalogs", vars.catalogID, "specs", vars.specName],
+      });
+    },
+  });
+}
+
+// useReembedAPICatalogSpec triggers a wipe-and-recompute of the
+// named spec's operation embeddings. Use when an embedder was
+// wired AFTER the spec was first saved, or after a transient
+// embedding-provider outage left the spec without vectors.
+export function useReembedAPICatalogSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
+      apiFetch<{ status: string; embedded_count: number }>(
+        `/api-catalogs/${catalogID}/specs/${specName}/reembed`,
         { method: "POST" },
       ),
     onSuccess: (_data, vars) => {

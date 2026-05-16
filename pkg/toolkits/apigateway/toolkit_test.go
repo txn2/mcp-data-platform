@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -866,98 +865,15 @@ func TestHandleListEndpoints_FallbackNoteIncludesReason(t *testing.T) {
 	}
 }
 
-// TestHandleListEndpoints_EmbedderPanicSurfacesAsFallback proves
-// a panicking embedding provider does NOT reach handleListEndpoints
-// (because warmEmbeddings owns the panic recovery in the background
-// warmer) and a subsequent semantic-mode call returns a clean
-// lexical fallback with a Note naming the warm-up failure. The
-// previous design ran the embedder synchronously inside the handler,
-// so a panic there had to be caught at the handler boundary; the
-// new design moves embedding population off the request path, so
-// the embedder panic is captured at warm time and surfaced as a
-// clear "warm-up failed" reason on every subsequent call.
-func TestHandleListEndpoints_EmbedderPanicSurfacesAsFallback(t *testing.T) {
+// TestAddConnection_NoSynchronousEmbedding proves AddConnection
+// does not call the embedding provider on the caller goroutine.
+// Before persisted vectors, AddConnection kicked off a warmer
+// goroutine; now the toolkit just reads pre-computed vectors out
+// of the catalog store. Either way the contract is the same:
+// AddConnection returns promptly even with no vectors available.
+func TestAddConnection_NoSynchronousEmbedding(t *testing.T) {
 	tk := New("test")
-	tk.SetEmbeddingProvider(panicEmbedder{})
-	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
-	if err := tk.AddConnection("c", map[string]any{
-		"base_url":   "https://x",
-		"catalog_id": "petstore",
-	}); err != nil {
-		t.Fatalf("AddConnection: %v", err)
-	}
-	tk.mu.RLock()
-	c := tk.connections["c"]
-	tk.mu.RUnlock()
-	waitForWarmerSettled(t, c)
-	c.embedMu.Lock()
-	failed := c.embedFailed
-	c.embedMu.Unlock()
-	if !failed {
-		t.Fatal("c.embedFailed should be set after the warmer recovered the panic")
-	}
-
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
-		Connection: "c",
-		Query:      "users",
-		Ranking:    "semantic",
-	})
-	if err != nil {
-		t.Fatalf("handleListEndpoints: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("semantic mode after warmer panic should fall back to lexical, not error: %s", textContent(res))
-	}
-	o, _ := out.(ListEndpointsOutput)
-	if o.Note == "" {
-		t.Fatal("expected a fallback Note describing the warm-up failure")
-	}
-	if !strings.Contains(o.Note, "warm-up failed") {
-		t.Errorf("Note should name the warm-up failure; got: %q", o.Note)
-	}
-
-	// A second semantic call should produce the same lexical-with-Note
-	// outcome, NOT trigger another warmer (the embedFailed flag is
-	// sticky on definitive failures).
-	res2, _, _ := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
-		Connection: "c", Query: "users", Ranking: "semantic",
-	})
-	if res2.IsError {
-		t.Errorf("repeat call must continue to fall back cleanly: %s", textContent(res2))
-	}
-}
-
-// panicEmbedder panics on every call. Used to drive the
-// embedder-panic-recovery contract.
-type panicEmbedder struct{}
-
-func (panicEmbedder) Dimension() int { return 8 }
-func (panicEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
-	panic("simulated embedder panic")
-}
-
-func (panicEmbedder) EmbedBatch(_ context.Context, _ []string) ([][]float32, error) {
-	panic("simulated embedder batch panic")
-}
-
-// TestAddConnection_WarmsEmbeddingsInBackground proves the
-// per-connection embedding warmer kicks off when AddConnection
-// runs with an embedding provider already wired, populates the
-// embeddings WITHOUT blocking AddConnection, and finishes after
-// the embedder unblocks. Regression coverage for the "first
-// semantic call times out on a 350-op catalog" production
-// failure: the synchronous embed pass that used to run inside
-// the request budget is now done at registration time off the
-// request path.
-//
-// The slow embedder blocks on a release channel so AddConnection
-// must return BEFORE the embedder has produced any vectors. A
-// synchronous-blocking regression would not return until after
-// release() fires, so the duration assertion deterministically
-// catches it.
-func TestAddConnection_WarmsEmbeddingsInBackground(t *testing.T) {
-	tk := New("test")
-	emb := newSlowEmbedder(32)
+	emb := newFakeEmbedder(32)
 	tk.SetEmbeddingProvider(emb)
 	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
 
@@ -969,90 +885,7 @@ func TestAddConnection_WarmsEmbeddingsInBackground(t *testing.T) {
 		t.Fatalf("AddConnection: %v", err)
 	}
 	addDuration := time.Since(addStart)
-	// The embedder is still blocked. If the embed pass ran on the
-	// caller goroutine, AddConnection would not have returned.
-	// 50ms is well under the embedder's hold time.
 	if addDuration > 50*time.Millisecond {
-		t.Errorf("AddConnection took %v; warmer must not run on the caller goroutine", addDuration)
-	}
-
-	tk.mu.RLock()
-	c := tk.connections["c"]
-	tk.mu.RUnlock()
-	// Release the embedder so the warmer can complete.
-	emb.release()
-	waitForWarmerSettled(t, c)
-	if len(c.embeddings) != len(c.embedTexts) {
-		t.Fatalf("warmer should have populated %d embeddings, got %d",
-			len(c.embedTexts), len(c.embeddings))
-	}
-}
-
-// slowEmbedder is a deterministic embedder whose EmbedBatch
-// blocks on a release channel. Used to drive tests that must
-// prove a code path runs OFF the caller goroutine: if the
-// caller ran the embedder synchronously, the assertion would
-// fire before release() did.
-type slowEmbedder struct {
-	dim  int
-	wait chan struct{}
-}
-
-func newSlowEmbedder(dim int) *slowEmbedder {
-	return &slowEmbedder{dim: dim, wait: make(chan struct{})}
-}
-
-func (s *slowEmbedder) release()       { close(s.wait) }
-func (s *slowEmbedder) Dimension() int { return s.dim }
-
-func (s *slowEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
-	out := make([]float32, s.dim)
-	out[0] = 1
-	return out, nil
-}
-
-func (s *slowEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	select {
-	case <-s.wait:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("slowEmbedder: %w", ctx.Err())
-	}
-	out := make([][]float32, len(texts))
-	for i := range out {
-		out[i] = make([]float32, s.dim)
-		out[i][0] = float32(i + 1)
-	}
-	return out, nil
-}
-
-// TestSetEmbeddingProvider_WarmsExistingConnections proves the
-// other ordering: when the embedding provider is wired AFTER
-// connections have been added, SetEmbeddingProvider triggers a
-// warmer for every already-registered connection. Without this,
-// startup ordering (toolkit configured before the embedder is
-// available) would leave operation embeddings unpopulated until
-// the operator manually reloaded the connection.
-func TestSetEmbeddingProvider_WarmsExistingConnections(t *testing.T) {
-	tk := New("test")
-	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
-	// Register the connection BEFORE wiring the embedder.
-	if err := tk.AddConnection("c", map[string]any{
-		"base_url":   "https://x",
-		"catalog_id": "petstore",
-	}); err != nil {
-		t.Fatalf("AddConnection: %v", err)
-	}
-	tk.mu.RLock()
-	c := tk.connections["c"]
-	tk.mu.RUnlock()
-	if len(c.embeddings) != 0 {
-		t.Fatalf("precondition: embeddings should be empty before embedder is wired; got %d", len(c.embeddings))
-	}
-
-	tk.SetEmbeddingProvider(newFakeEmbedder(32))
-	waitForWarmerSettled(t, c)
-	if len(c.embeddings) != len(c.embedTexts) {
-		t.Errorf("expected warmer to populate after SetEmbeddingProvider; got %d / %d",
-			len(c.embeddings), len(c.embedTexts))
+		t.Errorf("AddConnection took %v; should not run the embedder synchronously", addDuration)
 	}
 }

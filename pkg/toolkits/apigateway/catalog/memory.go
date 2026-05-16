@@ -20,13 +20,19 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	catalogs map[string]Catalog
 	specs    map[string]map[string]SpecEntry // catalog_id -> spec_name -> entry
+	// embeddings is keyed catalog_id -> spec_name -> operation_id ->
+	// row. Three levels because the embeddings table's primary key
+	// is (catalog_id, spec_name, operation_id) and the toolkit's
+	// read path filters by the first two.
+	embeddings map[string]map[string]map[string]OperationEmbedding
 }
 
 // NewMemoryStore returns an empty in-memory Store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		catalogs: make(map[string]Catalog),
-		specs:    make(map[string]map[string]SpecEntry),
+		catalogs:   make(map[string]Catalog),
+		specs:      make(map[string]map[string]SpecEntry),
+		embeddings: make(map[string]map[string]map[string]OperationEmbedding),
 	}
 }
 
@@ -127,7 +133,10 @@ func (s *MemoryStore) UpdateCatalog(_ context.Context, id string, u Update) erro
 }
 
 // DeleteCatalog removes the catalog and all its specs (CASCADE
-// behavior matches the Postgres FK).
+// behavior matches the Postgres FK). Operation embeddings keyed
+// on (catalog_id, spec_name) are dropped at the same time so the
+// in-memory backend matches the Postgres ON DELETE CASCADE chain
+// (api_catalogs → api_catalog_specs → api_catalog_operation_embeddings).
 func (s *MemoryStore) DeleteCatalog(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,6 +145,7 @@ func (s *MemoryStore) DeleteCatalog(_ context.Context, id string) error {
 	}
 	delete(s.catalogs, id)
 	delete(s.specs, id)
+	delete(s.embeddings, id)
 	return nil
 }
 
@@ -205,7 +215,10 @@ func (s *MemoryStore) ListSpecs(_ context.Context, catalogID string) ([]SpecEntr
 	return out, nil
 }
 
-// DeleteSpec removes one spec from the catalog.
+// DeleteSpec removes one spec from the catalog. Associated
+// embedding rows are dropped at the same time so the in-memory
+// backend mirrors the Postgres FK CASCADE from api_catalog_specs
+// down to api_catalog_operation_embeddings.
 func (s *MemoryStore) DeleteSpec(_ context.Context, catalogID, specName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -217,6 +230,9 @@ func (s *MemoryStore) DeleteSpec(_ context.Context, catalogID, specName string) 
 		return ErrNotFound
 	}
 	delete(bucket, specName)
+	if specBucket, ok := s.embeddings[catalogID]; ok {
+		delete(specBucket, specName)
+	}
 	return nil
 }
 
@@ -225,4 +241,83 @@ func (s *MemoryStore) DeleteSpec(_ context.Context, catalogID, specName string) 
 // production / integration tests where this matters.
 func (*MemoryStore) ReferencingConnections(_ context.Context, _ string) ([]ConnectionRef, error) {
 	return nil, nil
+}
+
+// UpsertOperationEmbeddings replaces every embedding row for the
+// given (catalogID, specName) pair. The MemoryStore mirrors the
+// Postgres backend's all-or-nothing semantics by clearing the
+// existing rows before writing the new set.
+func (s *MemoryStore) UpsertOperationEmbeddings(_ context.Context, catalogID, specName string, rows []OperationEmbedding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.specs[catalogID]; !ok {
+		return ErrNotFound
+	}
+	if _, ok := s.specs[catalogID][specName]; !ok {
+		return ErrNotFound
+	}
+	specBucket, ok := s.embeddings[catalogID]
+	if !ok {
+		specBucket = make(map[string]map[string]OperationEmbedding)
+		s.embeddings[catalogID] = specBucket
+	}
+	bucket := make(map[string]OperationEmbedding, len(rows))
+	for _, r := range rows {
+		bucket[r.OperationID] = cloneEmbeddingRow(r)
+	}
+	specBucket[specName] = bucket
+	return nil
+}
+
+// ListOperationEmbeddings returns every embedding row for the
+// (catalogID, specName) pair. Empty slice (not error) when the
+// spec has no vectors yet.
+func (s *MemoryStore) ListOperationEmbeddings(_ context.Context, catalogID, specName string) ([]OperationEmbedding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	specBucket, ok := s.embeddings[catalogID]
+	if !ok {
+		return nil, nil
+	}
+	bucket, ok := specBucket[specName]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]OperationEmbedding, 0, len(bucket))
+	for _, r := range bucket {
+		out = append(out, cloneEmbeddingRow(r))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].OperationID < out[j].OperationID })
+	return out, nil
+}
+
+// DeleteOperationEmbeddings removes every embedding row for the
+// (catalogID, specName) pair. No-op when no rows exist.
+func (s *MemoryStore) DeleteOperationEmbeddings(_ context.Context, catalogID, specName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	specBucket, ok := s.embeddings[catalogID]
+	if !ok {
+		return nil
+	}
+	delete(specBucket, specName)
+	return nil
+}
+
+// cloneEmbeddingRow returns a deep copy. The embedding and hash
+// slices alias caller-owned memory otherwise, which would let a
+// later mutation of the returned slice corrupt the store's
+// internal state (and vice-versa).
+func cloneEmbeddingRow(r OperationEmbedding) OperationEmbedding {
+	hash := make([]byte, len(r.TextHash))
+	copy(hash, r.TextHash)
+	vec := make([]float32, len(r.Embedding))
+	copy(vec, r.Embedding)
+	return OperationEmbedding{
+		OperationID: r.OperationID,
+		TextHash:    hash,
+		Embedding:   vec,
+		Model:       r.Model,
+		Dim:         r.Dim,
+	}
 }

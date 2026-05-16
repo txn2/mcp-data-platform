@@ -2550,7 +2550,12 @@ The legacy `connection_instances.config.openapi_spec` JSONB key is no longer rea
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch URL-sourced |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed` | Recompute and persist per-operation embeddings |
 | `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
+
+### Persisted operation embeddings
+
+Semantic and hybrid ranking modes on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL: migration `000044_api_catalog_operation_embeddings` creates `api_catalog_operation_embeddings(catalog_id, spec_name, operation_id, text_hash, embedding vector(768), model, dim, created_at, updated_at)` with `ON DELETE CASCADE` from `api_catalog_specs`. Vectors are computed at spec-upsert time by the admin handler (one call to the embedding provider per fresh operation, with `text_hash` dedup skipping unchanged rows on refresh), persisted once, and loaded into the toolkit's in-memory map at connection registration. Two connections that mount the same catalog share one vector set; a process restart re-reads the same rows so semantic ranking returns results on the first call without a warm-up window. When no embedding provider is configured, the spec write still succeeds with zero rows; the toolkit's `checkEmbeddingsReady` returns `errEmbeddingsNotIndexed` and ranking falls back to lexical. The operator can wire an embedder and call the `reembed` admin endpoint above to populate vectors for existing specs without re-saving content.
 
 ---
 

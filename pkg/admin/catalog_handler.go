@@ -16,6 +16,19 @@ import (
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
+const (
+	// logKeySpecName is the structured-log key used by the catalog
+	// embedding compute path. Centralized so the field name stays
+	// consistent across compute / persist / fail-warning sites.
+	logKeySpecName = "spec_name"
+
+	// errSpecNotFound is the 404 message returned when a catalog
+	// spec lookup misses. Centralized so revive's add-constant
+	// rule stays satisfied across the four handler functions that
+	// emit the same response on the same Not-Found condition.
+	errSpecNotFound = "spec not found"
+)
+
 // API catalog admin REST routes. Catalogs are global (one set of
 // OpenAPI specs may back many connections); the api-kind connection
 // editor references one catalog by id. Mutations fan out to every
@@ -80,6 +93,7 @@ func (h *Handler) registerCatalogRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.upsertCatalogSpec)
 	h.mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}/upload", h.uploadCatalogSpec)
 	h.mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh", h.refreshCatalogSpec)
+	h.mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed", h.reembedCatalogSpec)
 	h.mux.HandleFunc("DELETE /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.deleteCatalogSpec)
 }
 
@@ -332,6 +346,18 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 				"failed to copy spec "+s.SpecName+": "+upErr.Error())
 			return false
 		}
+		// Clone the persisted vectors too so the new catalog
+		// answers semantic ranking on the first call without
+		// recomputing. Best-effort: a missing source-side vector
+		// set just means the destination spec starts un-indexed,
+		// matching the behavior of a spec written before an
+		// embedder was wired.
+		if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(r.Context(), srcID, s.SpecName); err == nil && len(rows) > 0 {
+			if upErr := h.deps.APICatalogStore.UpsertOperationEmbeddings(r.Context(), dstID, s.SpecName, rows); upErr != nil {
+				slog.Warn("apigateway: clone embeddings copy failed",
+					logKeyCatalogID, dstID, logKeySpecName, s.SpecName, logKeyError, upErr)
+			}
+		}
 	}
 	return true
 }
@@ -356,6 +382,13 @@ type specResponse struct {
 	LastFetchedAt string `json:"last_fetched_at,omitempty"`
 	CreatedAt     string `json:"created_at,omitempty"`
 	UpdatedAt     string `json:"updated_at,omitempty"`
+	// EmbeddingCount is the number of persisted operation embedding
+	// rows for this (catalog, spec). The portal renders this as
+	// "embeddings: N indexed" so operators can see at a glance
+	// whether semantic ranking will work for the spec or fall back
+	// to lexical. Always rendered (no omitempty) so 0 is distinct
+	// from "field missing".
+	EmbeddingCount int `json:"embedding_count"`
 }
 
 // specListResponse wraps the spec list so we have a stable shape
@@ -374,7 +407,7 @@ func (h *Handler) listCatalogSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 	out := specListResponse{Specs: make([]specResponse, 0, len(specs))}
 	for _, s := range specs {
-		out.Specs = append(out.Specs, specToResponse(s, false))
+		out.Specs = append(out.Specs, h.specToResponseWithEmbedding(r.Context(), id, s, false))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -385,13 +418,13 @@ func (h *Handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	spec, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	switch {
 	case errors.Is(err, apicatalog.ErrNotFound):
-		writeError(w, http.StatusNotFound, "spec not found")
+		writeError(w, http.StatusNotFound, errSpecNotFound)
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to get spec")
 		return
 	}
-	writeJSON(w, http.StatusOK, specToResponse(*spec, true))
+	writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, *spec, true))
 }
 
 // upsertCatalogSpecRequest is the body for the inline / URL save path.
@@ -439,10 +472,11 @@ func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
+	h.computeAndStoreEmbeddings(r.Context(), id, entry)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
-		writeJSON(w, http.StatusOK, specToResponse(*saved, false))
+		writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, *saved, false))
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -599,10 +633,11 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
+	h.computeAndStoreEmbeddings(r.Context(), id, entry)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
-		writeJSON(w, http.StatusOK, specToResponse(*saved, false))
+		writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, *saved, false))
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -614,7 +649,7 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	switch {
 	case errors.Is(err, apicatalog.ErrNotFound):
-		writeError(w, http.StatusNotFound, "spec not found")
+		writeError(w, http.StatusNotFound, errSpecNotFound)
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to get spec")
@@ -642,8 +677,9 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save refreshed spec: "+err.Error())
 		return
 	}
+	h.computeAndStoreEmbeddings(r.Context(), id, entry)
 	h.reloadConnectionsForCatalog(id)
-	writeJSON(w, http.StatusOK, specToResponse(entry, false))
+	writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, entry, false))
 }
 
 func (h *Handler) deleteCatalogSpec(w http.ResponseWriter, r *http.Request) {
@@ -652,7 +688,7 @@ func (h *Handler) deleteCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	err := h.deps.APICatalogStore.DeleteSpec(r.Context(), id, specName)
 	switch {
 	case errors.Is(err, apicatalog.ErrNotFound):
-		writeError(w, http.StatusNotFound, "spec not found")
+		writeError(w, http.StatusNotFound, errSpecNotFound)
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to delete spec")
 	default:
@@ -704,6 +740,115 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 	}
 	return resp
 }
+
+// specToResponseWithEmbedding behaves like specToResponse but also
+// populates EmbeddingCount by querying the store. Best-effort: a
+// store error leaves the count at 0, matching the "no vectors"
+// rendering the portal shows when an embedder isn't configured.
+func (h *Handler) specToResponseWithEmbedding(ctx context.Context, catalogID string, s apicatalog.SpecEntry, includeContent bool) specResponse {
+	resp := specToResponse(s, includeContent)
+	if h.deps.APICatalogStore == nil {
+		return resp
+	}
+	if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(ctx, catalogID, s.SpecName); err == nil {
+		resp.EmbeddingCount = len(rows)
+	}
+	return resp
+}
+
+// reembedCatalogSpec wipes and recomputes the operation embeddings
+// for the named spec. Used when the operator wired an embedder
+// AFTER the spec was first saved (so it has no vectors), or when a
+// transient embedding-provider failure left the spec without
+// vectors. No-op response when no embedder is configured — the
+// admin tells the operator to wire one before retrying.
+func (h *Handler) reembedCatalogSpec(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(catalogPathID)
+	specName := r.PathValue(catalogPathSpec)
+	spec, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
+	switch {
+	case errors.Is(err, apicatalog.ErrNotFound):
+		writeError(w, http.StatusNotFound, errSpecNotFound)
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "failed to get spec")
+		return
+	}
+	if h.deps.Embedder == nil {
+		writeError(w, http.StatusServiceUnavailable,
+			"no embedding provider configured on the platform; wire embedding.ollama.url to populate vectors")
+		return
+	}
+	if err := h.deps.APICatalogStore.DeleteOperationEmbeddings(r.Context(), id, specName); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to drop existing embeddings: "+err.Error())
+		return
+	}
+	rows, err := apigatewaykit.ComputeOperationEmbeddings(r.Context(), h.deps.Embedder, spec.Content, specName, nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "embedding compute failed: "+err.Error())
+		return
+	}
+	if len(rows) > 0 {
+		if err := h.deps.APICatalogStore.UpsertOperationEmbeddings(r.Context(), id, specName, rows); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to persist embeddings: "+err.Error())
+			return
+		}
+	}
+	h.reloadConnectionsForCatalog(id)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":         "ok",
+		"embedded_count": len(rows),
+	})
+}
+
+// computeAndStoreEmbeddings runs after every spec upsert/upload/
+// refresh/clone to keep persisted vectors in lock-step with spec
+// content. Best-effort: a failure here logs and returns without
+// surfacing an error to the operator — the spec write already
+// succeeded, and ranking falls back to lexical until the operator
+// runs the re-embed admin endpoint to retry. No-op when no
+// embedder is wired.
+func (h *Handler) computeAndStoreEmbeddings(ctx context.Context, catalogID string, entry apicatalog.SpecEntry) {
+	if h.deps.APICatalogStore == nil || h.deps.Embedder == nil {
+		return
+	}
+	existing, err := h.deps.APICatalogStore.ListOperationEmbeddings(ctx, catalogID, entry.SpecName)
+	if err != nil {
+		slog.Warn("apigateway: list existing embeddings failed; recomputing all",
+			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
+		existing = nil
+	}
+	existingMap := make(map[string]apicatalog.OperationEmbedding, len(existing))
+	for _, r := range existing {
+		existingMap[r.OperationID] = r
+	}
+	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, h.deps.Embedder, entry.Content, entry.SpecName, existingMap)
+	if err != nil {
+		slog.Warn("apigateway: embedding compute failed; vectors will be missing for this spec",
+			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
+		return
+	}
+	if len(rows) == 0 {
+		// No operations parsed (or no embedder); drop any stale rows
+		// so a spec that lost all its ops doesn't keep serving
+		// orphan vectors. Best-effort: a delete failure on an empty
+		// table is acceptable.
+		if err := h.deps.APICatalogStore.DeleteOperationEmbeddings(ctx, catalogID, entry.SpecName); err != nil {
+			slog.Warn("apigateway: cleanup of stale embeddings failed",
+				logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
+		}
+		return
+	}
+	if err := h.deps.APICatalogStore.UpsertOperationEmbeddings(ctx, catalogID, entry.SpecName, rows); err != nil {
+		slog.Warn("apigateway: embedding upsert failed",
+			logKeyCatalogID, catalogID, logKeySpecName, entry.SpecName, logKeyError, err)
+	}
+}
+
+// logKeyCatalogID is the structured-log key for catalog ids in the
+// admin handler. Kept local to this file so other admin handlers
+// don't accidentally drift the spelling.
+const logKeyCatalogID = "catalog_id"
 
 // reloadConnectionsForCatalog iterates registered api-gateway
 // toolkits and asks each to rebuild every connection pointing at

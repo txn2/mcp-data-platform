@@ -76,7 +76,19 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert spec (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload of a spec file |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch a URL-sourced spec |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed` | Recompute and persist per-operation embeddings for the spec |
 | `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
+
+## Persisted operation embeddings
+
+Semantic and hybrid ranking on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Two consequences:
+
+1. **Computed once per spec write, not per connection.** The admin spec-upsert path runs the configured embedding provider, hashes the source text, and writes one row per operation. The toolkit reads those rows when a connection registers and stays out of the embedding-provider's way at request time.
+2. **Survives restart.** A redeployed pod re-reads the same rows; `api_list_endpoints(ranking=semantic)` returns ranked results on the first call without a warm-up window.
+
+Each row records the SHA-256 of the source text, so a spec refresh that reuses operation text skips the embed call for unchanged rows. Spec deletion drops vector rows via `ON DELETE CASCADE`.
+
+When the embedding provider is not configured at spec-upsert time, the row count stays at 0 and the toolkit falls back to lexical ranking with `errEmbeddingsNotIndexed` in the response Note. The portal's catalog editor surfaces this state ("embeddings: N indexed" vs "not indexed") with a Re-embed button that calls the admin endpoint above.
 
 ## Model-facing surface
 

@@ -112,6 +112,16 @@ func (o *ollamaProvider) Dimension() int {
 	return o.dim
 }
 
+// Model returns the configured Ollama model name. Callers reach
+// for this via a `Model() string` type assertion when they need a
+// row-level breadcrumb of which model produced a stored vector
+// (today: the api_catalog_operation_embeddings row metadata).
+// Kept off the Provider interface so adding a new provider doesn't
+// drag a method that's only meaningful for back-end-named providers.
+func (o *ollamaProvider) Model() string {
+	return o.model
+}
+
 // toFloat32 converts a float64 slice to float32.
 func toFloat32(f64 []float64) []float32 {
 	f32 := make([]float32, len(f64))

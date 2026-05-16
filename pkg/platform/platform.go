@@ -754,6 +754,14 @@ func (p *Platform) WireAPIGatewayEmbeddingProvider() {
 	}
 }
 
+// EmbeddingProvider returns the platform's embedding provider, or
+// nil when no provider was configured. Exposed so the admin handler
+// can compute and persist per-operation vectors at spec-write time
+// (the path that replaces the in-process embedding warmer).
+func (p *Platform) EmbeddingProvider() embedding.Provider {
+	return p.embeddingProv
+}
+
 // WireAPIGatewayCatalogStoreFromDB builds a Postgres-backed catalog
 // store from the platform's *sql.DB and wires it into every api
 // gateway toolkit. No-op when the platform was built without a

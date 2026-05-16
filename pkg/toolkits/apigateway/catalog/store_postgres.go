@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+	"github.com/pgvector/pgvector-go"
 )
 
 // PostgresStore implements Store against PostgreSQL.
@@ -355,6 +356,95 @@ func (s *PostgresStore) ReferencingConnections(ctx context.Context, catalogID st
 		return nil, fmt.Errorf("catalog: referencing connections rows: %w", err)
 	}
 	return out, nil
+}
+
+// UpsertOperationEmbeddings replaces every embedding row for
+// (catalogID, specName) with the supplied rows in a single
+// transaction. Atomic: ranking reads either see the prior set or
+// the new set, never a partial mix. Returns ErrNotFound when the
+// referenced spec does not exist (FK violation).
+func (s *PostgresStore) UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []OperationEmbedding) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: upsert embeddings begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	const delQ = `
+		DELETE FROM api_catalog_operation_embeddings
+		 WHERE catalog_id = $1 AND spec_name = $2
+	`
+	if _, err = tx.ExecContext(ctx, delQ, catalogID, specName); err != nil {
+		return fmt.Errorf("catalog: upsert embeddings delete: %w", err)
+	}
+	const insQ = `
+		INSERT INTO api_catalog_operation_embeddings
+		    (catalog_id, spec_name, operation_id, text_hash,
+		     embedding, model, dim, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+	`
+	for _, r := range rows {
+		_, err = tx.ExecContext(ctx, insQ,
+			catalogID, specName, r.OperationID, r.TextHash,
+			pgvector.NewVector(r.Embedding), r.Model, r.Dim)
+		if isPGCode(err, pgForeignKeyViolation) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("catalog: upsert embedding %s: %w", r.OperationID, err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: upsert embeddings commit: %w", err)
+	}
+	return nil
+}
+
+// ListOperationEmbeddings returns every embedding row for the
+// (catalogID, specName) pair. Empty slice (not error) when the
+// spec has not been embedded yet — the caller surfaces this as
+// "fall back to lexical, vectors not yet computed".
+func (s *PostgresStore) ListOperationEmbeddings(ctx context.Context, catalogID, specName string) ([]OperationEmbedding, error) {
+	const q = `
+		SELECT operation_id, text_hash, embedding, model, dim
+		  FROM api_catalog_operation_embeddings
+		 WHERE catalog_id = $1 AND spec_name = $2
+	`
+	rows, err := s.db.QueryContext(ctx, q, catalogID, specName)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: list embeddings: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	var out []OperationEmbedding
+	for rows.Next() {
+		var (
+			row OperationEmbedding
+			vec pgvector.Vector
+		)
+		if err := rows.Scan(&row.OperationID, &row.TextHash, &vec, &row.Model, &row.Dim); err != nil {
+			return nil, fmt.Errorf("catalog: list embeddings scan: %w", err)
+		}
+		row.Embedding = vec.Slice()
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: list embeddings rows: %w", err)
+	}
+	return out, nil
+}
+
+// DeleteOperationEmbeddings removes every embedding row for the
+// (catalogID, specName) pair. Used by the reembed admin endpoint
+// before recomputing. Spec deletion does not need to call this —
+// the FK ON DELETE CASCADE drops the rows automatically.
+func (s *PostgresStore) DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error {
+	const q = `
+		DELETE FROM api_catalog_operation_embeddings
+		 WHERE catalog_id = $1 AND spec_name = $2
+	`
+	if _, err := s.db.ExecContext(ctx, q, catalogID, specName); err != nil {
+		return fmt.Errorf("catalog: delete embeddings: %w", err)
+	}
+	return nil
 }
 
 // isPGCode reports whether err is a *pq.Error with the given

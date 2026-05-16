@@ -134,6 +134,18 @@ func (s *errorCatalogStore) ReferencingConnections(_ context.Context, _ string) 
 	return nil, nil
 }
 
+func (*errorCatalogStore) UpsertOperationEmbeddings(_ context.Context, _, _ string, _ []apicatalog.OperationEmbedding) error {
+	return nil
+}
+
+func (*errorCatalogStore) ListOperationEmbeddings(_ context.Context, _, _ string) ([]apicatalog.OperationEmbedding, error) {
+	return nil, nil
+}
+
+func (*errorCatalogStore) DeleteOperationEmbeddings(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func handlerWithStore(store APICatalogStore) *Handler {
 	return NewHandler(Deps{
 		APICatalogStore:   store,

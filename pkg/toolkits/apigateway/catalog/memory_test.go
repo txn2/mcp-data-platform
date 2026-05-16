@@ -257,3 +257,129 @@ func TestMemoryStore_UpsertSpec_RejectsInvalidBasePath(t *testing.T) {
 		t.Errorf("err=%v want errors.Is ErrInvalidBasePath", err)
 	}
 }
+
+// TestMemoryStore_OperationEmbeddings_RoundTrip exercises the
+// embedding row contract: an upsert followed by a list returns the
+// same rows; a second upsert with different rows replaces the set
+// rather than appending; a missing (catalog, spec) returns nil
+// without error.
+func TestMemoryStore_OperationEmbeddings_RoundTrip(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+	mustCreateCatalogWithSpec(t, s, "petstore", "default")
+
+	rows := []OperationEmbedding{
+		{OperationID: "list", TextHash: []byte{0x01}, Embedding: []float32{0.1, 0.2}, Model: "test", Dim: 2},
+		{OperationID: "create", TextHash: []byte{0x02}, Embedding: []float32{0.3, 0.4}, Model: "test", Dim: 2},
+	}
+	if err := s.UpsertOperationEmbeddings(ctx, "petstore", "default", rows); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := s.ListOperationEmbeddings(ctx, "petstore", "default")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(got))
+	}
+
+	// Second upsert with one row should REPLACE the prior set.
+	if err := s.UpsertOperationEmbeddings(ctx, "petstore", "default", rows[:1]); err != nil {
+		t.Fatalf("upsert replace: %v", err)
+	}
+	got, _ = s.ListOperationEmbeddings(ctx, "petstore", "default")
+	if len(got) != 1 || got[0].OperationID != "list" {
+		t.Fatalf("after replace want [list]; got %+v", got)
+	}
+
+	// Unknown (catalog, spec) returns nil, nil — the toolkit treats
+	// this as "no vectors yet, fall back to lexical".
+	rows2, err := s.ListOperationEmbeddings(ctx, "petstore", "other")
+	if err != nil || rows2 != nil {
+		t.Fatalf("unknown spec: got rows=%v err=%v; want nil/nil", rows2, err)
+	}
+}
+
+// TestMemoryStore_OperationEmbeddings_DeleteSpecCascades proves
+// that removing a spec also drops its embedding rows, matching the
+// Postgres FK CASCADE.
+func TestMemoryStore_OperationEmbeddings_DeleteSpecCascades(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+	mustCreateCatalogWithSpec(t, s, "p", "v1")
+	_ = s.UpsertOperationEmbeddings(ctx, "p", "v1", []OperationEmbedding{
+		{OperationID: "a", Embedding: []float32{1, 0}, Dim: 2},
+	})
+	if err := s.DeleteSpec(ctx, "p", "v1"); err != nil {
+		t.Fatalf("DeleteSpec: %v", err)
+	}
+	rows, _ := s.ListOperationEmbeddings(ctx, "p", "v1")
+	if rows != nil {
+		t.Errorf("DeleteSpec must cascade to embeddings; got %v", rows)
+	}
+}
+
+// TestMemoryStore_OperationEmbeddings_DeleteCatalogCascades proves
+// the same cascade chain for catalog deletion (catalog → specs →
+// embeddings), so the in-memory backend matches the FK cascade in
+// migration 000044.
+func TestMemoryStore_OperationEmbeddings_DeleteCatalogCascades(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+	mustCreateCatalogWithSpec(t, s, "p", "v1")
+	_ = s.UpsertOperationEmbeddings(ctx, "p", "v1", []OperationEmbedding{
+		{OperationID: "a", Embedding: []float32{1, 0}, Dim: 2},
+	})
+	if err := s.DeleteCatalog(ctx, "p"); err != nil {
+		t.Fatalf("DeleteCatalog: %v", err)
+	}
+	rows, _ := s.ListOperationEmbeddings(ctx, "p", "v1")
+	if rows != nil {
+		t.Errorf("DeleteCatalog must cascade to embeddings; got %v", rows)
+	}
+}
+
+// TestMemoryStore_OperationEmbeddings_UpsertWithoutSpec rejects
+// embedding writes for an unknown (catalog, spec) pair. The
+// Postgres backend bounces on the FK; the memory backend mirrors
+// that with an ErrNotFound for parity.
+func TestMemoryStore_OperationEmbeddings_UpsertWithoutSpec(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	err := s.UpsertOperationEmbeddings(context.Background(), "nope", "nope",
+		[]OperationEmbedding{{OperationID: "x", Embedding: []float32{1}, Dim: 1}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}
+
+// TestMemoryStore_OperationEmbeddings_DeleteIsIdempotent proves
+// the delete admin path doesn't error on a (catalog, spec) that
+// never had vectors.
+func TestMemoryStore_OperationEmbeddings_DeleteIsIdempotent(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	if err := s.DeleteOperationEmbeddings(context.Background(), "nope", "nope"); err != nil {
+		t.Errorf("delete on missing must be nil; got %v", err)
+	}
+}
+
+// mustCreateCatalogWithSpec is the shared boilerplate for the
+// embedding tests: build a catalog + one inline spec so the FK
+// guard on UpsertOperationEmbeddings is satisfied.
+func mustCreateCatalogWithSpec(t *testing.T, s *MemoryStore, catalogID, specName string) {
+	t.Helper()
+	if err := s.CreateCatalog(context.Background(), Catalog{
+		ID: catalogID, Name: catalogID, DisplayName: catalogID,
+	}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	if err := s.UpsertSpec(context.Background(), catalogID, SpecEntry{
+		SpecName: specName, Content: "x", SourceKind: SourceInline,
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+}

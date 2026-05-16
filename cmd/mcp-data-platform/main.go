@@ -810,6 +810,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	if catStore := p.APIGatewayCatalogStore(); catStore != nil {
 		deps.APICatalogStore = catStore
 	}
+	deps.Embedder = p.EmbeddingProvider()
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(

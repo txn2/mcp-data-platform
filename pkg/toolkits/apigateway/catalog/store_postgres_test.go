@@ -656,3 +656,146 @@ func TestIsPGCode_NotPQError(t *testing.T) {
 
 // silence unused-import warning when anyArg goes unused in a refactor.
 var _ = anyArg{}
+
+func TestUpsertOperationEmbeddings_Success(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WithArgs("p", "default").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_operation_embeddings`)).
+		WithArgs("p", "default", "op1", []byte{0x01}, sqlmock.AnyArg(), "m", 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_operation_embeddings`)).
+		WithArgs("p", "default", "op2", []byte{0x02}, sqlmock.AnyArg(), "m", 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "default",
+		[]OperationEmbedding{
+			{OperationID: "op1", TextHash: []byte{0x01}, Embedding: []float32{0.1, 0.2}, Model: "m", Dim: 2},
+			{OperationID: "op2", TextHash: []byte{0x02}, Embedding: []float32{0.3, 0.4}, Model: "m", Dim: 2},
+		})
+	if err != nil {
+		t.Fatalf("UpsertOperationEmbeddings: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpsertOperationEmbeddings_BeginFails(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin().WillReturnError(errors.New("begin fail"))
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "d", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpsertOperationEmbeddings_DeleteFails(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WillReturnError(errors.New("delete fail"))
+	mock.ExpectRollback()
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "d", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpsertOperationEmbeddings_InsertFKViolation(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_operation_embeddings`)).
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation})
+	mock.ExpectRollback()
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "d",
+		[]OperationEmbedding{{OperationID: "x", Embedding: []float32{1}, Dim: 1}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err=%v want ErrNotFound", err)
+	}
+}
+
+func TestUpsertOperationEmbeddings_CommitFails(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_operation_embeddings`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit fail"))
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "d",
+		[]OperationEmbedding{{OperationID: "x", Embedding: []float32{1}, Dim: 1}})
+	if err == nil {
+		t.Fatal("expected error on commit failure")
+	}
+}
+
+func TestUpsertOperationEmbeddings_InsertGenericError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_operation_embeddings`)).
+		WillReturnError(errors.New("insert boom"))
+	mock.ExpectRollback()
+	err := store.UpsertOperationEmbeddings(context.Background(), "p", "d",
+		[]OperationEmbedding{{OperationID: "x", Embedding: []float32{1}, Dim: 1}})
+	if err == nil {
+		t.Fatal("expected error on insert failure")
+	}
+}
+
+func TestListOperationEmbeddings_QueryError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_operation_embeddings`)).
+		WillReturnError(errors.New("boom"))
+	_, err := store.ListOperationEmbeddings(context.Background(), "p", "d")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestDeleteOperationEmbeddings_Success(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WithArgs("p", "d").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.DeleteOperationEmbeddings(context.Background(), "p", "d"); err != nil {
+		t.Fatalf("DeleteOperationEmbeddings: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteOperationEmbeddings_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
+		WillReturnError(errors.New("boom"))
+	err := store.DeleteOperationEmbeddings(context.Background(), "p", "d")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

@@ -5103,6 +5103,32 @@ func TestWireAPIGatewayEmbeddingProvider(t *testing.T) {
 	p.WireAPIGatewayEmbeddingProvider() // must not panic
 }
 
+// TestEmbeddingProviderAccessor proves the EmbeddingProvider getter
+// returns whatever was wired by New / setupAndWire. Exposed so the
+// admin handler can pull the same provider for its spec-write
+// compute path.
+func TestEmbeddingProviderAccessor(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.EmbeddingProvider() != nil {
+		t.Errorf("default platform should have nil EmbeddingProvider; got %T", p.EmbeddingProvider())
+	}
+	p.embeddingProv = embedding.NewNoopProvider(8)
+	if p.EmbeddingProvider() == nil {
+		t.Error("EmbeddingProvider should return what was wired")
+	}
+}
+
 // TestWireAPIGatewayEmbeddingProvider_NoToolkit_NoOp proves the
 // helper is safe when no api gateway toolkit is registered.
 func TestWireAPIGatewayEmbeddingProvider_NoToolkit_NoOp(t *testing.T) {
