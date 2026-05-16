@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
 // stubResolver lets tests pin a hostname to a chosen set of IPs
@@ -592,6 +594,108 @@ func TestParseSpec_AcceptsArrayWithoutItems_AllCallSites(t *testing.T) {
 	}
 }
 
+// TestParseSpec_AcceptsPascalCaseType reproduces the fourth
+// real-world drift pattern: vendor SDK generators (.NET-style)
+// emit PascalCase primitive type names ("String", "Integer") that
+// strict kin-openapi rejects with "unsupported 'type' value
+// 'String'." Swagger UI, Postman, and Insomnia accept these.
+// ParseSpec must match by lowercasing primitive names case-
+// insensitively before strict validation runs, in every place
+// schemas appear.
+func TestParseSpec_AcceptsPascalCaseType(t *testing.T) {
+	t.Parallel()
+	const spec = `{
+  "openapi": "3.0.1",
+  "info": {"title": "T", "version": "1.0"},
+  "paths": {
+    "/items": {
+      "post": {
+        "operationId": "createItem",
+        "parameters": [
+          {"name": "tag", "in": "query", "schema": {"type": "String"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/Item"}
+            }
+          }
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Item": {
+        "type": "Object",
+        "properties": {
+          "id":     {"type": "Integer"},
+          "label":  {"type": "String"},
+          "active": {"type": "Boolean"},
+          "score":  {"type": "Number"},
+          "tags":   {"type": "Array", "items": {"type": "String"}}
+        }
+      }
+    }
+  }
+}`
+	doc, err := ParseSpec(spec)
+	if err != nil {
+		t.Fatalf("ParseSpec rejected a spec with PascalCase types: %v", err)
+	}
+	if doc == nil {
+		t.Fatal("ParseSpec returned nil doc with nil error")
+	}
+
+	item := doc.Components.Schemas["Item"].Value
+	if !item.Type.Is(openapi3.TypeObject) {
+		t.Errorf("Item.Type = %v, want object", item.Type)
+	}
+	props := item.Properties
+	wantTypes := map[string]string{
+		"id":     openapi3.TypeInteger,
+		"label":  openapi3.TypeString,
+		"active": openapi3.TypeBoolean,
+		"score":  openapi3.TypeNumber,
+		"tags":   openapi3.TypeArray,
+	}
+	for name, want := range wantTypes {
+		if !props[name].Value.Type.Is(want) {
+			t.Errorf("Item.%s.Type = %v, want %s", name, props[name].Value.Type, want)
+		}
+	}
+}
+
+// TestCanonicalPrimitiveType verifies the case-insensitive
+// primitive lookup that backs PascalCase normalization. Only the
+// seven OpenAPI 3.x primitives are recognized; any other input
+// (including typos) is left alone for strict validation to flag.
+func TestCanonicalPrimitiveType(t *testing.T) {
+	t.Parallel()
+	primitives := []string{"string", "number", "integer", "boolean", "array", "object", "null"}
+	for _, p := range primitives {
+		variants := []string{p, strings.ToUpper(p[:1]) + p[1:], strings.ToUpper(p)}
+		for _, v := range variants {
+			got, ok := canonicalPrimitiveType(v)
+			if !ok {
+				t.Errorf("canonicalPrimitiveType(%q) ok=false, want true", v)
+				continue
+			}
+			if got != p {
+				t.Errorf("canonicalPrimitiveType(%q) = %q, want %q", v, got, p)
+			}
+		}
+	}
+	rejects := []string{"", "Strung", "stringy", "int", "bool", "Long", "Map", "List"}
+	for _, r := range rejects {
+		if got, ok := canonicalPrimitiveType(r); ok {
+			t.Errorf("canonicalPrimitiveType(%q) ok=true got=%q, want false", r, got)
+		}
+	}
+}
+
 // TestParseSpec_RejectsStructuralErrors guards against over-leniency:
 // structural problems (missing required field, malformed JSON) must
 // still fail. The disabled options are scoped to documentation
@@ -599,13 +703,14 @@ func TestParseSpec_AcceptsArrayWithoutItems_AllCallSites(t *testing.T) {
 func TestParseSpec_RejectsStructuralErrors(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"empty":           "",
-		"whitespace":      "   \n  ",
-		"not-json":        "not a spec",
-		"missing-openapi": `{"info": {"title": "T", "version": "1.0"}, "paths": {}}`,
-		"missing-info":    `{"openapi": "3.0.1", "paths": {}}`,
-		"truncated":       `{"openapi": "3.0.1", "info":`,
-		"invalid-ref":     `{"openapi":"3.0.1","info":{"title":"T","version":"1.0"},"paths":{"/x":{"get":{"responses":{"200":{"$ref":"#/components/responses/Missing"}}}}}}`,
+		"empty":                  "",
+		"whitespace":             "   \n  ",
+		"not-json":               "not a spec",
+		"missing-openapi":        `{"info": {"title": "T", "version": "1.0"}, "paths": {}}`,
+		"missing-info":           `{"openapi": "3.0.1", "paths": {}}`,
+		"truncated":              `{"openapi": "3.0.1", "info":`,
+		"invalid-ref":            `{"openapi":"3.0.1","info":{"title":"T","version":"1.0"},"paths":{"/x":{"get":{"responses":{"200":{"$ref":"#/components/responses/Missing"}}}}}}`,
+		"bad-type-not-primitive": `{"openapi":"3.0.1","info":{"title":"T","version":"1.0"},"paths":{},"components":{"schemas":{"X":{"type":"Strung"}}}}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {

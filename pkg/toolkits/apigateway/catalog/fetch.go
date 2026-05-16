@@ -128,7 +128,7 @@ func ParseSpec(raw string) (*openapi3.T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing: %w: %w", ErrInvalidContent, err)
 	}
-	normalizeArrayItems(doc)
+	normalizeSchemas(doc)
 	err = doc.Validate(loader.Context,
 		openapi3.DisableExamplesValidation(),
 		openapi3.DisableSchemaPatternValidation(),
@@ -140,17 +140,29 @@ func ParseSpec(raw string) (*openapi3.T, error) {
 	return doc, nil
 }
 
-// normalizeArrayItems walks the loaded document and injects a
-// permissive `items: {}` for every schema declared `type: array`
-// that omits an items clause. OpenAPI 3.0 requires items for an
-// array, but real vendor specs routinely omit it to mean "array of
-// unknown shape." Swagger UI, Postman, and Insomnia silently accept
-// this; kin-openapi's strict validator rejects with "when schema
-// type is 'array', schema 'items' must be non-null." The injection
-// happens in place after LoadFromData and before Validate so the
-// validator sees a structurally complete document while the
-// catalog still stores the operator's original spec text verbatim.
-func normalizeArrayItems(doc *openapi3.T) {
+// normalizeSchemas walks the loaded document and applies in-place
+// permissive fixes that vendor SDK generators routinely violate but
+// that Swagger UI, Postman, and Insomnia silently accept. Strict
+// kin-openapi validation runs after this so structural problems
+// (missing operation IDs, unresolved refs, invalid path templates)
+// still fail.
+//
+// Currently normalizes:
+//
+//   - Array schemas missing an `items` clause: injects `items: {}`.
+//     OpenAPI 3.0 requires items for an array, but vendor specs
+//     routinely omit it to mean "array of unknown shape." The
+//     validator would otherwise reject with "when schema type is
+//     'array', schema 'items' must be non-null."
+//   - PascalCase primitive type names: `String` -> `string`,
+//     `Integer` -> `integer`, etc. .NET-style SDK generators emit
+//     these. Only names that case-insensitively match a known
+//     OpenAPI primitive are lowercased, so `type: Strung` still
+//     fails validation.
+//
+// Both normalizations share one walk via the `seen` set so each
+// schema is visited once even with ref cycles.
+func normalizeSchemas(doc *openapi3.T) {
 	seen := map[*openapi3.Schema]bool{}
 	normalizeComponents(doc.Components, seen)
 	if doc.Paths != nil {
@@ -261,10 +273,39 @@ func normalizeSchemaRef(ref *openapi3.SchemaRef, seen map[*openapi3.Schema]bool)
 		return
 	}
 	seen[s] = true
+	normalizeSchemaTypeCase(s)
 	if s.Type != nil && s.Type.Is(openapi3.TypeArray) && s.Items == nil && len(s.PrefixItems) == 0 {
 		s.Items = &openapi3.SchemaRef{Value: &openapi3.Schema{}}
 	}
 	normalizeSchemaChildren(s, seen)
+}
+
+// normalizeSchemaTypeCase lowercases any entry in s.Type that
+// case-insensitively matches a known OpenAPI primitive. Only the
+// canonical 3.x primitive names are accepted; anything else is
+// left alone so strict validation can still flag it.
+func normalizeSchemaTypeCase(s *openapi3.Schema) {
+	if s == nil || s.Type == nil {
+		return
+	}
+	for i, t := range *s.Type {
+		if canonical, ok := canonicalPrimitiveType(t); ok && canonical != t {
+			(*s.Type)[i] = canonical
+		}
+	}
+}
+
+// canonicalPrimitiveType returns the OpenAPI 3.x canonical lowercase
+// form of t when t case-insensitively names a primitive (string,
+// number, integer, boolean, array, object, null). The second return
+// is false for any other value so callers leave it untouched.
+func canonicalPrimitiveType(t string) (string, bool) {
+	switch strings.ToLower(t) {
+	case openapi3.TypeString, openapi3.TypeNumber, openapi3.TypeInteger,
+		openapi3.TypeBoolean, openapi3.TypeArray, openapi3.TypeObject, "null":
+		return strings.ToLower(t), true
+	}
+	return "", false
 }
 
 func normalizeSchemaChildren(s *openapi3.Schema, seen map[*openapi3.Schema]bool) {
