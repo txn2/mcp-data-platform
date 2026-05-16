@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -243,19 +244,25 @@ func TestRankWithMode_SemanticFallsBackWithoutEmbedder(t *testing.T) {
 // the whole point of #371.
 func TestRankWithMode_SemanticRanksByEmbedding(t *testing.T) {
 	tk := New("primary")
-	tk.SetEmbeddingProvider(newFakeEmbedder(32))
+	emb := newFakeEmbedder(32)
+	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, []testOp{
 		{id: "create-order", method: "POST", path: "/v1/orders", summary: "Place a new order", desc: "Submit an order to the fulfillment queue"},
 		{id: "list-orders", method: "GET", path: "/v1/orders", summary: "List orders"},
 		{id: "get-user", method: "GET", path: "/v1/users/{id}", summary: "Fetch user profile"},
 	})
+	// Populate embeddings synchronously: this test builds the
+	// conn directly via buildTestConn so the AddConnection-time
+	// warmer never ran. Inline warm matches what the warmer would
+	// have produced and keeps the test deterministic.
+	tk.warmEmbeddings(c, emb)
 	// Query intentionally lexically-overlapping with "create-order"
 	// to exercise the deterministic fakeEmbedder path. Real models
 	// would handle "place new order" or "submit order" too; that's
 	// captured in the corpus benchmark below.
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "place a new order", limit: 5, mode: RankingSemantic})
 	if fb != "" {
-		t.Fatal("semantic with embedder should not fallback")
+		t.Fatalf("semantic with embedder should not fallback; got reason %q", fb)
 	}
 	if len(got) == 0 || got[0].OperationID != "create-order" {
 		t.Errorf("top result = %v; want create-order first", topIDs(got))
@@ -264,17 +271,19 @@ func TestRankWithMode_SemanticRanksByEmbedding(t *testing.T) {
 
 func TestRankWithMode_HybridBlendsSignals(t *testing.T) {
 	tk := New("primary")
-	tk.SetEmbeddingProvider(newFakeEmbedder(32))
+	emb := newFakeEmbedder(32)
+	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, []testOp{
 		{id: "create-order", method: "POST", path: "/v1/orders", summary: "Place a new order"},
 		{id: "list-orders", method: "GET", path: "/v1/orders", summary: "List orders"},
 		{id: "get-user", method: "GET", path: "/v1/users/{id}", summary: "Fetch user profile"},
 	})
+	tk.warmEmbeddings(c, emb)
 	// Query has direct lexical match on /orders path. Hybrid should
 	// still surface order-related ops first.
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "orders", limit: 5, mode: RankingHybrid})
 	if fb != "" {
-		t.Fatal("hybrid with embedder should not fallback")
+		t.Fatalf("hybrid with embedder should not fallback; got reason %q", fb)
 	}
 	if len(got) < 2 {
 		t.Fatalf("want at least 2 results; got %v", topIDs(got))
@@ -300,12 +309,16 @@ func TestRankWithMode_SemanticEmbedFailureFallsBack(t *testing.T) {
 		{id: "a", method: "GET", path: "/a", summary: "alpha"},
 		{id: "b", method: "GET", path: "/b", summary: "beta"},
 	})
+	// Run the warmer synchronously: it will hit failBatch and
+	// set c.embedFailed, which is the state the subsequent
+	// rankWithMode call surfaces as a "warm-up failed" fallback.
+	tk.warmEmbeddings(c, emb)
+	if !c.embedFailed {
+		t.Fatal("c.embedFailed should be set after a batch failure")
+	}
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
 	if fb == "" {
 		t.Error("batch-embed failure should report fallback")
-	}
-	if !c.embedFailed {
-		t.Error("c.embedFailed should be sticky after a batch failure")
 	}
 	// Second call should also fall back without re-attempting embed.
 	emb.failBatch.Store(false) // would now succeed
@@ -388,7 +401,8 @@ func TestRankWithMode_QueryEmbedFailureFallsBack(t *testing.T) {
 	tk := New("primary")
 	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
-	emb.failEmbed.Store(true) // single Embed errors; EmbedBatch still works
+	tk.warmEmbeddings(c, emb) // populate before flipping failEmbed
+	emb.failEmbed.Store(true) // single Embed errors; EmbedBatch already ran
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
 	if fb == "" {
 		t.Error("query-embed failure should report fallback")
@@ -402,8 +416,10 @@ func TestRankWithMode_QueryEmbedFailureFallsBack(t *testing.T) {
 // itself succeeded.
 func TestRankWithMode_ZeroQueryVectorFallsBack(t *testing.T) {
 	tk := New("primary")
-	tk.SetEmbeddingProvider(zeroEmbedder{})
+	emb := zeroEmbedder{}
+	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
+	tk.warmEmbeddings(c, emb)
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
 	if fb == "" {
 		t.Error("zero-vector embedder should force fallback")
@@ -454,6 +470,7 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 	tk.mu.RLock()
 	connV1 := tk.connections["api"]
 	tk.mu.RUnlock()
+	waitForWarmerSettled(t, connV1)
 
 	got1, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV1, ops: connV1.operations, query: "users", limit: 5, mode: RankingSemantic})
 	if len(got1) != 1 || got1[0].OperationID != "list-users" {
@@ -480,8 +497,10 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 	if connV2 == connV1 {
 		t.Error("ReloadConnection should produce a new conn instance")
 	}
-	if len(connV2.embeddings) != 0 {
-		t.Errorf("expected zero cached embeddings on the new conn, got %d", len(connV2.embeddings))
+	waitForWarmerSettled(t, connV2)
+	if len(connV2.embeddings) != len(connV2.embedTexts) {
+		t.Errorf("v2 embeddings should be rehashed, got %d vs %d",
+			len(connV2.embeddings), len(connV2.embedTexts))
 	}
 
 	got2, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV2, ops: connV2.operations, query: "orders", limit: 5, mode: RankingSemantic})
@@ -562,6 +581,43 @@ func topIDs(ops []OperationSummary) []string {
 	return out
 }
 
+// warmerSettleTimeout is the deadline every test uses when
+// waiting for the background warmer to finish. Generous enough
+// for slow CI; tight enough that a hung warmer fails the test
+// loudly instead of stalling the whole suite.
+const warmerSettleTimeout = time.Second
+
+// waitForWarmerSettled polls c until the background warmer has
+// either populated the embeddings, marked the connection failed,
+// or has no work to do (empty embedTexts). Returns when the
+// warmer has settled so the caller can assert on the outcome
+// without racing. Tests that EXPECT success check
+// len(c.embeddings) after this returns; tests that EXPECT failure
+// check c.embedFailed.
+//
+// Required by tests that exercise the semantic / hybrid ranking
+// path: in production the warmer is kicked off at AddConnection
+// time and the first ranking call would otherwise race the
+// warmer. The helper makes tests deterministic without exposing
+// the warmer's internal coordination channel to production.
+func waitForWarmerSettled(t *testing.T, c *conn) {
+	t.Helper()
+	deadline := time.Now().Add(warmerSettleTimeout)
+	for time.Now().Before(deadline) {
+		c.embedMu.Lock()
+		inFlight := c.embedInFlight
+		populated := len(c.embeddings) == len(c.embedTexts) && len(c.embedTexts) > 0
+		failed := c.embedFailed
+		noWork := len(c.embedTexts) == 0
+		c.embedMu.Unlock()
+		if !inFlight && (populated || failed || noWork) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("warmer did not settle within %v", warmerSettleTimeout)
+}
+
 // minimalSpecWith wraps a YAML "paths" block in the smallest valid
 // OpenAPI 3.0 envelope the kin-openapi validator will accept. Each
 // operation in the caller-supplied paths block must declare its own
@@ -627,8 +683,15 @@ func TestSemanticRanking_BenchmarkCorpus(t *testing.T) {
 	}
 
 	tk := New("bench")
-	tk.SetEmbeddingProvider(newFakeEmbedder(64))
+	emb := newFakeEmbedder(64)
+	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, corpus)
+	// buildTestConn bypasses AddConnection so no warmer was
+	// spawned. Populate inline so hybrid actually scores
+	// semantically; without this, queryVectorFor would return
+	// errEmbeddingsNotStarted and hybrid would silently fall
+	// back to lexical, making the recall comparison meaningless.
+	tk.warmEmbeddings(c, emb)
 
 	type recall struct {
 		at1, at3 int
@@ -767,4 +830,109 @@ func TestLexicalScore_MultiTokenAndForHybridSignal(t *testing.T) {
 	if got := lexicalScore(op, ""); got != lexicalMatchAbsent {
 		t.Errorf("empty query should return absent; got %v", got)
 	}
+}
+
+// TestCheckEmbeddingsReady covers every state the embedding
+// readiness check can be in and confirms each maps to the right
+// operator-facing sentinel. The single hot-path on a ranking
+// request goes through this function; the sentinel choice
+// directly drives what shows up in the fallback Note operators
+// rely on.
+func TestCheckEmbeddingsReady(t *testing.T) {
+	t.Run("no ops to embed", func(t *testing.T) {
+		c := &conn{}
+		if err := checkEmbeddingsReady(c); !errors.Is(err, errEmbeddingsNoOps) {
+			t.Errorf("err=%v want errEmbeddingsNoOps", err)
+		}
+	})
+	t.Run("warmer in flight", func(t *testing.T) {
+		c := &conn{embedTexts: []string{"a"}, embedInFlight: true}
+		if err := checkEmbeddingsReady(c); !errors.Is(err, errEmbeddingsWarming) {
+			t.Errorf("err=%v want errEmbeddingsWarming", err)
+		}
+	})
+	t.Run("definitive failure", func(t *testing.T) {
+		c := &conn{embedTexts: []string{"a"}, embedFailed: true}
+		if err := checkEmbeddingsReady(c); !errors.Is(err, errEmbeddingsFailed) {
+			t.Errorf("err=%v want errEmbeddingsFailed", err)
+		}
+	})
+	t.Run("warmer never started", func(t *testing.T) {
+		c := &conn{embedTexts: []string{"a"}}
+		if err := checkEmbeddingsReady(c); !errors.Is(err, errEmbeddingsNotStarted) {
+			t.Errorf("err=%v want errEmbeddingsNotStarted", err)
+		}
+	})
+	t.Run("ready", func(t *testing.T) {
+		c := &conn{embedTexts: []string{"a"}, embeddings: [][]float32{{1, 0}}}
+		if err := checkEmbeddingsReady(c); err != nil {
+			t.Errorf("ready state should return nil; got %v", err)
+		}
+	})
+}
+
+// TestEnsureEmbeddings_RejectsProviderCountMismatch proves a
+// provider that returns the wrong number of vectors is rejected
+// definitively. The mismatch is a provider bug, not a transient
+// failure: c.embedFailed is set so subsequent calls fall back to
+// lexical with a clear reason instead of repeatedly hitting the
+// misbehaving provider.
+func TestEnsureEmbeddings_RejectsProviderCountMismatch(t *testing.T) {
+	tk := New("test")
+	c := &conn{embedTexts: []string{"alpha", "beta", "gamma"}}
+	emb := countMismatchEmbedder{returnCount: 2}
+	err := tk.ensureEmbeddings(context.Background(), c, emb)
+	if err == nil {
+		t.Fatal("expected error for vector count mismatch")
+	}
+	if !strings.Contains(err.Error(), "returned 2 vectors for 3 texts") {
+		t.Errorf("error should name the mismatch counts; got %q", err)
+	}
+	c.embedMu.Lock()
+	failed := c.embedFailed
+	c.embedMu.Unlock()
+	if !failed {
+		t.Error("count mismatch must set embedFailed (definitive provider bug)")
+	}
+}
+
+// countMismatchEmbedder returns fewer vectors than texts requested,
+// simulating a provider bug that drops items silently. Distinct from
+// failBatch (which errors) and zeroEmbedder (which returns the right
+// count with zero values).
+type countMismatchEmbedder struct{ returnCount int }
+
+func (countMismatchEmbedder) Dimension() int { return 4 }
+func (countMismatchEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	return []float32{1, 0, 0, 0}, nil
+}
+
+func (e countMismatchEmbedder) EmbedBatch(_ context.Context, _ []string) ([][]float32, error) {
+	out := make([][]float32, e.returnCount)
+	for i := range out {
+		out[i] = []float32{1, 0, 0, 0}
+	}
+	return out, nil
+}
+
+// TestSetEmbeddingProvider_NilDoesNotPanic proves passing nil
+// is a no-op and never reaches the warmer spawn loop. Covers the
+// early-return branch.
+func TestSetEmbeddingProvider_NilDoesNotPanic(_ *testing.T) {
+	tk := New("test")
+	tk.SetEmbeddingProvider(nil)
+	tk.SetEmbeddingProvider(nil) // idempotent
+}
+
+// TestWarmEmbeddings_NoOpsReturnsImmediately proves the early
+// guards in warmEmbeddings short-circuit without spawning a
+// goroutine or hitting the provider when there is nothing to do.
+func TestWarmEmbeddings_NoOpsReturnsImmediately(_ *testing.T) {
+	tk := New("test")
+	// nil conn: short-circuit
+	tk.warmEmbeddings(nil, &fakeEmbedder{dim: 4})
+	// nil embedder: short-circuit
+	tk.warmEmbeddings(&conn{embedTexts: []string{"a"}}, nil)
+	// empty embedTexts: short-circuit
+	tk.warmEmbeddings(&conn{}, &fakeEmbedder{dim: 4})
 }

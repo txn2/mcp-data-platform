@@ -211,23 +211,34 @@ type RoutePolicy interface {
 // parsed OpenAPI documents that api_get_endpoint_schema reads.
 //
 // embedTexts is the parallel-indexed text fed to the embedding
-// provider for semantic ranking; embeddings are populated lazily on
-// the first non-lexical api_list_endpoints call (so an unreachable
-// embedding service does not block platform startup). embedMu
-// serializes the lazy populate so concurrent calls embed once.
-// Invalidation is by full conn rebuild — ReloadConnection drops
-// the conn and re-creates it when a catalog mutates, so the
-// embedding cache is naturally fresh.
+// provider for semantic ranking. embeddings are populated by a
+// background warmer goroutine kicked off from addParsedConnection
+// (when an embedder is already wired) and from SetEmbeddingProvider
+// (when the provider is wired after the connection is registered).
+// Populating off the request path keeps the first ranking call
+// from synchronously blocking on a slow embedder and timing out
+// the MCP request budget. embedInFlight is the warmer presence
+// guard so concurrent triggers de-duplicate. embedFailed sticks
+// on definitive provider failures so a misbehaving embedder is
+// not re-hammered on every ranking call. Invalidation is by full
+// conn rebuild: ReloadConnection drops the conn and re-registers
+// it, which spawns a fresh warmer.
 type conn struct {
-	cfg         Config
-	auth        Authenticator
-	client      *http.Client
-	specs       map[string]*specState
-	operations  []OperationSummary
-	embedTexts  []string
-	embeddings  [][]float32
-	embedMu     sync.Mutex
-	embedFailed bool
+	cfg        Config
+	auth       Authenticator
+	client     *http.Client
+	specs      map[string]*specState
+	operations []OperationSummary
+	embedTexts []string
+	// embedMu guards every field below this line. Read paths
+	// (per-request) take the lock briefly to copy a snapshot and
+	// release; the write path (background warmer) holds it only
+	// while it swaps the populated slice in, never while the
+	// embedder is being called.
+	embedMu       sync.Mutex
+	embeddings    [][]float32
+	embedFailed   bool
+	embedInFlight bool
 }
 
 // specState retains the parsed OpenAPI document for a component
@@ -565,13 +576,25 @@ func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
 // SetEmbeddingProvider wires the embedding model used by the
 // "semantic" and "hybrid" ranking modes of api_list_endpoints. nil
 // (the default) disables non-lexical ranking; calls that request
-// it fall back to lexical with a note. Per-connection embedding
-// vectors are computed lazily on the first non-lexical call so an
-// unreachable embedding service does not block platform startup.
+// it fall back to lexical with a note. When a non-nil provider is
+// wired, the toolkit kicks off a background warmer for every
+// already-registered connection so the first ranking call does
+// not pay the cold-start cost of embedding every operation
+// synchronously inside the request budget.
 func (t *Toolkit) SetEmbeddingProvider(p embedding.Provider) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.embedder = p
+	conns := make([]*conn, 0, len(t.connections))
+	for _, c := range t.connections {
+		conns = append(conns, c)
+	}
+	t.mu.Unlock()
+	if p == nil {
+		return
+	}
+	for _, c := range conns {
+		go t.warmEmbeddings(c, p)
+	}
 }
 
 // SetQueryProvider stores the query provider. Reserved for future
@@ -641,8 +664,8 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		embedTexts: texts,
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if _, exists := t.connections[name]; exists {
+		t.mu.Unlock()
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
 	}
 	// Wire the unified token store into authorization_code
@@ -659,8 +682,70 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		}
 	}
 	t.connections[name] = c
+	embedder := t.embedder
+	t.mu.Unlock()
+	// Kick off the background embedding warmer when an embedder is
+	// already wired. SetEmbeddingProvider triggers it for the
+	// other-ordering case (provider wired after the connection
+	// registers). Either way the first ranking call finds the
+	// embeddings already populated and returns in milliseconds
+	// instead of timing out on a cold per-operation embedding pass.
+	if embedder != nil && len(c.embedTexts) > 0 {
+		go t.warmEmbeddings(c, embedder)
+	}
 	return nil
 }
+
+// warmEmbeddings populates c.embeddings in the background using the
+// supplied embedder. Runs once per connection lifecycle: subsequent
+// invocations short-circuit when embeddings are already populated,
+// when a prior warm-up failed definitively, or when another warmer
+// is already in flight. The result is that the FIRST
+// ranking=semantic|hybrid call against a connection finds
+// embeddings ready and returns inside the request budget rather
+// than triggering a multi-minute per-operation embedding pass
+// inside the MCP request and timing out.
+//
+// embedder is passed in rather than re-read from t.embedder so a
+// concurrent SetEmbeddingProvider(nil) does not race the loop.
+// The work itself runs on a 10-minute background context so a
+// genuinely unreachable embedder cannot leak a hung goroutine.
+func (t *Toolkit) warmEmbeddings(c *conn, embedder embedding.Provider) {
+	if c == nil || embedder == nil || len(c.embedTexts) == 0 {
+		return
+	}
+	// Panic recovery is mandatory in this entry point because the
+	// warmer is also called from a goroutine spawned by
+	// addParsedConnection and SetEmbeddingProvider. A misbehaving
+	// embedding provider that panics cannot crash the platform
+	// process. The recovered panic marks the warmer as definitively
+	// failed so subsequent ranking calls fall back to lexical with
+	// a clear reason instead of spawning another warmer that will
+	// panic the same way.
+	defer func() {
+		if rec := recover(); rec != nil {
+			c.embedMu.Lock()
+			c.embedInFlight = false
+			c.embedFailed = true
+			c.embedMu.Unlock()
+			slog.Error("apigateway: embeddings warm-up panicked",
+				logKeyConnection, c.cfg.ConnectionName, "panic", rec)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), warmEmbeddingsTimeout)
+	defer cancel()
+	if err := t.ensureEmbeddings(ctx, c, embedder); err != nil {
+		slog.Warn("apigateway: embeddings warm-up failed",
+			logKeyConnection, c.cfg.ConnectionName, logKeyError, err)
+	}
+}
+
+// warmEmbeddingsTimeout caps how long the background embedding
+// warmer can run for a single connection. Generous enough for a
+// 1000-operation catalog against a slow embedder; bounded so a
+// genuinely unreachable embedder cannot leak a hung goroutine
+// across a long-lived platform process.
+const warmEmbeddingsTimeout = 10 * time.Minute
 
 // buildConnSpecs loads the connection's catalog (when configured),
 // parses each component spec, and returns the merged operation
