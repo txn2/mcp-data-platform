@@ -71,9 +71,12 @@ func TestComputeOperationEmbeddings_BatchErrorPropagates(t *testing.T) {
 }
 
 // TestComputeOperationEmbeddings_CountMismatchPropagates drives
-// the second guard in fillFreshEmbeddings: a provider that returns
-// the wrong number of vectors is rejected without writing partial
-// rows.
+// the count-mismatch guard via embedInBatches (which is the
+// primary enforcer of "vectors-returned == texts-passed"), and
+// verifies the wrapped error surfaces through
+// ComputeOperationEmbeddings. fillFreshEmbeddings has its own
+// belt-and-braces count check that is defensive against a future
+// refactor bypassing embedInBatches.
 func TestComputeOperationEmbeddings_CountMismatchPropagates(t *testing.T) {
 	t.Parallel()
 	_, err := ComputeOperationEmbeddings(context.Background(), countMismatchEmbedder{returnCount: 1}, persistedEmbedTestSpec, "default", nil)
@@ -123,8 +126,8 @@ func TestComputeOperationEmbeddings_AllReusedSkipsFreshEmbed(t *testing.T) {
 	for _, r := range rows {
 		existing[r.OperationID] = r
 	}
-	// Second pass with identical content + identical model — nothing
-	// to re-embed, fillFreshEmbeddings should return without calling
+	// Second pass with identical content + identical model. Nothing
+	// to re-embed, so fillFreshEmbeddings returns without calling
 	// the provider.
 	if _, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", existing); err != nil {
 		t.Fatalf("second compute: %v", err)
