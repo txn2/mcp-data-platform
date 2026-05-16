@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
@@ -28,6 +29,31 @@ const embedBatchSize = 32
 // can phrase the cause correctly: this is operator configuration,
 // not an upstream failure.
 var errEmbedderNotWired = errors.New("embedding provider not configured on this connection")
+
+// Embedding-state sentinels returned by checkEmbeddingsReady. Each
+// one carries enough context for the operator to act:
+//
+//   - errEmbeddingsNoOps: nothing to embed (the connection has no
+//     operations; semantic ranking is meaningless).
+//   - errEmbeddingsFailed: a prior warmer attempt failed with a
+//     definitive error (not a transient cancel); reload the
+//     connection or restart the platform to retry.
+//   - errEmbeddingsWarming: the background warmer is in flight;
+//     fall back to lexical for this call and retry shortly.
+//   - errEmbeddingsNotStarted: no warmer ever ran (typically
+//     because the embedding provider was wired AFTER the
+//     connection registered and the toolkit was never told to
+//     start one); operator should reload the connection.
+//   - errEmbeddingsZeroVector: the provider returned a zero vector
+//     for the query, which produces meaningless cosine similarity;
+//     points at a misconfigured embedding model.
+var (
+	errEmbeddingsNoOps      = errors.New("connection has no operations to embed")
+	errEmbeddingsFailed     = errors.New("operation-embedding warm-up failed; reload the connection to retry")
+	errEmbeddingsWarming    = errors.New("operation embeddings still warming; falling back to lexical until ready")
+	errEmbeddingsNotStarted = errors.New("operation-embedding warm-up has not started; reload the connection")
+	errEmbeddingsZeroVector = errors.New("query embedding is the zero vector (misconfigured embedding model)")
+)
 
 // RankingMode selects the algorithm api_list_endpoints uses to score
 // candidate operations against the model's query.
@@ -135,16 +161,24 @@ func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary
 // error describing why semantic ranking cannot proceed for this
 // call. Error returns drive the lexical fallback in rankWithMode
 // AND populate the operator-facing Note on the response so the
-// model (and the operator reading the log) knows whether the cause
-// was operator configuration (errEmbedderNotWired), an upstream
+// model and the operator reading the log know whether the cause
+// is operator configuration (errEmbedderNotWired), an upstream
 // embedding failure (provider Embed errors), a previously-cached
-// per-connection failure (c.embedFailed), or a zero-vector reply
-// from the provider (a misconfigured model or empty-prompt edge
-// case).
+// per-connection failure (c.embedFailed), an in-flight cold-start
+// warmer that has not yet populated this connection's operation
+// embeddings (errEmbeddingsWarming), or a zero-vector reply from
+// the provider (errEmbeddingsZeroVector).
+//
+// The operation-embedding population happens in a background
+// warmer kicked off at AddConnection / SetEmbeddingProvider time.
+// queryVectorFor never does that work inline. A request that
+// arrives before the warmer finishes returns
+// errEmbeddingsWarming so the caller falls back to lexical inside
+// the request budget instead of synchronously triggering a
+// multi-minute per-operation pass.
 //
 // Snapshots t.embedder under the read lock so a concurrent
-// SetEmbeddingProvider cannot race with the nil check or with the
-// dereference below.
+// SetEmbeddingProvider cannot race with the nil check below.
 func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]float32, error) {
 	t.mu.RLock()
 	embedder := t.embedder
@@ -152,17 +186,106 @@ func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]
 	if embedder == nil {
 		return nil, errEmbedderNotWired
 	}
-	if err := t.ensureEmbeddings(ctx, c, embedder); err != nil {
-		return nil, fmt.Errorf("operation embeddings unavailable: %w", err)
+	if err := checkEmbeddingsReady(c); err != nil {
+		return nil, err
 	}
 	vec, err := embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 	if zeroVector(vec) {
-		return nil, errors.New("query embedding is the zero vector (misconfigured embedding model)")
+		return nil, errEmbeddingsZeroVector
 	}
 	return vec, nil
+}
+
+// checkEmbeddingsReady reports whether the per-connection
+// operation embeddings are populated and usable. Returns a
+// distinct sentinel for every reason a non-lexical rank cannot
+// proceed so the operator-facing fallback Note names the actual
+// cause: warmer still in flight, prior warmer failed definitively,
+// or the connection has no operations to embed in the first place.
+func checkEmbeddingsReady(c *conn) error {
+	c.embedMu.Lock()
+	defer c.embedMu.Unlock()
+	if len(c.embedTexts) == 0 {
+		return errEmbeddingsNoOps
+	}
+	if len(c.embeddings) == len(c.embedTexts) {
+		return nil
+	}
+	if c.embedFailed {
+		return errEmbeddingsFailed
+	}
+	if c.embedInFlight {
+		return errEmbeddingsWarming
+	}
+	return errEmbeddingsNotStarted
+}
+
+// ensureEmbeddings is the synchronous worker that populates the
+// per-connection operation embeddings. Called by warmEmbeddings
+// (in a goroutine at AddConnection / SetEmbeddingProvider time)
+// and exposed at package scope so unit tests can drive the worker
+// with controlled contexts (e.g., a pre-canceled ctx to verify
+// the carve-out that keeps a transient cancellation from poisoning
+// the cache).
+//
+// Concurrent callers serialize through the embedInFlight guard:
+// the loser returns errEmbeddingsWarming so a second worker does
+// not double-hit the embedder for the same connection. Failures
+// fall into two buckets: transient (ctx.Canceled / DeadlineExceeded)
+// do not poison the cache so a later attempt can succeed; every
+// other provider error sets c.embedFailed so a misbehaving
+// embedder is not re-hammered on every subsequent call.
+func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embedding.Provider) error {
+	c.embedMu.Lock()
+	if len(c.embedTexts) == 0 {
+		c.embedMu.Unlock()
+		return errEmbeddingsNoOps
+	}
+	if len(c.embeddings) == len(c.embedTexts) {
+		c.embedMu.Unlock()
+		return nil
+	}
+	if c.embedFailed {
+		c.embedMu.Unlock()
+		return errEmbeddingsFailed
+	}
+	if c.embedInFlight {
+		c.embedMu.Unlock()
+		return errEmbeddingsWarming
+	}
+	c.embedInFlight = true
+	textCount := len(c.embedTexts)
+	c.embedMu.Unlock()
+
+	start := time.Now()
+	slog.Info("apigateway: warming connection embeddings",
+		logKeyConnection, c.cfg.ConnectionName, "count", textCount)
+	vectors, err := embedInBatches(ctx, embedder, c.embedTexts, embedBatchSize)
+	c.embedMu.Lock()
+	c.embedInFlight = false
+	switch {
+	case err != nil:
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			c.embedFailed = true
+		}
+		c.embedMu.Unlock()
+		return fmt.Errorf("embed operation batch: %w", err)
+	case len(vectors) != len(c.embedTexts):
+		c.embedFailed = true
+		c.embedMu.Unlock()
+		return fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
+			len(vectors), len(c.embedTexts))
+	default:
+		c.embeddings = vectors
+		c.embedMu.Unlock()
+		slog.Info("apigateway: embeddings warm-up complete",
+			logKeyConnection, c.cfg.ConnectionName,
+			"count", textCount, "duration", time.Since(start))
+		return nil
+	}
 }
 
 // scoreOperations builds the per-op score slice. Operations whose
@@ -237,65 +360,6 @@ func indexOf(ops []OperationSummary, target OperationSummary) int {
 		}
 	}
 	return -1
-}
-
-// ensureEmbeddings populates c.embeddings for the current spec set
-// if not already populated. Returns nil when c.embeddings is usable
-// on return (already populated by a prior call, or populated by this
-// one). Returns a non-nil error describing why semantic ranking
-// cannot proceed; the caller surfaces the error verbatim on the
-// fallback Note so operators see the real cause instead of a generic
-// "embedding pipeline unavailable" placeholder.
-//
-// Concurrent callers serialize through c.embedMu so the embedding
-// service is hit at most once per (connection, spec_set) lifecycle.
-//
-// Failure handling distinguishes transient from definitive:
-//   - ctx.Err() (caller-side cancellation, deadline exceeded) and a
-//     length-mismatched batch (provider misconfiguration that may
-//     resolve on a hot-reconfig) are NOT sticky — the next call
-//     re-attempts. Without this carve-out, a single MCP-client
-//     cancellation during a slow first embed would permanently
-//     disable semantic ranking until pod restart.
-//   - Any other provider error sets c.embedFailed so a misbehaving
-//     embedding service does not get re-hammered every call.
-//
-// embedder is taken as an explicit argument (rather than reading
-// t.embedder again) so the snapshot taken under t.mu.RLock in the
-// caller is the value used here too.
-func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embedding.Provider) error {
-	c.embedMu.Lock()
-	defer c.embedMu.Unlock()
-	if len(c.embedTexts) == 0 {
-		return errors.New("connection has no operations to embed")
-	}
-	if len(c.embeddings) == len(c.embedTexts) {
-		return nil
-	}
-	if c.embedFailed {
-		return errors.New("a previous embedding attempt failed; restart the platform or reload the connection to retry")
-	}
-	vectors, err := embedInBatches(ctx, embedder, c.embedTexts, embedBatchSize)
-	if err != nil {
-		// Transient signals do NOT poison the cache. Definitive
-		// provider errors do, so a misconfigured embedder URL
-		// doesn't produce a fresh hit on every tool call.
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			c.embedFailed = true
-			slog.Warn("apigateway: embedding batch failed (caching as definitive)",
-				logKeyConnection, c.cfg.ConnectionName,
-				"texts", len(c.embedTexts), logKeyError, err)
-		}
-		return fmt.Errorf("embed operation batch: %w", err)
-	}
-	if len(vectors) != len(c.embedTexts) {
-		// Length mismatch is a provider bug; treat as transient so
-		// a hot-reconfig of the provider can recover.
-		return fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
-			len(vectors), len(c.embedTexts))
-	}
-	c.embeddings = vectors
-	return nil
 }
 
 // embedInBatches calls embedder.EmbedBatch in chunks of at most
