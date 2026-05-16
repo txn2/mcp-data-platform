@@ -536,3 +536,96 @@ func TestFilterBySpec(t *testing.T) {
 		t.Errorf("no-match must return empty slice, got %d", len(got))
 	}
 }
+
+// TestAddConnection_OverrideBasePath_WinsOverServers proves the
+// operator-set SpecEntry.BasePath is honored at registration time
+// even when the spec content also declares servers[0].url. Drives
+// the case where a vendor's published spec is wrong for the
+// operator's deployment (sandbox, proxy, version pin).
+func TestAddConnection_OverrideBasePath_WinsOverServers(t *testing.T) {
+	spec := `
+openapi: 3.0.3
+info: {title: x, version: "1.0"}
+servers:
+  - url: https://api.example.com/wrong-prefix
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        "200": {description: ok}
+`
+	tk := New("test")
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	if err := store.CreateCatalog(context.Background(), catalog.Catalog{
+		ID: "vendor", Name: "vendor", DisplayName: "Vendor",
+	}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	if err := store.UpsertSpec(context.Background(), "vendor", catalog.SpecEntry{
+		SpecName: "default", Content: spec, SourceKind: catalog.SourceInline,
+		BasePath: "/operator-override/v1",
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "vendor",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if c == nil || len(c.operations) != 1 {
+		t.Fatalf("expected 1 op, got %v", c)
+	}
+	if got, want := c.operations[0].Path, "/operator-override/v1/users"; got != want {
+		t.Errorf("op path = %q; want %q (operator override should win over servers[0])", got, want)
+	}
+}
+
+// TestAddConnection_OverrideBasePath_DedupesAgainstConnBaseURL
+// proves the dedupe rule still applies to operator-set values:
+// when the connection's base_url already contains the override as
+// a suffix, the override is dropped to prevent doubling at invoke
+// time. Same rule the auto-derived path uses.
+func TestAddConnection_OverrideBasePath_DedupesAgainstConnBaseURL(t *testing.T) {
+	spec := `
+openapi: 3.0.3
+info: {title: x, version: "1.0"}
+paths:
+  /things:
+    get:
+      operationId: listThings
+      responses:
+        "200": {description: ok}
+`
+	tk := New("test")
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	if err := store.CreateCatalog(context.Background(), catalog.Catalog{
+		ID: "vendor", Name: "vendor", DisplayName: "Vendor",
+	}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	if err := store.UpsertSpec(context.Background(), "vendor", catalog.SpecEntry{
+		SpecName: "default", Content: spec, SourceKind: catalog.SourceInline,
+		BasePath: "/v1",
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://api.example.com/v1",
+		"catalog_id": "vendor",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	if got, want := c.operations[0].Path, "/things"; got != want {
+		t.Errorf("op path = %q; want %q (dedupe should drop the duplicate /v1)", got, want)
+	}
+}

@@ -318,7 +318,7 @@ func TestUpsertSpec_Insert(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", nil).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -337,7 +337,7 @@ func TestUpsertSpec_WithFetchedAt(t *testing.T) {
 	fetched := time.Now()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
 		WithArgs("petstore", "default", "openapi: 3.0", SourceURL,
-			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", fetched).
+			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", fetched).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:      "default",
@@ -349,6 +349,44 @@ func TestUpsertSpec_WithFetchedAt(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("UpsertSpec: %v", err)
+	}
+}
+
+// TestUpsertSpec_WithBasePath proves the operator-supplied base
+// path round-trips through the INSERT (normalized at write time:
+// trailing slash stripped, leading slash required).
+func TestUpsertSpec_WithBasePath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", nil).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
+		SpecName:   "default",
+		Content:    "openapi: 3.0",
+		SourceKind: SourceInline,
+		BasePath:   "/v1/", // trailing slash should be stripped
+	})
+	if err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+}
+
+// TestUpsertSpec_RejectsInvalidBasePath proves the validator stops
+// a malformed base path before the SQL exec.
+func TestUpsertSpec_RejectsInvalidBasePath(t *testing.T) {
+	t.Parallel()
+	store, _, done := newMockStore(t)
+	defer done()
+	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
+		SpecName:   "default",
+		Content:    "openapi: 3.0",
+		SourceKind: SourceInline,
+		BasePath:   "v1", // missing leading slash
+	})
+	if err == nil {
+		t.Fatal("expected error for missing leading slash")
 	}
 }
 
@@ -419,9 +457,9 @@ func TestGetSpec_Success(t *testing.T) {
 		WithArgs("petstore", "default").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
 		}).AddRow("default", "openapi: 3.0", "url",
-			"https://x", "etag-1", now, now, now))
+			"https://x", "etag-1", "", now, now, now))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -440,9 +478,9 @@ func TestGetSpec_NullFetchedAt(t *testing.T) {
 		WithArgs("petstore", "default").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
 		}).AddRow("default", "openapi: 3.0", "inline",
-			"", "", nil, now, now))
+			"", "", "", nil, now, now))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -460,7 +498,7 @@ func TestGetSpec_NotFound(t *testing.T) {
 		WithArgs("petstore", "missing").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
 		}))
 	_, err := store.GetSpec(context.Background(), "petstore", "missing")
 	if !errors.Is(err, ErrNotFound) {
@@ -489,10 +527,10 @@ func TestListSpecs(t *testing.T) {
 		WithArgs("petstore").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
 		}).
-			AddRow("constituent", "openapi: 3.0", "inline", "", "", nil, now, now).
-			AddRow("gift", "openapi: 3.0", "url", "https://x", "etag", now, now, now))
+			AddRow("users", "openapi: 3.0", "inline", "", "", "", nil, now, now).
+			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", now, now, now))
 	specs, err := store.ListSpecs(context.Background(), "petstore")
 	if err != nil {
 		t.Fatalf("ListSpecs: %v", err)

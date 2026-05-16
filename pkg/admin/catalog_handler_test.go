@@ -175,6 +175,7 @@ func TestCatalog_Clone(t *testing.T) {
 	})
 	_ = store.UpsertSpec(context.Background(), "src", apicatalog.SpecEntry{
 		SpecName: "default", Content: "x", SourceKind: apicatalog.SourceInline,
+		BasePath: "/v3",
 	})
 	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs/src/clone", map[string]any{
 		"id": "dst", "name": "petstore", "version": "2",
@@ -184,7 +185,10 @@ func TestCatalog_Clone(t *testing.T) {
 	}
 	specs, _ := store.ListSpecs(context.Background(), "dst")
 	if len(specs) != 1 {
-		t.Errorf("clone did not copy specs: %+v", specs)
+		t.Fatalf("clone did not copy specs: %+v", specs)
+	}
+	if specs[0].BasePath != "/v3" {
+		t.Errorf("clone did not preserve BasePath; got %q, want %q", specs[0].BasePath, "/v3")
 	}
 }
 
@@ -425,5 +429,113 @@ func TestValidateConnectionCatalog_HappyPath(t *testing.T) {
 		map[string]any{"catalog_id": "p"})
 	if !ok || msg != "" {
 		t.Errorf("happy path: ok=%v msg=%q", ok, msg)
+	}
+}
+
+// TestCatalog_UpsertSpecInlineWithBasePath proves the operator-set
+// per-spec BasePath round-trips through the JSON upsert path and
+// shows up on the GET response.
+func TestCatalog_UpsertSpecInlineWithBasePath(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		"base_path":   "/v3",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("upsert: %d %s", res.Code, res.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "default")
+	if saved == nil || saved.BasePath != "/v3" {
+		t.Fatalf("expected stored BasePath=/v3, got %+v", saved)
+	}
+}
+
+// TestCatalog_UpsertSpecRejectsInvalidBasePath proves a malformed
+// base_path is rejected with HTTP 400 (not 500), so operator input
+// mistakes do not pollute alerts.
+func TestCatalog_UpsertSpecRejectsInvalidBasePath(t *testing.T) {
+	t.Parallel()
+	h, _ := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		"base_path":   "v3", // missing leading slash
+	})
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid base_path, got %d %s", res.Code, res.Body.String())
+	}
+}
+
+// TestCatalog_UploadWithBasePath proves the ?base_path= query
+// parameter is honored on multipart uploads (the operator can set
+// the prefix during the upload step instead of having to switch to
+// the paste tab afterwards).
+func TestCatalog_UploadWithBasePath(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, err := w.CreateFormFile("file", "spec.yaml")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write([]byte("openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = w.Close()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/api-catalogs/p/specs/uploaded/upload?base_path=%2Fv1", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "uploaded")
+	if saved == nil || saved.BasePath != "/v1" {
+		t.Fatalf("expected uploaded spec BasePath=/v1, got %+v", saved)
+	}
+}
+
+// TestCatalog_UploadPreservesExistingBasePath proves a re-upload
+// without a ?base_path= query keeps the previously-stored value
+// instead of zeroing it out.
+func TestCatalog_UploadPreservesExistingBasePath(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
+		ID: "p", Name: "p", DisplayName: "P",
+	})
+	_ = store.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
+		SpecName: "uploaded", Content: "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		SourceKind: apicatalog.SourceUpload, BasePath: "/preset/v1",
+	})
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "spec.yaml")
+	_, _ = part.Write([]byte("openapi: 3.0.0\ninfo: {title: x, version: '2'}\npaths: {}\n"))
+	_ = w.Close()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/api-catalogs/p/specs/uploaded/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "uploaded")
+	if saved == nil || saved.BasePath != "/preset/v1" {
+		t.Fatalf("expected preserved BasePath=/preset/v1, got %+v", saved)
 	}
 }

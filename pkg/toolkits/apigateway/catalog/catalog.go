@@ -16,7 +16,9 @@ package catalog
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -32,6 +34,11 @@ var ErrConflict = errors.New("catalog: conflict")
 // shape required by the store. IDs are operator-supplied and
 // immutable after creation, so we validate aggressively up front.
 var ErrInvalidID = errors.New("catalog: invalid id")
+
+// ErrInvalidBasePath is returned when an operator-supplied per-spec
+// base path fails validation. Exported so callers can map it to a
+// 400 response without string-matching the error message.
+var ErrInvalidBasePath = errors.New("catalog: invalid base_path")
 
 // ErrInvalidSpecName is returned when a spec name doesn't match the
 // component-slug shape. Spec names appear in MCP tool output (the
@@ -68,12 +75,23 @@ type Catalog struct {
 // Content is plain text (YAML or JSON); the toolkit parses it at
 // connection-load time. SourceURL/ETag/LastFetchedAt populate when
 // SourceKind == SourceURL so the portal can offer a "Refresh" action.
+//
+// BasePath is the operator-supplied override for the URL path
+// segment prepended to every operation in this spec when the
+// connection invokes the upstream. Empty means "no override"; the
+// toolkit falls back to deriving the prefix from servers[0].url
+// in the spec content. Set this when the spec ships without a
+// servers[] entry, or when the operator's deployment targets a
+// path that does not match what the spec author wrote (sandbox,
+// proxy, version pin). Must start with "/" when non-empty;
+// trailing slash is stripped at validation time.
 type SpecEntry struct {
 	SpecName      string
 	Content       string
 	SourceKind    string
 	SourceURL     string
 	ETag          string
+	BasePath      string
 	LastFetchedAt time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -130,4 +148,31 @@ func ValidateSourceKind(s string) error {
 	default:
 		return errors.New("catalog: invalid source_kind (want inline|upload|url)")
 	}
+}
+
+// NormalizeBasePath validates and normalizes an operator-supplied
+// SpecEntry.BasePath. Empty input returns empty output (the "no
+// override" sentinel). Non-empty input is required to start with
+// "/", must not contain CR/LF/NUL (header-smuggling vector when
+// the path lands in a request line) and must not contain "?" or
+// "#" (those terminate the path component of an URL). A trailing
+// slash on a non-root value is stripped so the prepended segment
+// joins cleanly with operation paths that all start with "/".
+func NormalizeBasePath(s string) (string, error) {
+	if s == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(s, "/") {
+		return "", fmt.Errorf("must start with leading slash: %w", ErrInvalidBasePath)
+	}
+	if strings.ContainsAny(s, "\r\n\x00") {
+		return "", fmt.Errorf("contains CR/LF/NUL: %w", ErrInvalidBasePath)
+	}
+	if strings.ContainsAny(s, "?#") {
+		return "", fmt.Errorf("must not contain query or fragment: %w", ErrInvalidBasePath)
+	}
+	if s != "/" {
+		s = strings.TrimSuffix(s, "/")
+	}
+	return s, nil
 }

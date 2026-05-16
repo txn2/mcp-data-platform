@@ -705,6 +705,12 @@ export interface APICatalogSpec {
   source_kind: "inline" | "upload" | "url";
   source_url?: string;
   etag?: string;
+  // Operator-set per-spec URL prefix applied at api_list_endpoints
+  // and api_invoke_endpoint time. Empty means "use whatever the
+  // spec's servers[0].url declares"; explicit non-empty overrides
+  // the derivation. See pkg/toolkits/apigateway/catalog
+  // NormalizeBasePath for the validation rules.
+  base_path?: string;
   last_fetched_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -829,6 +835,7 @@ export function useUpsertAPICatalogSpec() {
       source_kind: "inline" | "url";
       content?: string;
       source_url?: string;
+      base_path?: string;
     }) =>
       apiFetch<APICatalogSpec>(
         `/api-catalogs/${catalogID}/specs/${specName}`,
@@ -850,15 +857,20 @@ export function useUploadAPICatalogSpec() {
       catalogID,
       specName,
       file,
+      base_path,
     }: {
       catalogID: string;
       specName: string;
       file: File;
+      base_path?: string;
     }) => {
       const form = new FormData();
       form.append("file", file);
+      const qs = base_path && base_path.trim() !== ""
+        ? `?base_path=${encodeURIComponent(base_path.trim())}`
+        : "";
       const res = await apiFetchRaw(
-        `/api-catalogs/${catalogID}/specs/${specName}/upload`,
+        `/api-catalogs/${catalogID}/specs/${specName}/upload${qs}`,
         { method: "PUT", body: form },
       );
       if (!res.ok) {

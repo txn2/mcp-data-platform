@@ -848,6 +848,7 @@ function SpecModal({
   const [tab, setTab] = useState<SourceTab>("paste");
   const [content, setContent] = useState("");
   const [sourceURL, setSourceURL] = useState("");
+  const [basePath, setBasePath] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -861,6 +862,7 @@ function SpecModal({
       setSourceURL(existing.source_url ?? "");
       setTab("url");
     }
+    setBasePath(existing.base_path ?? "");
   }, [existing]);
 
   const submit = useCallback(async () => {
@@ -876,6 +878,7 @@ function SpecModal({
           specName,
           source_kind: "inline",
           content,
+          base_path: basePath.trim(),
         });
       } else if (tab === "url") {
         await upsert.mutateAsync({
@@ -883,6 +886,7 @@ function SpecModal({
           specName,
           source_kind: "url",
           source_url: sourceURL,
+          base_path: basePath.trim(),
         });
       } else if (tab === "upload") {
         if (!file) {
@@ -893,13 +897,18 @@ function SpecModal({
           setError("file exceeds 10 MB limit");
           return;
         }
-        await upload.mutateAsync({ catalogID, specName, file });
+        await upload.mutateAsync({
+          catalogID,
+          specName,
+          file,
+          base_path: basePath.trim(),
+        });
       }
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "save failed");
     }
-  }, [catalogID, specName, tab, content, sourceURL, file, upsert, upload, onSaved]);
+  }, [catalogID, specName, tab, content, sourceURL, basePath, file, upsert, upload, onSaved]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -991,6 +1000,15 @@ function SpecModal({
               mono
             />
           )}
+
+          <LabeledInput
+            label="Base path (optional)"
+            help="URL path segment prepended to every operation in this spec at invoke time. Set this when the spec ships without a servers[] entry, or when you need to override the spec author's value (sandbox, proxy, version pin). When empty, the toolkit derives the prefix from the spec's first servers[].url. Must start with '/'. Example: /v1 or /api/v2."
+            value={basePath}
+            onChange={setBasePath}
+            placeholder="/v1"
+            mono
+          />
 
           {error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
