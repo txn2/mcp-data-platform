@@ -136,7 +136,7 @@ func TestBuildOperationIndex_AllMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops, _ := buildOperationIndex(doc, "")
+	ops, _ := buildOperationIndex(doc, "", "")
 	if len(ops) != 5 {
 		t.Fatalf("expected 5 operations, got %d: %+v", len(ops), ops)
 	}
@@ -164,7 +164,7 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOpenAPISpec: %v", err)
 	}
-	ops, _ := buildOperationIndex(doc, "")
+	ops, _ := buildOperationIndex(doc, "", "")
 	if len(ops) != 1 {
 		t.Fatalf("expected 1 operation, got %+v", ops)
 	}
@@ -174,14 +174,14 @@ func TestBuildOperationIndex_SynthesizesMissingOperationID(t *testing.T) {
 }
 
 func TestBuildOperationIndex_NilDoc(t *testing.T) {
-	if ops, texts := buildOperationIndex(nil, ""); ops != nil || texts != nil {
+	if ops, texts := buildOperationIndex(nil, "", ""); ops != nil || texts != nil {
 		t.Errorf("buildOperationIndex(nil) = (%v, %v); want (nil, nil)", ops, texts)
 	}
 }
 
 func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops, _ := buildOperationIndex(doc, "")
+	ops, _ := buildOperationIndex(doc, "", "")
 
 	all := rankOperations(ops, "", 0)
 	if len(all) != len(ops) {
@@ -195,7 +195,7 @@ func TestRankOperations_EmptyQueryReturnsAllUpToLimit(t *testing.T) {
 
 func TestRankOperations_SubstringMatchesIDPathSummaryTags(t *testing.T) {
 	doc, _ := parseOpenAPISpec(validMinimalSpec)
-	ops, _ := buildOperationIndex(doc, "")
+	ops, _ := buildOperationIndex(doc, "", "")
 
 	cases := []struct {
 		name  string
@@ -340,5 +340,199 @@ func TestAddConnection_CatalogMissing_ZeroOps(t *testing.T) {
 	tk.mu.RUnlock()
 	if len(c.operations) != 0 {
 		t.Errorf("expected 0 ops when catalog missing, got %d", len(c.operations))
+	}
+}
+
+// TestRankOperations_MultiTokenAndMatch covers finding #4 (round 2):
+// a multi-token query previously failed because the substring check
+// treated the whole query as a single phrase. "gift list" should
+// match an operation whose summary is "List all gifts", since both
+// tokens appear in searchable fields (path/summary respectively).
+func TestRankOperations_MultiTokenAndMatch(t *testing.T) {
+	ops := []OperationSummary{
+		{OperationID: "listGifts", Method: "GET", Path: "/gifts", Summary: "List all gifts"},
+		{OperationID: "createGift", Method: "POST", Path: "/gifts", Summary: "Create a gift"},
+		{OperationID: "listUsers", Method: "GET", Path: "/users", Summary: "List all users"},
+	}
+	got := rankOperations(ops, "gift list", 10)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 match (listGifts), got %d: %+v", len(got), got)
+	}
+	if got[0].OperationID != "listGifts" {
+		t.Errorf("expected listGifts, got %s", got[0].OperationID)
+	}
+}
+
+// TestRankOperations_SpecNameSearchable covers finding #4: the spec
+// name must be a searchable field so an operator can navigate a
+// multi-spec catalog by vendor-supplied section.
+func TestRankOperations_SpecNameSearchable(t *testing.T) {
+	ops := []OperationSummary{
+		{OperationID: "list", Method: "GET", Path: "/things", Summary: "List things", Spec: "orders"},
+		{OperationID: "list2", Method: "GET", Path: "/things", Summary: "List things", Spec: "users"},
+	}
+	got := rankOperations(ops, "orders", 10)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 match in orders spec, got %d", len(got))
+	}
+	if got[0].Spec != "orders" {
+		t.Errorf("expected orders spec, got %s", got[0].Spec)
+	}
+}
+
+// TestRankOperations_ZeroMatchReturnsEmptySlice covers finding #6:
+// a no-match query must produce "operations": [] in the JSON
+// response, not "operations": null. Returning nil would force every
+// client to handle two empty shapes.
+func TestRankOperations_ZeroMatchReturnsEmptySlice(t *testing.T) {
+	ops := []OperationSummary{
+		{OperationID: "a", Method: "GET", Path: "/a"},
+	}
+	got := rankOperations(ops, "no-such-thing-anywhere", 10)
+	if got == nil {
+		t.Fatal("got nil; want empty []OperationSummary")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result, got %d", len(got))
+	}
+}
+
+// TestSpecBasePath covers finding #5: the path component of the
+// first declared servers[].url is extracted (with a trailing slash
+// stripped) and the scheme + host are ignored so the operator's
+// connection.base_url remains the authoritative host.
+func TestSpecBasePath(t *testing.T) {
+	cases := []struct {
+		name      string
+		serverURL string
+		want      string
+	}{
+		{"empty spec", "", ""},
+		{"host only", "https://api.example.com", ""},
+		{"host + path", "https://api.example.com/v1", "/v1"},
+		{"host + path + trailing slash", "https://api.example.com/v1/", "/v1"},
+		{"host + nested path", "https://api.example.com/foo/v2", "/foo/v2"},
+		{"path only", "/v1", "/v1"},
+		{"root only", "/", ""},
+		{"relative path no leading slash", "v1", "/v1"},
+		{"relative path nested no leading slash", "api/v2", "/api/v2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			specYAML := minimalSpecWith(`/widgets:
+    get:
+      operationId: listWidgets
+      responses:
+        "200": {description: ok}`)
+			if tc.serverURL != "" {
+				specYAML = "openapi: 3.0.3\ninfo:\n  title: T\n  version: \"1.0\"\nservers:\n  - url: " + tc.serverURL + "\npaths:\n  /widgets:\n    get:\n      operationId: listWidgets\n      responses:\n        \"200\": {description: ok}\n"
+			}
+			doc, err := parseOpenAPISpec(specYAML)
+			if err != nil {
+				t.Fatalf("parseOpenAPISpec: %v", err)
+			}
+			if got := specBasePath(doc); got != tc.want {
+				t.Errorf("specBasePath(%q) = %q; want %q", tc.serverURL, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildOperationIndex_AppliesBasePath proves the base path is
+// prepended to every operation's path so the model using
+// api_list_endpoints output as input to api_invoke_endpoint
+// receives the full upstream path, not the spec-relative path that
+// 404s when the segment is missing from the connection's base_url.
+func TestBuildOperationIndex_AppliesBasePath(t *testing.T) {
+	spec := `
+openapi: 3.0.3
+info:
+  title: Users
+  version: "1.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        "200": {description: ok}
+  /users/{id}:
+    get:
+      operationId: getUser
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: ok}
+`
+	doc, err := parseOpenAPISpec(spec)
+	if err != nil {
+		t.Fatalf("parseOpenAPISpec: %v", err)
+	}
+	ops, _ := buildOperationIndex(doc, "users", "/v3")
+	wantPaths := map[string]bool{
+		"/v3/users":      true,
+		"/v3/users/{id}": true,
+	}
+	for _, op := range ops {
+		if !wantPaths[op.Path] {
+			t.Errorf("unexpected op path %q (want one of %v)", op.Path, wantPaths)
+		}
+		delete(wantPaths, op.Path)
+	}
+	if len(wantPaths) != 0 {
+		t.Errorf("missing expected paths: %v", wantPaths)
+	}
+}
+
+// TestComputeEffectiveBasePath covers finding #1: when an operator's
+// connection.base_url already contains the spec's servers[0] path
+// segment as a suffix, the toolkit must NOT prepend the segment to
+// the operation paths or the invoke-time URL join will double it.
+// Drives the dedupe rule from a tabulated set of operator inputs.
+func TestComputeEffectiveBasePath(t *testing.T) {
+	cases := []struct {
+		name     string
+		connURL  string
+		specBase string
+		want     string
+	}{
+		{"empty spec base", "https://api.example.com/v1", "", ""},
+		{"host-only conn", "https://api.example.com", "/v1", "/v1"},
+		{"trailing slash on conn", "https://api.example.com/", "/v1", "/v1"},
+		{"conn already includes spec base", "https://api.example.com/v1", "/v1", ""},
+		{"conn includes deeper spec base", "https://api.example.com/api/v2", "/api/v2", ""},
+		{"conn includes spec base as suffix", "https://api.example.com/foo/api/v2", "/api/v2", ""},
+		{"conn path is unrelated to spec base", "https://api.example.com/legacy", "/v1", "/v1"},
+		{"unparseable conn falls back to spec base", "://not-a-url", "/v1", "/v1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := computeEffectiveBasePath(tc.connURL, tc.specBase); got != tc.want {
+				t.Errorf("computeEffectiveBasePath(%q, %q) = %q; want %q",
+					tc.connURL, tc.specBase, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFilterBySpec covers finding #4: the new spec input filters
+// operations to the matching component spec; empty spec is a
+// passthrough.
+func TestFilterBySpec(t *testing.T) {
+	ops := []OperationSummary{
+		{OperationID: "a", Spec: "users"},
+		{OperationID: "b", Spec: "orders"},
+		{OperationID: "c", Spec: "users"},
+	}
+	if got := filterBySpec(ops, ""); len(got) != 3 {
+		t.Errorf("empty filter must passthrough, got %d ops", len(got))
+	}
+	if got := filterBySpec(ops, "users"); len(got) != 2 {
+		t.Errorf("users filter must return 2 ops, got %d", len(got))
+	}
+	if got := filterBySpec(ops, "nonexistent"); len(got) != 0 {
+		t.Errorf("no-match must return empty slice, got %d", len(got))
 	}
 }

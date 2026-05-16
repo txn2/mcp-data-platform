@@ -168,19 +168,25 @@ func collectOperationMatches(c *conn, operationID, specFilter string) ([]*operat
 		if specFilter != "" && specName != specFilter {
 			continue
 		}
+		basePath := st.effectiveBasePath
 		walkOperations(st.doc, func(method, path string, op *openapi3.Operation) {
+			fullPath := basePath + path
 			id := op.OperationID
 			if id == "" {
-				id = method + " " + path
+				// Synthesized id must match what buildOperationIndex
+				// emits or the operationID returned by
+				// api_list_endpoints will not resolve here. Both
+				// sites use METHOD + " " + full upstream path.
+				id = method + " " + fullPath
 			}
 			if id != operationID {
 				return
 			}
 			matches = append(matches, &operationMatch{
-				specName: specName, method: method, path: path, op: op,
+				specName: specName, method: method, path: fullPath, op: op,
 			})
 			candidates = append(candidates, schemaCandidate{
-				Spec: specName, Method: method, Path: path,
+				Spec: specName, Method: method, Path: fullPath,
 			})
 		})
 	}
@@ -223,6 +229,11 @@ func walkOperations(doc *openapi3.T, fn func(method, path string, op *openapi3.O
 // buildEndpointSchemaOutput composes the response payload from the
 // resolved operation, stripping security/server metadata and
 // flattening schemas to a fixed depth.
+//
+// m.path is already the full upstream path (the spec's base path
+// prepended at collectOperationMatches time) so the output's Path
+// field agrees with the path reported by api_list_endpoints for
+// the same operation. Same for the synthesized OperationID.
 func buildEndpointSchemaOutput(m *operationMatch) EndpointSchemaOutput {
 	out := EndpointSchemaOutput{
 		Spec:        m.specName,

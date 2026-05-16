@@ -135,7 +135,7 @@ func TestGetEndpointSchema_ListPets(t *testing.T) {
 		t.Fatalf("listPets: err=%v isError=%v body=%s", err, r.IsError, textContent(r))
 	}
 	out := parseSchemaResult(t, r)
-	if out.OperationID != "listPets" || out.Method != "GET" || out.Path != "/pets" {
+	if out.OperationID != "listPets" || out.Method != "GET" || out.Path != "/v1/pets" {
 		t.Fatalf("unexpected op: %+v", out)
 	}
 	if len(out.Parameters) != 1 || out.Parameters[0].Name != "limit" {

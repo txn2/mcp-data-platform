@@ -233,14 +233,26 @@ type conn struct {
 // specState retains the parsed OpenAPI document for a component
 // spec alongside the catalog metadata the portal needs (source
 // kind, URL, etag, fetch time). The parsed doc is what
-// api_get_endpoint_schema walks to assemble per-endpoint detail —
-// without it, the toolkit would have to re-parse on every call.
+// api_get_endpoint_schema walks to assemble per-endpoint detail.
+// Without it, the toolkit would have to re-parse on every call.
+//
+// effectiveBasePath is the per-spec prefix applied to every
+// operation's spec-relative path so api_list_endpoints output, the
+// synthesized operationID in api_get_endpoint_schema, and the
+// stored OperationSummary.Path all agree on a single full path
+// the model passes to api_invoke_endpoint. The value is derived
+// once at registration time from servers[0].url and the connection's
+// base_url so callers downstream do not have to recompute or worry
+// about base_url-vs-spec-base-path overlap (when the operator's
+// connection.base_url already includes the spec's prefix, the
+// effective base path is empty and no doubling occurs).
 type specState struct {
-	doc           *openapi3.T
-	sourceKind    string
-	sourceURL     string
-	etag          string
-	lastFetchedAt time.Time
+	doc               *openapi3.T
+	sourceKind        string
+	sourceURL         string
+	etag              string
+	lastFetchedAt     time.Time
+	effectiveBasePath string
 }
 
 // New builds an empty toolkit. Connections are added later via
@@ -356,11 +368,21 @@ func (t *Toolkit) Tools() []string {
 
 // ListEndpointsInput is the parsed argument shape for
 // api_list_endpoints. Field names match the JSON schema.
+//
+// Spec restricts results to one component spec inside the
+// connection's catalog. For a multi-spec catalog (e.g. a vendor
+// shipping nine component specs under one connection) this is the
+// per-section filter operators reach for once the catalog passes
+// the size at which substring search across all 300+ operations
+// stops being useful. Spec values come from the spec field on each
+// operation in a prior api_list_endpoints response, so the model
+// can pass them back verbatim.
 type ListEndpointsInput struct {
 	Connection string `json:"connection"`
 	Query      string `json:"query,omitempty"`
 	Limit      int    `json:"limit,omitempty"`
 	Ranking    string `json:"ranking,omitempty"`
+	Spec       string `json:"spec,omitempty"`
 }
 
 // ListEndpointsOutput is the structured result. Empty + Note when
@@ -377,7 +399,29 @@ type ListEndpointsOutput struct {
 // model can request more by passing limit explicitly.
 const defaultListEndpointsLimit = 50
 
-func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (result *mcp.CallToolResult, _ any, _ error) {
+	// Panic recovery turns any unexpected runtime failure (a
+	// provider-impl bug, a nil-pointer, an out-of-range index) into
+	// an operator-readable error result instead of bubbling up as
+	// the MCP SDK's generic "Error occurred during tool execution"
+	// string that surfaced when the ranking path panicked against
+	// a multi-spec catalog. Logged at error level with the
+	// connection so the source is traceable from the pod log.
+	//
+	// When a panic interrupts a semantic or hybrid ranking call we
+	// also mark the connection's embed cache as failed so the next
+	// call short-circuits to lexical instead of re-triggering the
+	// same panic. Same definitive-failure semantics as the normal
+	// embedder-error path uses; without this guard a misbehaving
+	// embedding provider would panic on every subsequent call.
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("apigateway: panic in handleListEndpoints",
+				logKeyConnection, in.Connection, "panic", rec)
+			t.markEmbedFailedOnPanic(in.Connection, in.Ranking)
+			result = errorResult(fmt.Sprintf("internal error in list_endpoints (connection=%s): %v", in.Connection, rec))
+		}
+	}()
 	if in.Connection == "" {
 		return errorResult("connection is required"), nil, nil
 	}
@@ -391,7 +435,7 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	if len(c.operations) == 0 {
 		out := ListEndpointsOutput{
 			Operations: []OperationSummary{},
-			Note:       "no catalog_id configured for this connection — call api_invoke_endpoint with method+path directly",
+			Note:       "no catalog_id configured for this connection; call api_invoke_endpoint with method+path directly",
 		}
 		return jsonResult(out), out, nil
 	}
@@ -401,6 +445,13 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	// listed and the model wastes a turn discovering the denial at
 	// invoke time.
 	visible := filterByRoutePolicy(ctx, policy, in.Connection, c.operations)
+	// Apply the operator-supplied spec filter (when set) before
+	// ranking, so the rank limit applies within the requested spec
+	// rather than to the unfiltered catalog. Pre-filtering also
+	// keeps the score computation small for the common case of an
+	// operator drilling into a known section of a multi-spec
+	// catalog.
+	visible = filterBySpec(visible, in.Spec)
 	limit := in.Limit
 	if limit <= 0 {
 		limit = defaultListEndpointsLimit
@@ -409,14 +460,59 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	if modeErr != nil {
 		return errorResult(modeErr.Error()), nil, nil
 	}
-	ranked, fellBack := rankWithMode(ctx, rankRequest{
+	ranked, fallbackReason := rankWithMode(ctx, rankRequest{
 		tk: t, conn: c, ops: visible, query: in.Query, limit: limit, mode: mode,
 	})
 	out := ListEndpointsOutput{Operations: ranked}
-	if fellBack {
-		out.Note = fmt.Sprintf("ranking %q fell back to lexical: embedding pipeline unavailable for this connection", mode)
+	if fallbackReason != "" {
+		out.Note = fmt.Sprintf("ranking %q fell back to lexical: %s", mode, fallbackReason)
 	}
 	return jsonResult(out), out, nil
+}
+
+// markEmbedFailedOnPanic sets c.embedFailed on the connection
+// when a semantic-or-hybrid ranking call panicked, so the next call
+// falls back to lexical instead of repeatedly triggering the same
+// panic. No-op for lexical-mode panics (which would not have
+// touched the embedder) and for unknown connection names. The
+// connection name and ranking mode are taken from the original
+// request input so the deferred recover does not depend on any
+// state we lose on panic.
+func (t *Toolkit) markEmbedFailedOnPanic(connName, ranking string) {
+	mode, err := parseRankingMode(ranking)
+	if err != nil || mode == RankingLexical {
+		return
+	}
+	t.mu.RLock()
+	c, ok := t.connections[connName]
+	t.mu.RUnlock()
+	if !ok {
+		return
+	}
+	c.embedMu.Lock()
+	c.embedFailed = true
+	c.embedMu.Unlock()
+	slog.Warn("apigateway: marked embed cache failed after ranking panic",
+		logKeyConnection, connName, "mode", string(mode))
+}
+
+// filterBySpec returns the subset of ops whose Spec exactly matches
+// spec. Empty spec is a passthrough (no filtering). The match is
+// case-sensitive because spec names are catalog-managed slugs the
+// catalog store validates against a fixed pattern; case insensitivity
+// would create false equivalences for catalogs that happen to host
+// distinct specs whose names differ only in case.
+func filterBySpec(ops []OperationSummary, spec string) []OperationSummary {
+	if spec == "" {
+		return ops
+	}
+	out := make([]OperationSummary, 0, len(ops))
+	for _, op := range ops {
+		if op.Spec == spec {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 // parseRankingMode maps the input string to a RankingMode. Empty
@@ -535,7 +631,7 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
-	specs, ops, texts := t.buildConnSpecs(name, cfg.CatalogID)
+	specs, ops, texts := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
 	c := &conn{
 		cfg:        cfg,
 		auth:       auth,
@@ -570,9 +666,19 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 // parses each component spec, and returns the merged operation
 // index alongside the per-spec retained state. A nil catalog
 // store, an empty catalog_id, or a load failure all return zero
-// values — the caller proceeds with no spec surface and logs the
+// values; the caller proceeds with no spec surface and logs the
 // reason.
-func (t *Toolkit) buildConnSpecs(connName, catalogID string) (
+//
+// connBaseURL is the connection's configured base URL. Its path
+// component is consulted when deriving each spec's effective base
+// path: if the connection's base_url already contains the spec's
+// servers[0] path segment, the spec base path is dropped so the
+// invoke-time URL join does not double the segment. The dedupe
+// makes both single-spec connections (where the operator typically
+// hard-codes the full vendor base) and multi-spec connections
+// (where the operator points at the bare host and each spec
+// declares its own versioned path) work without per-shape config.
+func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 	specs map[string]*specState, operations []OperationSummary, texts []string,
 ) {
 	if catalogID == "" {
@@ -601,14 +707,16 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID string) (
 				"spec_name", e.SpecName, logKeyError, perr)
 			continue
 		}
+		effectiveBasePath := computeEffectiveBasePath(connBaseURL, specBasePath(doc))
 		specs[e.SpecName] = &specState{
-			doc:           doc,
-			sourceKind:    e.SourceKind,
-			sourceURL:     e.SourceURL,
-			etag:          e.ETag,
-			lastFetchedAt: e.LastFetchedAt,
+			doc:               doc,
+			sourceKind:        e.SourceKind,
+			sourceURL:         e.SourceURL,
+			etag:              e.ETag,
+			lastFetchedAt:     e.LastFetchedAt,
+			effectiveBasePath: effectiveBasePath,
 		}
-		specOps, specTexts := buildOperationIndex(doc, e.SpecName)
+		specOps, specTexts := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
 		operations = append(operations, specOps...)
 		texts = append(texts, specTexts...)
 	}

@@ -3,12 +3,31 @@ package apigateway
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
+
+// embedBatchSize is the maximum number of texts fed to the
+// embedding provider's EmbedBatch in a single call. Bounded so a
+// connection with hundreds of operations does not POST one giant
+// batch that risks timing out the request context, exceeding an
+// upstream model's context window, or hitting an HTTP body cap.
+// 32 is small enough that a single timed-out batch only loses
+// progress for that chunk and large enough to amortize per-call
+// overhead.
+const embedBatchSize = 32
+
+// errEmbedderNotWired is the sentinel returned by queryVectorFor
+// when no embedding provider has been configured on the toolkit.
+// Kept distinct from generic embedder errors so the fallback note
+// can phrase the cause correctly: this is operator configuration,
+// not an upstream failure.
+var errEmbedderNotWired = errors.New("embedding provider not configured on this connection")
 
 // RankingMode selects the algorithm api_list_endpoints uses to score
 // candidate operations against the model's query.
@@ -85,18 +104,21 @@ type rankRequest struct {
 	mode  RankingMode
 }
 
-func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary, fallback bool) {
+func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary, fallbackReason string) {
 	q := strings.TrimSpace(r.query)
-	// Empty query has no semantic signal — the cosine of the
+	// Empty query has no semantic signal: the cosine of the
 	// embedding-of-empty-string is meaningless. Lexical's "return
 	// all up to limit" is the right answer for both empty-query
 	// and explicit-lexical-mode.
 	if r.mode == RankingLexical || q == "" {
-		return rankOperations(r.ops, r.query, r.limit), false
+		return rankOperations(r.ops, r.query, r.limit), ""
 	}
-	queryVec, ok := r.tk.queryVectorFor(ctx, r.conn, q)
-	if !ok {
-		return rankOperations(r.ops, r.query, r.limit), true
+	queryVec, err := r.tk.queryVectorFor(ctx, r.conn, q)
+	if err != nil {
+		slog.Warn("apigateway: semantic ranking fell back to lexical",
+			logKeyConnection, r.conn.cfg.ConnectionName,
+			"mode", string(r.mode), logKeyError, err)
+		return rankOperations(r.ops, r.query, r.limit), err.Error()
 	}
 	scored := scoreOperations(r.conn, r.ops, q, queryVec, r.mode)
 	sort.SliceStable(scored, func(i, j int) bool {
@@ -106,38 +128,41 @@ func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary
 	for _, s := range scored {
 		out = append(out, s.op)
 	}
-	return capSlice(out, r.limit), false
+	return capSlice(out, r.limit), ""
 }
 
-// queryVectorFor centralizes the "do we have everything we need to
-// rank semantically?" check. Returns the embedded query vector and
-// true when an embedder is wired, the per-connection embeddings are
-// populated, and the query embedding itself is non-zero. Any of
-// those failing yields false → the caller falls back to lexical
-// and surfaces a note. Splits out of rankWithMode to keep its
-// cyclomatic complexity under the project's gocyclo ceiling.
-func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]float32, bool) {
-	// Snapshot t.embedder under the read lock so a concurrent
-	// SetEmbeddingProvider cannot race with the nil check + dereference
-	// below. SetEmbeddingProvider holds t.mu.Lock; without this read
-	// lock, -race would fire on any deployment that swapped providers
-	// at runtime. Production v1 only wires once at startup, so the
-	// race is latent today — but matching the file's existing
-	// TokenStore() / handleListEndpoints lock pattern keeps it that way.
+// queryVectorFor returns the query's embedding vector or a non-nil
+// error describing why semantic ranking cannot proceed for this
+// call. Error returns drive the lexical fallback in rankWithMode
+// AND populate the operator-facing Note on the response so the
+// model (and the operator reading the log) knows whether the cause
+// was operator configuration (errEmbedderNotWired), an upstream
+// embedding failure (provider Embed errors), a previously-cached
+// per-connection failure (c.embedFailed), or a zero-vector reply
+// from the provider (a misconfigured model or empty-prompt edge
+// case).
+//
+// Snapshots t.embedder under the read lock so a concurrent
+// SetEmbeddingProvider cannot race with the nil check or with the
+// dereference below.
+func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]float32, error) {
 	t.mu.RLock()
 	embedder := t.embedder
 	t.mu.RUnlock()
 	if embedder == nil {
-		return nil, false
+		return nil, errEmbedderNotWired
 	}
-	if !t.ensureEmbeddings(ctx, c, embedder) {
-		return nil, false
+	if err := t.ensureEmbeddings(ctx, c, embedder); err != nil {
+		return nil, fmt.Errorf("operation embeddings unavailable: %w", err)
 	}
 	vec, err := embedder.Embed(ctx, query)
-	if err != nil || zeroVector(vec) {
-		return nil, false
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
 	}
-	return vec, true
+	if zeroVector(vec) {
+		return nil, errors.New("query embedding is the zero vector (misconfigured embedding model)")
+	}
+	return vec, nil
 }
 
 // scoreOperations builds the per-op score slice. Operations whose
@@ -167,40 +192,63 @@ type scoredOp struct {
 
 // scoreFor returns the per-operation rank score under the given
 // mode. Pure semantic uses the normalized cosine (mapped to [0,1])
-// directly; hybrid blends with the lexical 0/1 signal.
+// directly; hybrid blends with the lexical signal computed by
+// lexicalScore.
 func scoreFor(mode RankingMode, query string, op OperationSummary, queryVec, opVec []float32) float64 {
 	cos := cosineSimilarity(queryVec, opVec)
-	semantic := (cos + 1) / 2 // map [-1, 1] → [0, 1]
+	semantic := (cos + 1) / 2 // map [-1, 1] to [0, 1]
 	if mode == RankingSemantic {
 		return semantic
 	}
-	// Hybrid.
-	lex := lexicalMatchAbsent
-	if operationMatches(op, strings.ToLower(query)) {
-		lex = lexicalMatchPresent
-	}
-	return hybridSemanticWeight*semantic + (1-hybridSemanticWeight)*lex
+	return hybridSemanticWeight*semantic + (1-hybridSemanticWeight)*lexicalScore(op, query)
 }
 
-// indexOf returns the position of op in ops by (Method, Path) — the
-// stable identity per the OpenAPI spec. -1 when not found.
+// lexicalScore returns lexicalMatchPresent (1.0) when every
+// whitespace-separated token of query appears as a substring of at
+// least one of the operation's searchable fields, else
+// lexicalMatchAbsent (0.0). Shared between rankOperations (the
+// pure-lexical filter) and scoreFor (the hybrid lexical signal) so
+// a multi-token query that narrows results under "ranking=lexical"
+// also gets credit under "ranking=hybrid". Without this sharing
+// the hybrid lexical component reverts to phrase-match and
+// systematically underweights every multi-token intent query.
+func lexicalScore(op OperationSummary, query string) float64 {
+	tokens := strings.Fields(strings.ToLower(query))
+	if len(tokens) == 0 {
+		return lexicalMatchAbsent
+	}
+	if operationMatchesAllTokens(op, tokens) {
+		return lexicalMatchPresent
+	}
+	return lexicalMatchAbsent
+}
+
+// indexOf returns the position of op in ops by (Method, Path, Spec).
+// Spec is part of the identity because multi-spec catalogs can
+// legitimately host the same (Method, Path) tuple in two specs
+// (e.g. a vendor that ships "GET /search" in every component spec
+// it publishes). Matching on (Method, Path) alone returned the
+// first-seen index and paired the visible op with whichever spec's
+// embedding happened to sort first. Returns -1 when not found.
 func indexOf(ops []OperationSummary, target OperationSummary) int {
 	for i, op := range ops {
-		if op.Method == target.Method && op.Path == target.Path {
+		if op.Method == target.Method && op.Path == target.Path && op.Spec == target.Spec {
 			return i
 		}
 	}
 	return -1
 }
 
-// ensureEmbeddings populates c.embeddings if not already done for
-// the current spec hash. Returns true when the conn has usable
-// embeddings after the call (either populated this call or already
-// populated by a prior call). Returns false on provider failure or
-// on a connection that has no operations to embed.
+// ensureEmbeddings populates c.embeddings for the current spec set
+// if not already populated. Returns nil when c.embeddings is usable
+// on return (already populated by a prior call, or populated by this
+// one). Returns a non-nil error describing why semantic ranking
+// cannot proceed; the caller surfaces the error verbatim on the
+// fallback Note so operators see the real cause instead of a generic
+// "embedding pipeline unavailable" placeholder.
 //
 // Concurrent callers serialize through c.embedMu so the embedding
-// service is hit at most once per (connection, spec_hash) lifecycle.
+// service is hit at most once per (connection, spec_set) lifecycle.
 //
 // Failure handling distinguishes transient from definitive:
 //   - ctx.Err() (caller-side cancellation, deadline exceeded) and a
@@ -214,31 +262,69 @@ func indexOf(ops []OperationSummary, target OperationSummary) int {
 //
 // embedder is taken as an explicit argument (rather than reading
 // t.embedder again) so the snapshot taken under t.mu.RLock in the
-// caller is the value used here too — no second unguarded read.
-func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embedding.Provider) bool {
+// caller is the value used here too.
+func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embedding.Provider) error {
 	c.embedMu.Lock()
 	defer c.embedMu.Unlock()
 	if len(c.embedTexts) == 0 {
-		return false
+		return errors.New("connection has no operations to embed")
 	}
 	if len(c.embeddings) == len(c.embedTexts) {
-		return true
+		return nil
 	}
 	if c.embedFailed {
-		return false
+		return errors.New("a previous embedding attempt failed; restart the platform or reload the connection to retry")
 	}
-	vectors, err := embedder.EmbedBatch(ctx, c.embedTexts)
-	if err != nil || len(vectors) != len(c.embedTexts) {
+	vectors, err := embedInBatches(ctx, embedder, c.embedTexts, embedBatchSize)
+	if err != nil {
 		// Transient signals do NOT poison the cache. Definitive
-		// provider errors do, so a misconfigured Ollama URL doesn't
-		// produce a fresh hit on every tool call.
-		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		// provider errors do, so a misconfigured embedder URL
+		// doesn't produce a fresh hit on every tool call.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			c.embedFailed = true
+			slog.Warn("apigateway: embedding batch failed (caching as definitive)",
+				logKeyConnection, c.cfg.ConnectionName,
+				"texts", len(c.embedTexts), logKeyError, err)
 		}
-		return false
+		return fmt.Errorf("embed operation batch: %w", err)
+	}
+	if len(vectors) != len(c.embedTexts) {
+		// Length mismatch is a provider bug; treat as transient so
+		// a hot-reconfig of the provider can recover.
+		return fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
+			len(vectors), len(c.embedTexts))
 	}
 	c.embeddings = vectors
-	return true
+	return nil
+}
+
+// embedInBatches calls embedder.EmbedBatch in chunks of at most
+// batchSize texts. Returns a single flat vector slice in the same
+// order as the input. Bounded per-call batch size keeps a connection
+// with hundreds of operations from sending one giant request that
+// risks timing out the per-call context, exceeding the upstream
+// model's context window, or hitting an HTTP body cap. The caller's
+// ctx is honored across all batches; the first batch error short-
+// circuits the rest.
+func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int) ([][]float32, error) {
+	if batchSize <= 0 {
+		batchSize = len(texts)
+	}
+	out := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += batchSize {
+		end := min(start+batchSize, len(texts))
+		chunk := texts[start:end]
+		vectors, err := embedder.EmbedBatch(ctx, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("batch [%d:%d]: %w", start, end, err)
+		}
+		if len(vectors) != len(chunk) {
+			return nil, fmt.Errorf("batch [%d:%d]: provider returned %d vectors for %d texts",
+				start, end, len(vectors), len(chunk))
+		}
+		out = append(out, vectors...)
+	}
+	return out, nil
 }
 
 // cosineSimilarity returns the cosine of the angle between a and b.
